@@ -53,42 +53,29 @@ function App() {
     };
   }, []);
 
-  // Handle paste event
-  const handlePaste = (e: React.ClipboardEvent) => {
+  // Handle paste event - ask backend for clipboard files
+  const handlePaste = async (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const items = e.clipboardData?.items;
 
-    if (items) {
-      const fileItems: string[] = [];
+    try {
+      const paths = await invoke<string[]>("get_clipboard_files");
 
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        console.log("Paste item:", {
-          kind: item.kind,
-          type: item.type,
-        });
-
-        if (item.kind === "file") {
-          const file = item.getAsFile();
-          if (file) {
-            fileItems.push(file.name);
-            console.log("Pasted file:", file.name, file.type, file.size);
-          }
-        }
-      }
-
-      if (fileItems.length > 0) {
-        console.log("Pasted files:", fileItems);
+      if (paths && paths.length > 0) {
+        console.log("Clipboard files from backend:", paths);
         setIsProcessing(true);
 
-        invoke("process_files", { paths: fileItems }).catch((err) => {
-          console.error("Failed to process pasted files:", err);
-        });
+        try {
+          await invoke("process_files", { paths });
+        } catch (err) {
+          console.warn("Failed to process clipboard files:", err);
+        }
 
         setTimeout(() => setIsProcessing(false), 1000);
       } else {
-        console.log("No files in clipboard");
+        console.warn("No files in clipboard");
       }
+    } catch (err) {
+      console.warn("Failed to get clipboard files:", err);
     }
   };
 
