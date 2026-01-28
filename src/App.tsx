@@ -1,32 +1,45 @@
 import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { Layers, Settings, Check } from "lucide-react";
 
-type DropPayload = { paths: string[] };
+type DropPayload = {
+  paths: string[];
+  position: { x: number; y: number };
+};
 
 function App() {
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
-    // 文件悬停在窗口上
-    const unlistenHover = listen("tauri://file-drop-hover", () => {
+    // Tauri v2: drag-enter
+    const unlistenEnter = listen("tauri://drag-enter", (event) => {
+      console.log("Event triggered: drag-enter", event.payload);
       setIsHovering(true);
     });
 
-    // 文件拖出窗口（取消）
-    const unlistenCancelled = listen("tauri://file-drop-cancelled", () => {
+    // Tauri v2: drag-leave
+    const unlistenLeave = listen("tauri://drag-leave", (event) => {
+      console.log("Event triggered: drag-leave", event.payload);
       setIsHovering(false);
     });
 
-    // 文件放下
-    const unlistenDrop = listen<DropPayload>("tauri://file-drop", (event) => {
+    // Tauri v2: drag-drop
+    const unlistenDrop = listen<DropPayload>("tauri://drag-drop", async (event) => {
+      console.log("Event triggered: drag-drop", event.payload);
       const paths = event.payload.paths;
       console.log("Dropped files:", paths);
 
       setIsHovering(false);
       setIsProcessing(true);
+
+      try {
+        await invoke("process_files", { paths });
+      } catch (err) {
+        console.error("Failed to process files:", err);
+      }
 
       setTimeout(() => {
         setIsProcessing(false);
@@ -34,21 +47,65 @@ function App() {
     });
 
     return () => {
-      unlistenHover.then((fn) => fn());
-      unlistenCancelled.then((fn) => fn());
+      unlistenEnter.then((fn) => fn());
+      unlistenLeave.then((fn) => fn());
       unlistenDrop.then((fn) => fn());
     };
   }, []);
 
+  // Handle paste event
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const items = e.clipboardData?.items;
+
+    if (items) {
+      const fileItems: string[] = [];
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        console.log("Paste item:", {
+          kind: item.kind,
+          type: item.type,
+        });
+
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file) {
+            fileItems.push(file.name);
+            console.log("Pasted file:", file.name, file.type, file.size);
+          }
+        }
+      }
+
+      if (fileItems.length > 0) {
+        console.log("Pasted files:", fileItems);
+        setIsProcessing(true);
+
+        invoke("process_files", { paths: fileItems }).catch((err) => {
+          console.error("Failed to process pasted files:", err);
+        });
+
+        setTimeout(() => setIsProcessing(false), 1000);
+      } else {
+        console.log("No files in clipboard");
+      }
+    }
+  };
+
   return (
-    <div
+    <motion.div
       data-tauri-drag-region
+      tabIndex={0}
+      onDragOver={(e) => e.preventDefault()}
+      onPaste={handlePaste}
+      animate={{ scale: isProcessing ? 0.95 : 1 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
       className={`
-        w-screen h-screen rounded-2xl overflow-hidden relative
+        w-[200px] h-[200px] rounded-2xl overflow-hidden relative
         flex flex-col justify-center items-center gap-2
-        transition-all duration-300
+        transition-colors duration-300 outline-none
         ${isHovering
-          ? "bg-[#353535] border-2 border-blue-500"
+          ? "bg-[#404040] border-2 border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)]"
           : "bg-[#2a2a2a] border border-[#3a3a3a]"
         }
       `}
@@ -97,7 +154,7 @@ function App() {
       >
         {isHovering ? "Release to drop" : "Drop files here"}
       </p>
-    </div>
+    </motion.div>
   );
 }
 
