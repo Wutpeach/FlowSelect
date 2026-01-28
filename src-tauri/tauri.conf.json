@@ -13,11 +13,12 @@
     "windows": [
       {
         "title": "FlowSelect",
-        "width": 200,
-        "height": 200,
+        "width": 300,
+        "height": 300,
         "decorations": false,
         "transparent": true,
-        "resizable": false
+        "resizable": false,
+        "alwaysOnTop": true
       }
     ],
     "security": {
