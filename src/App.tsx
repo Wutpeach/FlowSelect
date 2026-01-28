@@ -9,10 +9,11 @@ function App() {
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Tauri 文件拖放事件监听（获取系统路径）
   useEffect(() => {
     const unlisten = listen<DropPayload>("tauri://file-drop", (event) => {
       const paths = event.payload.paths;
-      console.log("Received files:", paths);
+      console.log("Tauri file-drop:", paths);
 
       setIsProcessing(true);
       setIsHovering(false);
@@ -27,41 +28,50 @@ function App() {
     };
   }, []);
 
-  const handleDragEnter = (e: React.DragEvent) => {
+  // HTML5 拖拽事件处理
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsHovering(true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.currentTarget === e.target) {
-      setIsHovering(false);
-    }
+    e.stopPropagation();
+    setIsHovering(false);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    setIsHovering(false);
+
+    // HTML5 方式获取文件（备用）
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      console.log("HTML5 drop:", files.map((f) => f.name));
+    }
   };
 
   return (
     <div
       data-tauri-drag-region
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       className={`
-        w-screen h-screen rounded-2xl overflow-hidden
-        flex items-center justify-center relative
+        w-screen h-screen rounded-2xl overflow-hidden relative
+        flex flex-col justify-center items-center gap-2
         transition-all duration-300
         ${isHovering
-          ? "bg-[#3a3a3a] border-2 border-[#6a6aff]"
+          ? "bg-[#353535] border-2 border-blue-500"
           : "bg-[#2a2a2a] border border-[#3a3a3a]"
         }
       `}
     >
-      {/* Settings 按钮 */}
+      {/* Settings 按钮 - 固定右上角 */}
       <button
-        className="absolute top-3 right-3 p-2 text-[#606060] hover:text-[#a0a0a0] transition-colors"
+        className="absolute top-2 right-2 p-2 text-[#606060] hover:text-[#a0a0a0] transition-colors z-10"
         onClick={() => console.log("Settings clicked")}
       >
         <Settings size={16} />
@@ -73,25 +83,24 @@ function App() {
           <motion.div
             key="check"
             initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
+            animate={{ scale: [1, 1.2, 1], opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+            transition={{ duration: 0.4 }}
           >
-            <Check size={48} className="text-[#4ade80]" strokeWidth={3} />
+            <Check size={48} className="text-green-400" strokeWidth={3} />
           </motion.div>
         ) : (
           <motion.div
             key="layers"
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.8, opacity: 0 }}
-            whileHover={{ scale: 1.05 }}
-            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            animate={{
+              scale: isHovering ? 1.15 : 1,
+            }}
+            transition={{ type: "spring", stiffness: 400, damping: 20 }}
           >
             <Layers
               size={48}
-              className={`transition-colors duration-300 ${
-                isHovering ? "text-[#8a8aff]" : "text-[#606060]"
+              className={`transition-colors duration-200 ${
+                isHovering ? "text-blue-400" : "text-[#606060]"
               }`}
             />
           </motion.div>
@@ -99,12 +108,13 @@ function App() {
       </AnimatePresence>
 
       {/* 提示文字 */}
-      <motion.p
-        className="absolute bottom-6 text-xs text-[#505050]"
-        animate={{ opacity: isHovering ? 1 : 0.5 }}
+      <p
+        className={`text-xs transition-colors duration-200 ${
+          isHovering ? "text-blue-400" : "text-[#505050]"
+        }`}
       >
         {isHovering ? "Release to drop" : "Drop files here"}
-      </motion.p>
+      </p>
     </div>
   );
 }
