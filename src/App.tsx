@@ -9,14 +9,24 @@ function App() {
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Tauri 文件拖放事件监听（获取系统路径）
   useEffect(() => {
-    const unlisten = listen<DropPayload>("tauri://file-drop", (event) => {
-      const paths = event.payload.paths;
-      console.log("Tauri file-drop:", paths);
+    // 文件悬停在窗口上
+    const unlistenHover = listen("tauri://file-drop-hover", () => {
+      setIsHovering(true);
+    });
 
-      setIsProcessing(true);
+    // 文件拖出窗口（取消）
+    const unlistenCancelled = listen("tauri://file-drop-cancelled", () => {
       setIsHovering(false);
+    });
+
+    // 文件放下
+    const unlistenDrop = listen<DropPayload>("tauri://file-drop", (event) => {
+      const paths = event.payload.paths;
+      console.log("Dropped files:", paths);
+
+      setIsHovering(false);
+      setIsProcessing(true);
 
       setTimeout(() => {
         setIsProcessing(false);
@@ -24,41 +34,15 @@ function App() {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenHover.then((fn) => fn());
+      unlistenCancelled.then((fn) => fn());
+      unlistenDrop.then((fn) => fn());
     };
   }, []);
-
-  // HTML5 拖拽事件处理
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsHovering(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsHovering(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsHovering(false);
-
-    // HTML5 方式获取文件（备用）
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) {
-      console.log("HTML5 drop:", files.map((f) => f.name));
-    }
-  };
 
   return (
     <div
       data-tauri-drag-region
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
       className={`
         w-screen h-screen rounded-2xl overflow-hidden relative
         flex flex-col justify-center items-center gap-2
@@ -69,7 +53,7 @@ function App() {
         }
       `}
     >
-      {/* Settings 按钮 - 固定右上角 */}
+      {/* Settings 按钮 */}
       <button
         className="absolute top-2 right-2 p-2 text-[#606060] hover:text-[#a0a0a0] transition-colors z-10"
         onClick={() => console.log("Settings clicked")}
@@ -92,9 +76,7 @@ function App() {
         ) : (
           <motion.div
             key="layers"
-            animate={{
-              scale: isHovering ? 1.15 : 1,
-            }}
+            animate={{ scale: isHovering ? 1.15 : 1 }}
             transition={{ type: "spring", stiffness: 400, damping: 20 }}
           >
             <Layers
