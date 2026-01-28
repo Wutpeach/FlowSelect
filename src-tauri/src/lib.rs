@@ -67,6 +67,7 @@ fn process_files(paths: Vec<String>) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![list_files, process_files, get_clipboard_files])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
