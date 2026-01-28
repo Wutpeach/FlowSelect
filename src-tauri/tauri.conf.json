@@ -4,17 +4,20 @@
   "version": "0.1.0",
   "identifier": "com.flowselect.app",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
-        "title": "main",
-        "width": 800,
-        "height": 600
+        "title": "FlowSelect",
+        "width": 200,
+        "height": 200,
+        "decorations": false,
+        "transparent": true,
+        "resizable": false
       }
     ],
     "security": {
