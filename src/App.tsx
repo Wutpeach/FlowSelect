@@ -14,7 +14,40 @@ function App() {
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [outputPath, setOutputPath] = useState("C:\\Users\\Output");
+  const [outputPath, setOutputPath] = useState("");
+
+  // Load config on mount
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const configStr = await invoke<string>("get_config");
+        console.log("Loaded config:", configStr);
+        const config = JSON.parse(configStr);
+        if (config.outputPath) {
+          setOutputPath(config.outputPath);
+        }
+      } catch (err) {
+        console.error("Failed to load config:", err);
+      }
+    };
+    loadConfig();
+  }, []);
+
+  // Save config when outputPath changes
+  useEffect(() => {
+    if (!outputPath) return;
+
+    const saveConfig = async () => {
+      try {
+        const config = { outputPath };
+        await invoke("save_config", { json: JSON.stringify(config) });
+        console.log("Saved config:", config);
+      } catch (err) {
+        console.error("Failed to save config:", err);
+      }
+    };
+    saveConfig();
+  }, [outputPath]);
 
   useEffect(() => {
     // Tauri v2: drag-enter
@@ -39,7 +72,10 @@ function App() {
       setIsProcessing(true);
 
       try {
-        await invoke("process_files", { paths });
+        await invoke("process_files", { 
+          paths, 
+          targetDir: outputPath || null 
+        });
       } catch (err) {
         console.error("Failed to process files:", err);
       }
@@ -54,7 +90,7 @@ function App() {
       unlistenLeave.then((fn) => fn());
       unlistenDrop.then((fn) => fn());
     };
-  }, []);
+  }, [outputPath]);
 
   // Handle paste event - ask backend for clipboard files
   const handlePaste = async (e: React.ClipboardEvent) => {
@@ -68,7 +104,10 @@ function App() {
         setIsProcessing(true);
 
         try {
-          await invoke("process_files", { paths });
+          await invoke("process_files", { 
+            paths, 
+            targetDir: outputPath || null 
+          });
         } catch (err) {
           console.warn("Failed to process clipboard files:", err);
         }
