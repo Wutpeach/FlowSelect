@@ -8,6 +8,7 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
     Manager,
 };
+use tauri_plugin_autostart::MacosLauncher;
 
 #[tauri::command]
 fn get_clipboard_files() -> Result<Vec<String>, String> {
@@ -108,17 +109,39 @@ fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to write config: {}", e))
 }
 
+#[tauri::command]
+fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|e| format!("Failed to get autostart status: {}", e))
+}
+
+#[tauri::command]
+fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let autostart = app.autolaunch();
+    if enabled {
+        autostart.enable().map_err(|e| format!("Failed to enable autostart: {}", e))
+    } else {
+        autostart.disable().map_err(|e| format!("Failed to disable autostart: {}", e))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![])))
         .invoke_handler(tauri::generate_handler![
             list_files,
             process_files,
             get_clipboard_files,
             get_config,
-            save_config
+            save_config,
+            get_autostart,
+            set_autostart
         ])
         .setup(|app| {
             // Create Tray Menu
@@ -131,7 +154,7 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(|app: &tauri::AppHandle, event| match event.id.as_ref() {
                     "quit" => {
                         app.exit(0);
                     }
@@ -143,7 +166,7 @@ pub fn run() {
                     }
                     _ => {}
                 })
-                .on_tray_icon_event(|tray, event| {
+                .on_tray_icon_event(|tray: &tauri::tray::TrayIcon, event| {
                     if let TrayIconEvent::Click {
                         button: tauri::tray::MouseButton::Left,
                         ..
