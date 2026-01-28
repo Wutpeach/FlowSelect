@@ -9,6 +9,9 @@
     "core:window:allow-start-dragging",
     "core:webview:allow-create-webview-window",
     "opener:default",
-    "dialog:default"
+    "dialog:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
   ]
 }
