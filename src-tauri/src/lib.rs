@@ -3,6 +3,7 @@ use std::path::Path;
 
 use clipboard_win::{formats, get_clipboard};
 use dirs::desktop_dir;
+use tauri::Manager;
 
 #[tauri::command]
 fn get_clipboard_files() -> Result<Vec<String>, String> {
@@ -63,12 +64,46 @@ fn process_files(paths: Vec<String>) -> Result<String, String> {
     Ok(format!("Copied {} files to {:?}", copied_count, target_dir))
 }
 
+fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get config dir: {}", e))?;
+
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Failed to create config dir: {}", e))?;
+    }
+
+    Ok(config_dir.join("settings.json"))
+}
+
+#[tauri::command]
+fn get_config(app: tauri::AppHandle) -> Result<String, String> {
+    let config_path = get_config_path(&app)?;
+
+    if config_path.exists() {
+        fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config: {}", e))
+    } else {
+        Ok("{}".to_string())
+    }
+}
+
+#[tauri::command]
+fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
+    let config_path = get_config_path(&app)?;
+
+    fs::write(&config_path, json)
+        .map_err(|e| format!("Failed to write config: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![list_files, process_files, get_clipboard_files])
+        .invoke_handler(tauri::generate_handler![list_files, process_files, get_clipboard_files, get_config, save_config])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
