@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "main",
+  "productName": "FlowSelect",
   "version": "0.1.0",
   "identifier": "com.flowselect.app",
   "build": {
@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "FlowSelect",
         "width": 200,
         "height": 200,
