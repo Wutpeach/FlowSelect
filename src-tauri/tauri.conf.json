@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "FlowSelect",
-        "width": 300,
-        "height": 300,
+        "width": 200,
+        "height": 200,
         "decorations": false,
         "transparent": true,
         "resizable": false,
