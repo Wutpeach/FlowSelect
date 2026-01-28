@@ -1,8 +1,9 @@
 function App() {
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
-      <h1 className="text-2xl font-semibold">FlowSelect Frontend Ready</h1>
-    </div>
+    <div
+      data-tauri-drag-region
+      className="w-screen h-screen bg-[#2a2a2a] rounded-2xl border border-[#3a3a3a]"
+    />
   );
 }
 
