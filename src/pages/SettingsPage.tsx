@@ -87,6 +87,12 @@ function SettingsPage() {
     if (!recordedKeys) return;
     try {
       await invoke("register_shortcut", { shortcut: recordedKeys });
+      // 保存到配置
+      const configStr = await invoke<string>("get_config");
+      const config = JSON.parse(configStr);
+      config.shortcut = recordedKeys;
+      await invoke("save_config", { json: JSON.stringify(config) });
+
       setShortcut(recordedKeys);
       setIsRecording(false);
       setRecordedKeys("");
