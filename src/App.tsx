@@ -103,13 +103,22 @@ function App() {
       console.log("Pasted image URL:", text);
       setIsProcessing(true);
       try {
-        const result = await invoke<string>("download_image", {
-          url: text,
-          targetDir: outputPath || null,
-        });
-        console.log("Download result:", result);
+        // Distinguish between Data URL and HTTP URL
+        if (text.startsWith("data:image/")) {
+          const result = await invoke<string>("save_data_url", {
+            dataUrl: text,
+            targetDir: outputPath || null,
+          });
+          console.log("Save data URL result:", result);
+        } else {
+          const result = await invoke<string>("download_image", {
+            url: text,
+            targetDir: outputPath || null,
+          });
+          console.log("Download result:", result);
+        }
       } catch (err) {
-        console.error("Failed to download image:", err);
+        console.error("Failed to process image:", err);
       }
       setTimeout(() => setIsProcessing(false), 1000);
       return;
@@ -143,6 +152,11 @@ function App() {
 
   // Check if URL looks like an image
   const isImageUrl = (url: string): boolean => {
+    // Support Data URL
+    if (url.startsWith("data:image/")) {
+      return true;
+    }
+    // HTTP URL check
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
       return false;
     }
