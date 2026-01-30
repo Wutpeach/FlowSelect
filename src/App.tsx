@@ -93,10 +93,29 @@ function App() {
     };
   }, [outputPath]);
 
-  // Handle paste event - ask backend for clipboard files
+  // Handle paste event - check for image URL first, then clipboard files
   const handlePaste = async (e: React.ClipboardEvent) => {
     e.preventDefault();
 
+    // 1. Check if clipboard text is an image URL
+    const text = e.clipboardData.getData("text/plain");
+    if (text && isImageUrl(text)) {
+      console.log("Pasted image URL:", text);
+      setIsProcessing(true);
+      try {
+        const result = await invoke<string>("download_image", {
+          url: text,
+          targetDir: outputPath || null,
+        });
+        console.log("Download result:", result);
+      } catch (err) {
+        console.error("Failed to download image:", err);
+      }
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
+    }
+
+    // 2. Otherwise, continue with file processing logic
     try {
       const paths = await invoke<string[]>("get_clipboard_files");
 
@@ -105,9 +124,9 @@ function App() {
         setIsProcessing(true);
 
         try {
-          await invoke("process_files", { 
-            paths, 
-            targetDir: outputPath || null 
+          await invoke("process_files", {
+            paths,
+            targetDir: outputPath || null
           });
         } catch (err) {
           console.warn("Failed to process clipboard files:", err);
