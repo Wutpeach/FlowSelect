@@ -151,11 +151,11 @@ function SettingsPage() {
   };
 
   return (
-    <div className="w-full h-full bg-[#1e1e1e] rounded-2xl overflow-hidden flex flex-col">
+    <div className="w-full h-full bg-[#2a2a2a] rounded-2xl overflow-hidden flex flex-col">
       {/* Draggable Header */}
       <div
         data-tauri-drag-region
-        className="flex items-center justify-between px-4 py-3 border-b border-[#333]"
+        className="flex items-center justify-between px-4 py-3 border-b border-[#3a3a3a]"
       >
         <h2 className="text-sm font-medium text-[#e0e0e0]">Settings</h2>
         <button
@@ -252,7 +252,7 @@ function SettingsPage() {
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 text-center border-t border-[#333]">
+      <div className="px-4 py-3 text-center border-t border-[#3a3a3a]">
         <span className="text-[10px] text-[#505050]">v0.1.0</span>
       </div>
     </div>

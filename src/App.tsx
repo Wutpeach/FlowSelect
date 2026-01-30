@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
-import { Layers, Settings, Check } from "lucide-react";
+import { Layers, Check } from "lucide-react";
 
 type DropPayload = {
   paths: string[];
@@ -14,6 +15,7 @@ function App() {
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [outputPath, setOutputPath] = useState("");
+  const [isPanelHovered, setIsPanelHovered] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -146,6 +148,8 @@ function App() {
       tabIndex={0}
       onDragOver={(e) => e.preventDefault()}
       onPaste={handlePaste}
+      onMouseEnter={() => setIsPanelHovered(true)}
+      onMouseLeave={() => setIsPanelHovered(false)}
       animate={{ scale: isProcessing ? 0.95 : 1 }}
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
       className={`
@@ -158,12 +162,49 @@ function App() {
         }
       `}
     >
-      {/* Settings 按钮 */}
+      {/* Close button - top right circle */}
       <button
-        className="absolute top-2 right-2 p-2 text-[#606060] hover:text-[#a0a0a0] transition-colors z-10"
-        onClick={openSettings}
+        onClick={() => getCurrentWindow().hide()}
+        onMouseEnter={(e) => {
+          const span = e.currentTarget.querySelector('span');
+          if (span) span.style.backgroundColor = '#808080';
+        }}
+        onMouseLeave={(e) => {
+          const span = e.currentTarget.querySelector('span');
+          if (span) span.style.backgroundColor = '#444444';
+        }}
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          width: 16,
+          height: 16,
+          border: 'none',
+          borderRadius: 4,
+          backgroundColor: 'transparent',
+          cursor: 'pointer',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: isPanelHovered ? 1 : 0,
+          transition: 'opacity 0.2s ease',
+          pointerEvents: isPanelHovered ? 'auto' : 'none',
+          zIndex: 10,
+        }}
+        title="Hide window"
       >
-        <Settings size={16} />
+        <span
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            backgroundColor: '#444444',
+            transition: 'background-color 0.2s ease',
+            display: 'block',
+            pointerEvents: 'none',
+          }}
+        />
       </button>
 
       {/* 中央图标 */}
@@ -202,6 +243,53 @@ function App() {
       >
         {isHovering ? "Release to drop" : "Drop files here"}
       </p>
+
+      {/* Settings button - bottom right rectangle */}
+      <button
+        onClick={openSettings}
+        onMouseEnter={(e) => {
+          const rect = e.currentTarget.querySelector('rect');
+          if (rect) rect.style.stroke = '#808080';
+        }}
+        onMouseLeave={(e) => {
+          const rect = e.currentTarget.querySelector('rect');
+          if (rect) rect.style.stroke = '#444444';
+        }}
+        style={{
+          position: 'absolute',
+          bottom: 8,
+          right: 8,
+          width: 16,
+          height: 16,
+          border: 'none',
+          borderRadius: 4,
+          backgroundColor: 'transparent',
+          cursor: 'pointer',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: isPanelHovered ? 1 : 0,
+          transition: 'opacity 0.2s ease',
+          pointerEvents: isPanelHovered ? 'auto' : 'none',
+          zIndex: 10,
+        }}
+        title="Settings"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" style={{ pointerEvents: 'none' }}>
+          <rect
+            x="1"
+            y="1"
+            width="8"
+            height="8"
+            fill="none"
+            stroke="#444444"
+            strokeWidth="1.5"
+            rx="1"
+            style={{ transition: 'stroke 0.2s ease' }}
+          />
+        </svg>
+      </button>
 
     </motion.div>
   );
