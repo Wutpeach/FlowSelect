@@ -175,6 +175,73 @@ fn extract_filename(url: &str, response: &reqwest::blocking::Response) -> String
     format!("image_{}.{}", timestamp, ext)
 }
 
+#[tauri::command]
+fn save_data_url(data_url: String, target_dir: Option<String>) -> Result<String, String> {
+    use base64::Engine;
+    println!(">>> [Rust] Saving data URL");
+
+    // Parse data URL format: data:image/jpeg;base64,<base64_data>
+    if !data_url.starts_with("data:") {
+        return Err("Invalid data URL format".to_string());
+    }
+
+    let data_url = &data_url[5..]; // Remove "data:" prefix
+    let comma_pos = data_url.find(',')
+        .ok_or("Invalid data URL: missing comma")?;
+
+    let metadata = &data_url[..comma_pos];
+    let base64_data = &data_url[comma_pos + 1..];
+
+    // Extract MIME type and determine extension
+    let mime_type = metadata.split(';').next().unwrap_or("image/jpeg");
+    let ext = match mime_type {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/bmp" => "bmp",
+        "image/svg+xml" => "svg",
+        _ => "jpg",
+    };
+
+    // Decode base64 data
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    // Determine target directory
+    let final_target_dir = if let Some(dir) = target_dir {
+        std::path::PathBuf::from(dir)
+    } else {
+        let desktop = desktop_dir().ok_or("Failed to get desktop directory")?;
+        desktop.join("FlowSelect_Received")
+    };
+
+    // Create directory if not exists
+    if !final_target_dir.exists() {
+        fs::create_dir_all(&final_target_dir)
+            .map_err(|e| format!("Failed to create target directory: {}", e))?;
+    }
+
+    // Generate filename with timestamp
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let filename = format!("image_{}.{}", timestamp, ext);
+    let dest_path = final_target_dir.join(&filename);
+
+    // Write to file
+    let mut file = fs::File::create(&dest_path)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+
+    file.write_all(&bytes)
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+
+    println!(">>> [Rust] Saved to: {:?}", dest_path);
+    Ok(dest_path.to_string_lossy().to_string())
+}
+
 fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let config_dir = app
         .path()
@@ -330,7 +397,8 @@ pub fn run() {
             get_current_shortcut,
             register_shortcut,
             unregister_shortcut,
-            download_image
+            download_image,
+            save_data_url
         ])
         .setup(|app| {
             // Create Tray Menu
