@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -80,6 +81,98 @@ fn process_files(paths: Vec<String>, target_dir: Option<String>) -> Result<Strin
     }
 
     Ok(format!("Copied {} files to {:?}", copied_count, final_target_dir))
+}
+
+#[tauri::command]
+fn download_image(url: String, target_dir: Option<String>) -> Result<String, String> {
+    println!(">>> [Rust] Downloading image from: {}", url);
+
+    // Determine target directory
+    let final_target_dir = if let Some(dir) = target_dir {
+        std::path::PathBuf::from(dir)
+    } else {
+        let desktop = desktop_dir().ok_or("Failed to get desktop directory")?;
+        desktop.join("FlowSelect_Received")
+    };
+
+    // Create directory if not exists
+    if !final_target_dir.exists() {
+        fs::create_dir_all(&final_target_dir)
+            .map_err(|e| format!("Failed to create target directory: {}", e))?;
+    }
+
+    // Download image
+    let response = reqwest::blocking::get(&url)
+        .map_err(|e| format!("Failed to download: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    // Get filename from URL or Content-Disposition header
+    let filename = extract_filename(&url, &response);
+    let dest_path = final_target_dir.join(&filename);
+
+    // Write to file
+    let bytes = response.bytes()
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    let mut file = fs::File::create(&dest_path)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+
+    file.write_all(&bytes)
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+
+    println!(">>> [Rust] Saved to: {:?}", dest_path);
+    Ok(dest_path.to_string_lossy().to_string())
+}
+
+fn extract_filename(url: &str, response: &reqwest::blocking::Response) -> String {
+    // Try Content-Disposition header first
+    if let Some(cd) = response.headers().get("content-disposition") {
+        if let Ok(cd_str) = cd.to_str() {
+            if let Some(start) = cd_str.find("filename=") {
+                let name = &cd_str[start + 9..];
+                let name = name.trim_matches('"').trim_matches('\'');
+                if !name.is_empty() {
+                    return name.to_string();
+                }
+            }
+        }
+    }
+
+    // Extract from URL path
+    if let Ok(parsed) = url::Url::parse(url) {
+        if let Some(segments) = parsed.path_segments() {
+            if let Some(last) = segments.last() {
+                if !last.is_empty() && last.contains('.') {
+                    // Remove query params from filename
+                    let clean = last.split('?').next().unwrap_or(last);
+                    return clean.to_string();
+                }
+            }
+        }
+    }
+
+    // Fallback: generate timestamp-based name
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Guess extension from Content-Type
+    let ext = response.headers()
+        .get("content-type")
+        .and_then(|ct| ct.to_str().ok())
+        .map(|ct| match ct {
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            _ => "jpg",
+        })
+        .unwrap_or("jpg");
+
+    format!("image_{}.{}", timestamp, ext)
 }
 
 fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -175,6 +268,7 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                     } else {
                         let _ = window.show();
                         let _ = window.set_focus();
+                        let _ = window.set_skip_taskbar(true);
                     }
                 }
             }
@@ -235,7 +329,8 @@ pub fn run() {
             set_autostart,
             get_current_shortcut,
             register_shortcut,
-            unregister_shortcut
+            unregister_shortcut,
+            download_image
         ])
         .setup(|app| {
             // Create Tray Menu
@@ -256,6 +351,7 @@ pub fn run() {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                            let _ = window.set_skip_taskbar(true);
                         }
                     }
                     _ => {}
@@ -270,6 +366,7 @@ pub fn run() {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                            let _ = window.set_skip_taskbar(true);
                         }
                     }
                 })
@@ -290,6 +387,11 @@ pub fn run() {
                         }
                     }
                 }
+            }
+
+            // Hide from taskbar
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_skip_taskbar(true);
             }
 
             Ok(())
