@@ -122,6 +122,54 @@ function App() {
     }
   };
 
+  // Check if URL looks like an image
+  const isImageUrl = (url: string): boolean => {
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      return false;
+    }
+    // Common image extensions or known image hosts
+    const imagePatterns = [
+      /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i,
+      /images\./i,
+      /img\./i,
+      /i\.imgur\.com/i,
+      /pbs\.twimg\.com/i,
+      /cdn\.discordapp\.com/i,
+    ];
+    return imagePatterns.some(pattern => pattern.test(url));
+  };
+
+  // Handle native drop event for URL detection
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsHovering(false);
+
+    // Check for URL in dataTransfer
+    const url = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
+
+    // Check if it's an image URL
+    if (url && isImageUrl(url)) {
+      console.log("Detected image URL:", url);
+      setIsProcessing(true);
+
+      try {
+        const result = await invoke<string>("download_image", {
+          url,
+          targetDir: outputPath || null,
+        });
+        console.log("Download result:", result);
+      } catch (err) {
+        console.error("Failed to download image:", err);
+      }
+
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
+    }
+
+    // If not a URL, let Tauri handle it (file drop)
+    console.log("Not an image URL, letting Tauri handle it");
+  };
+
   // Open settings window
   const openSettings = async () => {
     const existing = await WebviewWindow.getByLabel("settings");
@@ -146,7 +194,17 @@ function App() {
     <motion.div
       data-tauri-drag-region
       tabIndex={0}
-      onDragOver={(e) => e.preventDefault()}
+      onDragOver={(e) => {
+        e.preventDefault();
+        // Show hover state for URL drops too
+        const hasUrl = e.dataTransfer.types.includes("text/uri-list")
+                    || e.dataTransfer.types.includes("text/plain");
+        if (hasUrl && !isHovering) {
+          setIsHovering(true);
+        }
+      }}
+      onDrop={handleDrop}
+      onDragLeave={() => setIsHovering(false)}
       onPaste={handlePaste}
       onMouseEnter={() => setIsPanelHovered(true)}
       onMouseLeave={() => setIsPanelHovered(false)}
