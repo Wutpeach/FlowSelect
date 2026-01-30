@@ -192,13 +192,22 @@ function App() {
       setIsProcessing(true);
 
       try {
-        const result = await invoke<string>("download_image", {
-          url,
-          targetDir: outputPath || null,
-        });
-        console.log("Download result:", result);
+        // Distinguish between Data URL and HTTP URL
+        if (url.startsWith("data:image/")) {
+          const result = await invoke<string>("save_data_url", {
+            dataUrl: url,
+            targetDir: outputPath || null,
+          });
+          console.log("Save data URL result:", result);
+        } else {
+          const result = await invoke<string>("download_image", {
+            url,
+            targetDir: outputPath || null,
+          });
+          console.log("Download result:", result);
+        }
       } catch (err) {
-        console.error("Failed to download image:", err);
+        console.error("Failed to process image:", err);
       }
 
       setTimeout(() => setIsProcessing(false), 1000);
