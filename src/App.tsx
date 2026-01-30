@@ -156,6 +156,11 @@ function App() {
     if (url.startsWith("data:image/")) {
       return true;
     }
+    // Support file:// protocol (local files from apps like Feishu/Lark)
+    if (url.startsWith("file://")) {
+      const imageExtensions = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i;
+      return imageExtensions.test(url);
+    }
     // HTTP URL check
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
       return false;
@@ -192,13 +197,23 @@ function App() {
       setIsProcessing(true);
 
       try {
-        // Distinguish between Data URL and HTTP URL
+        // Distinguish between Data URL, file:// URL, and HTTP URL
         if (url.startsWith("data:image/")) {
           const result = await invoke<string>("save_data_url", {
             dataUrl: url,
             targetDir: outputPath || null,
           });
           console.log("Save data URL result:", result);
+        } else if (url.startsWith("file://")) {
+          // Convert file:// URL to local path
+          // file:///C:/path/to/file.jpg -> C:/path/to/file.jpg
+          const localPath = decodeURIComponent(url.replace("file:///", ""));
+          console.log("Detected local file:", localPath);
+          const result = await invoke<string>("process_files", {
+            paths: [localPath],
+            targetDir: outputPath || null,
+          });
+          console.log("Copy result:", result);
         } else {
           const result = await invoke<string>("download_image", {
             url,
