@@ -10,10 +10,10 @@ use tauri::{
     AppHandle, Manager,
 };
 use tauri_plugin_autostart::MacosLauncher;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 // Store current registered shortcut
-struct ShortcutState {
+struct RegisteredShortcut {
     current: Mutex<Option<Shortcut>>,
 }
 
@@ -149,7 +149,7 @@ fn get_current_shortcut(app: AppHandle) -> Result<String, String> {
 
 fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), String> {
     let shortcut_manager = app.global_shortcut();
-    let state = app.state::<ShortcutState>();
+    let state = app.state::<RegisteredShortcut>();
 
     // Unregister old shortcut first
     if let Some(old_shortcut) = state.current.lock().unwrap().take() {
@@ -167,13 +167,15 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
 
     let app_handle = app.clone();
     shortcut_manager
-        .on_shortcut(new_shortcut.clone(), move |_app, _shortcut, _event| {
-            if let Some(window) = app_handle.get_webview_window("main") {
-                if window.is_visible().unwrap_or(false) {
-                    let _ = window.hide();
-                } else {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+        .on_shortcut(new_shortcut.clone(), move |_app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
                 }
             }
         })
@@ -197,7 +199,7 @@ fn unregister_shortcut(app: AppHandle, shortcut: String) -> Result<(), String> {
     }
 
     let shortcut_manager = app.global_shortcut();
-    let state = app.state::<ShortcutState>();
+    let state = app.state::<RegisteredShortcut>();
 
     let parsed: Shortcut = shortcut
         .parse()
@@ -220,7 +222,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![])))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .manage(ShortcutState {
+        .manage(RegisteredShortcut {
             current: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
