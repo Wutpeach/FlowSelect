@@ -144,6 +144,12 @@ function App() {
     e.preventDefault();
     setIsHovering(false);
 
+    // Debug logging
+    console.log("Drop types:", e.dataTransfer.types);
+    console.log("text/uri-list:", e.dataTransfer.getData("text/uri-list"));
+    console.log("text/plain:", e.dataTransfer.getData("text/plain"));
+    console.log("text/html:", e.dataTransfer.getData("text/html"));
+
     // Check for URL in dataTransfer
     const url = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
 
@@ -196,6 +202,8 @@ function App() {
       tabIndex={0}
       onDragOver={(e) => {
         e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        console.log("DragOver types:", e.dataTransfer.types);
         // Show hover state for URL drops too
         const hasUrl = e.dataTransfer.types.includes("text/uri-list")
                     || e.dataTransfer.types.includes("text/plain");
