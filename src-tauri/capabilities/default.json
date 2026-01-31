@@ -9,6 +9,9 @@
     "core:window:allow-start-dragging",
     "core:webview:allow-create-webview-window",
     "opener:default",
-    "dialog:default"
+    "dialog:default",
+    "shell:allow-execute",
+    "shell:allow-spawn",
+    "shell:allow-stdin-write"
   ]
 }
