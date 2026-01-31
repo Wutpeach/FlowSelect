@@ -523,15 +523,23 @@ function App() {
       onContextMenu={handleContextMenu}
       animate={{ scale: isProcessing ? 0.95 : 1 }}
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
-      className={`
-        w-[200px] h-[200px] rounded-2xl overflow-hidden relative
-        flex flex-col justify-center items-center gap-2
-        transition-colors duration-300 outline-none
-        ${(isHovering || downloadProgress)
-          ? "bg-[#404040] border-2 border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)]"
-          : "bg-[#2a2a2a] border border-[#3a3a3a]"
-        }
-      `}
+      style={{
+        width: 200,
+        height: 200,
+        borderRadius: 16,
+        overflow: 'hidden',
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 8,
+        transition: 'all 0.3s',
+        outline: 'none',
+        backgroundColor: (isHovering || downloadProgress) ? '#404040' : '#2a2a2a',
+        border: (isHovering || downloadProgress) ? '2px solid #3b82f6' : '1px solid #3a3a3a',
+        boxShadow: (isHovering || downloadProgress) ? '0 0 20px rgba(59,130,246,0.5)' : 'none',
+      }}
     >
       {/* Close button - top right circle */}
       <button
@@ -586,7 +594,15 @@ function App() {
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
-            className="absolute inset-0 flex flex-col items-center justify-center gap-1"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+            }}
           >
             <div className="relative w-12 h-12">
               <svg className="w-12 h-12 -rotate-90">
@@ -622,15 +638,36 @@ function App() {
                   console.error("Failed to cancel download:", err);
                 }
               }}
-              className="mt-1 w-5 h-5 rounded-full flex items-center justify-center
-                         bg-transparent hover:bg-red-500/20 transition-colors group"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.2)';
+                const svg = e.currentTarget.querySelector('svg');
+                if (svg) svg.style.color = '#f87171';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                const svg = e.currentTarget.querySelector('svg');
+                if (svg) svg.style.color = '#606060';
+              }}
+              style={{
+                marginTop: 4,
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'background-color 0.2s',
+              }}
               title="Cancel download"
             >
               <svg
                 width="10"
                 height="10"
                 viewBox="0 0 10 10"
-                className="text-[#606060] group-hover:text-red-400 transition-colors"
+                style={{ color: '#606060', transition: 'color 0.2s' }}
               >
                 <path
                   d="M2 2L8 8M8 2L2 8"
