@@ -112,12 +112,30 @@ function App() {
       console.log("Dropped files:", paths);
 
       setIsHovering(false);
+
+      // Check if a single folder was dropped - set as output path
+      if (paths.length === 1) {
+        try {
+          const isDir = await invoke<boolean>("is_directory", { path: paths[0] });
+          if (isDir) {
+            console.log("Setting output path to:", paths[0]);
+            setOutputPath(paths[0]);
+            setIsProcessing(true);
+            setTimeout(() => setIsProcessing(false), 1000);
+            return;
+          }
+        } catch (err) {
+          console.error("Failed to check if directory:", err);
+        }
+      }
+
+      // Process files normally
       setIsProcessing(true);
 
       try {
-        await invoke("process_files", { 
-          paths, 
-          targetDir: outputPath || null 
+        await invoke("process_files", {
+          paths,
+          targetDir: outputPath || null
         });
       } catch (err) {
         console.error("Failed to process files:", err);
