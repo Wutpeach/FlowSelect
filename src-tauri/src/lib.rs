@@ -743,6 +743,18 @@ fn is_directory(path: String) -> bool {
     Path::new(&path).is_dir()
 }
 
+#[tauri::command]
+fn open_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -770,7 +782,8 @@ pub fn run() {
             download_video,
             check_ytdlp_version,
             update_ytdlp,
-            is_directory
+            is_directory,
+            open_folder
         ])
         .setup(|app| {
             // Create Tray Menu
