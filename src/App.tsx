@@ -39,6 +39,7 @@ function App() {
     updateAvailable: boolean;
   } | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   // Load config on mount
   useEffect(() => {
@@ -462,6 +463,22 @@ function App() {
     setIsUpdating(false);
   };
 
+  // 右键菜单
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  const openOutputFolder = async () => {
+    closeContextMenu();
+    const path = outputPath || `${await import('@tauri-apps/api/path').then(p => p.desktopDir())}\\FlowSelect_Received`;
+    await invoke("open_folder", { path });
+  };
+
   return (
     <motion.div
       data-tauri-drag-region
@@ -482,6 +499,7 @@ function App() {
       onPaste={handlePaste}
       onMouseEnter={() => setIsPanelHovered(true)}
       onMouseLeave={() => setIsPanelHovered(false)}
+      onContextMenu={handleContextMenu}
       animate={{ scale: isProcessing ? 0.95 : 1 }}
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
       className={`
@@ -684,6 +702,27 @@ function App() {
           />
         </svg>
       </button>
+
+      {/* 自定义右键菜单 */}
+      {contextMenu && (
+        <>
+          <div
+            className="fixed inset-0"
+            onClick={closeContextMenu}
+          />
+          <div
+            className="fixed bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg shadow-lg py-1 min-w-[140px] z-50"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button
+              onClick={openOutputFolder}
+              className="w-full px-3 py-2 text-left text-sm text-[#e0e0e0] hover:bg-[#404040] transition-colors"
+            >
+              Open Folder
+            </button>
+          </div>
+        </>
+      )}
 
     </motion.div>
   );
