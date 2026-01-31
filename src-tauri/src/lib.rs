@@ -438,14 +438,17 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
 
 #[tauri::command]
 async fn cancel_download() -> Result<bool, String> {
+    println!(">>> [Rust] cancel_download called");
     if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
-        // Windows: taskkill /PID xxx /T /F (kill process tree)
-        std::process::Command::new("taskkill")
+        println!(">>> [Rust] Killing process with PID: {}", pid);
+        let result = std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .spawn()
+            .output()
             .map_err(|e| e.to_string())?;
+        println!(">>> [Rust] taskkill result: {:?}", result.status);
         Ok(true)
     } else {
+        println!(">>> [Rust] No download process to cancel");
         Ok(false)
     }
 }
