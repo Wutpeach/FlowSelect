@@ -13,6 +13,16 @@ type DropPayload = {
   position: { x: number; y: number };
 };
 
+// Helper function to check and show sequence overflow error
+const checkSequenceOverflow = (error: unknown): boolean => {
+  const errorStr = String(error);
+  if (errorStr.includes("序号已用完")) {
+    alert("序号已用完，请整理文件夹后重试");
+    return true;
+  }
+  return false;
+};
+
 function App() {
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -115,9 +125,11 @@ function App() {
         console.log("Video download result:", result);
         if (!result.success) {
           console.error("Video download failed:", result.error);
+          checkSequenceOverflow(result.error);
         }
       } catch (err) {
         console.error("Failed to download video:", err);
+        checkSequenceOverflow(err);
       }
       setTimeout(() => setIsProcessing(false), 1000);
       return;
@@ -144,6 +156,7 @@ function App() {
         }
       } catch (err) {
         console.error("Failed to process image:", err);
+        checkSequenceOverflow(err);
       }
       setTimeout(() => setIsProcessing(false), 1000);
       return;
@@ -164,6 +177,7 @@ function App() {
           });
         } catch (err) {
           console.warn("Failed to process clipboard files:", err);
+          checkSequenceOverflow(err);
         }
 
         setTimeout(() => setIsProcessing(false), 1000);
@@ -261,9 +275,11 @@ function App() {
         console.log("Video download result:", result);
         if (!result.success) {
           console.error("Video download failed:", result.error);
+          checkSequenceOverflow(result.error);
         }
       } catch (err) {
         console.error("Failed to download video:", err);
+        checkSequenceOverflow(err);
       }
       setTimeout(() => setIsProcessing(false), 1000);
       return;
@@ -323,6 +339,7 @@ function App() {
         }
       } catch (err) {
         console.error("Failed to process image:", err);
+        checkSequenceOverflow(err);
       }
 
       setTimeout(() => setIsProcessing(false), 1000);
@@ -348,6 +365,7 @@ function App() {
         console.log("Save from dataTransfer.files result:", saveResult);
       } catch (fileErr) {
         console.error("Failed to read from dataTransfer.files:", fileErr);
+        checkSequenceOverflow(fileErr);
       }
       setTimeout(() => setIsProcessing(false), 1000);
       return;
