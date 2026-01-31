@@ -263,6 +263,27 @@ function App() {
       url = e.dataTransfer.getData("text/plain");
     }
 
+    // === 优先处理本地文件 file:// URL ===
+    if (url && url.startsWith("file://")) {
+      const localPath = decodeURIComponent(url.replace("file:///", ""));
+      console.log("Detected local file URL:", localPath);
+      setIsProcessing(true);
+
+      try {
+        const copyResult = await invoke<string>("process_files", {
+          paths: [localPath],
+          targetDir: outputPath || null,
+        });
+        console.log("Copy local file result:", copyResult);
+      } catch (err) {
+        console.error("Failed to copy local file:", err);
+        checkSequenceOverflow(err);
+      }
+
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
+    }
+
     // Check if it's a video URL (highest priority)
     if (url && isVideoUrl(url)) {
       console.log("Detected video URL:", url);
@@ -379,18 +400,15 @@ function App() {
           checkSequenceOverflow(err);
         }
       } else {
-        // 无本地路径，回退到 base64（仅处理图片）
+        // 无本地路径，尝试读取文件内容并保存
         for (const file of Array.from(e.dataTransfer.files)) {
-          if (!file.type.startsWith("image/")) {
-            console.log("Skipping non-image file:", file.name);
-            continue;
-          }
           try {
             const arrayBuffer = await file.arrayBuffer();
             const base64 = btoa(
               new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
             );
-            const dataUrl = `data:${file.type};base64,${base64}`;
+            const mimeType = file.type || "application/octet-stream";
+            const dataUrl = `data:${mimeType};base64,${base64}`;
             await invoke<string>("save_data_url", {
               dataUrl,
               targetDir: outputPath || null,
