@@ -230,7 +230,13 @@ function SettingsPage() {
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, padding: 16, overflowY: 'auto' }}>
+      <div style={{
+        flex: 1,
+        padding: 16,
+        overflowY: 'auto',
+        scrollbarWidth: 'none',  // Firefox
+        msOverflowStyle: 'none', // IE/Edge
+      }} className="hide-scrollbar">
         {/* Output Path */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
