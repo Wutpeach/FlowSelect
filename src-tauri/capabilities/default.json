@@ -16,6 +16,9 @@
     "dialog:default",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
-    "global-shortcut:allow-is-registered"
+    "global-shortcut:allow-is-registered",
+    "shell:allow-execute",
+    "shell:allow-spawn",
+    "shell:allow-stdin-write"
   ]
 }

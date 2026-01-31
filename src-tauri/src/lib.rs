@@ -12,6 +12,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_shell::ShellExt;
 
 // Store current registered shortcut
 struct RegisteredShortcut {
@@ -242,6 +243,87 @@ fn save_data_url(data_url: String, target_dir: Option<String>) -> Result<String,
     Ok(dest_path.to_string_lossy().to_string())
 }
 
+#[derive(serde::Serialize)]
+pub struct DownloadResult {
+    pub success: bool,
+    pub file_path: Option<String>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, String> {
+    println!(">>> [Rust] Starting video download: {}", url);
+
+    // Get output directory from config
+    let config_str = get_config(app.clone())?;
+    let config: serde_json::Value = serde_json::from_str(&config_str)
+        .map_err(|e| format!("Failed to parse config: {}", e))?;
+
+    let output_dir = config
+        .get("outputPath")
+        .and_then(|v| v.as_str())
+        .map(|s| std::path::PathBuf::from(s))
+        .unwrap_or_else(|| {
+            desktop_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("FlowSelect_Received")
+        });
+
+    // Create output directory if not exists
+    if !output_dir.exists() {
+        fs::create_dir_all(&output_dir)
+            .map_err(|e| format!("Failed to create output directory: {}", e))?;
+    }
+
+    let output_template = output_dir.join("%(title)s.%(ext)s");
+
+    // Execute yt-dlp sidecar
+    let shell = app.shell();
+    let output = shell
+        .sidecar("yt-dlp")
+        .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+        .args([
+            "-f",
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--merge-output-format",
+            "mp4",
+            "-o",
+            &output_template.to_string_lossy(),
+            &url,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    println!(">>> [Rust] yt-dlp stdout: {}", stdout);
+    println!(">>> [Rust] yt-dlp stderr: {}", stderr);
+
+    if output.status.success() {
+        // Try to extract the output file path from stdout
+        let file_path = stdout
+            .lines()
+            .find(|line| line.contains("[Merger]") || line.contains("Destination:"))
+            .and_then(|line| line.split(':').last())
+            .map(|s| s.trim().to_string())
+            .or_else(|| Some(output_dir.to_string_lossy().to_string()));
+
+        Ok(DownloadResult {
+            success: true,
+            file_path,
+            error: None,
+        })
+    } else {
+        Ok(DownloadResult {
+            success: false,
+            file_path: None,
+            error: Some(stderr.to_string()),
+        })
+    }
+}
+
 fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let config_dir = app
         .path()
@@ -383,6 +465,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![])))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_shell::init())
         .manage(RegisteredShortcut {
             current: Mutex::new(None),
         })
@@ -398,7 +481,8 @@ pub fn run() {
             register_shortcut,
             unregister_shortcut,
             download_image,
-            save_data_url
+            save_data_url,
+            download_video
         ])
         .setup(|app| {
             // Create Tray Menu
