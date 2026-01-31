@@ -419,6 +419,170 @@ fn parse_progress(line: &str) -> Option<DownloadProgress> {
     Some(DownloadProgress { percent, speed, eta })
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct YtdlpVersionInfo {
+    pub current: String,
+    pub latest: String,
+    #[serde(rename = "updateAvailable")]
+    pub update_available: bool,
+}
+
+#[tauri::command]
+async fn check_ytdlp_version(app: AppHandle) -> Result<YtdlpVersionInfo, String> {
+    use tauri_plugin_shell::process::CommandEvent;
+
+    // 1. Get current version by running yt-dlp --version
+    let shell = app.shell();
+    let (mut rx, _child) = shell
+        .sidecar("yt-dlp")
+        .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+        .args(["--version"])
+        .spawn()
+        .map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
+
+    let mut current_version = String::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stdout(line) => {
+                current_version = String::from_utf8_lossy(&line).trim().to_string();
+            }
+            CommandEvent::Terminated(_) => break,
+            _ => {}
+        }
+    }
+
+    if current_version.is_empty() {
+        return Err("Failed to get current yt-dlp version".to_string());
+    }
+
+    // 2. Get latest version from GitHub API
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
+        .header("User-Agent", "FlowSelect-App")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch GitHub API: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("GitHub API error: {}", response.status()));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse GitHub response: {}", e))?;
+
+    let latest_version = json
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .ok_or("Failed to get tag_name from GitHub response")?
+        .to_string();
+
+    // 3. Compare versions
+    let update_available = current_version != latest_version;
+
+    Ok(YtdlpVersionInfo {
+        current: current_version,
+        latest: latest_version,
+        update_available,
+    })
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct YtdlpUpdateProgress {
+    pub percent: f32,
+    pub downloaded: u64,
+    pub total: u64,
+}
+
+#[tauri::command]
+async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    println!(">>> [Rust] Starting yt-dlp update");
+
+    // Get sidecar path
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+
+    let sidecar_path = resource_dir.join("binaries").join("yt-dlp-x86_64-pc-windows-msvc.exe");
+    println!(">>> [Rust] Sidecar path: {:?}", sidecar_path);
+
+    // Download from GitHub
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe")
+        .header("User-Agent", "FlowSelect-App")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Download failed: {}", response.status()));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+
+    // Create temp file first, then rename
+    let temp_path = sidecar_path.with_extension("exe.tmp");
+
+    let mut file = tokio::fs::File::create(&temp_path)
+        .await
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+    let mut stream = response.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("Write error: {}", e))?;
+
+        downloaded += chunk.len() as u64;
+
+        // Emit progress
+        let percent = if total_size > 0 {
+            (downloaded as f32 / total_size as f32) * 100.0
+        } else {
+            0.0
+        };
+
+        let _ = app.emit(
+            "ytdlp-update-progress",
+            YtdlpUpdateProgress {
+                percent,
+                downloaded,
+                total: total_size,
+            },
+        );
+    }
+
+    file.flush().await.map_err(|e| format!("Flush error: {}", e))?;
+    drop(file);
+
+    // Replace old file with new one
+    if sidecar_path.exists() {
+        tokio::fs::remove_file(&sidecar_path)
+            .await
+            .map_err(|e| format!("Failed to remove old file: {}", e))?;
+    }
+
+    tokio::fs::rename(&temp_path, &sidecar_path)
+        .await
+        .map_err(|e| format!("Failed to rename temp file: {}", e))?;
+
+    println!(">>> [Rust] yt-dlp updated successfully");
+
+    // Get new version
+    let version_info = check_ytdlp_version(app).await?;
+    Ok(version_info.current)
+}
+
 fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let config_dir = app
         .path()
@@ -577,7 +741,9 @@ pub fn run() {
             unregister_shortcut,
             download_image,
             save_data_url,
-            download_video
+            download_video,
+            check_ytdlp_version,
+            update_ytdlp
         ])
         .setup(|app| {
             // Create Tray Menu
