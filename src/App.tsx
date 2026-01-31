@@ -212,14 +212,36 @@ function App() {
           console.log("Save data URL result:", result);
         } else if (url.startsWith("file://")) {
           // Convert file:// URL to local path
-          // file:///C:/path/to/file.jpg -> C:/path/to/file.jpg
           const localPath = decodeURIComponent(url.replace("file:///", ""));
           console.log("Detected local file:", localPath);
-          const result = await invoke<string>("process_files", {
+
+          // First try to copy from local path
+          const copyResult = await invoke<string>("process_files", {
             paths: [localPath],
             targetDir: outputPath || null,
           });
-          console.log("Copy result:", result);
+          console.log("Copy result:", copyResult);
+
+          // If copy failed (0 files), try reading from dataTransfer.files
+          if (copyResult.includes("Copied 0 files") && e.dataTransfer.files.length > 0) {
+            console.log("Local file not found, trying dataTransfer.files...");
+            const file = e.dataTransfer.files[0];
+            try {
+              const arrayBuffer = await file.arrayBuffer();
+              const base64 = btoa(
+                new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+              );
+              const mimeType = file.type || "image/jpeg";
+              const dataUrl = `data:${mimeType};base64,${base64}`;
+              const saveResult = await invoke<string>("save_data_url", {
+                dataUrl,
+                targetDir: outputPath || null,
+              });
+              console.log("Save from dataTransfer.files result:", saveResult);
+            } catch (fileErr) {
+              console.error("Failed to read from dataTransfer.files:", fileErr);
+            }
+          }
         } else {
           const result = await invoke<string>("download_image", {
             url,
