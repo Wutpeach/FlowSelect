@@ -17,6 +17,11 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [outputPath, setOutputPath] = useState("");
   const [isPanelHovered, setIsPanelHovered] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{
+    percent: number;
+    speed: string;
+    eta: string;
+  } | null>(null);
 
   // Load config on mount
   useEffect(() => {
@@ -50,6 +55,21 @@ function App() {
     };
     saveConfig();
   }, [outputPath]);
+
+  // Listen for video download progress events
+  useEffect(() => {
+    const unlistenProgress = listen<{ percent: number; speed: string; eta: string }>(
+      "video-download-progress",
+      (event) => setDownloadProgress(event.payload)
+    );
+    const unlistenComplete = listen("video-download-complete", () => {
+      setDownloadProgress(null);
+    });
+    return () => {
+      unlistenProgress.then(fn => fn());
+      unlistenComplete.then(fn => fn());
+    };
+  }, []);
 
   useEffect(() => {
     // Tauri v2: drag-enter
@@ -426,7 +446,40 @@ function App() {
 
       {/* 中央图标 */}
       <AnimatePresence mode="wait">
-        {isProcessing ? (
+        {downloadProgress ? (
+          <motion.div
+            key="progress"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            className="flex flex-col items-center gap-1"
+          >
+            <div className="relative w-12 h-12">
+              <svg className="w-12 h-12 -rotate-90">
+                <circle
+                  cx="24" cy="24" r="20"
+                  fill="none"
+                  stroke="#3a3a3a"
+                  strokeWidth="4"
+                />
+                <circle
+                  cx="24" cy="24" r="20"
+                  fill="none"
+                  stroke="#3b82f6"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 20}`}
+                  strokeDashoffset={`${2 * Math.PI * 20 * (1 - downloadProgress.percent / 100)}`}
+                  className="transition-all duration-300"
+                />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-xs text-blue-400 font-medium">
+                {Math.round(downloadProgress.percent)}%
+              </span>
+            </div>
+            <span className="text-[10px] text-[#808080]">{downloadProgress.speed}</span>
+          </motion.div>
+        ) : isProcessing ? (
           <motion.div
             key="check"
             initial={{ scale: 0, opacity: 0 }}
@@ -455,10 +508,10 @@ function App() {
       {/* 提示文字 */}
       <p
         className={`text-xs transition-colors duration-200 ${
-          isHovering ? "text-blue-400" : "text-[#505050]"
+          downloadProgress ? "text-blue-400" : isHovering ? "text-blue-400" : "text-[#505050]"
         }`}
       >
-        {isHovering ? "Release to drop" : "Drop files here"}
+        {downloadProgress ? `ETA: ${downloadProgress.eta}` : isHovering ? "Release to drop" : "Drop files here"}
       </p>
 
       {/* Settings button - bottom right rectangle */}

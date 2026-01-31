@@ -10,6 +10,8 @@ function SettingsPage() {
   const [shortcut, setShortcut] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [recordedKeys, setRecordedKeys] = useState("");
+  const [cookiesEnabled, setCookiesEnabled] = useState(false);
+  const [cookiesBrowser, setCookiesBrowser] = useState("chrome");
 
   // Load config on mount
   useEffect(() => {
@@ -19,6 +21,12 @@ function SettingsPage() {
         const config = JSON.parse(configStr);
         if (config.outputPath) {
           setOutputPath(config.outputPath);
+        }
+        if (config.cookiesEnabled !== undefined) {
+          setCookiesEnabled(config.cookiesEnabled);
+        }
+        if (config.cookiesBrowser) {
+          setCookiesBrowser(config.cookiesBrowser);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -141,6 +149,33 @@ function SettingsPage() {
     }
   };
 
+  const toggleCookies = async () => {
+    try {
+      const newValue = !cookiesEnabled;
+      setCookiesEnabled(newValue);
+      const configStr = await invoke<string>("get_config");
+      const config = JSON.parse(configStr);
+      config.cookiesEnabled = newValue;
+      config.cookiesBrowser = cookiesBrowser;
+      await invoke("save_config", { json: JSON.stringify(config) });
+    } catch (err) {
+      console.error("Failed to toggle cookies:", err);
+    }
+  };
+
+  const changeCookiesBrowser = async (browser: string) => {
+    try {
+      setCookiesBrowser(browser);
+      const configStr = await invoke<string>("get_config");
+      const config = JSON.parse(configStr);
+      config.cookiesEnabled = cookiesEnabled;
+      config.cookiesBrowser = browser;
+      await invoke("save_config", { json: JSON.stringify(config) });
+    } catch (err) {
+      console.error("Failed to change cookies browser:", err);
+    }
+  };
+
   const truncatePath = (path: string, maxLen = 25) => {
     if (path.length <= maxLen) return path;
     return "..." + path.slice(-maxLen);
@@ -204,6 +239,41 @@ function SettingsPage() {
               `}
             />
           </button>
+        </div>
+
+        {/* Video Cookies */}
+        <div>
+          <label className="text-xs text-[#808080] mb-2 block">
+            Video Cookies
+          </label>
+          <button
+            onClick={toggleCookies}
+            className={`
+              w-12 h-6 rounded-full transition-colors relative
+              ${cookiesEnabled ? "bg-blue-500" : "bg-[#3a3a3a]"}
+            `}
+          >
+            <span
+              className={`
+                absolute top-1 w-4 h-4 rounded-full bg-white transition-transform
+                ${cookiesEnabled ? "left-7" : "left-1"}
+              `}
+            />
+          </button>
+          {cookiesEnabled && (
+            <select
+              value={cookiesBrowser}
+              onChange={(e) => changeCookiesBrowser(e.target.value)}
+              className="mt-2 w-full px-3 py-2 bg-[#2a2a2a] rounded-lg text-xs text-[#a0a0a0]
+                       border border-[#3a3a3a] hover:bg-[#333] transition-colors
+                       focus:outline-none focus:border-blue-500"
+            >
+              <option value="chrome">Chrome</option>
+              <option value="edge">Edge</option>
+              <option value="firefox">Firefox</option>
+              <option value="brave">Brave</option>
+            </select>
+          )}
         </div>
 
         {/* Shortcut */}
