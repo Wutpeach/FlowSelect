@@ -467,7 +467,27 @@ function App() {
   // 右键菜单
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY });
+
+    // 菜单尺寸估算
+    const menuWidth = 140;
+    const menuHeight = 40;
+
+    // 窗口尺寸
+    const windowWidth = 200;
+    const windowHeight = 200;
+
+    // 计算位置，确保菜单不超出窗口
+    let x = e.clientX;
+    let y = e.clientY;
+
+    if (x + menuWidth > windowWidth) {
+      x = windowWidth - menuWidth - 8;
+    }
+    if (y + menuHeight > windowHeight) {
+      y = windowHeight - menuHeight - 8;
+    }
+
+    setContextMenu({ x, y });
   };
 
   const closeContextMenu = () => {
