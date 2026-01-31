@@ -439,9 +439,9 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
 #[tauri::command]
 async fn cancel_download() -> Result<bool, String> {
     if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
-        // Windows: taskkill /PID xxx /F
+        // Windows: taskkill /PID xxx /T /F (kill process tree)
         std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/F"])
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
             .spawn()
             .map_err(|e| e.to_string())?;
         Ok(true)
