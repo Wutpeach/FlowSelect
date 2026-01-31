@@ -584,30 +584,8 @@ function App() {
           >
             <Check size={48} className="text-green-400" strokeWidth={3} />
           </motion.div>
-        ) : (
-          <motion.div
-            key="layers"
-            animate={{ scale: isHovering ? 1.15 : 1 }}
-            transition={{ type: "spring", stiffness: 400, damping: 20 }}
-          >
-            <Layers
-              size={48}
-              className={`transition-colors duration-200 ${
-                isHovering ? "text-blue-400" : "text-[#606060]"
-              }`}
-            />
-          </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
-
-      {/* 提示文字 */}
-      <p
-        className={`text-xs transition-colors duration-200 ${
-          downloadProgress ? "text-blue-400" : isHovering ? "text-blue-400" : "text-[#505050]"
-        }`}
-      >
-        {downloadProgress ? `ETA: ${downloadProgress.eta}` : isHovering ? "Release to drop" : "Drop files here"}
-      </p>
 
       {/* yt-dlp update indicator */}
       {ytdlpUpdate && (
