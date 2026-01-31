@@ -186,87 +186,158 @@ function SettingsPage() {
   };
 
   return (
-    <div className="w-full h-full bg-[#2a2a2a] rounded-2xl overflow-hidden flex flex-col">
+    <div style={{
+      width: '100%',
+      height: '100%',
+      backgroundColor: '#1e1e1e',
+      borderRadius: 12,
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+      border: '1px solid #3a3a3a',
+    }}>
       {/* Draggable Header */}
       <div
         data-tauri-drag-region
-        className="flex items-center justify-between px-4 py-3 border-b border-[#3a3a3a]"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 16px',
+          borderBottom: '1px solid #3a3a3a',
+          backgroundColor: '#252525',
+        }}
       >
-        <h2 className="text-sm font-medium text-[#e0e0e0]">Settings</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 500, color: '#e0e0e0', margin: 0 }}>Settings</h2>
         <button
           onClick={closeWindow}
-          className="p-1 text-[#606060] hover:text-[#a0a0a0] transition-colors"
+          style={{
+            padding: 4,
+            color: '#606060',
+            backgroundColor: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = '#a0a0a0'}
+          onMouseLeave={(e) => e.currentTarget.style.color = '#606060'}
         >
           <X size={16} />
         </button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 px-4 py-4 space-y-4">
+      <div style={{ flex: 1, padding: 16, overflowY: 'auto' }}>
         {/* Output Path */}
-        <div>
-          <label className="text-xs text-[#808080] mb-2 block">
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
             Output Path
           </label>
           <button
             onClick={selectOutputPath}
-            className="w-full flex items-center gap-2 px-3 py-2.5 bg-[#2a2a2a] rounded-lg
-                     text-left text-xs text-[#a0a0a0] hover:bg-[#333] transition-colors"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 12px',
+              backgroundColor: '#2a2a2a',
+              borderRadius: 8,
+              border: '1px solid #3a3a3a',
+              textAlign: 'left',
+              fontSize: 12,
+              color: '#a0a0a0',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
           >
-            <FolderOpen size={14} className="text-[#606060] flex-shrink-0" />
-            <span className="truncate">
+            <FolderOpen size={14} style={{ color: '#606060', flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {outputPath ? truncatePath(outputPath) : "Select folder..."}
             </span>
           </button>
         </div>
 
         {/* Launch at startup */}
-        <div>
-          <label className="text-xs text-[#808080] mb-2 block">
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
             Launch at startup
           </label>
           <button
             onClick={toggleAutostart}
-            className={`
-              w-12 h-6 rounded-full transition-colors relative
-              ${autostart ? "bg-blue-500" : "bg-[#3a3a3a]"}
-            `}
+            style={{
+              width: 44,
+              height: 24,
+              borderRadius: 12,
+              backgroundColor: autostart ? '#3b82f6' : '#3a3a3a',
+              border: 'none',
+              cursor: 'pointer',
+              position: 'relative',
+              transition: 'background-color 0.2s',
+            }}
           >
-            <span
-              className={`
-                absolute top-1 w-4 h-4 rounded-full bg-white transition-transform
-                ${autostart ? "left-7" : "left-1"}
-              `}
-            />
+            <span style={{
+              position: 'absolute',
+              top: 4,
+              left: autostart ? 24 : 4,
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              backgroundColor: 'white',
+              transition: 'left 0.2s',
+            }} />
           </button>
         </div>
 
         {/* Video Cookies */}
-        <div>
-          <label className="text-xs text-[#808080] mb-2 block">
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
             Video Cookies
           </label>
           <button
             onClick={toggleCookies}
-            className={`
-              w-12 h-6 rounded-full transition-colors relative
-              ${cookiesEnabled ? "bg-blue-500" : "bg-[#3a3a3a]"}
-            `}
+            style={{
+              width: 44,
+              height: 24,
+              borderRadius: 12,
+              backgroundColor: cookiesEnabled ? '#3b82f6' : '#3a3a3a',
+              border: 'none',
+              cursor: 'pointer',
+              position: 'relative',
+              transition: 'background-color 0.2s',
+            }}
           >
-            <span
-              className={`
-                absolute top-1 w-4 h-4 rounded-full bg-white transition-transform
-                ${cookiesEnabled ? "left-7" : "left-1"}
-              `}
-            />
+            <span style={{
+              position: 'absolute',
+              top: 4,
+              left: cookiesEnabled ? 24 : 4,
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              backgroundColor: 'white',
+              transition: 'left 0.2s',
+            }} />
           </button>
           {cookiesEnabled && (
             <select
               value={cookiesBrowser}
               onChange={(e) => changeCookiesBrowser(e.target.value)}
-              className="mt-2 w-full px-3 py-2 bg-[#2a2a2a] rounded-lg text-xs text-[#a0a0a0]
-                       border border-[#3a3a3a] hover:bg-[#333] transition-colors
-                       focus:outline-none focus:border-blue-500"
+              style={{
+                marginTop: 8,
+                width: '100%',
+                padding: '8px 12px',
+                backgroundColor: '#2a2a2a',
+                borderRadius: 8,
+                fontSize: 12,
+                color: '#a0a0a0',
+                border: '1px solid #3a3a3a',
+                cursor: 'pointer',
+                outline: 'none',
+              }}
             >
               <option value="chrome">Chrome</option>
               <option value="edge">Edge</option>
@@ -277,32 +348,59 @@ function SettingsPage() {
         </div>
 
         {/* Shortcut */}
-        <div>
-          <label className="text-xs text-[#808080] mb-2 block">
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
             Global Shortcut
           </label>
           {isRecording ? (
-            <div className="space-y-2">
-              <div
-                className="w-full flex items-center gap-2 px-3 py-2.5 bg-[#2a2a2a] rounded-lg
-                         text-xs text-[#e0e0e0] border border-blue-500"
-              >
-                <Keyboard size={14} className="text-blue-500 flex-shrink-0" />
+            <div>
+              <div style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 12px',
+                backgroundColor: '#2a2a2a',
+                borderRadius: 8,
+                fontSize: 12,
+                color: '#e0e0e0',
+                border: '1px solid #3b82f6',
+              }}>
+                <Keyboard size={14} style={{ color: '#3b82f6', flexShrink: 0 }} />
                 <span>{recordedKeys || "Press keys..."}</span>
               </div>
-              <div className="flex gap-2">
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button
                   onClick={confirmShortcut}
                   disabled={!recordedKeys}
-                  className="flex-1 px-3 py-1.5 bg-blue-500 rounded text-xs text-white
-                           hover:bg-blue-600 transition-colors disabled:opacity-50"
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    backgroundColor: '#3b82f6',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: 'white',
+                    border: 'none',
+                    cursor: recordedKeys ? 'pointer' : 'not-allowed',
+                    opacity: recordedKeys ? 1 : 0.5,
+                  }}
                 >
                   Confirm
                 </button>
                 <button
                   onClick={cancelRecording}
-                  className="flex-1 px-3 py-1.5 bg-[#3a3a3a] rounded text-xs text-[#a0a0a0]
-                           hover:bg-[#444] transition-colors"
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    backgroundColor: '#3a3a3a',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: '#a0a0a0',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#444'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3a3a3a'}
                 >
                   Cancel
                 </button>
@@ -311,10 +409,24 @@ function SettingsPage() {
           ) : (
             <button
               onClick={startRecording}
-              className="w-full flex items-center gap-2 px-3 py-2.5 bg-[#2a2a2a] rounded-lg
-                       text-left text-xs text-[#a0a0a0] hover:bg-[#333] transition-colors"
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 12px',
+                backgroundColor: '#2a2a2a',
+                borderRadius: 8,
+                border: '1px solid #3a3a3a',
+                textAlign: 'left',
+                fontSize: 12,
+                color: '#a0a0a0',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
             >
-              <Keyboard size={14} className="text-[#606060] flex-shrink-0" />
+              <Keyboard size={14} style={{ color: '#606060', flexShrink: 0 }} />
               <span>{shortcut || "Click to set..."}</span>
             </button>
           )}
@@ -322,8 +434,13 @@ function SettingsPage() {
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 text-center border-t border-[#3a3a3a]">
-        <span className="text-[10px] text-[#505050]">v0.1.0</span>
+      <div style={{
+        padding: '12px 16px',
+        textAlign: 'center',
+        borderTop: '1px solid #3a3a3a',
+        backgroundColor: '#252525',
+      }}>
+        <span style={{ fontSize: 10, color: '#505050' }}>v0.1.0</span>
       </div>
     </div>
   );
