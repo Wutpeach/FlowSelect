@@ -79,13 +79,17 @@ function App() {
 
   // Check yt-dlp version on startup
   useEffect(() => {
+    console.log(">>> Checking yt-dlp version...");
     invoke<{ current: string; latest: string; updateAvailable: boolean }>("check_ytdlp_version")
       .then((result) => {
+        console.log(">>> yt-dlp version check result:", result);
         if (result.updateAvailable) {
           setYtdlpUpdate(result);
         }
       })
-      .catch(console.error);
+      .catch((err) => {
+        console.error(">>> yt-dlp version check failed:", err);
+      });
   }, []);
 
   useEffect(() => {
