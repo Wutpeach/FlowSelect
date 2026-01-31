@@ -527,7 +527,7 @@ function App() {
         w-[200px] h-[200px] rounded-2xl overflow-hidden relative
         flex flex-col justify-center items-center gap-2
         transition-colors duration-300 outline-none
-        ${isHovering
+        ${(isHovering || downloadProgress)
           ? "bg-[#404040] border-2 border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)]"
           : "bg-[#2a2a2a] border border-[#3a3a3a]"
         }
@@ -586,7 +586,7 @@ function App() {
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
-            className="flex flex-col items-center gap-1"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-1"
           >
             <div className="relative w-12 h-12">
               <svg className="w-12 h-12 -rotate-90">
@@ -612,6 +612,33 @@ function App() {
               </span>
             </div>
             <span className="text-[10px] text-[#808080]">{downloadProgress.speed}</span>
+            {/* Cancel download button */}
+            <button
+              onClick={async () => {
+                try {
+                  await invoke("cancel_download");
+                } catch (err) {
+                  console.error("Failed to cancel download:", err);
+                }
+              }}
+              className="mt-1 w-5 h-5 rounded-full flex items-center justify-center
+                         bg-transparent hover:bg-red-500/20 transition-colors group"
+              title="Cancel download"
+            >
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                className="text-[#606060] group-hover:text-red-400 transition-colors"
+              >
+                <path
+                  d="M2 2L8 8M8 2L2 8"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
           </motion.div>
         ) : isProcessing ? (
           <motion.div
