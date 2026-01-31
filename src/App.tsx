@@ -5,6 +5,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
 import { Layers, Check } from "lucide-react";
+import { isVideoUrl } from "./utils/videoUrl";
 
 type DropPayload = {
   paths: string[];
@@ -93,12 +94,33 @@ function App() {
     };
   }, [outputPath]);
 
-  // Handle paste event - check for image URL first, then clipboard files
+  // Handle paste event - check for video URL first, then image URL, then clipboard files
   const handlePaste = async (e: React.ClipboardEvent) => {
     e.preventDefault();
 
-    // 1. Check if clipboard text is an image URL
     const text = e.clipboardData.getData("text/plain");
+
+    // 1. Check if clipboard text is a video URL (highest priority)
+    if (text && isVideoUrl(text)) {
+      console.log("Pasted video URL:", text);
+      setIsProcessing(true);
+      try {
+        const result = await invoke<{ success: boolean; file_path?: string; error?: string }>(
+          "download_video",
+          { url: text }
+        );
+        console.log("Video download result:", result);
+        if (!result.success) {
+          console.error("Video download failed:", result.error);
+        }
+      } catch (err) {
+        console.error("Failed to download video:", err);
+      }
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
+    }
+
+    // 2. Check if clipboard text is an image URL
     if (text && isImageUrl(text)) {
       console.log("Pasted image URL:", text);
       setIsProcessing(true);
@@ -195,6 +217,26 @@ function App() {
     let url = e.dataTransfer.getData("text/uri-list");
     if (!url || url === "about:blank#blocked" || url.startsWith("about:")) {
       url = e.dataTransfer.getData("text/plain");
+    }
+
+    // Check if it's a video URL (highest priority)
+    if (url && isVideoUrl(url)) {
+      console.log("Detected video URL:", url);
+      setIsProcessing(true);
+      try {
+        const result = await invoke<{ success: boolean; file_path?: string; error?: string }>(
+          "download_video",
+          { url }
+        );
+        console.log("Video download result:", result);
+        if (!result.success) {
+          console.error("Video download failed:", result.error);
+        }
+      } catch (err) {
+        console.error("Failed to download video:", err);
+      }
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
     }
 
     // Check if it's an image URL
