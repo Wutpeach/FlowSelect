@@ -187,9 +187,15 @@ function App() {
     console.log("text/uri-list:", e.dataTransfer.getData("text/uri-list"));
     console.log("text/plain:", e.dataTransfer.getData("text/plain"));
     console.log("text/html:", e.dataTransfer.getData("text/html"));
+    // Also log files for debugging
+    console.log("files:", e.dataTransfer.files.length, Array.from(e.dataTransfer.files).map(f => f.name));
 
     // Check for URL in dataTransfer
-    const url = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
+    // Note: text/uri-list may return "about:blank#blocked" due to security policy
+    let url = e.dataTransfer.getData("text/uri-list");
+    if (!url || url === "about:blank#blocked" || url.startsWith("about:")) {
+      url = e.dataTransfer.getData("text/plain");
+    }
 
     // Check if it's an image URL
     if (url && isImageUrl(url)) {
