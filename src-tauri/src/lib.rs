@@ -50,6 +50,41 @@ fn list_files(path: String) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
+/// 获取下一个可用的序号（从99倒序到1）
+fn get_next_sequence_number(target_dir: &Path) -> Result<u32, String> {
+    let mut used_numbers: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
+    if target_dir.exists() {
+        let entries = fs::read_dir(target_dir)
+            .map_err(|e| format!("Failed to read directory: {}", e))?;
+
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(stem) = path.file_stem() {
+                    if let Some(stem_str) = stem.to_str() {
+                        // 只匹配纯数字文件名
+                        if let Ok(num) = stem_str.parse::<u32>() {
+                            if num >= 1 && num <= 99 {
+                                used_numbers.insert(num);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 从99倒序查找未使用的数字
+    for num in (1..=99).rev() {
+        if !used_numbers.contains(&num) {
+            return Ok(num);
+        }
+    }
+
+    Err("序号已用完，请整理文件夹".to_string())
+}
+
 #[tauri::command]
 fn process_files(paths: Vec<String>, target_dir: Option<String>) -> Result<String, String> {
     println!(">>> [Rust] Receiving files to process: {:?}", paths);
@@ -72,12 +107,20 @@ fn process_files(paths: Vec<String>, target_dir: Option<String>) -> Result<Strin
     for path_str in &paths {
         let source = Path::new(path_str);
         if source.exists() && source.is_file() {
-            if let Some(file_name) = source.file_name() {
-                let dest = final_target_dir.join(file_name);
-                fs::copy(source, &dest)
-                    .map_err(|e| format!("Failed to copy {}: {}", path_str, e))?;
-                copied_count += 1;
-            }
+            // 获取原文件扩展名
+            let ext = source
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("bin");
+
+            // 获取下一个可用序号
+            let seq_num = get_next_sequence_number(&final_target_dir)?;
+            let filename = format!("{}.{}", seq_num, ext);
+            let dest = final_target_dir.join(&filename);
+
+            fs::copy(source, &dest)
+                .map_err(|e| format!("Failed to copy {}: {}", path_str, e))?;
+            copied_count += 1;
         }
     }
 
@@ -110,8 +153,23 @@ fn download_image(url: String, target_dir: Option<String>) -> Result<String, Str
         return Err(format!("HTTP error: {}", response.status()));
     }
 
-    // Get filename from URL or Content-Disposition header
-    let filename = extract_filename(&url, &response);
+    // Get extension from Content-Type or URL
+    let ext = response.headers()
+        .get("content-type")
+        .and_then(|ct| ct.to_str().ok())
+        .map(|ct| match ct {
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            "image/bmp" => "bmp",
+            "image/svg+xml" => "svg",
+            _ => "jpg",
+        })
+        .unwrap_or("jpg");
+
+    // Get next sequence number
+    let seq_num = get_next_sequence_number(&final_target_dir)?;
+    let filename = format!("{}.{}", seq_num, ext);
     let dest_path = final_target_dir.join(&filename);
 
     // Write to file
@@ -126,54 +184,6 @@ fn download_image(url: String, target_dir: Option<String>) -> Result<String, Str
 
     println!(">>> [Rust] Saved to: {:?}", dest_path);
     Ok(dest_path.to_string_lossy().to_string())
-}
-
-fn extract_filename(url: &str, response: &reqwest::blocking::Response) -> String {
-    // Try Content-Disposition header first
-    if let Some(cd) = response.headers().get("content-disposition") {
-        if let Ok(cd_str) = cd.to_str() {
-            if let Some(start) = cd_str.find("filename=") {
-                let name = &cd_str[start + 9..];
-                let name = name.trim_matches('"').trim_matches('\'');
-                if !name.is_empty() {
-                    return name.to_string();
-                }
-            }
-        }
-    }
-
-    // Extract from URL path
-    if let Ok(parsed) = url::Url::parse(url) {
-        if let Some(segments) = parsed.path_segments() {
-            if let Some(last) = segments.last() {
-                if !last.is_empty() && last.contains('.') {
-                    // Remove query params from filename
-                    let clean = last.split('?').next().unwrap_or(last);
-                    return clean.to_string();
-                }
-            }
-        }
-    }
-
-    // Fallback: generate timestamp-based name
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    // Guess extension from Content-Type
-    let ext = response.headers()
-        .get("content-type")
-        .and_then(|ct| ct.to_str().ok())
-        .map(|ct| match ct {
-            "image/png" => "png",
-            "image/gif" => "gif",
-            "image/webp" => "webp",
-            _ => "jpg",
-        })
-        .unwrap_or("jpg");
-
-    format!("image_{}.{}", timestamp, ext)
 }
 
 #[tauri::command]
@@ -224,12 +234,9 @@ fn save_data_url(data_url: String, target_dir: Option<String>) -> Result<String,
             .map_err(|e| format!("Failed to create target directory: {}", e))?;
     }
 
-    // Generate filename with timestamp
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let filename = format!("image_{}.{}", timestamp, ext);
+    // Get next sequence number
+    let seq_num = get_next_sequence_number(&final_target_dir)?;
+    let filename = format!("{}.{}", seq_num, ext);
     let dest_path = final_target_dir.join(&filename);
 
     // Write to file
@@ -285,7 +292,9 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
     }
 
-    let output_template = output_dir.join("%(title)s.%(ext)s");
+    // Get next sequence number
+    let seq_num = get_next_sequence_number(&output_dir)?;
+    let output_template = output_dir.join(format!("{}.%(ext)s", seq_num));
 
     // Build args
     let mut args = vec![
