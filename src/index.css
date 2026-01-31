@@ -10,3 +10,8 @@ html, body, #root {
   background: transparent;
   overflow: hidden;
 }
+
+/* 隐藏滚动条 - Chrome/Safari/Opera */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
