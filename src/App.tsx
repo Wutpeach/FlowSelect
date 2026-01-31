@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Layers, Check } from "lucide-react";
 import { isVideoUrl } from "./utils/videoUrl";
@@ -95,66 +96,6 @@ function App() {
       });
   }, []);
 
-  useEffect(() => {
-    // Tauri v2: drag-enter
-    const unlistenEnter = listen("tauri://drag-enter", (event) => {
-      console.log("Event triggered: drag-enter", event.payload);
-      setIsHovering(true);
-    });
-
-    // Tauri v2: drag-leave
-    const unlistenLeave = listen("tauri://drag-leave", (event) => {
-      console.log("Event triggered: drag-leave", event.payload);
-      setIsHovering(false);
-    });
-
-    // Tauri v2: drag-drop
-    const unlistenDrop = listen<DropPayload>("tauri://drag-drop", async (event) => {
-      console.log(">>> Tauri drag-drop event triggered:", event.payload);
-      const paths = event.payload.paths;
-      console.log("Dropped files:", paths);
-
-      setIsHovering(false);
-
-      // Check if a single folder was dropped - set as output path
-      if (paths.length === 1) {
-        try {
-          const isDir = await invoke<boolean>("is_directory", { path: paths[0] });
-          if (isDir) {
-            console.log("Setting output path to:", paths[0]);
-            setOutputPath(paths[0]);
-            setIsProcessing(true);
-            setTimeout(() => setIsProcessing(false), 1000);
-            return;
-          }
-        } catch (err) {
-          console.error("Failed to check if directory:", err);
-        }
-      }
-
-      // Process files normally
-      setIsProcessing(true);
-
-      try {
-        await invoke("process_files", {
-          paths,
-          targetDir: outputPath || null
-        });
-      } catch (err) {
-        console.error("Failed to process files:", err);
-      }
-
-      setTimeout(() => {
-        setIsProcessing(false);
-      }, 1000);
-    });
-
-    return () => {
-      unlistenEnter.then((fn) => fn());
-      unlistenLeave.then((fn) => fn());
-      unlistenDrop.then((fn) => fn());
-    };
-  }, [outputPath]);
 
   // Handle paste event - check for video URL first, then image URL, then clipboard files
   const handlePaste = async (e: React.ClipboardEvent) => {
@@ -266,7 +207,34 @@ function App() {
     e.preventDefault();
     setIsHovering(false);
 
-    // Debug logging
+    // 1. 检测是否为本地文件夹拖拽（使用 webkitGetAsEntry）
+    if (e.dataTransfer.items.length > 0) {
+      const item = e.dataTransfer.items[0];
+      const entry = (item as any).webkitGetAsEntry?.();
+
+      if (entry?.isDirectory) {
+        console.log("检测到文件夹拖拽，触发目录选择对话框");
+        try {
+          const selected = await open({
+            directory: true,
+            multiple: false,
+            title: "确认素材导出路径",
+          });
+
+          if (selected && typeof selected === "string") {
+            console.log("用户选择的路径:", selected);
+            setOutputPath(selected);
+            setIsProcessing(true);
+            setTimeout(() => setIsProcessing(false), 1000);
+          }
+        } catch (err) {
+          console.error("打开目录选择器失败:", err);
+        }
+        return;
+      }
+    }
+
+    // 2. Debug logging
     console.log("Drop types:", e.dataTransfer.types);
     console.log("text/uri-list:", e.dataTransfer.getData("text/uri-list"));
     console.log("text/plain:", e.dataTransfer.getData("text/plain"));
