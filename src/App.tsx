@@ -52,7 +52,10 @@ function App() {
 
     const saveConfig = async () => {
       try {
-        const config = { outputPath };
+        // Read existing config first, then merge update
+        const configStr = await invoke<string>("get_config");
+        const config = JSON.parse(configStr);
+        config.outputPath = outputPath;
         await invoke("save_config", { json: JSON.stringify(config) });
         console.log("Saved config:", config);
       } catch (err) {
