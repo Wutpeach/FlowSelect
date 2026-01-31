@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from 'react-dom';
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -704,24 +705,51 @@ function App() {
       </button>
 
       {/* 自定义右键菜单 */}
-      {contextMenu && (
+      {contextMenu && createPortal(
         <>
           <div
-            className="fixed inset-0"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9998,
+            }}
             onClick={closeContextMenu}
           />
           <div
-            className="fixed bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg shadow-lg py-1 min-w-[140px] z-50"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
+            style={{
+              position: 'fixed',
+              left: contextMenu.x,
+              top: contextMenu.y,
+              backgroundColor: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              borderRadius: 8,
+              padding: '4px 0',
+              minWidth: 140,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+              zIndex: 9999,
+            }}
           >
             <button
               onClick={openOutputFolder}
-              className="w-full px-3 py-2 text-left text-sm text-[#e0e0e0] hover:bg-[#404040] transition-colors"
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                textAlign: 'left',
+                fontSize: 13,
+                color: '#e0e0e0',
+                backgroundColor: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'background-color 0.15s',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#404040'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
               Open Folder
             </button>
           </div>
-        </>
+        </>,
+        document.body
       )}
 
     </motion.div>
