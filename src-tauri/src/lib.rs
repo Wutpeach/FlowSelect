@@ -755,7 +755,8 @@ pub fn run() {
             // Create Tray Menu
             let quit_i = MenuItem::with_id(app, "quit", "Quit FlowSelect", true, None::<&str>)?;
             let show_i = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+            let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &settings_i, &quit_i])?;
 
             // Build Tray Icon
             let _tray = TrayIconBuilder::new()
@@ -771,6 +772,24 @@ pub fn run() {
                             let _ = window.show();
                             let _ = window.set_focus();
                             let _ = window.set_skip_taskbar(true);
+                        }
+                    }
+                    "settings" => {
+                        if let Some(window) = app.get_webview_window("settings") {
+                            let _ = window.set_focus();
+                        } else {
+                            let _ = tauri::WebviewWindowBuilder::new(
+                                app,
+                                "settings",
+                                tauri::WebviewUrl::App("/settings".into()),
+                            )
+                            .title("Settings")
+                            .inner_size(320.0, 400.0)
+                            .center()
+                            .decorations(false)
+                            .transparent(true)
+                            .resizable(false)
+                            .build();
                         }
                     }
                     _ => {}
