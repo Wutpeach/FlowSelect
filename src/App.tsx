@@ -257,8 +257,32 @@ function App() {
       return;
     }
 
-    // If not a URL, let Tauri handle it (file drop)
-    console.log("Not an image URL, letting Tauri handle it");
+    // If URL not recognized but files exist, try reading from dataTransfer.files
+    if (e.dataTransfer.files.length > 0) {
+      console.log("URL not recognized, trying dataTransfer.files...");
+      setIsProcessing(true);
+      const file = e.dataTransfer.files[0];
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const base64 = btoa(
+          new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+        );
+        const mimeType = file.type || "image/gif";
+        const dataUrl = `data:${mimeType};base64,${base64}`;
+        const saveResult = await invoke<string>("save_data_url", {
+          dataUrl,
+          targetDir: outputPath || null,
+        });
+        console.log("Save from dataTransfer.files result:", saveResult);
+      } catch (fileErr) {
+        console.error("Failed to read from dataTransfer.files:", fileErr);
+      }
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
+    }
+
+    // If not a URL and no files, let Tauri handle it
+    console.log("Not an image URL and no files, letting Tauri handle it");
   };
 
   // Open settings window
