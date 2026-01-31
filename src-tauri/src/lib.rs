@@ -187,7 +187,7 @@ fn download_image(url: String, target_dir: Option<String>) -> Result<String, Str
 }
 
 #[tauri::command]
-fn save_data_url(data_url: String, target_dir: Option<String>) -> Result<String, String> {
+fn save_data_url(data_url: String, target_dir: Option<String>, original_filename: Option<String>) -> Result<String, String> {
     use base64::Engine;
     println!(">>> [Rust] Saving data URL");
 
@@ -203,16 +203,28 @@ fn save_data_url(data_url: String, target_dir: Option<String>) -> Result<String,
     let metadata = &data_url[..comma_pos];
     let base64_data = &data_url[comma_pos + 1..];
 
-    // Extract MIME type and determine extension
+    // Extract MIME type
     let mime_type = metadata.split(';').next().unwrap_or("image/jpeg");
-    let ext = match mime_type {
-        "image/jpeg" => "jpg",
-        "image/png" => "png",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "image/bmp" => "bmp",
-        "image/svg+xml" => "svg",
-        _ => "jpg",
+
+    // Prefer extension from original filename, otherwise infer from MIME type
+    let ext = if let Some(ref filename) = original_filename {
+        std::path::Path::new(filename)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("bin")
+    } else {
+        match mime_type {
+            "image/jpeg" => "jpg",
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            "image/bmp" => "bmp",
+            "image/svg+xml" => "svg",
+            "video/mp4" => "mp4",
+            "video/webm" => "webm",
+            "video/quicktime" => "mov",
+            _ => "bin",
+        }
     };
 
     // Decode base64 data
