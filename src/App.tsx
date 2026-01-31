@@ -22,6 +22,12 @@ function App() {
     speed: string;
     eta: string;
   } | null>(null);
+  const [ytdlpUpdate, setYtdlpUpdate] = useState<{
+    current: string;
+    latest: string;
+    updateAvailable: boolean;
+  } | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -69,6 +75,17 @@ function App() {
       unlistenProgress.then(fn => fn());
       unlistenComplete.then(fn => fn());
     };
+  }, []);
+
+  // Check yt-dlp version on startup
+  useEffect(() => {
+    invoke<{ current: string; latest: string; updateAvailable: boolean }>("check_ytdlp_version")
+      .then((result) => {
+        if (result.updateAvailable) {
+          setYtdlpUpdate(result);
+        }
+      })
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -367,6 +384,18 @@ function App() {
     });
   };
 
+  // Handle yt-dlp update
+  const handleYtdlpUpdate = async () => {
+    setIsUpdating(true);
+    try {
+      await invoke("update_ytdlp");
+      setYtdlpUpdate(null);
+    } catch (err) {
+      console.error("Failed to update yt-dlp:", err);
+    }
+    setIsUpdating(false);
+  };
+
   return (
     <motion.div
       data-tauri-drag-region
@@ -513,6 +542,57 @@ function App() {
       >
         {downloadProgress ? `ETA: ${downloadProgress.eta}` : isHovering ? "Release to drop" : "Drop files here"}
       </p>
+
+      {/* yt-dlp update indicator */}
+      {ytdlpUpdate && (
+        <button
+          onClick={handleYtdlpUpdate}
+          disabled={isUpdating}
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            right: 28,
+            width: 16,
+            height: 16,
+            border: 'none',
+            borderRadius: 4,
+            backgroundColor: 'transparent',
+            cursor: isUpdating ? 'wait' : 'pointer',
+            padding: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: isPanelHovered ? 1 : 0,
+            transition: 'opacity 0.2s ease',
+            pointerEvents: isPanelHovered ? 'auto' : 'none',
+            zIndex: 10,
+          }}
+          title={isUpdating ? "Updating..." : `Update yt-dlp: ${ytdlpUpdate.current} → ${ytdlpUpdate.latest}`}
+        >
+          {isUpdating ? (
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              style={{ width: 10, height: 10 }}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10">
+                <circle cx="5" cy="5" r="4" fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="12" strokeDashoffset="4" />
+              </svg>
+            </motion.div>
+          ) : (
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                backgroundColor: '#ef4444',
+                display: 'block',
+                boxShadow: '0 0 6px rgba(239, 68, 68, 0.6)',
+              }}
+            />
+          )}
+        </button>
+      )}
 
       {/* Settings button - bottom right rectangle */}
       <button
