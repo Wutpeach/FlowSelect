@@ -19,6 +19,9 @@ struct RegisteredShortcut {
     current: Mutex<Option<Shortcut>>,
 }
 
+// Store current download process PID
+static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
+
 #[tauri::command]
 fn get_clipboard_files() -> Result<Vec<String>, String> {
     let file_list: Vec<String> = get_clipboard(formats::FileList)
@@ -349,12 +352,15 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
 
     // Spawn yt-dlp process
     let shell = app.shell();
-    let (mut rx, _child) = shell
+    let (mut rx, child) = shell
         .sidecar("yt-dlp")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?
         .args(&args)
         .spawn()
         .map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
+
+    // Store child process PID for cancellation
+    *DOWNLOAD_CHILD.lock().unwrap() = Some(child.pid());
 
     let mut stdout_buffer = String::new();
     let mut stderr_buffer = String::new();
@@ -390,6 +396,9 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
                 stderr_buffer.push('\n');
             }
             CommandEvent::Terminated(payload) => {
+                // Clear download PID
+                *DOWNLOAD_CHILD.lock().unwrap() = None;
+
                 // Cleanup temp cookies profile
                 if let Some(ref profile_path) = temp_profile_path {
                     if let Err(e) = fs::remove_dir_all(profile_path) {
@@ -425,6 +434,20 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         file_path: None,
         error: Some("Process ended unexpectedly".to_string()),
     })
+}
+
+#[tauri::command]
+async fn cancel_download() -> Result<bool, String> {
+    if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
+        // Windows: taskkill /PID xxx /F
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 /// Get browser cookies database path (Windows)
@@ -909,6 +932,7 @@ pub fn run() {
             download_image,
             save_data_url,
             download_video,
+            cancel_download,
             check_ytdlp_version,
             update_ytdlp,
             is_directory,
