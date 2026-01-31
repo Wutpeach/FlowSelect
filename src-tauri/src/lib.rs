@@ -8,7 +8,7 @@ use dirs::desktop_dir;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager,
+    AppHandle, Emitter, Manager,
 };
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -243,22 +243,32 @@ fn save_data_url(data_url: String, target_dir: Option<String>) -> Result<String,
     Ok(dest_path.to_string_lossy().to_string())
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 pub struct DownloadResult {
     pub success: bool,
     pub file_path: Option<String>,
     pub error: Option<String>,
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct DownloadProgress {
+    pub percent: f32,
+    pub speed: String,
+    pub eta: String,
+}
+
 #[tauri::command]
 async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, String> {
+    use tauri_plugin_shell::process::CommandEvent;
+
     println!(">>> [Rust] Starting video download: {}", url);
 
-    // Get output directory from config
+    // Get config
     let config_str = get_config(app.clone())?;
     let config: serde_json::Value = serde_json::from_str(&config_str)
         .map_err(|e| format!("Failed to parse config: {}", e))?;
 
+    // Get output directory
     let output_dir = config
         .get("outputPath")
         .and_then(|v| v.as_str())
@@ -277,51 +287,136 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
 
     let output_template = output_dir.join("%(title)s.%(ext)s");
 
-    // Execute yt-dlp sidecar
+    // Build args
+    let mut args = vec![
+        "-f".to_string(),
+        "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best".to_string(),
+        "--merge-output-format".to_string(),
+        "mp4".to_string(),
+        "--newline".to_string(),
+        "--progress".to_string(),
+        "-o".to_string(),
+        output_template.to_string_lossy().to_string(),
+    ];
+
+    // Add cookies support if enabled
+    let cookies_enabled = config
+        .get("cookiesEnabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if cookies_enabled {
+        if let Some(browser) = config.get("cookiesBrowser").and_then(|v| v.as_str()) {
+            let valid_browsers = ["chrome", "edge", "firefox", "brave"];
+            if valid_browsers.contains(&browser) {
+                args.push("--cookies-from-browser".to_string());
+                args.push(browser.to_string());
+                println!(">>> [Rust] Using cookies from browser: {}", browser);
+            }
+        }
+    }
+
+    args.push(url.clone());
+
+    // Spawn yt-dlp process
     let shell = app.shell();
-    let output = shell
+    let (mut rx, _child) = shell
         .sidecar("yt-dlp")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?
-        .args([
-            "-f",
-            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "--merge-output-format",
-            "mp4",
-            "-o",
-            &output_template.to_string_lossy(),
-            &url,
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+        .args(&args)
+        .spawn()
+        .map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut stdout_buffer = String::new();
+    let mut stderr_buffer = String::new();
+    let mut last_file_path: Option<String> = None;
 
-    println!(">>> [Rust] yt-dlp stdout: {}", stdout);
-    println!(">>> [Rust] yt-dlp stderr: {}", stderr);
+    // Process events from yt-dlp
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stdout(line) => {
+                let line_str = String::from_utf8_lossy(&line);
+                println!(">>> [yt-dlp] {}", line_str);
+                stdout_buffer.push_str(&line_str);
+                stdout_buffer.push('\n');
 
-    if output.status.success() {
-        // Try to extract the output file path from stdout
-        let file_path = stdout
-            .lines()
-            .find(|line| line.contains("[Merger]") || line.contains("Destination:"))
-            .and_then(|line| line.split(':').last())
-            .map(|s| s.trim().to_string())
-            .or_else(|| Some(output_dir.to_string_lossy().to_string()));
+                // Parse progress line: [download] XX.X% of XXX at XXX ETA XXX
+                if line_str.contains("[download]") && line_str.contains("%") {
+                    if let Some(progress) = parse_progress(&line_str) {
+                        let _ = app.emit("video-download-progress", progress);
+                    }
+                }
 
-        Ok(DownloadResult {
-            success: true,
-            file_path,
-            error: None,
-        })
-    } else {
-        Ok(DownloadResult {
-            success: false,
-            file_path: None,
-            error: Some(stderr.to_string()),
-        })
+                // Capture file path
+                if line_str.contains("[Merger]") || line_str.contains("Destination:") {
+                    if let Some(path) = line_str.split(':').last() {
+                        last_file_path = Some(path.trim().to_string());
+                    }
+                }
+            }
+            CommandEvent::Stderr(line) => {
+                let line_str = String::from_utf8_lossy(&line);
+                println!(">>> [yt-dlp stderr] {}", line_str);
+                stderr_buffer.push_str(&line_str);
+                stderr_buffer.push('\n');
+            }
+            CommandEvent::Terminated(payload) => {
+                let success = payload.code == Some(0);
+                let result = DownloadResult {
+                    success,
+                    file_path: if success {
+                        last_file_path.clone().or_else(|| Some(output_dir.to_string_lossy().to_string()))
+                    } else {
+                        None
+                    },
+                    error: if success { None } else { Some(stderr_buffer.clone()) },
+                };
+
+                // Emit completion event
+                let _ = app.emit("video-download-complete", result.clone());
+
+                return Ok(result);
+            }
+            _ => {}
+        }
     }
+
+    // Fallback if loop exits without Terminated event
+    Ok(DownloadResult {
+        success: false,
+        file_path: None,
+        error: Some("Process ended unexpectedly".to_string()),
+    })
+}
+
+/// Parse yt-dlp progress line: [download] XX.X% of XXX at XXX ETA XXX
+fn parse_progress(line: &str) -> Option<DownloadProgress> {
+    // Extract percentage
+    let percent = line
+        .split('%')
+        .next()?
+        .split_whitespace()
+        .last()?
+        .parse::<f32>()
+        .ok()?;
+
+    // Extract speed (after "at")
+    let speed = line
+        .split(" at ")
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .unwrap_or("N/A")
+        .to_string();
+
+    // Extract ETA
+    let eta = line
+        .split("ETA ")
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .unwrap_or("N/A")
+        .to_string();
+
+    Some(DownloadProgress { percent, speed, eta })
 }
 
 fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
