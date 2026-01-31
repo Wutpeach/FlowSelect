@@ -348,6 +348,7 @@ function App() {
                 const saveResult = await invoke<string>("save_data_url", {
                   dataUrl,
                   targetDir: outputPath || null,
+                  originalFilename: file.name,
                 });
                 console.log("Save from dataTransfer.files result:", saveResult);
               } catch (fileErr) {
@@ -412,6 +413,7 @@ function App() {
             await invoke<string>("save_data_url", {
               dataUrl,
               targetDir: outputPath || null,
+              originalFilename: file.name,
             });
           } catch (fileErr) {
             console.error("Failed to process file:", file.name, fileErr);
