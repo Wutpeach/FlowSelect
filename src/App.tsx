@@ -110,7 +110,7 @@ function App() {
 
     // Tauri v2: drag-drop
     const unlistenDrop = listen<DropPayload>("tauri://drag-drop", async (event) => {
-      console.log("Event triggered: drag-drop", event.payload);
+      console.log(">>> Tauri drag-drop event triggered:", event.payload);
       const paths = event.payload.paths;
       console.log("Dropped files:", paths);
 
