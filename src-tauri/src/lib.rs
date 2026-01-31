@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use clipboard_win::{formats, get_clipboard};
@@ -326,13 +326,21 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
+    let mut temp_profile_path: Option<PathBuf> = None;
+
     if cookies_enabled {
         if let Some(browser) = config.get("cookiesBrowser").and_then(|v| v.as_str()) {
             let valid_browsers = ["chrome", "edge", "firefox", "brave"];
             if valid_browsers.contains(&browser) {
-                args.push("--cookies-from-browser".to_string());
-                args.push(browser.to_string());
-                println!(">>> [Rust] Using cookies from browser: {}", browser);
+                // Try to prepare cookies profile
+                if let Some(profile_path) = prepare_cookies_profile(browser) {
+                    args.push("--cookies-from-browser".to_string());
+                    args.push(format!("{}:{}", browser, profile_path.to_string_lossy()));
+                    temp_profile_path = Some(profile_path);
+                    println!(">>> [Rust] Using cookies from browser: {} with profile: {:?}", browser, temp_profile_path);
+                } else {
+                    println!(">>> [Rust] Warning: Could not prepare cookies profile for {}, continuing without cookies", browser);
+                }
             }
         }
     }
@@ -382,6 +390,15 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
                 stderr_buffer.push('\n');
             }
             CommandEvent::Terminated(payload) => {
+                // Cleanup temp cookies profile
+                if let Some(ref profile_path) = temp_profile_path {
+                    if let Err(e) = fs::remove_dir_all(profile_path) {
+                        println!(">>> [Rust] Warning: Failed to cleanup temp profile: {}", e);
+                    } else {
+                        println!(">>> [Rust] Cleaned up temp cookies profile");
+                    }
+                }
+
                 let success = payload.code == Some(0);
                 let result = DownloadResult {
                     success,
@@ -408,6 +425,118 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         file_path: None,
         error: Some("Process ended unexpectedly".to_string()),
     })
+}
+
+/// Get browser cookies database path (Windows)
+fn get_browser_cookies_path(browser: &str) -> Option<PathBuf> {
+    match browser {
+        "edge" => {
+            std::env::var("LOCALAPPDATA").ok().map(|local| {
+                PathBuf::from(local)
+                    .join("Microsoft")
+                    .join("Edge")
+                    .join("User Data")
+                    .join("Default")
+                    .join("Network")
+                    .join("Cookies")
+            })
+        }
+        "chrome" => {
+            std::env::var("LOCALAPPDATA").ok().map(|local| {
+                PathBuf::from(local)
+                    .join("Google")
+                    .join("Chrome")
+                    .join("User Data")
+                    .join("Default")
+                    .join("Network")
+                    .join("Cookies")
+            })
+        }
+        "brave" => {
+            std::env::var("LOCALAPPDATA").ok().map(|local| {
+                PathBuf::from(local)
+                    .join("BraveSoftware")
+                    .join("Brave-Browser")
+                    .join("User Data")
+                    .join("Default")
+                    .join("Network")
+                    .join("Cookies")
+            })
+        }
+        "firefox" => {
+            // Firefox uses a different structure with random profile names
+            std::env::var("APPDATA").ok().and_then(|appdata| {
+                let profiles_dir = PathBuf::from(appdata)
+                    .join("Mozilla")
+                    .join("Firefox")
+                    .join("Profiles");
+
+                if !profiles_dir.exists() {
+                    return None;
+                }
+
+                // Find profile directory matching *.default* pattern
+                fs::read_dir(&profiles_dir)
+                    .ok()?
+                    .filter_map(|e| e.ok())
+                    .find(|entry| {
+                        entry.file_name()
+                            .to_string_lossy()
+                            .contains("default")
+                    })
+                    .map(|entry| entry.path().join("cookies.sqlite"))
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Prepare temporary cookies profile for yt-dlp
+fn prepare_cookies_profile(browser: &str) -> Option<PathBuf> {
+    let cookies_path = get_browser_cookies_path(browser)?;
+
+    if !cookies_path.exists() {
+        println!(">>> [Rust] Warning: Cookies file not found: {:?}", cookies_path);
+        return None;
+    }
+
+    // Create temp profile directory
+    let temp_dir = std::env::temp_dir();
+    let profile_dir = temp_dir.join(format!("flowselect_cookies_{}", browser));
+
+    // For Firefox, the structure is different
+    if browser == "firefox" {
+        // Firefox: temp_dir/flowselect_cookies_firefox/cookies.sqlite
+        if let Err(e) = fs::create_dir_all(&profile_dir) {
+            println!(">>> [Rust] Warning: Failed to create temp profile dir: {}", e);
+            return None;
+        }
+
+        let dest_path = profile_dir.join("cookies.sqlite");
+        if let Err(e) = fs::copy(&cookies_path, &dest_path) {
+            println!(">>> [Rust] Warning: Failed to copy cookies: {}", e);
+            return None;
+        }
+
+        println!(">>> [Rust] Copied Firefox cookies to: {:?}", dest_path);
+    } else {
+        // Chromium-based: temp_dir/flowselect_cookies_{browser}/Default/Network/Cookies
+        let network_dir = profile_dir.join("Default").join("Network");
+        if let Err(e) = fs::create_dir_all(&network_dir) {
+            println!(">>> [Rust] Warning: Failed to create temp profile dir: {}", e);
+            return None;
+        }
+
+        let dest_path = network_dir.join("Cookies");
+        if let Err(e) = fs::copy(&cookies_path, &dest_path) {
+            println!(">>> [Rust] Warning: Failed to copy cookies: {}", e);
+            return None;
+        }
+
+        println!(">>> [Rust] Copied {} cookies to: {:?}", browser, dest_path);
+    }
+
+    Some(profile_dir)
 }
 
 /// Parse yt-dlp progress line: [download] XX.X% of XXX at XXX ETA XXX
