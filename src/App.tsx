@@ -617,6 +617,7 @@ function App() {
               onClick={async () => {
                 try {
                   await invoke("cancel_download");
+                  setDownloadProgress(null);
                 } catch (err) {
                   console.error("Failed to cancel download:", err);
                 }
