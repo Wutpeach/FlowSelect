@@ -313,21 +313,26 @@ function App() {
           // If copy failed (0 files), try reading from dataTransfer.files
           if (copyResult.includes("Copied 0 files") && e.dataTransfer.files.length > 0) {
             console.log("Local file not found, trying dataTransfer.files...");
-            const file = e.dataTransfer.files[0];
-            try {
-              const arrayBuffer = await file.arrayBuffer();
-              const base64 = btoa(
-                new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-              );
-              const mimeType = file.type || "image/jpeg";
-              const dataUrl = `data:${mimeType};base64,${base64}`;
-              const saveResult = await invoke<string>("save_data_url", {
-                dataUrl,
-                targetDir: outputPath || null,
-              });
-              console.log("Save from dataTransfer.files result:", saveResult);
-            } catch (fileErr) {
-              console.error("Failed to read from dataTransfer.files:", fileErr);
+            for (const file of Array.from(e.dataTransfer.files)) {
+              if (!file.type.startsWith("image/")) {
+                console.log("Skipping non-image file:", file.name);
+                continue;
+              }
+              try {
+                const arrayBuffer = await file.arrayBuffer();
+                const base64 = btoa(
+                  new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+                );
+                const dataUrl = `data:${file.type};base64,${base64}`;
+                const saveResult = await invoke<string>("save_data_url", {
+                  dataUrl,
+                  targetDir: outputPath || null,
+                });
+                console.log("Save from dataTransfer.files result:", saveResult);
+              } catch (fileErr) {
+                console.error("Failed to process file:", file.name, fileErr);
+                checkSequenceOverflow(fileErr);
+              }
             }
           }
         } else {
@@ -350,23 +355,53 @@ function App() {
     if (e.dataTransfer.files.length > 0) {
       console.log("URL not recognized, trying dataTransfer.files...");
       setIsProcessing(true);
-      const file = e.dataTransfer.files[0];
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const base64 = btoa(
-          new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-        );
-        const mimeType = file.type || "image/gif";
-        const dataUrl = `data:${mimeType};base64,${base64}`;
-        const saveResult = await invoke<string>("save_data_url", {
-          dataUrl,
-          targetDir: outputPath || null,
-        });
-        console.log("Save from dataTransfer.files result:", saveResult);
-      } catch (fileErr) {
-        console.error("Failed to read from dataTransfer.files:", fileErr);
-        checkSequenceOverflow(fileErr);
+
+      // 收集所有文件路径
+      const filePaths: string[] = [];
+      for (const file of Array.from(e.dataTransfer.files)) {
+        // 尝试获取本地路径 (Electron/Tauri 环境)
+        const path = (file as any).path;
+        if (path) {
+          filePaths.push(path);
+        }
       }
+
+      if (filePaths.length > 0) {
+        // 有本地路径，直接复制文件
+        try {
+          const copyResult = await invoke<string>("process_files", {
+            paths: filePaths,
+            targetDir: outputPath || null,
+          });
+          console.log("Copy result:", copyResult);
+        } catch (err) {
+          console.error("Failed to copy files:", err);
+          checkSequenceOverflow(err);
+        }
+      } else {
+        // 无本地路径，回退到 base64（仅处理图片）
+        for (const file of Array.from(e.dataTransfer.files)) {
+          if (!file.type.startsWith("image/")) {
+            console.log("Skipping non-image file:", file.name);
+            continue;
+          }
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            const base64 = btoa(
+              new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+            );
+            const dataUrl = `data:${file.type};base64,${base64}`;
+            await invoke<string>("save_data_url", {
+              dataUrl,
+              targetDir: outputPath || null,
+            });
+          } catch (fileErr) {
+            console.error("Failed to process file:", file.name, fileErr);
+            checkSequenceOverflow(fileErr);
+          }
+        }
+      }
+
       setTimeout(() => setIsProcessing(false), 1000);
       return;
     }
