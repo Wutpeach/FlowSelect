@@ -717,6 +717,11 @@ fn unregister_shortcut(app: AppHandle, shortcut: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn is_directory(path: String) -> bool {
+    Path::new(&path).is_dir()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -743,7 +748,8 @@ pub fn run() {
             save_data_url,
             download_video,
             check_ytdlp_version,
-            update_ytdlp
+            update_ytdlp,
+            is_directory
         ])
         .setup(|app| {
             // Create Tray Menu
