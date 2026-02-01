@@ -20,7 +20,8 @@
         "transparent": true,
         "resizable": false,
         "alwaysOnTop": true,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "backgroundColor": "#00000000"
       }
     ],
     "security": {
