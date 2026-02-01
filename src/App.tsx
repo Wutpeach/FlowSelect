@@ -538,7 +538,7 @@ function App() {
         outline: 'none',
         backgroundColor: (isHovering || downloadProgress) ? '#404040' : '#2a2a2a',
         border: (isHovering || downloadProgress) ? '2px solid #3b82f6' : '1px solid #3a3a3a',
-        boxShadow: (isHovering || downloadProgress) ? '0 0 20px rgba(59,130,246,0.5)' : 'none',
+        boxShadow: (isHovering || downloadProgress) ? '0 0 20px rgba(59,130,246,0.5)' : '0 0 0 1px #2a2a2a',
       }}
     >
       {/* Close button - top right circle */}
