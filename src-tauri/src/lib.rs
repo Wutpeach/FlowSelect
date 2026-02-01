@@ -437,20 +437,56 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
 }
 
 #[tauri::command]
-async fn cancel_download() -> Result<bool, String> {
+async fn cancel_download(app: AppHandle) -> Result<bool, String> {
     println!(">>> [Rust] cancel_download called");
-    if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
+
+    // 1. 终止下载进程
+    let killed = if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
         println!(">>> [Rust] Killing process with PID: {}", pid);
         let result = std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output()
             .map_err(|e| e.to_string())?;
         println!(">>> [Rust] taskkill result: {:?}", result.status);
-        Ok(true)
+        true
     } else {
         println!(">>> [Rust] No download process to cancel");
-        Ok(false)
+        false
+    };
+
+    // 2. 清理 .part 临时文件
+    if killed {
+        // 等待一小段时间让进程完全终止
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // 获取输出目录
+        if let Ok(config_str) = get_config(app) {
+            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
+                let output_dir = config
+                    .get("outputPath")
+                    .and_then(|v| v.as_str())
+                    .map(|s| std::path::PathBuf::from(s))
+                    .unwrap_or_else(|| {
+                        desktop_dir()
+                            .unwrap_or_else(|| std::path::PathBuf::from("."))
+                            .join("FlowSelect_Received")
+                    });
+
+                // 扫描并删除 .part 文件
+                if let Ok(entries) = fs::read_dir(&output_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.extension().map_or(false, |ext| ext == "part") {
+                            println!(">>> [Rust] Deleting temp file: {:?}", path);
+                            let _ = fs::remove_file(&path);
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    Ok(killed)
 }
 
 /// Get browser cookies database path (Windows)
