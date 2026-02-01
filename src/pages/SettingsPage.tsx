@@ -362,6 +362,7 @@ function SettingsPage() {
             <div>
               <div style={{
                 width: '100%',
+                boxSizing: 'border-box',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
@@ -375,7 +376,7 @@ function SettingsPage() {
                 <Keyboard size={14} style={{ color: '#3b82f6', flexShrink: 0 }} />
                 <span>{recordedKeys || "Press keys..."}</span>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
                 <button
                   onClick={confirmShortcut}
                   disabled={!recordedKeys}
