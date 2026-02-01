@@ -65,10 +65,26 @@ jobs:
           $tauri.version = $version
           $tauri | ConvertTo-Json -Depth 10 | Set-Content "src-tauri/tauri.conf.json"
 
-          # Update Cargo.toml
-          $cargo = Get-Content "src-tauri/Cargo.toml" -Raw
-          $cargo = $cargo -replace 'version = "[\d.]+"', "version = `"$version`""
-          Set-Content "src-tauri/Cargo.toml" $cargo
+          # Update Cargo.toml - only replace version in [package] section
+          $cargoPath = "src-tauri/Cargo.toml"
+          $lines = Get-Content $cargoPath
+          $inPackage = $false
+          $updated = $false
+          $newLines = @()
+          foreach ($line in $lines) {
+            if ($line -match '^\[package\]') {
+              $inPackage = $true
+            } elseif ($line -match '^\[') {
+              $inPackage = $false
+            }
+            if ($inPackage -and !$updated -and $line -match '^version\s*=') {
+              $newLines += "version = `"$version`""
+              $updated = $true
+            } else {
+              $newLines += $line
+            }
+          }
+          $newLines | Set-Content $cargoPath
 
           Write-Host "Updated all config files to version: $version"
 
