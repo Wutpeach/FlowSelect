@@ -21,7 +21,8 @@
         "resizable": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "backgroundColor": "#00000000"
       }
     ],
     "security": {
