@@ -22,7 +22,8 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "dragDropEnabled": false,
-        "backgroundColor": "#00000000"
+        "backgroundColor": "#00000000",
+        "shadow": false
       }
     ],
     "security": {
