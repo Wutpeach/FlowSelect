@@ -604,8 +604,8 @@ function App() {
               gap: 4,
             }}
           >
-            <div className="relative w-12 h-12">
-              <svg className="w-12 h-12 -rotate-90">
+            <div style={{ position: 'relative', width: 48, height: 48 }}>
+              <svg style={{ width: 48, height: 48, transform: 'rotate(-90deg)' }}>
                 <circle
                   cx="24" cy="24" r="20"
                   fill="none"
@@ -620,14 +620,23 @@ function App() {
                   strokeLinecap="round"
                   strokeDasharray={`${2 * Math.PI * 20}`}
                   strokeDashoffset={`${2 * Math.PI * 20 * (1 - downloadProgress.percent / 100)}`}
-                  className="transition-all duration-300"
+                  style={{ transition: 'all 0.3s' }}
                 />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-xs text-blue-400 font-medium">
+              <span style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 12,
+                color: '#60a5fa',
+                fontWeight: 500,
+              }}>
                 {Math.round(downloadProgress.percent)}%
               </span>
             </div>
-            <span className="text-[10px] text-[#808080]">{downloadProgress.speed}</span>
+            <span style={{ fontSize: 10, color: '#808080' }}>{downloadProgress.speed}</span>
             {/* Cancel download button */}
             <button
               onClick={async () => {
