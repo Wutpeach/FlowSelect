@@ -596,7 +596,10 @@ function App() {
             exit={{ scale: 0, opacity: 0 }}
             style={{
               position: 'absolute',
-              inset: 0,
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -604,8 +607,23 @@ function App() {
               gap: 4,
             }}
           >
-            <div style={{ position: 'relative', width: 48, height: 48 }}>
-              <svg style={{ width: 48, height: 48, transform: 'rotate(-90deg)' }}>
+            <div style={{
+              position: 'relative',
+              width: 48,
+              height: 48,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <svg
+                width="48"
+                height="48"
+                viewBox="0 0 48 48"
+                style={{
+                  transform: 'rotate(-90deg)',
+                  display: 'block',
+                }}
+              >
                 <circle
                   cx="24" cy="24" r="20"
                   fill="none"
@@ -618,25 +636,22 @@ function App() {
                   stroke="#3b82f6"
                   strokeWidth="4"
                   strokeLinecap="round"
-                  strokeDasharray={`${2 * Math.PI * 20}`}
-                  strokeDashoffset={`${2 * Math.PI * 20 * (1 - downloadProgress.percent / 100)}`}
-                  style={{ transition: 'all 0.3s' }}
+                  strokeDasharray={2 * Math.PI * 20}
+                  strokeDashoffset={2 * Math.PI * 20 * (1 - downloadProgress.percent / 100)}
+                  style={{ transition: 'stroke-dashoffset 0.3s ease' }}
                 />
               </svg>
               <span style={{
                 position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 12,
-                color: '#60a5fa',
+                fontSize: 11,
                 fontWeight: 500,
+                color: '#60a5fa',
+                textAlign: 'center',
               }}>
                 {Math.round(downloadProgress.percent)}%
               </span>
             </div>
-            <span style={{ fontSize: 10, color: '#808080' }}>{downloadProgress.speed}</span>
+            <span style={{ fontSize: 10, color: '#808080', lineHeight: 1 }}>{downloadProgress.speed}</span>
             {/* Cancel download button */}
             <button
               onClick={async () => {
@@ -658,6 +673,7 @@ function App() {
                 if (svg) svg.style.color = '#606060';
               }}
               style={{
+                margin: 0,
                 marginTop: 4,
                 width: 20,
                 height: 20,
