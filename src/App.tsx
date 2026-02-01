@@ -648,11 +648,12 @@ function App() {
                 fontWeight: 500,
                 color: '#60a5fa',
                 textAlign: 'center',
+                userSelect: 'none',
               }}>
                 {Math.round(downloadProgress.percent)}%
               </span>
             </div>
-            <span style={{ fontSize: 10, color: '#808080', lineHeight: 1 }}>{downloadProgress.speed}</span>
+            <span style={{ fontSize: 10, color: '#808080', lineHeight: 1, userSelect: 'none' }}>{downloadProgress.speed}</span>
             {/* Cancel download button */}
             <button
               onClick={async () => {
