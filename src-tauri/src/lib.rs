@@ -740,8 +740,15 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
 
-    // Create temp file first, then rename
-    let temp_path = sidecar_path.with_extension("exe.tmp");
+    // 使用系统临时目录
+    let temp_path = std::env::temp_dir().join("yt-dlp-update.exe.tmp");
+
+    // 确保目标目录存在
+    if let Some(parent) = sidecar_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
 
     let mut file = tokio::fs::File::create(&temp_path)
         .await
@@ -777,16 +784,18 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
     file.flush().await.map_err(|e| format!("Flush error: {}", e))?;
     drop(file);
 
-    // Replace old file with new one
+    // Replace old file with new one (use copy + remove for cross-partition support)
     if sidecar_path.exists() {
         tokio::fs::remove_file(&sidecar_path)
             .await
             .map_err(|e| format!("Failed to remove old file: {}", e))?;
     }
 
-    tokio::fs::rename(&temp_path, &sidecar_path)
+    tokio::fs::copy(&temp_path, &sidecar_path)
         .await
-        .map_err(|e| format!("Failed to rename temp file: {}", e))?;
+        .map_err(|e| format!("Failed to copy temp file: {}", e))?;
+
+    let _ = tokio::fs::remove_file(&temp_path).await;
 
     println!(">>> [Rust] yt-dlp updated successfully");
 
