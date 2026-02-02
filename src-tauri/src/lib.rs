@@ -314,9 +314,12 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
     // Build args
     let mut args = vec![
         "-f".to_string(),
-        "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best".to_string(),
+        "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b".to_string(),
         "--merge-output-format".to_string(),
         "mp4".to_string(),
+        "--no-keep-video".to_string(),
+        "-S".to_string(),
+        "ext:mp4:m4a".to_string(),
         "--newline".to_string(),
         "--progress".to_string(),
         "-o".to_string(),
@@ -722,7 +725,9 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Failed to get resource dir: {}", e))?;
 
     let sidecar_path = resource_dir.join("binaries").join("yt-dlp-x86_64-pc-windows-msvc.exe");
-    println!(">>> [Rust] Sidecar path: {:?}", sidecar_path);
+    println!(">>> [Rust] resource_dir: {:?}", resource_dir);
+    println!(">>> [Rust] sidecar_path: {:?}", sidecar_path);
+    println!(">>> [Rust] sidecar_path exists: {}", sidecar_path.exists());
 
     // Download from GitHub
     let client = reqwest::Client::new();
