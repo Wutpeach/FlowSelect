@@ -12,6 +12,8 @@ function SettingsPage() {
   const [recordedKeys, setRecordedKeys] = useState("");
   const [cookiesEnabled, setCookiesEnabled] = useState(false);
   const [cookiesBrowser, setCookiesBrowser] = useState("chrome");
+  const [videoSeparateFolder, setVideoSeparateFolder] = useState(false);
+  const [videoKeepOriginalName, setVideoKeepOriginalName] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -27,6 +29,12 @@ function SettingsPage() {
         }
         if (config.cookiesBrowser) {
           setCookiesBrowser(config.cookiesBrowser);
+        }
+        if (config.videoSeparateFolder !== undefined) {
+          setVideoSeparateFolder(config.videoSeparateFolder);
+        }
+        if (config.videoKeepOriginalName !== undefined) {
+          setVideoKeepOriginalName(config.videoKeepOriginalName);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -176,6 +184,24 @@ function SettingsPage() {
     } catch (err) {
       console.error("Failed to change cookies browser:", err);
     }
+  };
+
+  const toggleVideoSeparateFolder = async () => {
+    const newValue = !videoSeparateFolder;
+    setVideoSeparateFolder(newValue);
+    const configStr = await invoke<string>("get_config");
+    const config = JSON.parse(configStr);
+    config.videoSeparateFolder = newValue;
+    await invoke("save_config", { json: JSON.stringify(config) });
+  };
+
+  const toggleVideoKeepOriginalName = async () => {
+    const newValue = !videoKeepOriginalName;
+    setVideoKeepOriginalName(newValue);
+    const configStr = await invoke<string>("get_config");
+    const config = JSON.parse(configStr);
+    config.videoKeepOriginalName = newValue;
+    await invoke("save_config", { json: JSON.stringify(config) });
   };
 
   const truncatePath = (path: string, maxLen = 25) => {
@@ -353,6 +379,68 @@ function SettingsPage() {
               <option value="brave">Brave</option>
             </select>
           )}
+        </div>
+
+        {/* Video Separate Folder */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+            Save Videos to Separate Folder
+          </label>
+          <button
+            onClick={toggleVideoSeparateFolder}
+            style={{
+              width: 44,
+              height: 24,
+              borderRadius: 12,
+              backgroundColor: videoSeparateFolder ? '#3b82f6' : '#3a3a3a',
+              border: 'none',
+              cursor: 'pointer',
+              position: 'relative',
+              transition: 'background-color 0.2s',
+            }}
+          >
+            <span style={{
+              position: 'absolute',
+              top: 4,
+              left: videoSeparateFolder ? 24 : 4,
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              backgroundColor: 'white',
+              transition: 'left 0.2s',
+            }} />
+          </button>
+        </div>
+
+        {/* Keep Original Video Name */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+            Keep Original Video Name
+          </label>
+          <button
+            onClick={toggleVideoKeepOriginalName}
+            style={{
+              width: 44,
+              height: 24,
+              borderRadius: 12,
+              backgroundColor: videoKeepOriginalName ? '#3b82f6' : '#3a3a3a',
+              border: 'none',
+              cursor: 'pointer',
+              position: 'relative',
+              transition: 'background-color 0.2s',
+            }}
+          >
+            <span style={{
+              position: 'absolute',
+              top: 4,
+              left: videoKeepOriginalName ? 24 : 4,
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              backgroundColor: 'white',
+              transition: 'left 0.2s',
+            }} />
+          </button>
         </div>
 
         {/* Shortcut */}
