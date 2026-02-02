@@ -598,7 +598,6 @@ function App() {
         width: 200,
         height: 200,
         borderRadius: 16,
-        overflow: 'hidden',
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
@@ -623,19 +622,22 @@ function App() {
         <div
           style={{
             position: 'absolute',
-            inset: -1,
-            borderRadius: 17,
+            inset: -2,
+            borderRadius: 18,
             pointerEvents: 'none',
             background: `conic-gradient(
               from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
               transparent 0deg,
-              rgba(59,130,246,0.6) 60deg,
-              transparent 120deg
+              rgba(59,130,246,0.9) 45deg,
+              rgba(96,165,250,1) 90deg,
+              rgba(59,130,246,0.9) 135deg,
+              transparent 180deg
             )`,
             mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
             maskComposite: 'exclude',
             WebkitMaskComposite: 'xor',
-            padding: 2,
+            padding: 3,
+            filter: 'blur(1px)',
           }}
         />
       )}
