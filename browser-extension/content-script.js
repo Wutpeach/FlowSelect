@@ -1,0 +1,56 @@
+// FlowSelect Browser Extension - Content Script
+// Entry point for element picker
+
+(function() {
+  'use strict';
+
+  let pickerActive = false;
+  let picker = null;
+
+  // Listen for messages from background script
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    switch (message.type) {
+      case 'start_picker':
+        startPicker();
+        sendResponse({ success: true });
+        break;
+      case 'stop_picker':
+        stopPicker();
+        sendResponse({ success: true });
+        break;
+    }
+    return true;
+  });
+
+  function startPicker() {
+    console.log('[FlowSelect] startPicker called');
+    if (pickerActive) return;
+    pickerActive = true;
+
+    // Dynamically load picker.js if not already loaded
+    if (!picker) {
+      picker = new FlowSelectPicker({
+        onSelect: handleVideoSelect,
+        onCancel: stopPicker
+      });
+    }
+    picker.start();
+  }
+
+  function stopPicker() {
+    if (!pickerActive) return;
+    pickerActive = false;
+    if (picker) {
+      picker.stop();
+    }
+  }
+
+  function handleVideoSelect(videoData) {
+    chrome.runtime.sendMessage({
+      type: 'video_selected',
+      url: videoData.src,
+      title: videoData.title || document.title
+    });
+    stopPicker();
+  }
+})();
