@@ -115,7 +115,9 @@ function SettingsPage() {
 
     const saveConfig = async () => {
       try {
-        const config = { outputPath };
+        const configStr = await invoke<string>("get_config");
+        const config = JSON.parse(configStr);
+        config.outputPath = outputPath;
         await invoke("save_config", { json: JSON.stringify(config) });
       } catch (err) {
         console.error("Failed to save config:", err);
