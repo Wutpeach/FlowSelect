@@ -4,6 +4,8 @@
 (function() {
   'use strict';
 
+  console.log('[FlowSelect Content] Script loaded');
+
   let pickerActive = false;
   let picker = null;
 
@@ -11,6 +13,7 @@
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.type) {
       case 'start_picker':
+        console.log('[FlowSelect Content] Received start_picker');
         startPicker();
         sendResponse({ success: true });
         break;

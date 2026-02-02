@@ -21,9 +21,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Handle pick button click
   pickBtn.addEventListener('click', async () => {
+    console.log('[FlowSelect Popup] Pick button clicked');
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    console.log('[FlowSelect Popup] Tab:', tab);
     if (tab) {
-      await chrome.tabs.sendMessage(tab.id, { type: 'start_picker' });
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: 'start_picker' });
+        console.log('[FlowSelect Popup] Message sent');
+      } catch (e) {
+        console.error('[FlowSelect Popup] Send failed:', e);
+      }
       window.close();
     }
   });
