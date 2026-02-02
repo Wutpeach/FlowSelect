@@ -49,9 +49,6 @@ function App() {
         if (config.outputPath) {
           setOutputPath(config.outputPath);
         }
-        if (config.devMode !== undefined) {
-          setDevMode(config.devMode);
-        }
       } catch (err) {
         console.error("Failed to load config:", err);
       }
@@ -103,6 +100,14 @@ function App() {
           setOutputPath(config.outputPath);
         }
       }
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
+
+  // Listen for devMode changes from settings window
+  useEffect(() => {
+    const unlisten = listen<{ enabled: boolean }>("devmode-changed", (event) => {
+      setDevMode(event.payload.enabled);
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
