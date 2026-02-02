@@ -14,6 +14,7 @@ function SettingsPage() {
   const [cookiesBrowser, setCookiesBrowser] = useState("chrome");
   const [videoSeparateFolder, setVideoSeparateFolder] = useState(false);
   const [videoKeepOriginalName, setVideoKeepOriginalName] = useState(false);
+  const [devMode, setDevMode] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -35,6 +36,9 @@ function SettingsPage() {
         }
         if (config.videoKeepOriginalName !== undefined) {
           setVideoKeepOriginalName(config.videoKeepOriginalName);
+        }
+        if (config.devMode !== undefined) {
+          setDevMode(config.devMode);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -201,6 +205,15 @@ function SettingsPage() {
     const configStr = await invoke<string>("get_config");
     const config = JSON.parse(configStr);
     config.videoKeepOriginalName = newValue;
+    await invoke("save_config", { json: JSON.stringify(config) });
+  };
+
+  const toggleDevMode = async () => {
+    const newValue = !devMode;
+    setDevMode(newValue);
+    const configStr = await invoke<string>("get_config");
+    const config = JSON.parse(configStr);
+    config.devMode = newValue;
     await invoke("save_config", { json: JSON.stringify(config) });
   };
 
@@ -441,6 +454,40 @@ function SettingsPage() {
               transition: 'left 0.2s',
             }} />
           </button>
+        </div>
+
+        {/* Developer Mode */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+            Developer Mode (F12 DevTools)
+          </label>
+          <button
+            onClick={toggleDevMode}
+            style={{
+              width: 44,
+              height: 24,
+              borderRadius: 12,
+              backgroundColor: devMode ? '#3b82f6' : '#3a3a3a',
+              border: 'none',
+              cursor: 'pointer',
+              position: 'relative',
+              transition: 'background-color 0.2s',
+            }}
+          >
+            <span style={{
+              position: 'absolute',
+              top: 4,
+              left: devMode ? 24 : 4,
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              backgroundColor: 'white',
+              transition: 'left 0.2s',
+            }} />
+          </button>
+          <p style={{ fontSize: 10, color: '#606060', marginTop: 4 }}>
+            Restart app to apply changes
+          </p>
         </div>
 
         {/* Shortcut */}
