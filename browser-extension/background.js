@@ -88,7 +88,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (message.type === 'connect') {
     connect();
-    sendResponse({ success: true });
+    sendResponse({
+      success: true,
+      connected: ws && ws.readyState === WebSocket.OPEN
+    });
+  } else if (message.type === 'get_status') {
+    sendResponse({
+      connected: ws && ws.readyState === WebSocket.OPEN
+    });
   }
   return true;
 });
