@@ -981,6 +981,17 @@ fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn toggle_devtools(app: AppHandle, enabled: bool) {
+    if let Some(window) = app.get_webview_window("main") {
+        if enabled {
+            window.open_devtools();
+        } else {
+            window.close_devtools();
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1010,7 +1021,8 @@ pub fn run() {
             check_ytdlp_version,
             update_ytdlp,
             is_directory,
-            open_folder
+            open_folder,
+            toggle_devtools
         ])
         .setup(|app| {
             // Create Tray Menu
