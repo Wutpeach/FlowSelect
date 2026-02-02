@@ -16,6 +16,8 @@ use tauri::{
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
+use tokio_tungstenite::tungstenite::Message;
+use futures_util::{StreamExt, SinkExt};
 
 // Store current registered shortcut
 struct RegisteredShortcut {
@@ -1065,9 +1067,6 @@ async fn start_ws_server(app: AppHandle) -> Result<String, String> {
 }
 
 async fn handle_ws_connection(stream: tokio::net::TcpStream, app: AppHandle) {
-    use tokio_tungstenite::tungstenite::Message;
-    use futures_util::{StreamExt, SinkExt};
-
     let ws_stream = match tokio_tungstenite::accept_async(stream).await {
         Ok(ws) => ws,
         Err(e) => {
