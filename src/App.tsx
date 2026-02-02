@@ -515,6 +515,7 @@ function App() {
       decorations: false,
       transparent: true,
       resizable: false,
+      alwaysOnTop: true,
     });
   };
 
