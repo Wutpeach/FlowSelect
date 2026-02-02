@@ -93,6 +93,20 @@ function App() {
     };
   }, []);
 
+  // Listen for settings window close to reload config
+  useEffect(() => {
+    const unlisten = listen("tauri://close-requested", async (event: any) => {
+      if (event.windowLabel === "settings") {
+        const configStr = await invoke<string>("get_config");
+        const config = JSON.parse(configStr);
+        if (config.outputPath) {
+          setOutputPath(config.outputPath);
+        }
+      }
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
+
   // Check yt-dlp version on startup
   useEffect(() => {
     console.log(">>> Checking yt-dlp version...");
