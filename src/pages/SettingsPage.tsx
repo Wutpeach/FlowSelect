@@ -215,6 +215,8 @@ function SettingsPage() {
     const config = JSON.parse(configStr);
     config.devMode = newValue;
     await invoke("save_config", { json: JSON.stringify(config) });
+    // 即时切换 devtools
+    await invoke("toggle_devtools", { enabled: newValue });
   };
 
   const truncatePath = (path: string, maxLen = 25) => {
@@ -485,9 +487,6 @@ function SettingsPage() {
               transition: 'left 0.2s',
             }} />
           </button>
-          <p style={{ fontSize: 10, color: '#606060', marginTop: 4 }}>
-            Restart app to apply changes
-          </p>
         </div>
 
         {/* Shortcut */}
