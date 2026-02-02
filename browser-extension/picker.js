@@ -87,14 +87,20 @@ class FlowSelectPicker {
   }
 
   handleClick(event) {
+    console.log('[FlowSelect Picker] handleClick triggered');
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
 
+    console.log('[FlowSelect Picker] currentElement:', this.currentElement);
     if (this.currentElement) {
       const videoData = this.extractVideoData(this.currentElement);
+      console.log('[FlowSelect Picker] extractVideoData result:', videoData);
       if (videoData) {
+        console.log('[FlowSelect Picker] Calling onSelect');
         this.onSelect(videoData);
+      } else {
+        console.log('[FlowSelect Picker] No video data found');
       }
     }
   }

@@ -49,11 +49,13 @@
   }
 
   function handleVideoSelect(videoData) {
+    console.log('[FlowSelect Content] handleVideoSelect called:', videoData);
     chrome.runtime.sendMessage({
       type: 'video_selected',
       url: videoData.src,
       title: videoData.title || document.title
     });
+    console.log('[FlowSelect Content] Message sent to background');
     stopPicker();
   }
 })();
