@@ -1,0 +1,34 @@
+/* FlowSelect Browser Extension - Picker Styles */
+
+#flowselect-picker-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2147483647;
+}
+
+.flowselect-svg-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.flowselect-highlight {
+  fill: rgba(64, 158, 255, 0.2);
+  stroke: #409eff;
+  stroke-width: 2;
+  stroke-dasharray: 5, 3;
+}
+
+body.flowselect-picker-active {
+  cursor: crosshair !important;
+}
+
+body.flowselect-picker-active * {
+  cursor: crosshair !important;
+}
