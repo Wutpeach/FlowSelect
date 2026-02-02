@@ -1,5 +1,3 @@
-import { cn } from "../../lib/utils";
-
 interface NeonToggleProps {
   checked: boolean;
   onChange: () => void;
@@ -11,20 +9,29 @@ export function NeonToggle({ checked, onChange, disabled = false }: NeonTogglePr
     <button
       onClick={onChange}
       disabled={disabled}
-      className={cn(
-        "relative w-11 h-6 rounded-full transition-all duration-300 cursor-pointer",
-        checked
-          ? "bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.5)]"
-          : "bg-[#3a3a3a]",
-        disabled && "opacity-50 cursor-not-allowed"
-      )}
+      style={{
+        position: 'relative',
+        width: 44,
+        height: 24,
+        borderRadius: 12,
+        border: 'none',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+        backgroundColor: checked ? '#3b82f6' : '#3a3a3a',
+        boxShadow: checked ? '0 0 12px rgba(59,130,246,0.5)' : 'none',
+        transition: 'all 0.3s ease',
+      }}
     >
-      <span
-        className={cn(
-          "absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-200",
-          checked ? "left-6" : "left-1"
-        )}
-      />
+      <span style={{
+        position: 'absolute',
+        top: 4,
+        left: checked ? 24 : 4,
+        width: 16,
+        height: 16,
+        borderRadius: '50%',
+        backgroundColor: 'white',
+        transition: 'left 0.2s ease',
+      }} />
     </button>
   );
 }
