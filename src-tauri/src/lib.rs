@@ -2,6 +2,9 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::net::SocketAddr;
+
+use tokio::sync::broadcast;
 
 use clipboard_win::{formats, get_clipboard};
 use dirs::desktop_dir;
@@ -17,6 +20,26 @@ use tauri_plugin_shell::ShellExt;
 // Store current registered shortcut
 struct RegisteredShortcut {
     current: Mutex<Option<Shortcut>>,
+}
+
+// WebSocket Server state
+struct WsServerState {
+    shutdown_tx: Mutex<Option<broadcast::Sender<()>>>,
+    is_running: Mutex<bool>,
+}
+
+// WebSocket message types
+#[derive(serde::Deserialize, Debug)]
+struct WsMessage {
+    action: String,
+    data: Option<serde_json::Value>,
+}
+
+#[derive(serde::Serialize)]
+struct WsResponse {
+    success: bool,
+    message: Option<String>,
+    data: Option<serde_json::Value>,
 }
 
 // Store current download process PID
@@ -996,6 +1019,166 @@ fn toggle_devtools(app: AppHandle, enabled: bool) {
     }
 }
 
+#[tauri::command]
+async fn start_ws_server(app: AppHandle) -> Result<String, String> {
+    let state = app.state::<WsServerState>();
+
+    // Check if already running
+    if *state.is_running.lock().unwrap() {
+        return Ok("WebSocket server already running".to_string());
+    }
+
+    let addr: SocketAddr = "127.0.0.1:18900".parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .map_err(|e| format!("Failed to bind: {}", e))?;
+
+    // Create shutdown channel
+    let (shutdown_tx, _) = broadcast::channel::<()>(1);
+    *state.shutdown_tx.lock().unwrap() = Some(shutdown_tx.clone());
+    *state.is_running.lock().unwrap() = true;
+
+    let app_handle = app.clone();
+
+    // Spawn server task
+    tokio::spawn(async move {
+        loop {
+            let mut shutdown_rx = shutdown_tx.subscribe();
+
+            tokio::select! {
+                result = listener.accept() => {
+                    if let Ok((stream, _)) = result {
+                        let app_clone = app_handle.clone();
+                        tokio::spawn(handle_ws_connection(stream, app_clone));
+                    }
+                }
+                _ = shutdown_rx.recv() => {
+                    println!(">>> [WS] Server shutting down");
+                    break;
+                }
+            }
+        }
+    });
+
+    println!(">>> [WS] Server started on {}", addr);
+    Ok(format!("WebSocket server started on {}", addr))
+}
+
+async fn handle_ws_connection(stream: tokio::net::TcpStream, app: AppHandle) {
+    use tokio_tungstenite::tungstenite::Message;
+    use futures_util::{StreamExt, SinkExt};
+
+    let ws_stream = match tokio_tungstenite::accept_async(stream).await {
+        Ok(ws) => ws,
+        Err(e) => {
+            println!(">>> [WS] Handshake failed: {}", e);
+            return;
+        }
+    };
+
+    let (mut write, mut read) = ws_stream.split();
+    println!(">>> [WS] Client connected");
+
+    while let Some(msg) = read.next().await {
+        match msg {
+            Ok(Message::Text(text)) => {
+                let response = process_ws_message(&text, &app).await;
+                let json = serde_json::to_string(&response).unwrap_or_default();
+                if write.send(Message::Text(json)).await.is_err() {
+                    break;
+                }
+            }
+            Ok(Message::Close(_)) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+    println!(">>> [WS] Client disconnected");
+}
+
+async fn process_ws_message(text: &str, _app: &AppHandle) -> WsResponse {
+    let msg: WsMessage = match serde_json::from_str(text) {
+        Ok(m) => m,
+        Err(e) => {
+            return WsResponse {
+                success: false,
+                message: Some(format!("Invalid JSON: {}", e)),
+                data: None,
+            };
+        }
+    };
+
+    println!(">>> [WS] Action: {}", msg.action);
+
+    match msg.action.as_str() {
+        "ping" => WsResponse {
+            success: true,
+            message: Some("pong".to_string()),
+            data: None,
+        },
+        "save_image" => {
+            if let Some(data) = msg.data {
+                let url = data.get("url").and_then(|v| v.as_str());
+                if let Some(url) = url {
+                    match download_image(url.to_string(), None) {
+                        Ok(path) => WsResponse {
+                            success: true,
+                            message: Some(path),
+                            data: None,
+                        },
+                        Err(e) => WsResponse {
+                            success: false,
+                            message: Some(e),
+                            data: None,
+                        },
+                    }
+                } else {
+                    WsResponse {
+                        success: false,
+                        message: Some("Missing url".to_string()),
+                        data: None,
+                    }
+                }
+            } else {
+                WsResponse {
+                    success: false,
+                    message: Some("Missing data".to_string()),
+                    data: None,
+                }
+            }
+        }
+        _ => WsResponse {
+            success: false,
+            message: Some(format!("Unknown action: {}", msg.action)),
+            data: None,
+        },
+    }
+}
+
+#[tauri::command]
+fn stop_ws_server(app: AppHandle) -> Result<String, String> {
+    let state = app.state::<WsServerState>();
+
+    if !*state.is_running.lock().unwrap() {
+        return Ok("WebSocket server not running".to_string());
+    }
+
+    if let Some(tx) = state.shutdown_tx.lock().unwrap().take() {
+        let _ = tx.send(());
+    }
+
+    *state.is_running.lock().unwrap() = false;
+    println!(">>> [WS] Server stopped");
+    Ok("WebSocket server stopped".to_string())
+}
+
+#[tauri::command]
+fn get_ws_server_status(app: AppHandle) -> bool {
+    let state = app.state::<WsServerState>();
+    let is_running = *state.is_running.lock().unwrap();
+    is_running
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1006,6 +1189,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(RegisteredShortcut {
             current: Mutex::new(None),
+        })
+        .manage(WsServerState {
+            shutdown_tx: Mutex::new(None),
+            is_running: Mutex::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             list_files,
@@ -1026,7 +1213,10 @@ pub fn run() {
             update_ytdlp,
             is_directory,
             open_folder,
-            toggle_devtools
+            toggle_devtools,
+            start_ws_server,
+            stop_ws_server,
+            get_ws_server_status
         ])
         .setup(|app| {
             // Create Tray Menu
