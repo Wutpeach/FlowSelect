@@ -6,13 +6,8 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "framer-motion";
-import { Layers, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { isVideoUrl } from "./utils/videoUrl";
-
-type DropPayload = {
-  paths: string[];
-  position: { x: number; y: number };
-};
 
 // Helper function to check and show sequence overflow error
 const checkSequenceOverflow = (error: unknown): boolean => {
