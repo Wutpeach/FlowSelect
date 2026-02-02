@@ -41,6 +41,7 @@ function App() {
   } | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [devMode, setDevMode] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -51,6 +52,9 @@ function App() {
         const config = JSON.parse(configStr);
         if (config.outputPath) {
           setOutputPath(config.outputPath);
+        }
+        if (config.devMode !== undefined) {
+          setDevMode(config.devMode);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -121,6 +125,18 @@ function App() {
         console.error(">>> yt-dlp version check failed:", err);
       });
   }, []);
+
+  // Block F12 if devMode is disabled
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F12' && !devMode) {
+        e.preventDefault();
+        console.log("F12 blocked: devMode is disabled");
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [devMode]);
 
 
   // Handle paste event - check for video URL first, then image URL, then clipboard files
