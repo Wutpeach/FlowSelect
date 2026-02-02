@@ -739,14 +739,18 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
 
     println!(">>> [Rust] Starting yt-dlp update");
 
-    // Get sidecar path
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-
-    let sidecar_path = resource_dir.join("binaries").join("yt-dlp-x86_64-pc-windows-msvc.exe");
-    println!(">>> [Rust] resource_dir: {:?}", resource_dir);
+    // Get sidecar path - different for dev vs release
+    let sidecar_path = if cfg!(debug_assertions) {
+        // Dev: use compile-time manifest directory
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir.join("binaries").join("yt-dlp-x86_64-pc-windows-msvc.exe")
+    } else {
+        // Release: use resource directory
+        let resource_dir = app.path().resource_dir()
+            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+        resource_dir.join("binaries").join("yt-dlp-x86_64-pc-windows-msvc.exe")
+    };
+    println!(">>> [Rust] CARGO_MANIFEST_DIR: {}", env!("CARGO_MANIFEST_DIR"));
     println!(">>> [Rust] sidecar_path: {:?}", sidecar_path);
     println!(">>> [Rust] sidecar_path exists: {}", sidecar_path.exists());
 
