@@ -618,7 +618,7 @@ function App() {
           ? '2px solid transparent'
           : '1px solid #3a3a3a',
         boxShadow: (isHovering || downloadProgress)
-          ? '0 0 20px rgba(59,130,246,0.4), 0 0 40px rgba(59,130,246,0.2), inset 0 0 20px rgba(59,130,246,0.1)'
+          ? '0 0 8px rgba(59,130,246,0.5), 0 0 10px rgba(59,130,246,0.3), inset 0 0 15px rgba(59,130,246,0.15)'
           : '0 0 0 1px #2a2a2a',
         transition: 'all 0.3s ease',
       }}
