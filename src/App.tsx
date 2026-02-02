@@ -597,11 +597,18 @@ function App() {
         justifyContent: 'center',
         alignItems: 'center',
         gap: 8,
-        transition: 'all 0.3s',
         outline: 'none',
-        backgroundColor: (isHovering || downloadProgress) ? '#404040' : '#2a2a2a',
-        border: (isHovering || downloadProgress) ? '2px solid #3b82f6' : '1px solid #3a3a3a',
-        boxShadow: (isHovering || downloadProgress) ? '0 0 20px rgba(59,130,246,0.5)' : '0 0 0 1px #2a2a2a',
+        background: (isHovering || downloadProgress)
+          ? 'linear-gradient(135deg, #1e3a5f 0%, #2a2a2a 50%, #1e3a5f 100%)'
+          : '#2a2a2a',
+        border: (isHovering || downloadProgress)
+          ? '2px solid transparent'
+          : '1px solid #3a3a3a',
+        backgroundClip: 'padding-box',
+        boxShadow: (isHovering || downloadProgress)
+          ? '0 0 20px rgba(59,130,246,0.4), 0 0 40px rgba(59,130,246,0.2), inset 0 0 20px rgba(59,130,246,0.1)'
+          : '0 0 0 1px #2a2a2a',
+        transition: 'all 0.3s ease',
       }}
     >
       {/* Close button - top right circle */}
