@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
@@ -213,11 +214,8 @@ function SettingsPage() {
   const toggleDevMode = async () => {
     const newValue = !devMode;
     setDevMode(newValue);
-    const configStr = await invoke<string>("get_config");
-    const config = JSON.parse(configStr);
-    config.devMode = newValue;
-    await invoke("save_config", { json: JSON.stringify(config) });
-    // 即时切换 devtools
+    // 不保存到配置文件，仅通知主窗口 + 切换 devtools
+    await emit("devmode-changed", { enabled: newValue });
     await invoke("toggle_devtools", { enabled: newValue });
   };
 
