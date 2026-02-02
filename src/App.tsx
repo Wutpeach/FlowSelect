@@ -608,21 +608,38 @@ function App() {
         outline: 'none',
         background: (isHovering || downloadProgress)
           ? 'linear-gradient(135deg, #1e3a5f 0%, #2a2a2a 50%, #1e3a5f 100%)'
-          : isPanelHovered
-            ? `radial-gradient(circle at ${mousePos.x}px ${mousePos.y}px, rgba(59,130,246,0.15) 0%, transparent 50%), #2a2a2a`
-            : '#2a2a2a',
+          : '#2a2a2a',
         border: (isHovering || downloadProgress)
           ? '2px solid transparent'
           : '1px solid #3a3a3a',
-        backgroundClip: 'padding-box',
         boxShadow: (isHovering || downloadProgress)
           ? '0 0 20px rgba(59,130,246,0.4), 0 0 40px rgba(59,130,246,0.2), inset 0 0 20px rgba(59,130,246,0.1)'
-          : isPanelHovered
-            ? `0 0 15px rgba(59,130,246,0.2), 0 0 30px rgba(59,130,246,0.1)`
-            : '0 0 0 1px #2a2a2a',
+          : '0 0 0 1px #2a2a2a',
         transition: 'all 0.3s ease',
       }}
     >
+      {/* Edge glow layer - follows mouse */}
+      {isPanelHovered && !isHovering && !downloadProgress && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: -1,
+            borderRadius: 17,
+            pointerEvents: 'none',
+            background: `conic-gradient(
+              from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
+              transparent 0deg,
+              rgba(59,130,246,0.6) 60deg,
+              transparent 120deg
+            )`,
+            mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+            maskComposite: 'exclude',
+            WebkitMaskComposite: 'xor',
+            padding: 2,
+          }}
+        />
+      )}
+
       {/* Close button - top right circle */}
       <button
         onClick={() => getCurrentWindow().hide()}

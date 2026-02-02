@@ -1,37 +1,65 @@
-import { cn } from "../../lib/utils";
-import { cva, type VariantProps } from "class-variance-authority";
+import React from "react";
 
-const buttonVariants = cva(
-  "inline-flex items-center justify-center rounded-lg font-medium transition-all duration-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
-  {
-    variants: {
-      variant: {
-        default: "bg-blue-500 text-white hover:bg-blue-600 shadow-[0_0_12px_rgba(59,130,246,0.5)]",
-        outline: "border border-blue-500 text-blue-500 hover:bg-blue-500/10",
-        ghost: "text-[#e0e0e0] hover:bg-[#3a3a3a]",
-      },
-      size: {
-        sm: "px-3 py-1.5 text-sm",
-        md: "px-4 py-2 text-sm",
-        lg: "px-6 py-3 text-base",
-      },
+interface NeonButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'default' | 'outline' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
+}
+
+export function NeonButton({
+  variant = 'default',
+  size = 'md',
+  disabled,
+  style,
+  children,
+  ...props
+}: NeonButtonProps) {
+  const baseStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    fontWeight: 500,
+    border: 'none',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+    transition: 'all 0.3s ease',
+  };
+
+  const variantStyles: Record<string, React.CSSProperties> = {
+    default: {
+      backgroundColor: '#3b82f6',
+      color: 'white',
+      boxShadow: '0 0 12px rgba(59,130,246,0.5)',
     },
-    defaultVariants: {
-      variant: "default",
-      size: "md",
+    outline: {
+      backgroundColor: 'transparent',
+      color: '#3b82f6',
+      border: '1px solid #3b82f6',
     },
-  }
-);
+    ghost: {
+      backgroundColor: 'transparent',
+      color: '#e0e0e0',
+    },
+  };
 
-interface NeonButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {}
+  const sizeStyles: Record<string, React.CSSProperties> = {
+    sm: { padding: '6px 12px', fontSize: 14 },
+    md: { padding: '8px 16px', fontSize: 14 },
+    lg: { padding: '12px 24px', fontSize: 16 },
+  };
 
-export function NeonButton({ className, variant, size, ...props }: NeonButtonProps) {
   return (
     <button
-      className={cn(buttonVariants({ variant, size, className }))}
+      disabled={disabled}
+      style={{
+        ...baseStyle,
+        ...variantStyles[variant],
+        ...sizeStyles[size],
+        ...style,
+      }}
       {...props}
-    />
+    >
+      {children}
+    </button>
   );
 }
