@@ -14,6 +14,7 @@ class FlowSelectPicker {
     this.handleMouseMove = this.handleMouseMove.bind(this);
     this.handleClick = this.handleClick.bind(this);
     this.handleKeyDown = this.handleKeyDown.bind(this);
+    this.handleContextMenu = this.handleContextMenu.bind(this);
   }
 
   start() {
@@ -64,12 +65,14 @@ class FlowSelectPicker {
     document.addEventListener('mousemove', this.handleMouseMove, true);
     document.addEventListener('click', this.handleClick, true);
     document.addEventListener('keydown', this.handleKeyDown, true);
+    document.addEventListener('contextmenu', this.handleContextMenu, true);
   }
 
   detachListeners() {
     document.removeEventListener('mousemove', this.handleMouseMove, true);
     document.removeEventListener('click', this.handleClick, true);
     document.removeEventListener('keydown', this.handleKeyDown, true);
+    document.removeEventListener('contextmenu', this.handleContextMenu, true);
   }
 
   handleMouseMove(event) {
@@ -86,6 +89,7 @@ class FlowSelectPicker {
   handleClick(event) {
     event.preventDefault();
     event.stopPropagation();
+    event.stopImmediatePropagation();
 
     if (this.currentElement) {
       const videoData = this.extractVideoData(this.currentElement);
@@ -100,6 +104,13 @@ class FlowSelectPicker {
       event.preventDefault();
       this.onCancel();
     }
+  }
+
+  handleContextMenu(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    this.onCancel();
   }
 
   getElementFromPoint(x, y) {
