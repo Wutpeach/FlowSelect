@@ -981,6 +981,17 @@ fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn toggle_devtools(app: AppHandle, enabled: bool) {
+    if let Some(window) = app.get_webview_window("main") {
+        if enabled {
+            window.open_devtools();
+        } else {
+            window.close_devtools();
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1010,7 +1021,8 @@ pub fn run() {
             check_ytdlp_version,
             update_ytdlp,
             is_directory,
-            open_folder
+            open_folder,
+            toggle_devtools
         ])
         .setup(|app| {
             // Create Tray Menu
@@ -1091,6 +1103,21 @@ pub fn run() {
             // Hide from taskbar
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_skip_taskbar(true);
+            }
+
+            // Enable devtools if devMode is enabled
+            if let Ok(path) = get_config_path(&app.handle()) {
+                if path.exists() {
+                    if let Ok(config_str) = fs::read_to_string(&path) {
+                        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
+                            if config.get("devMode").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                if let Some(window) = app.get_webview_window("main") {
+                                    window.open_devtools();
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             Ok(())
