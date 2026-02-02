@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
+import { NeonToggle } from "../components/ui/neon-toggle";
+import { NeonButton } from "../components/ui/neon-button";
 
 function SettingsPage() {
   const [outputPath, setOutputPath] = useState("");
@@ -238,6 +240,7 @@ function SettingsPage() {
       display: 'flex',
       flexDirection: 'column',
       border: '1px solid #3a3a3a',
+      boxShadow: '0 0 30px rgba(59,130,246,0.1), inset 0 0 20px rgba(0,0,0,0.3)',
     }}>
       {/* Draggable Header */}
       <div
@@ -316,30 +319,7 @@ function SettingsPage() {
           <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
             Launch at startup
           </label>
-          <button
-            onClick={toggleAutostart}
-            style={{
-              width: 44,
-              height: 24,
-              borderRadius: 12,
-              backgroundColor: autostart ? '#3b82f6' : '#3a3a3a',
-              border: 'none',
-              cursor: 'pointer',
-              position: 'relative',
-              transition: 'background-color 0.2s',
-            }}
-          >
-            <span style={{
-              position: 'absolute',
-              top: 4,
-              left: autostart ? 24 : 4,
-              width: 16,
-              height: 16,
-              borderRadius: '50%',
-              backgroundColor: 'white',
-              transition: 'left 0.2s',
-            }} />
-          </button>
+          <NeonToggle checked={autostart} onChange={toggleAutostart} />
         </div>
 
         {/* Video Cookies */}
@@ -347,30 +327,7 @@ function SettingsPage() {
           <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
             Video Cookies
           </label>
-          <button
-            onClick={toggleCookies}
-            style={{
-              width: 44,
-              height: 24,
-              borderRadius: 12,
-              backgroundColor: cookiesEnabled ? '#3b82f6' : '#3a3a3a',
-              border: 'none',
-              cursor: 'pointer',
-              position: 'relative',
-              transition: 'background-color 0.2s',
-            }}
-          >
-            <span style={{
-              position: 'absolute',
-              top: 4,
-              left: cookiesEnabled ? 24 : 4,
-              width: 16,
-              height: 16,
-              borderRadius: '50%',
-              backgroundColor: 'white',
-              transition: 'left 0.2s',
-            }} />
-          </button>
+          <NeonToggle checked={cookiesEnabled} onChange={toggleCookies} />
           {cookiesEnabled && (
             <select
               value={cookiesBrowser}
@@ -401,30 +358,7 @@ function SettingsPage() {
           <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
             Save Videos to Separate Folder
           </label>
-          <button
-            onClick={toggleVideoSeparateFolder}
-            style={{
-              width: 44,
-              height: 24,
-              borderRadius: 12,
-              backgroundColor: videoSeparateFolder ? '#3b82f6' : '#3a3a3a',
-              border: 'none',
-              cursor: 'pointer',
-              position: 'relative',
-              transition: 'background-color 0.2s',
-            }}
-          >
-            <span style={{
-              position: 'absolute',
-              top: 4,
-              left: videoSeparateFolder ? 24 : 4,
-              width: 16,
-              height: 16,
-              borderRadius: '50%',
-              backgroundColor: 'white',
-              transition: 'left 0.2s',
-            }} />
-          </button>
+          <NeonToggle checked={videoSeparateFolder} onChange={toggleVideoSeparateFolder} />
         </div>
 
         {/* Keep Original Video Name */}
@@ -432,30 +366,7 @@ function SettingsPage() {
           <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
             Keep Original Video Name
           </label>
-          <button
-            onClick={toggleVideoKeepOriginalName}
-            style={{
-              width: 44,
-              height: 24,
-              borderRadius: 12,
-              backgroundColor: videoKeepOriginalName ? '#3b82f6' : '#3a3a3a',
-              border: 'none',
-              cursor: 'pointer',
-              position: 'relative',
-              transition: 'background-color 0.2s',
-            }}
-          >
-            <span style={{
-              position: 'absolute',
-              top: 4,
-              left: videoKeepOriginalName ? 24 : 4,
-              width: 16,
-              height: 16,
-              borderRadius: '50%',
-              backgroundColor: 'white',
-              transition: 'left 0.2s',
-            }} />
-          </button>
+          <NeonToggle checked={videoKeepOriginalName} onChange={toggleVideoKeepOriginalName} />
         </div>
 
         {/* Developer Mode */}
@@ -463,30 +374,7 @@ function SettingsPage() {
           <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
             Developer Mode (F12 DevTools)
           </label>
-          <button
-            onClick={toggleDevMode}
-            style={{
-              width: 44,
-              height: 24,
-              borderRadius: 12,
-              backgroundColor: devMode ? '#3b82f6' : '#3a3a3a',
-              border: 'none',
-              cursor: 'pointer',
-              position: 'relative',
-              transition: 'background-color 0.2s',
-            }}
-          >
-            <span style={{
-              position: 'absolute',
-              top: 4,
-              left: devMode ? 24 : 4,
-              width: 16,
-              height: 16,
-              borderRadius: '50%',
-              backgroundColor: 'white',
-              transition: 'left 0.2s',
-            }} />
-          </button>
+          <NeonToggle checked={devMode} onChange={toggleDevMode} />
         </div>
 
         {/* Shortcut */}
@@ -513,40 +401,23 @@ function SettingsPage() {
                 <span>{recordedKeys || "Press keys..."}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
-                <button
+                <NeonButton
+                  variant="default"
+                  size="sm"
                   onClick={confirmShortcut}
                   disabled={!recordedKeys}
-                  style={{
-                    flex: 1,
-                    padding: '8px 12px',
-                    backgroundColor: '#3b82f6',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    color: 'white',
-                    border: 'none',
-                    cursor: recordedKeys ? 'pointer' : 'not-allowed',
-                    opacity: recordedKeys ? 1 : 0.5,
-                  }}
+                  className="flex-1"
                 >
                   Confirm
-                </button>
-                <button
+                </NeonButton>
+                <NeonButton
+                  variant="ghost"
+                  size="sm"
                   onClick={cancelRecording}
-                  style={{
-                    flex: 1,
-                    padding: '8px 12px',
-                    backgroundColor: '#3a3a3a',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    color: '#a0a0a0',
-                    border: 'none',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#444'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3a3a3a'}
+                  className="flex-1"
                 >
                   Cancel
-                </button>
+                </NeonButton>
               </div>
             </div>
           ) : (

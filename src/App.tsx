@@ -37,6 +37,7 @@ function App() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [devMode, setDevMode] = useState(false);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
   // Load config on mount
   useEffect(() => {
@@ -583,6 +584,13 @@ function App() {
       onPaste={handlePaste}
       onMouseEnter={() => setIsPanelHovered(true)}
       onMouseLeave={() => setIsPanelHovered(false)}
+      onMouseMove={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setMousePos({
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
+        });
+      }}
       onContextMenu={handleContextMenu}
       animate={{ scale: isProcessing ? 0.95 : 1 }}
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
@@ -597,11 +605,22 @@ function App() {
         justifyContent: 'center',
         alignItems: 'center',
         gap: 8,
-        transition: 'all 0.3s',
         outline: 'none',
-        backgroundColor: (isHovering || downloadProgress) ? '#404040' : '#2a2a2a',
-        border: (isHovering || downloadProgress) ? '2px solid #3b82f6' : '1px solid #3a3a3a',
-        boxShadow: (isHovering || downloadProgress) ? '0 0 20px rgba(59,130,246,0.5)' : '0 0 0 1px #2a2a2a',
+        background: (isHovering || downloadProgress)
+          ? 'linear-gradient(135deg, #1e3a5f 0%, #2a2a2a 50%, #1e3a5f 100%)'
+          : isPanelHovered
+            ? `radial-gradient(circle at ${mousePos.x}px ${mousePos.y}px, rgba(59,130,246,0.15) 0%, transparent 50%), #2a2a2a`
+            : '#2a2a2a',
+        border: (isHovering || downloadProgress)
+          ? '2px solid transparent'
+          : '1px solid #3a3a3a',
+        backgroundClip: 'padding-box',
+        boxShadow: (isHovering || downloadProgress)
+          ? '0 0 20px rgba(59,130,246,0.4), 0 0 40px rgba(59,130,246,0.2), inset 0 0 20px rgba(59,130,246,0.1)'
+          : isPanelHovered
+            ? `0 0 15px rgba(59,130,246,0.2), 0 0 30px rgba(59,130,246,0.1)`
+            : '0 0 0 1px #2a2a2a',
+        transition: 'all 0.3s ease',
       }}
     >
       {/* Close button - top right circle */}
