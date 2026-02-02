@@ -1093,6 +1093,21 @@ pub fn run() {
                 let _ = window.set_skip_taskbar(true);
             }
 
+            // Enable devtools if devMode is enabled
+            if let Ok(path) = get_config_path(&app.handle()) {
+                if path.exists() {
+                    if let Ok(config_str) = fs::read_to_string(&path) {
+                        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
+                            if config.get("devMode").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                if let Some(window) = app.get_webview_window("main") {
+                                    window.open_devtools();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
