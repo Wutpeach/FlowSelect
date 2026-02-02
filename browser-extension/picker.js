@@ -62,17 +62,23 @@ class FlowSelectPicker {
   }
 
   attachListeners() {
+    console.log('[FlowSelect Picker] attachListeners called');
     document.addEventListener('mousemove', this.handleMouseMove, true);
-    document.addEventListener('click', this.handleClick, true);
     document.addEventListener('keydown', this.handleKeyDown, true);
     document.addEventListener('contextmenu', this.handleContextMenu, true);
+    // 直接在 overlay 上监听点击
+    if (this.overlay) {
+      this.overlay.addEventListener('click', this.handleClick);
+    }
   }
 
   detachListeners() {
     document.removeEventListener('mousemove', this.handleMouseMove, true);
-    document.removeEventListener('click', this.handleClick, true);
     document.removeEventListener('keydown', this.handleKeyDown, true);
     document.removeEventListener('contextmenu', this.handleContextMenu, true);
+    if (this.overlay) {
+      this.overlay.removeEventListener('click', this.handleClick);
+    }
   }
 
   handleMouseMove(event) {
