@@ -602,6 +602,7 @@ function App() {
       style={{
         width: 200,
         height: 200,
+        margin: 10,
         borderRadius: 16,
         position: 'relative',
         display: 'flex',
