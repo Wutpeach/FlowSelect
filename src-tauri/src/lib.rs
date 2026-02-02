@@ -291,7 +291,7 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         .map_err(|e| format!("Failed to parse config: {}", e))?;
 
     // Get output directory
-    let output_dir = config
+    let base_output_dir = config
         .get("outputPath")
         .and_then(|v| v.as_str())
         .map(|s| std::path::PathBuf::from(s))
@@ -301,15 +301,36 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
                 .join("FlowSelect_Received")
         });
 
+    // Check if video should go to separate folder
+    let video_separate_folder = config
+        .get("videoSeparateFolder")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let output_dir = if video_separate_folder {
+        base_output_dir.join("Videos")
+    } else {
+        base_output_dir
+    };
+
     // Create output directory if not exists
     if !output_dir.exists() {
         fs::create_dir_all(&output_dir)
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
     }
 
-    // Get next sequence number
-    let seq_num = get_next_sequence_number(&output_dir)?;
-    let output_template = output_dir.join(format!("{}.%(ext)s", seq_num));
+    // Check if should keep original video name
+    let keep_original_name = config
+        .get("videoKeepOriginalName")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let output_template = if keep_original_name {
+        output_dir.join("%(title)s.%(ext)s")
+    } else {
+        let seq_num = get_next_sequence_number(&output_dir)?;
+        output_dir.join(format!("{}.%(ext)s", seq_num))
+    };
 
     // Build args
     let mut args = vec![
