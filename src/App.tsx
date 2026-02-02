@@ -300,6 +300,42 @@ function App() {
       return;
     }
 
+    // === Pinterest special handling ===
+    if (url && url.includes('pinterest.com/pin/')) {
+      console.log("Detected Pinterest pin URL, extracting image from HTML");
+      const html = e.dataTransfer.getData("text/html");
+
+      // Extract highest resolution image from srcset
+      // Priority: originals > 736x > 474x > 236x
+      const srcsetMatch = html.match(/srcset="([^"]+)"/);
+      if (srcsetMatch) {
+        const srcset = srcsetMatch[1];
+        // Find originals URL or highest resolution
+        const originalsMatch = srcset.match(/(https:\/\/i\.pinimg\.com\/originals\/[^\s,]+)/);
+        const fallbackMatch = srcset.match(/(https:\/\/i\.pinimg\.com\/736x\/[^\s,]+)/);
+
+        const imageUrl = originalsMatch?.[1] || fallbackMatch?.[1];
+
+        if (imageUrl) {
+          console.log("Extracted Pinterest image URL:", imageUrl);
+          setIsProcessing(true);
+          try {
+            await invoke<string>("download_image", {
+              url: imageUrl,
+              targetDir: outputPath || null,
+            });
+          } catch (err) {
+            console.error("Failed to download Pinterest image:", err);
+            checkSequenceOverflow(err);
+          }
+          setTimeout(() => setIsProcessing(false), 1000);
+          return;
+        }
+      }
+      console.log("Could not extract image URL from Pinterest");
+      return;
+    }
+
     // Check if it's a video URL (highest priority)
     if (url && isVideoUrl(url)) {
       console.log("Detected video URL:", url);
