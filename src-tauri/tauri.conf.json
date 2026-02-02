@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "FlowSelect",
-        "width": 200,
-        "height": 200,
+        "width": 220,
+        "height": 220,
         "decorations": false,
         "transparent": true,
         "resizable": false,
