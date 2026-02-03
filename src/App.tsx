@@ -685,15 +685,11 @@ function App() {
         alignItems: 'center',
         gap: 8,
         outline: 'none',
-        background: (isHovering || downloadProgress)
-          ? 'linear-gradient(135deg, #1e3a5f 0%, #2a2a2a 50%, #1e3a5f 100%)'
-          : '#2a2a2a',
-        border: (isHovering || downloadProgress)
-          ? '2px solid transparent'
-          : '1px solid #3a3a3a',
+        background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
+        border: '1px solid #4B4951',
         boxShadow: (isHovering || downloadProgress)
-          ? '0 0 8px rgba(59,130,246,0.5), 0 0 10px rgba(59,130,246,0.3), inset 0 0 15px rgba(59,130,246,0.15)'
-          : '0 0 0 1px #2a2a2a',
+          ? '0 2px 4px rgba(0,0,0,0.1), 0 0 0 1px #0D0D0D, 0 0 12px rgba(59,130,246,0.4)'
+          : '0 2px 4px rgba(0,0,0,0.1), 0 0 0 1px #0D0D0D',
       }}
     >
       {/* Edge glow layer - follows mouse */}

@@ -251,13 +251,13 @@ function SettingsPage() {
     <div style={{
       width: '100%',
       height: '100%',
-      backgroundColor: '#1e1e1e',
+      background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
       borderRadius: 12,
       overflow: 'hidden',
       display: 'flex',
       flexDirection: 'column',
-      border: '1px solid #3a3a3a',
-      boxShadow: '0 0 30px rgba(59,130,246,0.1), inset 0 0 20px rgba(0,0,0,0.3)',
+      border: '1px solid #4B4951',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1), 0 0 0 1px #0D0D0D',
     }}>
       {/* Draggable Header */}
       <div
@@ -267,7 +267,7 @@ function SettingsPage() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '12px 16px',
-          borderBottom: '1px solid #3a3a3a',
+          borderBottom: '1px solid #4B4951',
           backgroundColor: '#252525',
         }}
       >
@@ -313,16 +313,16 @@ function SettingsPage() {
               alignItems: 'center',
               gap: 8,
               padding: '10px 12px',
-              backgroundColor: '#2a2a2a',
+              background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
               borderRadius: 8,
-              border: '1px solid #3a3a3a',
+              border: '1px solid #4B4951',
               textAlign: 'left',
               fontSize: 12,
               color: '#a0a0a0',
               cursor: 'pointer',
             }}
             onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'linear-gradient(180deg, #201E25 0%, #323137 100%)'}
           >
             <FolderOpen size={14} style={{ color: '#606060', flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -353,11 +353,11 @@ function SettingsPage() {
                 marginTop: 8,
                 width: '100%',
                 padding: '8px 12px',
-                backgroundColor: '#2a2a2a',
+                background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
                 borderRadius: 8,
                 fontSize: 12,
                 color: '#a0a0a0',
-                border: '1px solid #3a3a3a',
+                border: '1px solid #4B4951',
                 cursor: 'pointer',
                 outline: 'none',
               }}
@@ -402,16 +402,16 @@ function SettingsPage() {
                 alignItems: 'center',
                 gap: 8,
                 padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
+                background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
                 borderRadius: 8,
-                border: '1px solid #3a3a3a',
+                border: '1px solid #4B4951',
                 textAlign: 'left',
                 fontSize: 12,
                 color: '#a0a0a0',
                 cursor: 'pointer',
               }}
               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'linear-gradient(180deg, #201E25 0%, #323137 100%)'}
             >
               <FolderOpen size={14} style={{ color: '#606060', flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -435,7 +435,7 @@ function SettingsPage() {
                 alignItems: 'center',
                 gap: 8,
                 padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
+                background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
                 borderRadius: 8,
                 fontSize: 12,
                 color: '#e0e0e0',
@@ -473,16 +473,16 @@ function SettingsPage() {
                 alignItems: 'center',
                 gap: 8,
                 padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
+                background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
                 borderRadius: 8,
-                border: '1px solid #3a3a3a',
+                border: '1px solid #4B4951',
                 textAlign: 'left',
                 fontSize: 12,
                 color: '#a0a0a0',
                 cursor: 'pointer',
               }}
               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'linear-gradient(180deg, #201E25 0%, #323137 100%)'}
             >
               <Keyboard size={14} style={{ color: '#606060', flexShrink: 0 }} />
               <span>{shortcut || "Click to set..."}</span>
@@ -495,7 +495,7 @@ function SettingsPage() {
       <div style={{
         padding: '12px 16px',
         textAlign: 'center',
-        borderTop: '1px solid #3a3a3a',
+        borderTop: '1px solid #4B4951',
         backgroundColor: '#252525',
       }}>
         <span style={{ fontSize: 10, color: '#505050' }}>v0.1.0</span>
