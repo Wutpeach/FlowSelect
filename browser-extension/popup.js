@@ -3,35 +3,36 @@
 document.addEventListener('DOMContentLoaded', () => {
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
-  const pickBtn = document.getElementById('pickBtn');
+  const refreshBtn = document.getElementById('refreshBtn');
 
-  // Request connection status
-  chrome.runtime.sendMessage({ type: 'connect' });
-
-  // Get and display connection status
-  chrome.runtime.sendMessage({ type: 'get_status' }, (response) => {
-    if (response?.connected) {
-      statusDot.style.background = '#4ade80';
+  function updateStatus(connected) {
+    if (connected) {
+      statusDot.classList.add('connected');
       statusText.textContent = 'Connected';
     } else {
-      statusDot.style.background = '#f87171';
+      statusDot.classList.remove('connected');
       statusText.textContent = 'Disconnected';
     }
-  });
+  }
 
-  // Handle pick button click
-  pickBtn.addEventListener('click', async () => {
-    console.log('[FlowSelect Popup] Pick button clicked');
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    console.log('[FlowSelect Popup] Tab:', tab);
-    if (tab) {
-      try {
-        await chrome.tabs.sendMessage(tab.id, { type: 'start_picker' });
-        console.log('[FlowSelect Popup] Message sent');
-      } catch (e) {
-        console.error('[FlowSelect Popup] Send failed:', e);
-      }
-      window.close();
-    }
+  function checkStatus() {
+    chrome.runtime.sendMessage({ type: 'get_status' }, (response) => {
+      updateStatus(response?.connected);
+    });
+  }
+
+  // Initial connection attempt and status check
+  chrome.runtime.sendMessage({ type: 'connect' });
+  checkStatus();
+
+  // Refresh button - reconnect and update status
+  refreshBtn.addEventListener('click', () => {
+    refreshBtn.textContent = 'Connecting...';
+    chrome.runtime.sendMessage({ type: 'connect' }, () => {
+      setTimeout(() => {
+        checkStatus();
+        refreshBtn.textContent = 'Reconnect';
+      }, 500);
+    });
   });
 });
