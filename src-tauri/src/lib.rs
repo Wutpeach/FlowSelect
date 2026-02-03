@@ -156,7 +156,7 @@ fn process_files(paths: Vec<String>, target_dir: Option<String>) -> Result<Strin
 }
 
 #[tauri::command]
-fn download_image(url: String, target_dir: Option<String>) -> Result<String, String> {
+async fn download_image(app: AppHandle, url: String, target_dir: Option<String>) -> Result<String, String> {
     println!(">>> [Rust] Downloading image from: {}", url);
 
     // Determine target directory
@@ -211,11 +211,19 @@ fn download_image(url: String, target_dir: Option<String>) -> Result<String, Str
         .map_err(|e| format!("Failed to write file: {}", e))?;
 
     println!(">>> [Rust] Saved to: {:?}", dest_path);
+
+    // AE Portal
+    let app_for_ae = app.clone();
+    let path_for_ae = dest_path.to_string_lossy().to_string();
+    tokio::spawn(async move {
+        let _ = send_to_ae(app_for_ae, path_for_ae).await;
+    });
+
     Ok(dest_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
-fn save_data_url(data_url: String, target_dir: Option<String>, original_filename: Option<String>) -> Result<String, String> {
+async fn save_data_url(app: AppHandle, data_url: String, target_dir: Option<String>, original_filename: Option<String>) -> Result<String, String> {
     use base64::Engine;
     println!(">>> [Rust] Saving data URL");
 
@@ -287,7 +295,82 @@ fn save_data_url(data_url: String, target_dir: Option<String>, original_filename
         .map_err(|e| format!("Failed to write file: {}", e))?;
 
     println!(">>> [Rust] Saved to: {:?}", dest_path);
+
+    // AE Portal
+    let app_for_ae = app.clone();
+    let path_for_ae = dest_path.to_string_lossy().to_string();
+    tokio::spawn(async move {
+        let _ = send_to_ae(app_for_ae, path_for_ae).await;
+    });
+
     Ok(dest_path.to_string_lossy().to_string())
+}
+
+/// 生成 AE 导入脚本
+fn generate_jsx_script(file_path: &str, target_folder: &str) -> String {
+    let escaped_path = file_path.replace("\\", "\\\\");
+    format!(r#"(function() {{
+    var filePath = "{}";
+    var targetFolderName = "{}";
+    function getOrCreateFolder(name) {{
+        var proj = app.project;
+        for (var i = 1; i <= proj.numItems; i++) {{
+            var item = proj.item(i);
+            if (item instanceof FolderItem && item.name === name) return item;
+        }}
+        return proj.items.addFolder(name);
+    }}
+    var importFile = new File(filePath);
+    if (importFile.exists) {{
+        var importOptions = new ImportOptions(importFile);
+        var importedItem = app.project.importFile(importOptions);
+        importedItem.parentFolder = getOrCreateFolder(targetFolderName);
+    }}
+}})();"#, escaped_path, target_folder)
+}
+
+#[tauri::command]
+async fn send_to_ae(app: AppHandle, file_path: String) -> Result<(), String> {
+    let config_str = get_config(app.clone())?;
+    let config: serde_json::Value = serde_json::from_str(&config_str)
+        .map_err(|e| format!("Failed to parse config: {}", e))?;
+
+    // 检查是否启用
+    let enabled = config.get("aePortalEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !enabled { return Ok(()); }
+
+    // 获取 AE 路径
+    let ae_path = config.get("aeExePath").and_then(|v| v.as_str()).unwrap_or("");
+    if ae_path.is_empty() { return Err("AE path not configured".to_string()); }
+
+    // 从 outputPath 提取文件夹名
+    let output_path = config.get("outputPath").and_then(|v| v.as_str()).unwrap_or("");
+    let folder_name = Path::new(output_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("FlowSelect_Received");
+
+    // 生成临时 JSX 脚本
+    let jsx_content = generate_jsx_script(&file_path, folder_name);
+    let temp_dir = std::env::temp_dir();
+    let jsx_path = temp_dir.join("flowselect_ae_import.jsx");
+    fs::write(&jsx_path, &jsx_content)
+        .map_err(|e| format!("Failed to write JSX: {}", e))?;
+
+    // 执行 afterfx.exe -r script.jsx
+    std::process::Command::new(ae_path)
+        .args(["-r", &jsx_path.to_string_lossy()])
+        .spawn()
+        .map_err(|e| format!("Failed to launch AE: {}", e))?;
+
+    // 延迟清理脚本
+    let jsx_path_clone = jsx_path.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        let _ = fs::remove_file(jsx_path_clone);
+    });
+
+    Ok(())
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -470,6 +553,17 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
 
                 // Emit completion event
                 let _ = app.emit("video-download-complete", result.clone());
+
+                // AE Portal
+                if success {
+                    if let Some(ref path) = last_file_path {
+                        let app_for_ae = app.clone();
+                        let path_for_ae = path.clone();
+                        tokio::spawn(async move {
+                            let _ = send_to_ae(app_for_ae, path_for_ae).await;
+                        });
+                    }
+                }
 
                 return Ok(result);
             }
@@ -1124,7 +1218,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
             if let Some(data) = msg.data {
                 let url = data.get("url").and_then(|v| v.as_str());
                 if let Some(url) = url {
-                    match download_image(url.to_string(), None) {
+                    match download_image(app.clone(), url.to_string(), None).await {
                         Ok(path) => WsResponse {
                             success: true,
                             message: Some(path),
@@ -1241,6 +1335,7 @@ pub fn run() {
             save_data_url,
             download_video,
             cancel_download,
+            send_to_ae,
             check_ytdlp_version,
             update_ytdlp,
             is_directory,
