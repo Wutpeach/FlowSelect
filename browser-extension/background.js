@@ -51,8 +51,8 @@ function scheduleReconnect() {
 }
 
 function handleMessage(message) {
-  // Backend uses 'action', extension uses 'type' - check both
-  const action = message.action || message.type;
+  // Compatible with: top-level action, type, or wrapped data.action
+  const action = message.action || message.type || message.data?.action;
 
   switch (action) {
     case 'theme_changed':
@@ -61,7 +61,8 @@ function handleMessage(message) {
       chrome.runtime.sendMessage({ type: 'theme_update', theme: currentTheme }).catch(() => {});
       break;
     case 'theme_info':
-      currentTheme = message.theme || 'black';
+      // Compatible with: message.data.theme or message.theme
+      currentTheme = message.data?.theme || message.theme || 'black';
       chrome.runtime.sendMessage({ type: 'theme_update', theme: currentTheme }).catch(() => {});
       break;
     case 'start_picker':
