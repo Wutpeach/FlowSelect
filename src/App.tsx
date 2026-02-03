@@ -159,7 +159,7 @@ function App() {
     // 如果从图标状态恢复，延迟显示边缘光（等动画完成）
     if (wasMinimized) {
       setShowEdgeGlow(false);
-      setTimeout(() => setShowEdgeGlow(true), 1000);
+      setTimeout(() => setShowEdgeGlow(true), 500);
     }
 
     idleTimerRef.current = window.setTimeout(() => {
@@ -647,7 +647,7 @@ function App() {
         borderRadius: isMinimized ? 30 : 16,
       }}
       transition={{
-        duration: 1,
+        duration: 0.5,
         ease: [0.65, 0.00, 0.35, 1.00],
       }}
       style={{
@@ -681,16 +681,18 @@ function App() {
             background: `conic-gradient(
               from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
               transparent 0deg,
-              rgba(59,130,246,0.9) 45deg,
-              rgba(96,165,250,1) 90deg,
-              rgba(59,130,246,0.9) 135deg,
+              rgba(59,130,246,1) 30deg,
+              rgba(96,165,250,1) 60deg,
+              rgba(147,197,253,1) 90deg,
+              rgba(96,165,250,1) 120deg,
+              rgba(59,130,246,1) 150deg,
               transparent 180deg
             )`,
             mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
             maskComposite: 'exclude',
             WebkitMaskComposite: 'xor',
-            padding: 3,
-            filter: 'blur(1px)',
+            padding: 4,
+            filter: 'blur(2px)',
           }}
         />
       )}
