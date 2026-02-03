@@ -80,10 +80,12 @@ function sendToApp(data) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'video_selected') {
     sendToApp({
-      type: 'video_selected',
-      url: message.url,
-      pageUrl: sender.tab?.url,
-      title: message.title
+      action: 'video_selected',
+      data: {
+        url: message.url,
+        pageUrl: sender.tab?.url,
+        title: message.title
+      }
     });
     sendResponse({ success: true });
   } else if (message.type === 'connect') {
