@@ -16,7 +16,6 @@ function SettingsPage() {
   const [cookiesEnabled, setCookiesEnabled] = useState(false);
   const [cookiesBrowser, setCookiesBrowser] = useState("chrome");
   const [videoSeparateFolder, setVideoSeparateFolder] = useState(false);
-  const [videoKeepOriginalName, setVideoKeepOriginalName] = useState(false);
   const [devMode, setDevMode] = useState(false);
 
   // Load config on mount
@@ -36,9 +35,6 @@ function SettingsPage() {
         }
         if (config.videoSeparateFolder !== undefined) {
           setVideoSeparateFolder(config.videoSeparateFolder);
-        }
-        if (config.videoKeepOriginalName !== undefined) {
-          setVideoKeepOriginalName(config.videoKeepOriginalName);
         }
         if (config.devMode !== undefined) {
           setDevMode(config.devMode);
@@ -199,14 +195,6 @@ function SettingsPage() {
     const configStr = await invoke<string>("get_config");
     const config = JSON.parse(configStr);
     config.videoSeparateFolder = newValue;
-    await invoke("save_config", { json: JSON.stringify(config) });
-  };
-
-  const toggleVideoKeepOriginalName = async () => {
-    const newValue = !videoKeepOriginalName;
-    setVideoKeepOriginalName(newValue);
-    const configStr = await invoke<string>("get_config");
-    const config = JSON.parse(configStr);
     config.videoKeepOriginalName = newValue;
     await invoke("save_config", { json: JSON.stringify(config) });
   };
@@ -357,14 +345,6 @@ function SettingsPage() {
             Save Videos to Separate Folder
           </label>
           <NeonToggle checked={videoSeparateFolder} onChange={toggleVideoSeparateFolder} />
-        </div>
-
-        {/* Keep Original Video Name */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
-            Keep Original Video Name
-          </label>
-          <NeonToggle checked={videoKeepOriginalName} onChange={toggleVideoKeepOriginalName} />
         </div>
 
         {/* Developer Mode */}
