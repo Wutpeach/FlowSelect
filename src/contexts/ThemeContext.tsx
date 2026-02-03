@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, emit } from '@tauri-apps/api/event';
 
 type Theme = 'black' | 'white';
 
@@ -67,10 +68,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     invoke<any>('get_config').then(cfg => {
       if (cfg.theme) setThemeState(cfg.theme);
     });
+
+    // 监听其他窗口的主题变更
+    const unlisten = listen<Theme>('theme-changed', (event) => {
+      setThemeState(event.payload);
+    });
+
+    return () => { unlisten.then(fn => fn()); };
   }, []);
 
   const setTheme = async (t: Theme) => {
     setThemeState(t);
+    // 通知其他窗口
+    await emit('theme-changed', t);
     // 保存到配置
     const cfg = await invoke<any>('get_config');
     await invoke('save_config', { config: { ...cfg, theme: t } });
