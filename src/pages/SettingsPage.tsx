@@ -6,8 +6,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
 import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
+import { useTheme } from "../contexts/ThemeContext";
 
 function SettingsPage() {
+  const { theme, setTheme } = useTheme();
   const [outputPath, setOutputPath] = useState("");
   const [autostart, setAutostart] = useState(false);
   const [shortcut, setShortcut] = useState("");
@@ -337,6 +339,45 @@ function SettingsPage() {
             Launch at startup
           </label>
           <NeonToggle checked={autostart} onChange={toggleAutostart} />
+        </div>
+
+        {/* Theme */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+            Theme
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => setTheme('black')}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                borderRadius: 8,
+                border: theme === 'black' ? '1px solid #3b82f6' : '1px solid #4B4951',
+                backgroundColor: theme === 'black' ? 'rgba(59,130,246,0.1)' : 'transparent',
+                color: theme === 'black' ? '#3b82f6' : '#a0a0a0',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              Black
+            </button>
+            <button
+              onClick={() => setTheme('white')}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                borderRadius: 8,
+                border: theme === 'white' ? '1px solid #3b82f6' : '1px solid #4B4951',
+                backgroundColor: theme === 'white' ? 'rgba(59,130,246,0.1)' : 'transparent',
+                color: theme === 'white' ? '#3b82f6' : '#a0a0a0',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              White
+            </button>
+          </div>
         </div>
 
         {/* Video Cookies */}

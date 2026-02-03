@@ -1,4 +1,5 @@
 import React from "react";
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface NeonButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'default' | 'outline' | 'ghost';
@@ -13,6 +14,7 @@ export function NeonButton({
   children,
   ...props
 }: NeonButtonProps) {
+  const { colors } = useTheme();
   const baseStyle: React.CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
@@ -38,7 +40,7 @@ export function NeonButton({
     },
     ghost: {
       backgroundColor: 'transparent',
-      color: '#e0e0e0',
+      color: colors.textPrimary,
     },
   };
 
