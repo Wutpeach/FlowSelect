@@ -65,7 +65,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // 启动时从配置读取
-    invoke<any>('get_config').then(cfg => {
+    invoke<string>('get_config').then(cfgStr => {
+      const cfg = JSON.parse(cfgStr);
       if (cfg.theme) setThemeState(cfg.theme);
     });
 
@@ -82,8 +83,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // 通知其他窗口
     await emit('theme-changed', t);
     // 保存到配置
-    const cfg = await invoke<any>('get_config');
-    await invoke('save_config', { config: { ...cfg, theme: t } });
+    const cfgStr = await invoke<string>('get_config');
+    const cfg = JSON.parse(cfgStr);
+    await invoke('save_config', { json: JSON.stringify({ ...cfg, theme: t }) });
   };
 
   return (
