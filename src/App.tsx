@@ -89,6 +89,11 @@ function App() {
     const unlistenProgress = listen<{ percent: number; speed: string; eta: string }>(
       "video-download-progress",
       (event) => {
+        // 清除已有的 idle timer，防止下载中被最小化
+        if (idleTimerRef.current) {
+          clearTimeout(idleTimerRef.current);
+          idleTimerRef.current = null;
+        }
         setIsMinimized(false);
         setDownloadProgress(event.payload);
       }
