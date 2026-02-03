@@ -17,6 +17,8 @@ function SettingsPage() {
   const [cookiesBrowser, setCookiesBrowser] = useState("chrome");
   const [videoSeparateFolder, setVideoSeparateFolder] = useState(false);
   const [devMode, setDevMode] = useState(false);
+  const [aePortalEnabled, setAePortalEnabled] = useState(false);
+  const [aeExePath, setAeExePath] = useState("");
 
   // Load config on mount
   useEffect(() => {
@@ -38,6 +40,12 @@ function SettingsPage() {
         }
         if (config.devMode !== undefined) {
           setDevMode(config.devMode);
+        }
+        if (config.aePortalEnabled !== undefined) {
+          setAePortalEnabled(config.aePortalEnabled);
+        }
+        if (config.aeExePath) {
+          setAeExePath(config.aeExePath);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -207,6 +215,29 @@ function SettingsPage() {
     await invoke("toggle_devtools", { enabled: newValue });
   };
 
+  const toggleAePortal = async () => {
+    const newValue = !aePortalEnabled;
+    setAePortalEnabled(newValue);
+    const configStr = await invoke<string>("get_config");
+    const config = JSON.parse(configStr);
+    config.aePortalEnabled = newValue;
+    await invoke("save_config", { json: JSON.stringify(config) });
+  };
+
+  const selectAeExePath = async () => {
+    const selected = await open({
+      filters: [{ name: "Executable", extensions: ["exe"] }],
+      title: "Select AfterFX.exe",
+    });
+    if (selected) {
+      setAeExePath(selected as string);
+      const configStr = await invoke<string>("get_config");
+      const config = JSON.parse(configStr);
+      config.aeExePath = selected;
+      await invoke("save_config", { json: JSON.stringify(config) });
+    }
+  };
+
   const truncatePath = (path: string, maxLen = 25) => {
     if (path.length <= maxLen) return path;
     return "..." + path.slice(-maxLen);
@@ -353,6 +384,41 @@ function SettingsPage() {
             Developer Mode (F12 DevTools)
           </label>
           <NeonToggle checked={devMode} onChange={toggleDevMode} />
+        </div>
+
+        {/* AE Portal */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+            AE Portal (Auto Import to After Effects)
+          </label>
+          <NeonToggle checked={aePortalEnabled} onChange={toggleAePortal} />
+          {aePortalEnabled && (
+            <button
+              onClick={selectAeExePath}
+              style={{
+                marginTop: 8,
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 12px',
+                backgroundColor: '#2a2a2a',
+                borderRadius: 8,
+                border: '1px solid #3a3a3a',
+                textAlign: 'left',
+                fontSize: 12,
+                color: '#a0a0a0',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
+            >
+              <FolderOpen size={14} style={{ color: '#606060', flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {aeExePath ? truncatePath(aeExePath) : "Select AfterFX.exe..."}
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Shortcut */}
