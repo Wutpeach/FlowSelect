@@ -47,6 +47,7 @@ function App() {
   const [isMinimized, setIsMinimized] = useState(false);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
   const idleTimerRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Load config on mount
   useEffect(() => {
@@ -632,6 +633,7 @@ function App() {
 
   return (
     <motion.div
+      ref={containerRef}
       data-tauri-drag-region
       tabIndex={0}
       onDragOver={(e) => {
@@ -652,6 +654,7 @@ function App() {
       onMouseEnter={() => {
         setIsPanelHovered(true);
         resetIdleTimer();
+        containerRef.current?.focus();
       }}
       onMouseLeave={() => setIsPanelHovered(false)}
       onMouseMove={(e) => {
