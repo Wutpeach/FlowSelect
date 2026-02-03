@@ -306,7 +306,19 @@ async fn save_data_url(app: AppHandle, data_url: String, target_dir: Option<Stri
 
 /// 生成 AE 导入脚本
 fn generate_jsx_script(file_path: &str, target_folder: &str) -> String {
-    let escaped_path = file_path.replace("\\", "\\\\");
+    // 转义所有可能破坏 JavaScript 字符串的字符
+    let escaped_path = file_path
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t");
+    let escaped_folder = target_folder
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t");
     format!(r#"(function() {{
     var filePath = "{}";
     var targetFolderName = "{}";
@@ -324,7 +336,7 @@ fn generate_jsx_script(file_path: &str, target_folder: &str) -> String {
         var importedItem = app.project.importFile(importOptions);
         importedItem.parentFolder = getOrCreateFolder(targetFolderName);
     }}
-}})();"#, escaped_path, target_folder)
+}})();"#, escaped_path, escaped_folder)
 }
 
 #[tauri::command]
