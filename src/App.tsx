@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from 'react-dom';
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -19,6 +19,36 @@ const checkSequenceOverflow = (error: unknown): boolean => {
   return false;
 };
 
+// Cat icon for minimized state
+const CatIcon = () => (
+  <svg viewBox="0 0 24 24" width="32" height="32" fill="none">
+    <path
+      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"
+      fill="#3b82f6"
+      opacity="0.2"
+    />
+    <path
+      d="M4.5 9.5L7 5l2 3M17 5l2.5 4.5L17 8"
+      stroke="#60a5fa"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <circle cx="8.5" cy="11" r="1.5" fill="#60a5fa" />
+    <circle cx="15.5" cy="11" r="1.5" fill="#60a5fa" />
+    <path
+      d="M12 14c-1.5 0-2.5 1-2.5 2s1 2 2.5 2 2.5-1 2.5-2-1-2-2.5-2z"
+      fill="#60a5fa"
+    />
+    <path
+      d="M10 15.5c-2-0.5-4 0-4 0M14 15.5c2-0.5 4 0 4 0"
+      stroke="#60a5fa"
+      strokeWidth="1"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 function App() {
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -38,6 +68,8 @@ function App() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [isMinimized, setIsMinimized] = useState(false);
+  const idleTimerRef = useRef<number | null>(null);
 
   // Load config on mount
   useEffect(() => {
@@ -139,10 +171,30 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [devMode]);
 
+  // Idle auto-minimize: reset timer helper
+  const resetIdleTimer = () => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+    }
+    setIsMinimized(false);
+    idleTimerRef.current = window.setTimeout(() => {
+      setIsMinimized(true);
+    }, 5000);
+  };
+
+  // Start idle timer on mount
+  useEffect(() => {
+    resetIdleTimer();
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    };
+  }, []);
+
 
   // Handle paste event - check for video URL first, then image URL, then clipboard files
   const handlePaste = async (e: React.ClipboardEvent) => {
     e.preventDefault();
+    resetIdleTimer();
 
     const text = e.clipboardData.getData("text/plain");
 
@@ -577,6 +629,7 @@ function App() {
         e.preventDefault();
         e.dataTransfer.dropEffect = "copy";
         console.log("DragOver types:", e.dataTransfer.types);
+        resetIdleTimer();
         // Show hover state for URL drops too
         const hasUrl = e.dataTransfer.types.includes("text/uri-list")
                     || e.dataTransfer.types.includes("text/plain");
@@ -587,7 +640,10 @@ function App() {
       onDrop={handleDrop}
       onDragLeave={() => setIsHovering(false)}
       onPaste={handlePaste}
-      onMouseEnter={() => setIsPanelHovered(true)}
+      onMouseEnter={() => {
+        setIsPanelHovered(true);
+        resetIdleTimer();
+      }}
       onMouseLeave={() => setIsPanelHovered(false)}
       onMouseMove={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -597,13 +653,15 @@ function App() {
         });
       }}
       onContextMenu={handleContextMenu}
-      animate={{ scale: isProcessing ? 0.95 : 1 }}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      animate={{
+        scale: isProcessing ? 0.95 : 1,
+        width: isMinimized ? 60 : 200,
+        height: isMinimized ? 60 : 200,
+      }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
       style={{
-        width: 200,
-        height: 200,
         margin: 10,
-        borderRadius: 16,
+        borderRadius: isMinimized ? 30 : 16,
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
@@ -673,9 +731,9 @@ function App() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: isPanelHovered ? 1 : 0,
+          opacity: isPanelHovered && !isMinimized ? 1 : 0,
           transition: 'opacity 0.2s ease',
-          pointerEvents: isPanelHovered ? 'auto' : 'none',
+          pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
           zIndex: 10,
         }}
         title="Hide window"
@@ -823,6 +881,15 @@ function App() {
           >
             <Check size={48} className="text-green-400" strokeWidth={3} />
           </motion.div>
+        ) : isMinimized ? (
+          <motion.div
+            key="minimized"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+          >
+            <CatIcon />
+          </motion.div>
         ) : null}
       </AnimatePresence>
 
@@ -845,9 +912,9 @@ function App() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: isPanelHovered ? 1 : 0,
+            opacity: isPanelHovered && !isMinimized ? 1 : 0,
             transition: 'opacity 0.2s ease',
-            pointerEvents: isPanelHovered ? 'auto' : 'none',
+            pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
             zIndex: 10,
           }}
           title={isUpdating ? "Updating..." : `Update yt-dlp: ${ytdlpUpdate.current} → ${ytdlpUpdate.latest}`}
@@ -902,9 +969,9 @@ function App() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: isPanelHovered ? 1 : 0,
+          opacity: isPanelHovered && !isMinimized ? 1 : 0,
           transition: 'opacity 0.2s ease',
-          pointerEvents: isPanelHovered ? 'auto' : 'none',
+          pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
           zIndex: 10,
         }}
         title="Settings"
