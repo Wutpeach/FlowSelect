@@ -1,0 +1,23 @@
+/* FlowSelect Browser Extension - Twitter Download Button Styles */
+
+.flowselect-download-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 9999px;
+  color: rgb(113, 118, 123);
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.flowselect-download-btn:hover {
+  background-color: rgba(29, 155, 240, 0.1);
+  color: rgb(29, 155, 240);
+}
+
+.flowselect-download-btn svg {
+  pointer-events: none;
+}
