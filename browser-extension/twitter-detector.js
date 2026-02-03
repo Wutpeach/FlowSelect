@@ -42,6 +42,7 @@
   function injectDownloadButton(tweet, tweetUrl) {
     // 找到操作栏（回复、转发、点赞的容器）
     const actionBar = tweet.querySelector('[role="group"]');
+    console.log('[FlowSelect Twitter] ActionBar found:', actionBar);
     if (!actionBar) return;
 
     const btn = document.createElement('div');
@@ -56,6 +57,7 @@
       downloadVideo(tweetUrl);
     });
     actionBar.appendChild(btn);
+    console.log('[FlowSelect Twitter] Button injected');
   }
 
   // 发送下载请求
