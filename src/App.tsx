@@ -89,6 +89,11 @@ function App() {
     const unlistenProgress = listen<{ percent: number; speed: string; eta: string }>(
       "video-download-progress",
       (event) => {
+        // 清除已有的 idle timer，防止下载中被最小化
+        if (idleTimerRef.current) {
+          clearTimeout(idleTimerRef.current);
+          idleTimerRef.current = null;
+        }
         setIsMinimized(false);
         setDownloadProgress(event.payload);
       }
@@ -170,6 +175,11 @@ function App() {
     if (wasMinimized) {
       setShowEdgeGlow(false);
       setTimeout(() => setShowEdgeGlow(true), 500);
+      // 恢复后自动聚焦，确保能接收粘贴事件
+      setTimeout(() => {
+        const container = document.querySelector('[tabIndex="0"]') as HTMLElement;
+        if (container) container.focus();
+      }, 100);
     }
 
     // 下载进行中时不启动 idle timer
