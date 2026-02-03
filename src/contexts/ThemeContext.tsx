@@ -82,6 +82,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setThemeState(t);
     // 通知其他窗口
     await emit('theme-changed', t);
+    // 广播到浏览器扩展
+    await invoke('broadcast_theme', { theme: t });
     // 保存到配置
     const cfgStr = await invoke<string>('get_config');
     const cfg = JSON.parse(cfgStr);
