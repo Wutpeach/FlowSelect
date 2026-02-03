@@ -6,6 +6,9 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const WS_URL = 'ws://127.0.0.1:18900';
 
+// Store current theme from desktop app
+let currentTheme = 'black';
+
 function connect() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
 
@@ -46,7 +49,19 @@ function scheduleReconnect() {
 }
 
 function handleMessage(message) {
-  switch (message.type) {
+  // Backend uses 'action', extension uses 'type' - check both
+  const action = message.action || message.type;
+
+  switch (action) {
+    case 'theme_changed':
+      currentTheme = message.data?.theme || 'black';
+      // Notify popup if open (ignore errors if popup is closed)
+      chrome.runtime.sendMessage({ type: 'theme_update', theme: currentTheme }).catch(() => {});
+      break;
+    case 'theme_info':
+      currentTheme = message.theme || 'black';
+      chrome.runtime.sendMessage({ type: 'theme_update', theme: currentTheme }).catch(() => {});
+      break;
     case 'start_picker':
       startPicker(message.tabId);
       break;
@@ -98,6 +113,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({
       connected: ws && ws.readyState === WebSocket.OPEN
     });
+  } else if (message.type === 'get_theme') {
+    sendResponse({ theme: currentTheme });
   }
   return true;
 });
