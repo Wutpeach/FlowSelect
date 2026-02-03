@@ -675,8 +675,8 @@ function App() {
         <div
           style={{
             position: 'absolute',
-            inset: -2,
-            borderRadius: 18,
+            inset: -4,
+            borderRadius: 20,
             pointerEvents: 'none',
             background: `conic-gradient(
               from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
