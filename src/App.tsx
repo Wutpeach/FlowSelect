@@ -661,7 +661,7 @@ function App() {
       }}
     >
       {/* Edge glow layer - follows mouse */}
-      {isPanelHovered && !isHovering && !downloadProgress && (
+      {isPanelHovered && !isHovering && !downloadProgress && !isMinimized && (
         <div
           style={{
             position: 'absolute',
