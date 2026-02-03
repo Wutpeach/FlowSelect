@@ -17,6 +17,8 @@ function connect() {
   ws.onopen = () => {
     console.log('[FlowSelect] Connected to desktop app');
     reconnectAttempts = 0;
+    // Query current theme after connection
+    ws.send(JSON.stringify({ action: 'get_theme' }));
   };
 
   ws.onmessage = (event) => {
