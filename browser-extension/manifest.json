@@ -14,12 +14,6 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["picker.js", "content-script.js"],
-      "css": ["picker.css"],
-      "run_at": "document_idle"
-    },
-    {
       "matches": ["https://twitter.com/*", "https://x.com/*"],
       "js": ["twitter-detector.js"],
       "css": ["twitter-button.css"],
