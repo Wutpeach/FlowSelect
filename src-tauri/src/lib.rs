@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::net::SocketAddr;
 
+use regex::Regex;
+
 use tokio::sync::broadcast;
 
 use clipboard_win::{formats, get_clipboard};
@@ -524,10 +526,12 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
                     }
                 }
 
-                // Capture file path
+                // Capture file path (use regex to preserve Windows drive letter)
                 if line_str.contains("[Merger]") || line_str.contains("Destination:") {
-                    if let Some(path) = line_str.split(':').last() {
-                        last_file_path = Some(path.trim().to_string());
+                    // Match quoted path with Windows drive letter: "D:\path\file.mp4"
+                    let re = Regex::new(r#""([A-Za-z]:\\[^"]+)""#).unwrap();
+                    if let Some(caps) = re.captures(&line_str) {
+                        last_file_path = Some(caps.get(1).unwrap().as_str().to_string());
                     }
                 }
             }
