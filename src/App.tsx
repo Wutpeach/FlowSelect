@@ -219,6 +219,25 @@ function App() {
     };
   }, []);
 
+  // Handle window drag start - prevents minimize during drag
+  const handleDragStart = async (e: React.MouseEvent) => {
+    if (e.button !== 0) return; // 只响应左键
+
+    isDraggingRef.current = true;
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+
+    try {
+      await getCurrentWindow().startDragging();
+    } finally {
+      // Windows 上 await 返回 = 拖拽结束
+      isDraggingRef.current = false;
+      resetIdleTimer();
+    }
+  };
+
 
   // Handle paste event - check for video URL first, then image URL, then clipboard files
   const handlePaste = async (e: React.ClipboardEvent) => {
@@ -653,7 +672,6 @@ function App() {
   return (
     <motion.div
       ref={containerRef}
-      data-tauri-drag-region
       tabIndex={0}
       onDragOver={(e) => {
         e.preventDefault();
@@ -676,9 +694,8 @@ function App() {
         containerRef.current?.focus();
       }}
       onMouseLeave={() => setIsPanelHovered(false)}
-      onMouseDown={() => { isDraggingRef.current = true; }}
+      onMouseDown={handleDragStart}
       onMouseUp={() => {
-        isDraggingRef.current = false;
         resetIdleTimer();
       }}
       onMouseMove={(e) => {
@@ -752,6 +769,7 @@ function App() {
       {/* Close button - top right circle */}
       <button
         onClick={() => getCurrentWindow().hide()}
+        onMouseDown={(e) => e.stopPropagation()}
         onMouseEnter={(e) => {
           const span = e.currentTarget.querySelector('span');
           if (span) span.style.backgroundColor = '#808080';
@@ -799,7 +817,6 @@ function App() {
         {downloadProgress ? (
           <motion.div
             key="progress"
-            data-tauri-drag-region
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
@@ -873,6 +890,7 @@ function App() {
                   console.error("Failed to cancel download:", err);
                 }
               }}
+              onMouseDown={(e) => e.stopPropagation()}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.2)';
                 const svg = e.currentTarget.querySelector('svg');
@@ -940,6 +958,7 @@ function App() {
       {ytdlpUpdate && (
         <button
           onClick={handleYtdlpUpdate}
+          onMouseDown={(e) => e.stopPropagation()}
           disabled={isUpdating}
           style={{
             position: 'absolute',
@@ -990,6 +1009,7 @@ function App() {
       {/* Settings button - bottom right rectangle */}
       <button
         onClick={openSettings}
+        onMouseDown={(e) => e.stopPropagation()}
         onMouseEnter={(e) => {
           const rect = e.currentTarget.querySelector('rect');
           if (rect) rect.style.stroke = '#808080';
