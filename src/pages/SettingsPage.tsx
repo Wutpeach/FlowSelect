@@ -268,7 +268,7 @@ function SettingsPage() {
           justifyContent: 'space-between',
           padding: '12px 16px',
           borderBottom: '1px solid #4B4951',
-          background: 'linear-gradient(180deg, #252528 0%, #2a2a2d 100%)',
+          background: 'transparent',
         }}
       >
         <h2 style={{ fontSize: 14, fontWeight: 500, color: '#e0e0e0', margin: 0 }}>Settings</h2>
@@ -496,7 +496,7 @@ function SettingsPage() {
         padding: '12px 16px',
         textAlign: 'center',
         borderTop: '1px solid #4B4951',
-        background: 'linear-gradient(180deg, #2a2a2d 0%, #252528 100%)',
+        background: 'transparent',
       }}>
         <span style={{ fontSize: 10, color: '#606060' }}>v0.1.1</span>
       </div>

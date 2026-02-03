@@ -64,8 +64,8 @@ function App() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMinimized, setIsMinimized] = useState(false);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
-  const [isDragging, setIsDragging] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
+  const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Load config on mount
@@ -203,7 +203,7 @@ function App() {
     }
 
     // 下载进行中或拖拽中时不启动 idle timer
-    if (downloadProgress || isDragging) return;
+    if (downloadProgress || isDraggingRef.current) return;
 
     idleTimerRef.current = window.setTimeout(() => {
       setIsMinimized(true);
@@ -676,9 +676,9 @@ function App() {
         containerRef.current?.focus();
       }}
       onMouseLeave={() => setIsPanelHovered(false)}
-      onMouseDown={() => setIsDragging(true)}
+      onMouseDown={() => { isDraggingRef.current = true; }}
       onMouseUp={() => {
-        setIsDragging(false);
+        isDraggingRef.current = false;
         resetIdleTimer();
       }}
       onMouseMove={(e) => {
