@@ -671,31 +671,37 @@ function App() {
       }}
     >
       {/* Edge glow layer - follows mouse */}
-      {isPanelHovered && !isHovering && !downloadProgress && !isMinimized && showEdgeGlow && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: -4,
-            borderRadius: 20,
-            pointerEvents: 'none',
-            background: `conic-gradient(
-              from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
-              transparent 0deg,
-              rgba(59,130,246,1) 30deg,
-              rgba(96,165,250,1) 60deg,
-              rgba(147,197,253,1) 90deg,
-              rgba(96,165,250,1) 120deg,
-              rgba(59,130,246,1) 150deg,
-              transparent 180deg
-            )`,
-            mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-            maskComposite: 'exclude',
-            WebkitMaskComposite: 'xor',
-            padding: 4,
-            filter: 'blur(2px)',
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {isPanelHovered && !isHovering && !downloadProgress && !isMinimized && showEdgeGlow && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+            style={{
+              position: 'absolute',
+              inset: -4,
+              borderRadius: 20,
+              pointerEvents: 'none',
+              background: `conic-gradient(
+                from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
+                transparent 0deg,
+                rgba(59,130,246,1) 30deg,
+                rgba(96,165,250,1) 60deg,
+                rgba(147,197,253,1) 90deg,
+                rgba(96,165,250,1) 120deg,
+                rgba(59,130,246,1) 150deg,
+                transparent 180deg
+              )`,
+              mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+              maskComposite: 'exclude',
+              WebkitMaskComposite: 'xor',
+              padding: 4,
+              filter: 'blur(2px)',
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Close button - top right circle */}
       <button
