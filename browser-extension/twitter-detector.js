@@ -9,6 +9,7 @@
   // 检测视频推文
   function detectVideoTweets() {
     const tweets = document.querySelectorAll('article[data-testid="tweet"]');
+    console.log('[FlowSelect Twitter] Found tweets:', tweets.length);
     tweets.forEach(processTweet);
   }
 
@@ -18,10 +19,12 @@
 
     // 检查是否包含视频
     const hasVideo = tweet.querySelector('video') !== null;
+    console.log('[FlowSelect Twitter] Tweet has video:', hasVideo);
     if (!hasVideo) return;
 
     // 提取推文 URL
     const tweetUrl = extractTweetUrl(tweet);
+    console.log('[FlowSelect Twitter] Tweet URL:', tweetUrl);
     if (!tweetUrl) return;
 
     // 注入下载按钮
