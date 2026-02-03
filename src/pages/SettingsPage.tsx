@@ -17,7 +17,6 @@ function SettingsPage() {
   const [cookiesBrowser, setCookiesBrowser] = useState("chrome");
   const [videoSeparateFolder, setVideoSeparateFolder] = useState(false);
   const [videoKeepOriginalName, setVideoKeepOriginalName] = useState(false);
-  const [videoCaptureEnabled, setVideoCaptureEnabled] = useState(false);
   const [devMode, setDevMode] = useState(false);
 
   // Load config on mount
@@ -40,9 +39,6 @@ function SettingsPage() {
         }
         if (config.videoKeepOriginalName !== undefined) {
           setVideoKeepOriginalName(config.videoKeepOriginalName);
-        }
-        if (config.videoCaptureEnabled !== undefined) {
-          setVideoCaptureEnabled(config.videoCaptureEnabled);
         }
         if (config.devMode !== undefined) {
           setDevMode(config.devMode);
@@ -215,25 +211,6 @@ function SettingsPage() {
     await invoke("save_config", { json: JSON.stringify(config) });
   };
 
-  const toggleVideoCaptureEnabled = async () => {
-    const newValue = !videoCaptureEnabled;
-    setVideoCaptureEnabled(newValue);
-    try {
-      if (newValue) {
-        await invoke("start_ws_server");
-      } else {
-        await invoke("stop_ws_server");
-      }
-      const configStr = await invoke<string>("get_config");
-      const config = JSON.parse(configStr);
-      config.videoCaptureEnabled = newValue;
-      await invoke("save_config", { json: JSON.stringify(config) });
-    } catch (err) {
-      console.error("Failed to toggle video capture:", err);
-      setVideoCaptureEnabled(!newValue); // Revert on error
-    }
-  };
-
   const toggleDevMode = async () => {
     const newValue = !devMode;
     setDevMode(newValue);
@@ -388,14 +365,6 @@ function SettingsPage() {
             Keep Original Video Name
           </label>
           <NeonToggle checked={videoKeepOriginalName} onChange={toggleVideoKeepOriginalName} />
-        </div>
-
-        {/* Video Capture Mode */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
-            Video Capture Mode
-          </label>
-          <NeonToggle checked={videoCaptureEnabled} onChange={toggleVideoCaptureEnabled} />
         </div>
 
         {/* Developer Mode */}
