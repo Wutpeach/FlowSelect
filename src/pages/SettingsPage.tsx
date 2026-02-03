@@ -9,7 +9,7 @@ import { NeonButton } from "../components/ui/neon-button";
 import { useTheme } from "../contexts/ThemeContext";
 
 function SettingsPage() {
-  const { theme, setTheme } = useTheme();
+  const { theme, colors, setTheme } = useTheme();
   const [outputPath, setOutputPath] = useState("");
   const [autostart, setAutostart] = useState(false);
   const [shortcut, setShortcut] = useState("");
@@ -253,13 +253,13 @@ function SettingsPage() {
     <div style={{
       width: '100%',
       height: '100%',
-      background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
+      background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
       borderRadius: 12,
       overflow: 'hidden',
       display: 'flex',
       flexDirection: 'column',
       border: 'none',
-      boxShadow: 'inset 0 0 0 1px #4B4951, 0 2px 4px rgba(0,0,0,0.1)',
+      boxShadow: `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`,
     }}>
       {/* Draggable Header */}
       <div
@@ -269,11 +269,11 @@ function SettingsPage() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '12px 16px',
-          borderBottom: '1px solid #4B4951',
+          borderBottom: `1px solid ${colors.borderStart}`,
           background: 'transparent',
         }}
       >
-        <h2 style={{ fontSize: 14, fontWeight: 500, color: '#e0e0e0', margin: 0 }}>Settings</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 500, color: colors.textPrimary, margin: 0 }}>Settings</h2>
         <button
           onClick={closeWindow}
           style={{
@@ -304,7 +304,7 @@ function SettingsPage() {
       }} className="hide-scrollbar">
         {/* Output Path */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
             Output Path
           </label>
           <button
@@ -315,18 +315,16 @@ function SettingsPage() {
               alignItems: 'center',
               gap: 8,
               padding: '10px 12px',
-              background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
+              background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
               borderRadius: 8,
-              border: '1px solid #4B4951',
+              border: `1px solid ${colors.borderStart}`,
               textAlign: 'left',
               fontSize: 12,
-              color: '#a0a0a0',
+              color: colors.textSecondary,
               cursor: 'pointer',
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'linear-gradient(180deg, #201E25 0%, #323137 100%)'}
           >
-            <FolderOpen size={14} style={{ color: '#606060', flexShrink: 0 }} />
+            <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {outputPath ? truncatePath(outputPath) : "Select folder..."}
             </span>
@@ -335,7 +333,7 @@ function SettingsPage() {
 
         {/* Launch at startup */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
             Launch at startup
           </label>
           <NeonToggle checked={autostart} onChange={toggleAutostart} />
@@ -343,7 +341,7 @@ function SettingsPage() {
 
         {/* Theme */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
             Theme
           </label>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -353,9 +351,9 @@ function SettingsPage() {
                 flex: 1,
                 padding: '8px 12px',
                 borderRadius: 8,
-                border: theme === 'black' ? '1px solid #3b82f6' : '1px solid #4B4951',
+                border: theme === 'black' ? '1px solid #3b82f6' : `1px solid ${colors.borderStart}`,
                 backgroundColor: theme === 'black' ? 'rgba(59,130,246,0.1)' : 'transparent',
-                color: theme === 'black' ? '#3b82f6' : '#a0a0a0',
+                color: theme === 'black' ? '#3b82f6' : colors.textSecondary,
                 fontSize: 12,
                 cursor: 'pointer',
               }}
@@ -368,9 +366,9 @@ function SettingsPage() {
                 flex: 1,
                 padding: '8px 12px',
                 borderRadius: 8,
-                border: theme === 'white' ? '1px solid #3b82f6' : '1px solid #4B4951',
+                border: theme === 'white' ? '1px solid #3b82f6' : `1px solid ${colors.borderStart}`,
                 backgroundColor: theme === 'white' ? 'rgba(59,130,246,0.1)' : 'transparent',
-                color: theme === 'white' ? '#3b82f6' : '#a0a0a0',
+                color: theme === 'white' ? '#3b82f6' : colors.textSecondary,
                 fontSize: 12,
                 cursor: 'pointer',
               }}
@@ -382,7 +380,7 @@ function SettingsPage() {
 
         {/* Video Cookies */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
             Video Cookies
           </label>
           <NeonToggle checked={cookiesEnabled} onChange={toggleCookies} />
@@ -394,11 +392,11 @@ function SettingsPage() {
                 marginTop: 8,
                 width: '100%',
                 padding: '8px 12px',
-                background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
+                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
                 borderRadius: 8,
                 fontSize: 12,
-                color: '#a0a0a0',
-                border: '1px solid #4B4951',
+                color: colors.textSecondary,
+                border: `1px solid ${colors.borderStart}`,
                 cursor: 'pointer',
                 outline: 'none',
               }}
@@ -413,7 +411,7 @@ function SettingsPage() {
 
         {/* Video Separate Folder */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
             Save Videos to Separate Folder
           </label>
           <NeonToggle checked={videoSeparateFolder} onChange={toggleVideoSeparateFolder} />
@@ -421,7 +419,7 @@ function SettingsPage() {
 
         {/* Developer Mode */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
             Developer Mode (F12 DevTools)
           </label>
           <NeonToggle checked={devMode} onChange={toggleDevMode} />
@@ -429,7 +427,7 @@ function SettingsPage() {
 
         {/* AE Portal */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
             AE Portal (Auto Import to After Effects)
           </label>
           <NeonToggle checked={aePortalEnabled} onChange={toggleAePortal} />
@@ -443,18 +441,16 @@ function SettingsPage() {
                 alignItems: 'center',
                 gap: 8,
                 padding: '10px 12px',
-                background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
+                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
                 borderRadius: 8,
-                border: '1px solid #4B4951',
+                border: `1px solid ${colors.borderStart}`,
                 textAlign: 'left',
                 fontSize: 12,
-                color: '#a0a0a0',
+                color: colors.textSecondary,
                 cursor: 'pointer',
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'linear-gradient(180deg, #201E25 0%, #323137 100%)'}
             >
-              <FolderOpen size={14} style={{ color: '#606060', flexShrink: 0 }} />
+              <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {aeExePath ? truncatePath(aeExePath) : "Select AfterFX.exe..."}
               </span>
@@ -464,7 +460,7 @@ function SettingsPage() {
 
         {/* Shortcut */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: '#808080', marginBottom: 8, display: 'block' }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
             Global Shortcut
           </label>
           {isRecording ? (
@@ -476,10 +472,10 @@ function SettingsPage() {
                 alignItems: 'center',
                 gap: 8,
                 padding: '10px 12px',
-                background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
+                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
                 borderRadius: 8,
                 fontSize: 12,
-                color: '#e0e0e0',
+                color: colors.textPrimary,
                 border: '1px solid #3b82f6',
               }}>
                 <Keyboard size={14} style={{ color: '#3b82f6', flexShrink: 0 }} />
@@ -514,18 +510,16 @@ function SettingsPage() {
                 alignItems: 'center',
                 gap: 8,
                 padding: '10px 12px',
-                background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
+                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
                 borderRadius: 8,
-                border: '1px solid #4B4951',
+                border: `1px solid ${colors.borderStart}`,
                 textAlign: 'left',
                 fontSize: 12,
-                color: '#a0a0a0',
+                color: colors.textSecondary,
                 cursor: 'pointer',
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'linear-gradient(180deg, #201E25 0%, #323137 100%)'}
             >
-              <Keyboard size={14} style={{ color: '#606060', flexShrink: 0 }} />
+              <Keyboard size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
               <span>{shortcut || "Click to set..."}</span>
             </button>
           )}
@@ -536,10 +530,10 @@ function SettingsPage() {
       <div style={{
         padding: '12px 16px',
         textAlign: 'center',
-        borderTop: '1px solid #4B4951',
+        borderTop: `1px solid ${colors.borderStart}`,
         background: 'transparent',
       }}>
-        <span style={{ fontSize: 10, color: '#606060' }}>v0.1.1</span>
+        <span style={{ fontSize: 10, color: colors.textSecondary }}>v0.1.1</span>
       </div>
     </div>
   );
