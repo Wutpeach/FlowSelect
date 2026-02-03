@@ -629,10 +629,12 @@ function App() {
         });
       }}
       onContextMenu={handleContextMenu}
+      initial={false}
       animate={{
         scale: isProcessing ? 0.95 : 1,
         width: isMinimized ? 60 : 200,
         height: isMinimized ? 60 : 200,
+        borderRadius: isMinimized ? 30 : 16,
       }}
       transition={{
         duration: 1,
@@ -640,7 +642,6 @@ function App() {
       }}
       style={{
         margin: 10,
-        borderRadius: isMinimized ? 30 : 16,
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
@@ -657,7 +658,6 @@ function App() {
         boxShadow: (isHovering || downloadProgress)
           ? '0 0 8px rgba(59,130,246,0.5), 0 0 10px rgba(59,130,246,0.3), inset 0 0 15px rgba(59,130,246,0.15)'
           : '0 0 0 1px #2a2a2a',
-        transition: 'all 0.3s ease',
       }}
     >
       {/* Edge glow layer - follows mouse */}
