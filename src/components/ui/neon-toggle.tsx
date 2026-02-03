@@ -1,3 +1,5 @@
+import { useTheme } from '../../contexts/ThemeContext';
+
 interface NeonToggleProps {
   checked: boolean;
   onChange: () => void;
@@ -5,6 +7,9 @@ interface NeonToggleProps {
 }
 
 export function NeonToggle({ checked, onChange, disabled = false }: NeonToggleProps) {
+  const { theme } = useTheme();
+  const uncheckedBg = theme === 'black' ? '#3a3a3a' : '#CCCCCC';
+
   return (
     <button
       onClick={onChange}
@@ -17,7 +22,7 @@ export function NeonToggle({ checked, onChange, disabled = false }: NeonTogglePr
         border: 'none',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
-        backgroundColor: checked ? '#3b82f6' : '#3a3a3a',
+        backgroundColor: checked ? '#3b82f6' : uncheckedBg,
         boxShadow: checked ? '0 0 12px rgba(59,130,246,0.5)' : 'none',
         transition: 'all 0.3s ease',
       }}
