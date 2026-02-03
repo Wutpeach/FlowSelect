@@ -45,6 +45,7 @@ function App() {
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMinimized, setIsMinimized] = useState(false);
+  const [showEdgeGlow, setShowEdgeGlow] = useState(true);
   const idleTimerRef = useRef<number | null>(null);
 
   // Load config on mount
@@ -152,9 +153,18 @@ function App() {
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
     }
+    const wasMinimized = isMinimized;
     setIsMinimized(false);
+
+    // 如果从图标状态恢复，延迟显示边缘光（等动画完成）
+    if (wasMinimized) {
+      setShowEdgeGlow(false);
+      setTimeout(() => setShowEdgeGlow(true), 1000);
+    }
+
     idleTimerRef.current = window.setTimeout(() => {
       setIsMinimized(true);
+      setShowEdgeGlow(false); // 缩小时立即隐藏边缘光
     }, 5000);
   };
 
@@ -661,7 +671,7 @@ function App() {
       }}
     >
       {/* Edge glow layer - follows mouse */}
-      {isPanelHovered && !isHovering && !downloadProgress && !isMinimized && (
+      {isPanelHovered && !isHovering && !downloadProgress && !isMinimized && showEdgeGlow && (
         <div
           style={{
             position: 'absolute',
