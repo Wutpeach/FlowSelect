@@ -30,6 +30,8 @@ struct RegisteredShortcut {
 struct WsServerState {
     shutdown_tx: Mutex<Option<broadcast::Sender<()>>>,
     is_running: Mutex<bool>,
+    // Broadcast channel for sending messages to all connected clients
+    broadcast_tx: Mutex<Option<broadcast::Sender<String>>>,
 }
 
 // WebSocket message types
@@ -1158,6 +1160,10 @@ async fn start_ws_server_internal(app: &AppHandle) -> Result<String, String> {
     *state.shutdown_tx.lock().unwrap() = Some(shutdown_tx.clone());
     *state.is_running.lock().unwrap() = true;
 
+    // Create broadcast channel for client messages
+    let (broadcast_tx, _) = broadcast::channel::<String>(16);
+    *state.broadcast_tx.lock().unwrap() = Some(broadcast_tx.clone());
+
     let app_handle = app.clone();
 
     // Spawn server task
@@ -1169,7 +1175,8 @@ async fn start_ws_server_internal(app: &AppHandle) -> Result<String, String> {
                 result = listener.accept() => {
                     if let Ok((stream, _)) = result {
                         let app_clone = app_handle.clone();
-                        tokio::spawn(handle_ws_connection(stream, app_clone));
+                        let broadcast_rx = broadcast_tx.subscribe();
+                        tokio::spawn(handle_ws_connection(stream, app_clone, broadcast_rx));
                     }
                 }
                 _ = shutdown_rx.recv() => {
@@ -1189,7 +1196,14 @@ async fn start_ws_server(app: AppHandle) -> Result<String, String> {
     start_ws_server_internal(&app).await
 }
 
-async fn handle_ws_connection(stream: tokio::net::TcpStream, app: AppHandle) {
+async fn handle_ws_connection(
+    stream: tokio::net::TcpStream,
+    app: AppHandle,
+    mut broadcast_rx: broadcast::Receiver<String>,
+) {
+    use tokio_tungstenite::tungstenite::Message;
+    use futures_util::{StreamExt, SinkExt};
+
     let ws_stream = match tokio_tungstenite::accept_async(stream).await {
         Ok(ws) => ws,
         Err(e) => {
@@ -1201,18 +1215,35 @@ async fn handle_ws_connection(stream: tokio::net::TcpStream, app: AppHandle) {
     let (mut write, mut read) = ws_stream.split();
     println!(">>> [WS] Client connected");
 
-    while let Some(msg) = read.next().await {
-        match msg {
-            Ok(Message::Text(text)) => {
-                let response = process_ws_message(&text, &app).await;
-                let json = serde_json::to_string(&response).unwrap_or_default();
-                if write.send(Message::Text(json)).await.is_err() {
-                    break;
+    loop {
+        tokio::select! {
+            // Handle incoming messages from client
+            msg = read.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        let response = process_ws_message(&text, &app).await;
+                        let json = serde_json::to_string(&response).unwrap_or_default();
+                        if write.send(Message::Text(json)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Err(_)) => break,
+                    None => break,
+                    _ => {}
                 }
             }
-            Ok(Message::Close(_)) => break,
-            Err(_) => break,
-            _ => {}
+            // Handle broadcast messages
+            broadcast_msg = broadcast_rx.recv() => {
+                match broadcast_msg {
+                    Ok(msg) => {
+                        if write.send(Message::Text(msg)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
         }
     }
     println!(">>> [WS] Client disconnected");
@@ -1237,6 +1268,30 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
             success: true,
             message: Some("pong".to_string()),
             data: None,
+        },
+        "get_theme" => {
+            match get_config(app.clone()) {
+                Ok(config_str) => {
+                    let config: serde_json::Value = serde_json::from_str(&config_str).unwrap_or_default();
+                    let theme = config.get("theme")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("black")
+                        .to_string();
+                    WsResponse {
+                        success: true,
+                        message: None,
+                        data: Some(serde_json::json!({
+                            "action": "theme_info",
+                            "theme": theme
+                        })),
+                    }
+                }
+                Err(e) => WsResponse {
+                    success: false,
+                    message: Some(format!("Failed to get config: {}", e)),
+                    data: None,
+                },
+            }
         },
         "save_image" => {
             if let Some(data) = msg.data {
@@ -1318,8 +1373,27 @@ fn stop_ws_server(app: AppHandle) -> Result<String, String> {
     }
 
     *state.is_running.lock().unwrap() = false;
+    *state.broadcast_tx.lock().unwrap() = None;
     println!(">>> [WS] Server stopped");
     Ok("WebSocket server stopped".to_string())
+}
+
+#[tauri::command]
+fn broadcast_theme(app: AppHandle, theme: String) -> Result<(), String> {
+    let state = app.state::<WsServerState>();
+
+    let broadcast_tx = state.broadcast_tx.lock().unwrap();
+    if let Some(tx) = broadcast_tx.as_ref() {
+        let msg = serde_json::json!({
+            "action": "theme_changed",
+            "data": { "theme": theme }
+        });
+        let _ = tx.send(msg.to_string());
+        println!(">>> [WS] Broadcasted theme: {}", theme);
+        Ok(())
+    } else {
+        Err("WebSocket server not running".to_string())
+    }
 }
 
 #[tauri::command]
@@ -1343,6 +1417,7 @@ pub fn run() {
         .manage(WsServerState {
             shutdown_tx: Mutex::new(None),
             is_running: Mutex::new(false),
+            broadcast_tx: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             list_files,
@@ -1367,7 +1442,8 @@ pub fn run() {
             toggle_devtools,
             start_ws_server,
             stop_ws_server,
-            get_ws_server_status
+            get_ws_server_status,
+            broadcast_theme
         ])
         .setup(|app| {
             // Create Tray Menu
