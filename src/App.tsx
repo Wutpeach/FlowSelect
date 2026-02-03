@@ -88,7 +88,10 @@ function App() {
   useEffect(() => {
     const unlistenProgress = listen<{ percent: number; speed: string; eta: string }>(
       "video-download-progress",
-      (event) => setDownloadProgress(event.payload)
+      (event) => {
+        setIsMinimized(false);
+        setDownloadProgress(event.payload);
+      }
     );
     const unlistenComplete = listen("video-download-complete", () => {
       setDownloadProgress(null);
