@@ -526,12 +526,20 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
                     }
                 }
 
-                // Capture file path (use regex to preserve Windows drive letter)
-                if line_str.contains("[Merger]") || line_str.contains("Destination:") {
-                    // Match quoted path with Windows drive letter: "D:\path\file.mp4"
+                // Capture file path - two formats:
+                // Format 1: [Merger] Merging formats into "D:\path\file.mp4" (quoted)
+                // Format 2: [download] Destination: D:\path\file.mp4 (unquoted)
+                if line_str.contains("[Merger]") {
                     let re = Regex::new(r#""([A-Za-z]:\\[^"]+)""#).unwrap();
                     if let Some(caps) = re.captures(&line_str) {
                         last_file_path = Some(caps.get(1).unwrap().as_str().to_string());
+                    }
+                } else if line_str.contains("Destination:") {
+                    if let Some(idx) = line_str.find("Destination:") {
+                        let path = line_str[idx + 12..].trim();
+                        if path.len() > 2 && path.chars().nth(1) == Some(':') {
+                            last_file_path = Some(path.to_string());
+                        }
                     }
                 }
             }
