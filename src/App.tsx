@@ -127,7 +127,7 @@ function App() {
         idleTimerRef.current = window.setTimeout(() => {
           setIsMinimized(true);
           setShowEdgeGlow(false);
-        }, 5000);
+        }, 3000);
       }, 5000);
     });
     return () => {
@@ -210,7 +210,7 @@ function App() {
     idleTimerRef.current = window.setTimeout(() => {
       setIsMinimized(true);
       setShowEdgeGlow(false); // 缩小时立即隐藏边缘光
-    }, 5000);
+    }, 3000);
   };
 
   // Start idle timer on mount
