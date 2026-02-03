@@ -1095,7 +1095,7 @@ async fn handle_ws_connection(stream: tokio::net::TcpStream, app: AppHandle) {
     println!(">>> [WS] Client disconnected");
 }
 
-async fn process_ws_message(text: &str, _app: &AppHandle) -> WsResponse {
+async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
     let msg: WsMessage = match serde_json::from_str(text) {
         Ok(m) => m,
         Err(e) => {
@@ -1135,6 +1135,34 @@ async fn process_ws_message(text: &str, _app: &AppHandle) -> WsResponse {
                     WsResponse {
                         success: false,
                         message: Some("Missing url".to_string()),
+                        data: None,
+                    }
+                }
+            } else {
+                WsResponse {
+                    success: false,
+                    message: Some("Missing data".to_string()),
+                    data: None,
+                }
+            }
+        }
+        "video_selected" => {
+            if let Some(data) = msg.data {
+                if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
+                    let app_clone = app.clone();
+                    let url_owned = url.to_string();
+                    tokio::spawn(async move {
+                        let _ = download_video(app_clone, url_owned).await;
+                    });
+                    WsResponse {
+                        success: true,
+                        message: Some("Download started".to_string()),
+                        data: None,
+                    }
+                } else {
+                    WsResponse {
+                        success: false,
+                        message: Some("Missing url in data".to_string()),
                         data: None,
                     }
                 }
