@@ -1,5 +1,14 @@
 // FlowSelect Browser Extension - Popup Script
 
+// Apply theme to popup
+function applyTheme(theme) {
+  if (theme === 'white') {
+    document.body.classList.add('white');
+  } else {
+    document.body.classList.remove('white');
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
@@ -24,6 +33,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial connection attempt and status check
   chrome.runtime.sendMessage({ type: 'connect' });
   checkStatus();
+
+  // Query current theme from background
+  chrome.runtime.sendMessage({ type: 'get_theme' }, (response) => {
+    applyTheme(response?.theme || 'black');
+  });
+
+  // Listen for theme updates from background
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'theme_update') {
+      applyTheme(message.theme);
+    }
+  });
 
   // Refresh button - reconnect and update status
   refreshBtn.addEventListener('click', () => {
