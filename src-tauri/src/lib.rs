@@ -1022,7 +1022,7 @@ fn toggle_devtools(app: AppHandle, enabled: bool) {
 }
 
 #[tauri::command]
-async fn start_ws_server(app: AppHandle) -> Result<String, String> {
+async fn start_ws_server_internal(app: &AppHandle) -> Result<String, String> {
     let state = app.state::<WsServerState>();
 
     // Check if already running
@@ -1064,6 +1064,11 @@ async fn start_ws_server(app: AppHandle) -> Result<String, String> {
 
     println!(">>> [WS] Server started on {}", addr);
     Ok(format!("WebSocket server started on {}", addr))
+}
+
+#[tauri::command]
+async fn start_ws_server(app: AppHandle) -> Result<String, String> {
+    start_ws_server_internal(&app).await
 }
 
 async fn handle_ws_connection(stream: tokio::net::TcpStream, app: AppHandle) {
@@ -1340,6 +1345,14 @@ pub fn run() {
                     }
                 }
             }
+
+            // Auto-start WebSocket server for browser extension
+            let app_handle_ws = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = start_ws_server_internal(&app_handle_ws).await {
+                    println!(">>> [WS] Auto-start failed: {}", e);
+                }
+            });
 
             Ok(())
         })
