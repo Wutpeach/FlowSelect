@@ -8,6 +8,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check } from "lucide-react";
 import { isVideoUrl } from "./utils/videoUrl";
+import { useTheme } from "./contexts/ThemeContext";
 
 // Helper function to check and show sequence overflow error
 const checkSequenceOverflow = (error: unknown): boolean => {
@@ -44,6 +45,7 @@ const CatIcon = () => (
 );
 
 function App() {
+  const { colors } = useTheme();
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [outputPath, setOutputPath] = useState("");
@@ -726,11 +728,11 @@ function App() {
         alignItems: 'center',
         gap: 8,
         outline: 'none',
-        background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
+        background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
         border: 'none',
         boxShadow: (isHovering || downloadProgress)
-          ? 'inset 0 0 0 1px #4B4951, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)'
-          : 'inset 0 0 0 1px #4B4951, 0 2px 4px rgba(0,0,0,0.1)',
+          ? `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)`
+          : `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`,
       }}
     >
       {/* Edge glow layer - follows mouse */}
