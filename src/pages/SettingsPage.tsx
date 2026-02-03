@@ -256,8 +256,8 @@ function SettingsPage() {
       overflow: 'hidden',
       display: 'flex',
       flexDirection: 'column',
-      border: '1px solid #4B4951',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1), 0 0 0 1px #0D0D0D',
+      border: 'none',
+      boxShadow: 'inset 0 0 0 1px #4B4951, 0 2px 4px rgba(0,0,0,0.1)',
     }}>
       {/* Draggable Header */}
       <div
