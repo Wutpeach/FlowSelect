@@ -704,10 +704,10 @@ function App() {
         gap: 8,
         outline: 'none',
         background: 'linear-gradient(180deg, #201E25 0%, #323137 100%)',
-        border: '1px solid #4B4951',
+        border: 'none',
         boxShadow: (isHovering || downloadProgress)
-          ? '0 2px 4px rgba(0,0,0,0.1), 0 0 0 1px #0D0D0D, 0 0 12px rgba(59,130,246,0.4)'
-          : '0 2px 4px rgba(0,0,0,0.1), 0 0 0 1px #0D0D0D',
+          ? 'inset 0 0 0 1px #4B4951, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)'
+          : 'inset 0 0 0 1px #4B4951, 0 2px 4px rgba(0,0,0,0.1)',
       }}
     >
       {/* Edge glow layer - follows mouse */}
