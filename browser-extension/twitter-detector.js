@@ -47,8 +47,9 @@
 
     const btn = document.createElement('div');
     btn.className = 'flowselect-download-btn';
-    btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18">
-      <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+    // 使用与 Twitter/X 风格一致的线条图标
+    btn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" class="r-4qtqp9 r-yyyyoo r-dnmrzs r-bnwqim r-lrvibr r-m6rgpd r-50lct3 r-1srniue">
+      <g><path d="M12 2.59l5.7 5.7-1.41 1.42L13 6.41V16h-2V6.41l-3.3 3.3-1.41-1.42L12 2.59zM21 15l-.02 3.51c0 1.38-1.12 2.49-2.5 2.49H5.5C4.11 21 3 19.88 3 18.5V15h2v3.5c0 .28.22.5.5.5h12.98c.28 0 .5-.22.5-.5L19 15h2z" transform="rotate(180 12 12)"></path></g>
     </svg>`;
     btn.title = 'Download with FlowSelect';
     btn.addEventListener('click', (e) => {
