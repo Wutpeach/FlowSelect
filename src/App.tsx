@@ -92,6 +92,13 @@ function App() {
     );
     const unlistenComplete = listen("video-download-complete", () => {
       setDownloadProgress(null);
+      // 下载完成后延迟5秒再启动 idle timer
+      setTimeout(() => {
+        idleTimerRef.current = window.setTimeout(() => {
+          setIsMinimized(true);
+          setShowEdgeGlow(false);
+        }, 5000);
+      }, 5000);
     });
     return () => {
       unlistenProgress.then(fn => fn());
@@ -161,6 +168,9 @@ function App() {
       setShowEdgeGlow(false);
       setTimeout(() => setShowEdgeGlow(true), 500);
     }
+
+    // 下载进行中时不启动 idle timer
+    if (downloadProgress) return;
 
     idleTimerRef.current = window.setTimeout(() => {
       setIsMinimized(true);
