@@ -718,9 +718,7 @@ function App() {
       onContextMenu={handleContextMenu}
       initial={false}
       animate={{
-        scale: isProcessing ? 0.95 : 1,
-        width: isMinimized ? 60 : 200,
-        height: isMinimized ? 60 : 200,
+        scale: isMinimized ? 0.3 : (isProcessing ? 0.95 : 1),
         borderRadius: isMinimized ? 30 : 16,
       }}
       transition={{
@@ -728,6 +726,9 @@ function App() {
         ease: [0.65, 0.00, 0.35, 1.00],
       }}
       style={{
+        width: 200,
+        height: 200,
+        transformOrigin: 'center',
         margin: 10,
         position: 'relative',
         display: 'flex',
