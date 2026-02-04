@@ -1070,10 +1070,11 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                     if window.is_visible().unwrap_or(false) {
                         let _ = window.hide();
                     } else {
-                        // Position window near cursor
+                        // Position window: bottom-left of cursor, top-right corner 100px away
                         if let Ok(pos) = window.cursor_position() {
-                            let x = (pos.x - 100.0).max(0.0);
-                            let y = (pos.y - 100.0).max(0.0);
+                            let window_width = 220.0;
+                            let x = (pos.x - 100.0 - window_width).max(0.0);
+                            let y = pos.y + 100.0;
                             let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
                         }
                         let _ = window.show();
