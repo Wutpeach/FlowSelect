@@ -229,6 +229,23 @@ function App() {
     };
   }, []);
 
+  // Adjust window position when minimizing/expanding to create center-anchored effect
+  useEffect(() => {
+    const adjustWindowPosition = async () => {
+      const win = getCurrentWindow();
+      const pos = await win.outerPosition();
+      const offset = 70; // (200 - 60) / 2
+      if (isMinimized) {
+        // 缩小时向右下移动，保持视觉中心
+        await win.setPosition({ x: pos.x + offset, y: pos.y + offset });
+      } else {
+        // 放大时向左上移动
+        await win.setPosition({ x: Math.max(0, pos.x - offset), y: Math.max(0, pos.y - offset) });
+      }
+    };
+    adjustWindowPosition();
+  }, [isMinimized]);
+
   // Handle window drag start - prevents minimize during drag
   const handleDragStart = async (e: React.MouseEvent) => {
     if (e.button !== 0) return; // 只响应左键
@@ -718,7 +735,9 @@ function App() {
       onContextMenu={handleContextMenu}
       initial={false}
       animate={{
-        scale: isMinimized ? 0.3 : (isProcessing ? 0.95 : 1),
+        scale: isProcessing ? 0.95 : 1,
+        width: isMinimized ? 60 : 200,
+        height: isMinimized ? 60 : 200,
         borderRadius: isMinimized ? 30 : 16,
       }}
       transition={{
@@ -726,9 +745,6 @@ function App() {
         ease: [0.65, 0.00, 0.35, 1.00],
       }}
       style={{
-        width: 200,
-        height: 200,
-        transformOrigin: 'center',
         margin: 10,
         position: 'relative',
         display: 'flex',
