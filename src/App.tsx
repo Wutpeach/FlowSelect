@@ -66,6 +66,7 @@ function App() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMinimized, setIsMinimized] = useState(false);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
+  const [quickDismiss, setQuickDismiss] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -79,6 +80,9 @@ function App() {
         const config = JSON.parse(configStr);
         if (config.outputPath) {
           setOutputPath(config.outputPath);
+        }
+        if (config.quickDismiss !== undefined) {
+          setQuickDismiss(config.quickDismiss);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -120,15 +124,20 @@ function App() {
         setDownloadProgress(event.payload);
       }
     );
-    const unlistenComplete = listen("video-download-complete", () => {
+    const unlistenComplete = listen("video-download-complete", async () => {
       setDownloadProgress(null);
-      // 下载完成后延迟5秒再启动 idle timer
-      setTimeout(() => {
-        idleTimerRef.current = window.setTimeout(() => {
-          setIsMinimized(true);
-          setShowEdgeGlow(false);
-        }, 3000);
-      }, 5000);
+      if (quickDismiss) {
+        const win = getCurrentWindow();
+        await win.hide();
+      } else {
+        // 下载完成后延迟5秒再启动 idle timer
+        setTimeout(() => {
+          idleTimerRef.current = window.setTimeout(() => {
+            setIsMinimized(true);
+            setShowEdgeGlow(false);
+          }, 3000);
+        }, 5000);
+      }
     });
     return () => {
       unlistenProgress.then(fn => fn());
@@ -221,6 +230,15 @@ function App() {
     }, 3000);
   };
 
+  // Handle task completion with quick dismiss support
+  const handleTaskComplete = async () => {
+    setIsProcessing(false);
+    if (quickDismiss) {
+      const win = getCurrentWindow();
+      await win.hide();
+    }
+  };
+
   // Start idle timer on mount
   useEffect(() => {
     resetIdleTimer();
@@ -274,7 +292,7 @@ function App() {
         console.error("Failed to download video:", err);
         checkSequenceOverflow(err);
       }
-      setTimeout(() => setIsProcessing(false), 1000);
+      setTimeout(() => handleTaskComplete(), 1000);
       return;
     }
 
@@ -301,7 +319,7 @@ function App() {
         console.error("Failed to process image:", err);
         checkSequenceOverflow(err);
       }
-      setTimeout(() => setIsProcessing(false), 1000);
+      setTimeout(() => handleTaskComplete(), 1000);
       return;
     }
 
@@ -323,7 +341,7 @@ function App() {
           checkSequenceOverflow(err);
         }
 
-        setTimeout(() => setIsProcessing(false), 1000);
+        setTimeout(() => handleTaskComplete(), 1000);
       } else {
         console.warn("No files in clipboard");
       }
@@ -382,7 +400,7 @@ function App() {
             console.log("用户选择的路径:", selected);
             setOutputPath(selected);
             setIsProcessing(true);
-            setTimeout(() => setIsProcessing(false), 1000);
+            setTimeout(() => handleTaskComplete(), 1000);
           }
         } catch (err) {
           console.error("打开目录选择器失败:", err);
@@ -423,7 +441,7 @@ function App() {
         checkSequenceOverflow(err);
       }
 
-      setTimeout(() => setIsProcessing(false), 1000);
+      setTimeout(() => handleTaskComplete(), 1000);
       return;
     }
 
@@ -455,7 +473,7 @@ function App() {
             console.error("Failed to download Pinterest image:", err);
             checkSequenceOverflow(err);
           }
-          setTimeout(() => setIsProcessing(false), 1000);
+          setTimeout(() => handleTaskComplete(), 1000);
           return;
         }
       }
@@ -481,7 +499,7 @@ function App() {
         console.error("Failed to download video:", err);
         checkSequenceOverflow(err);
       }
-      setTimeout(() => setIsProcessing(false), 1000);
+      setTimeout(() => handleTaskComplete(), 1000);
       return;
     }
 
@@ -548,7 +566,7 @@ function App() {
         checkSequenceOverflow(err);
       }
 
-      setTimeout(() => setIsProcessing(false), 1000);
+      setTimeout(() => handleTaskComplete(), 1000);
       return;
     }
 
@@ -601,7 +619,7 @@ function App() {
         }
       }
 
-      setTimeout(() => setIsProcessing(false), 1000);
+      setTimeout(() => handleTaskComplete(), 1000);
       return;
     }
 
