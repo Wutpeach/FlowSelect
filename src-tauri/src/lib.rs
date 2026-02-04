@@ -1068,9 +1068,17 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                     if window.is_visible().unwrap_or(false) {
                         let _ = window.hide();
                     } else {
+                        // Position window near cursor
+                        if let Ok(pos) = window.cursor_position() {
+                            let x = (pos.x - 100.0).max(0.0);
+                            let y = (pos.y - 100.0).max(0.0);
+                            let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+                        }
                         let _ = window.show();
                         let _ = window.set_focus();
                         let _ = window.set_skip_taskbar(true);
+                        // Notify frontend to cancel icon mode
+                        let _ = app_handle.emit("shortcut-show", ());
                     }
                 }
             }
