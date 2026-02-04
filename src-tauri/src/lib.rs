@@ -18,8 +18,6 @@ use tauri::{
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
-use tokio_tungstenite::tungstenite::Message;
-use futures_util::{StreamExt, SinkExt};
 
 // Store current registered shortcut
 struct RegisteredShortcut {
