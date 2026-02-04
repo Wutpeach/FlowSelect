@@ -21,6 +21,7 @@ function SettingsPage() {
   const [devMode, setDevMode] = useState(false);
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
+  const [quickDismiss, setQuickDismiss] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -48,6 +49,9 @@ function SettingsPage() {
         }
         if (config.aeExePath) {
           setAeExePath(config.aeExePath);
+        }
+        if (config.quickDismiss !== undefined) {
+          setQuickDismiss(config.quickDismiss);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -207,6 +211,19 @@ function SettingsPage() {
     config.videoSeparateFolder = newValue;
     config.videoKeepOriginalName = newValue;
     await invoke("save_config", { json: JSON.stringify(config) });
+  };
+
+  const toggleQuickDismiss = async () => {
+    const newValue = !quickDismiss;
+    setQuickDismiss(newValue);
+    try {
+      const configStr = await invoke<string>("get_config");
+      const config = JSON.parse(configStr || "{}");
+      config.quickDismiss = newValue;
+      await invoke("save_config", { json: JSON.stringify(config) });
+    } catch (err) {
+      console.error("Failed to save quickDismiss:", err);
+    }
   };
 
   const toggleDevMode = async () => {
@@ -415,6 +432,14 @@ function SettingsPage() {
             Save Videos to Separate Folder
           </label>
           <NeonToggle checked={videoSeparateFolder} onChange={toggleVideoSeparateFolder} />
+        </div>
+
+        {/* Quick Dismiss */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+            Quick Dismiss (Auto hide after task)
+          </label>
+          <NeonToggle checked={quickDismiss} onChange={toggleQuickDismiss} />
         </div>
 
         {/* Developer Mode */}
