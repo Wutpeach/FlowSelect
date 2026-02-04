@@ -533,7 +533,7 @@ function SettingsPage() {
         borderTop: `1px solid ${colors.borderStart}`,
         background: 'transparent',
       }}>
-        <span style={{ fontSize: 10, color: colors.textSecondary }}>v0.1.1</span>
+        <span style={{ fontSize: 10, color: colors.textSecondary }}>v0.1.2</span>
       </div>
     </div>
   );
