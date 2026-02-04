@@ -64,8 +64,9 @@ function App() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(true);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
+  const [isInitialMount, setIsInitialMount] = useState(true);
   const idleTimerRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -85,6 +86,14 @@ function App() {
       }
     };
     loadConfig();
+  }, []);
+
+  // Startup animation: brief delay to trigger bounce effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitialMount(false);
+    }, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   // Save config when outputPath changes
@@ -718,12 +727,12 @@ function App() {
       onContextMenu={handleContextMenu}
       initial={false}
       animate={{
-        scale: isMinimized ? 0.3 : (isProcessing ? 0.95 : 1),
+        scale: isInitialMount ? 0 : (isMinimized ? 0.3 : (isProcessing ? 0.95 : 1)),
         borderRadius: isMinimized ? 100 : 16,
       }}
       transition={{
-        duration: 0.5,
-        ease: [0.65, 0.00, 0.35, 1.00],
+        duration: isInitialMount ? 0.6 : 0.5,
+        ease: isInitialMount ? [0.34, 1.56, 0.64, 1] : [0.65, 0, 0.35, 1],
       }}
       style={{
         width: 200,
