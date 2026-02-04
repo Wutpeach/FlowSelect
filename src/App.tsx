@@ -158,6 +158,14 @@ function App() {
     return () => { unlisten.then(fn => fn()); };
   }, []);
 
+  // Listen for shortcut show event
+  useEffect(() => {
+    const unlisten = listen("shortcut-show", () => {
+      resetIdleTimer();
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
+
   // Check yt-dlp version on startup
   useEffect(() => {
     console.log(">>> Checking yt-dlp version...");
