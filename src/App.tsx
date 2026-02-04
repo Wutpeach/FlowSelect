@@ -805,6 +805,7 @@ function App() {
           justifyContent: 'center',
           opacity: isPanelHovered && !isMinimized ? 1 : 0,
           transition: 'opacity 0.2s ease',
+          transitionDelay: !isMinimized ? '0.4s' : '0s',
           pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
           zIndex: 10,
         }}
@@ -987,6 +988,7 @@ function App() {
             justifyContent: 'center',
             opacity: isPanelHovered && !isMinimized ? 1 : 0,
             transition: 'opacity 0.2s ease',
+            transitionDelay: !isMinimized ? '0.4s' : '0s',
             pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
             zIndex: 10,
           }}
@@ -1045,6 +1047,7 @@ function App() {
           justifyContent: 'center',
           opacity: isPanelHovered && !isMinimized ? 1 : 0,
           transition: 'opacity 0.2s ease',
+          transitionDelay: !isMinimized ? '0.4s' : '0s',
           pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
           zIndex: 10,
         }}
