@@ -35,4 +35,5 @@ url = "2"
 base64 = "0.22"
 tokio-tungstenite = "0.21"
 regex = "1"
+urlencoding = "2"
 

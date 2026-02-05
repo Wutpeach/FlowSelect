@@ -1,0 +1,35 @@
+/* FlowSelect Browser Extension - Douyin Download Button Styles */
+
+.flowselect-douyin-btn {
+  position: absolute;
+  bottom: 80px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.2s;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.flowselect-douyin-btn:hover {
+  background-color: rgba(254, 44, 85, 0.8);
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+.flowselect-douyin-btn:active {
+  transform: scale(0.95);
+}
+
+.flowselect-douyin-btn svg {
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+}

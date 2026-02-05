@@ -401,8 +401,12 @@ pub struct DownloadProgress {
     pub eta: String,
 }
 
-#[tauri::command]
-async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, String> {
+/// Internal download function that supports both extension cookies and browser cookies
+async fn download_video_internal(
+    app: AppHandle,
+    url: String,
+    extension_cookies_path: Option<PathBuf>,
+) -> Result<DownloadResult, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
     println!(">>> [Rust] Starting video download: {}", url);
@@ -469,28 +473,12 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         output_template.to_string_lossy().to_string(),
     ];
 
-    // Add cookies support if enabled
-    let cookies_enabled = config
-        .get("cookiesEnabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let mut temp_profile_path: Option<PathBuf> = None;
-
-    if cookies_enabled {
-        if let Some(browser) = config.get("cookiesBrowser").and_then(|v| v.as_str()) {
-            let valid_browsers = ["chrome", "edge", "firefox", "brave"];
-            if valid_browsers.contains(&browser) {
-                // Try to prepare cookies profile
-                if let Some(profile_path) = prepare_cookies_profile(browser) {
-                    args.push("--cookies-from-browser".to_string());
-                    args.push(format!("{}:{}", browser, profile_path.to_string_lossy()));
-                    temp_profile_path = Some(profile_path);
-                    println!(">>> [Rust] Using cookies from browser: {} with profile: {:?}", browser, temp_profile_path);
-                } else {
-                    println!(">>> [Rust] Warning: Could not prepare cookies profile for {}, continuing without cookies", browser);
-                }
-            }
+    // Use extension-provided cookies (from browser extension)
+    if let Some(ref cookies_path) = extension_cookies_path {
+        if cookies_path.exists() {
+            args.push("--cookies".to_string());
+            args.push(cookies_path.to_string_lossy().to_string());
+            println!(">>> [Rust] Using extension cookies from: {:?}", cookies_path);
         }
     }
 
@@ -555,12 +543,12 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
                 // Clear download PID
                 *DOWNLOAD_CHILD.lock().unwrap() = None;
 
-                // Cleanup temp cookies profile
-                if let Some(ref profile_path) = temp_profile_path {
-                    if let Err(e) = fs::remove_dir_all(profile_path) {
-                        println!(">>> [Rust] Warning: Failed to cleanup temp profile: {}", e);
+                // Cleanup extension cookies file
+                if let Some(ref cookies_path) = extension_cookies_path {
+                    if let Err(e) = fs::remove_file(cookies_path) {
+                        println!(">>> [Rust] Warning: Failed to cleanup extension cookies: {}", e);
                     } else {
-                        println!(">>> [Rust] Cleaned up temp cookies profile");
+                        println!(">>> [Rust] Cleaned up extension cookies file");
                     }
                 }
 
@@ -601,6 +589,12 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         file_path: None,
         error: Some("Process ended unexpectedly".to_string()),
     })
+}
+
+/// Public command for downloading video (used by frontend paste/drag)
+#[tauri::command]
+async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, String> {
+    download_video_internal(app, url, None).await
 }
 
 #[tauri::command]
@@ -657,115 +651,141 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
 }
 
 /// Get browser cookies database path (Windows)
-fn get_browser_cookies_path(browser: &str) -> Option<PathBuf> {
-    match browser {
-        "edge" => {
-            std::env::var("LOCALAPPDATA").ok().map(|local| {
-                PathBuf::from(local)
-                    .join("Microsoft")
-                    .join("Edge")
-                    .join("User Data")
-                    .join("Default")
-                    .join("Network")
-                    .join("Cookies")
-            })
-        }
-        "chrome" => {
-            std::env::var("LOCALAPPDATA").ok().map(|local| {
-                PathBuf::from(local)
-                    .join("Google")
-                    .join("Chrome")
-                    .join("User Data")
-                    .join("Default")
-                    .join("Network")
-                    .join("Cookies")
-            })
-        }
-        "brave" => {
-            std::env::var("LOCALAPPDATA").ok().map(|local| {
-                PathBuf::from(local)
-                    .join("BraveSoftware")
-                    .join("Brave-Browser")
-                    .join("User Data")
-                    .join("Default")
-                    .join("Network")
-                    .join("Cookies")
-            })
-        }
-        "firefox" => {
-            // Firefox uses a different structure with random profile names
-            std::env::var("APPDATA").ok().and_then(|appdata| {
-                let profiles_dir = PathBuf::from(appdata)
-                    .join("Mozilla")
-                    .join("Firefox")
-                    .join("Profiles");
+/// Save cookies from browser extension to a temporary Netscape format file
+fn save_extension_cookies(cookies_str: &str) -> Result<PathBuf, String> {
+    let temp_dir = std::env::temp_dir();
+    let cookies_path = temp_dir.join("flowselect_extension_cookies.txt");
 
-                if !profiles_dir.exists() {
-                    return None;
-                }
+    let content = format!(
+        "# Netscape HTTP Cookie File\n# Generated by FlowSelect\n\n{}",
+        cookies_str
+    );
 
-                // Find profile directory matching *.default* pattern
-                fs::read_dir(&profiles_dir)
-                    .ok()?
-                    .filter_map(|e| e.ok())
-                    .find(|entry| {
-                        entry.file_name()
-                            .to_string_lossy()
-                            .contains("default")
-                    })
-                    .map(|entry| entry.path().join("cookies.sqlite"))
-            })
-        }
-        _ => None,
-    }
+    fs::write(&cookies_path, content)
+        .map_err(|e| format!("Failed to write cookies file: {}", e))?;
+
+    println!(">>> [Rust] Saved extension cookies to: {:?}", cookies_path);
+    Ok(cookies_path)
 }
 
-/// Prepare temporary cookies profile for yt-dlp
-fn prepare_cookies_profile(browser: &str) -> Option<PathBuf> {
-    let cookies_path = get_browser_cookies_path(browser)?;
+/// Check if URL is a Douyin video URL
+fn is_douyin_url(url: &str) -> bool {
+    url.contains("douyin.com/video/") || url.contains("v.douyin.com") || url.contains("douyinvod.com")
+}
 
-    if !cookies_path.exists() {
-        println!(">>> [Rust] Warning: Cookies file not found: {:?}", cookies_path);
-        return None;
+/// Download Douyin video directly from video URL
+async fn download_douyin_direct(
+    app: AppHandle,
+    video_url: String,
+    cookies: Option<String>,
+) -> Result<DownloadResult, String> {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    println!(">>> [Rust] Starting Douyin direct download: {}", video_url);
+
+    // Build HTTP client with headers
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".parse().unwrap());
+    headers.insert("Referer", "https://www.douyin.com/".parse().unwrap());
+
+    if let Some(ref cookie_str) = cookies {
+        if let Ok(cookie_val) = cookie_str.parse() {
+            headers.insert("Cookie", cookie_val);
+        }
     }
 
-    // Create temp profile directory
-    let temp_dir = std::env::temp_dir();
-    let profile_dir = temp_dir.join(format!("flowselect_cookies_{}", browser));
+    let client = reqwest::Client::builder()
+        .default_headers(headers)
+        .build()
+        .map_err(|e| format!("Failed to build client: {}", e))?;
 
-    // For Firefox, the structure is different
-    if browser == "firefox" {
-        // Firefox: temp_dir/flowselect_cookies_firefox/cookies.sqlite
-        if let Err(e) = fs::create_dir_all(&profile_dir) {
-            println!(">>> [Rust] Warning: Failed to create temp profile dir: {}", e);
-            return None;
-        }
+    // Get output directory from config
+    let config_str = get_config(app.clone())?;
+    let config: serde_json::Value = serde_json::from_str(&config_str)
+        .map_err(|e| format!("Failed to parse config: {}", e))?;
 
-        let dest_path = profile_dir.join("cookies.sqlite");
-        if let Err(e) = fs::copy(&cookies_path, &dest_path) {
-            println!(">>> [Rust] Warning: Failed to copy cookies: {}", e);
-            return None;
-        }
+    let base_output_dir = config
+        .get("outputPath")
+        .and_then(|v| v.as_str())
+        .map(|s| std::path::PathBuf::from(s))
+        .unwrap_or_else(|| {
+            desktop_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("FlowSelect_Received")
+        });
 
-        println!(">>> [Rust] Copied Firefox cookies to: {:?}", dest_path);
+    let video_separate = config.get("videoSeparateFolder")
+        .and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let output_dir = if video_separate {
+        base_output_dir.join("Videos")
     } else {
-        // Chromium-based: temp_dir/flowselect_cookies_{browser}/Default/Network/Cookies
-        let network_dir = profile_dir.join("Default").join("Network");
-        if let Err(e) = fs::create_dir_all(&network_dir) {
-            println!(">>> [Rust] Warning: Failed to create temp profile dir: {}", e);
-            return None;
-        }
+        base_output_dir
+    };
 
-        let dest_path = network_dir.join("Cookies");
-        if let Err(e) = fs::copy(&cookies_path, &dest_path) {
-            println!(">>> [Rust] Warning: Failed to copy cookies: {}", e);
-            return None;
-        }
-
-        println!(">>> [Rust] Copied {} cookies to: {:?}", browser, dest_path);
+    if !output_dir.exists() {
+        fs::create_dir_all(&output_dir)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
-    Some(profile_dir)
+    let seq_num = get_next_sequence_number(&output_dir)?;
+    let output_path = output_dir.join(format!("{}.mp4", seq_num));
+
+    // Download video
+    let response = client.get(&video_url)
+        .send().await
+        .map_err(|e| format!("Failed to download: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+
+    let mut file = tokio::fs::File::create(&output_path).await
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+
+    let mut stream = response.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
+        file.write_all(&chunk).await
+            .map_err(|e| format!("Write error: {}", e))?;
+
+        downloaded += chunk.len() as u64;
+
+        if total_size > 0 {
+            let percent = (downloaded as f32 / total_size as f32) * 100.0;
+            let _ = app.emit("video-download-progress", DownloadProgress {
+                percent,
+                speed: "N/A".to_string(),
+                eta: "N/A".to_string(),
+            });
+        }
+    }
+
+    file.flush().await.map_err(|e| format!("Flush error: {}", e))?;
+
+    let file_path = output_path.to_string_lossy().to_string();
+    println!(">>> [Rust] Douyin video saved: {}", file_path);
+
+    let result = DownloadResult {
+        success: true,
+        file_path: Some(file_path.clone()),
+        error: None,
+    };
+
+    let _ = app.emit("video-download-complete", result.clone());
+
+    // AE Portal
+    let app_for_ae = app.clone();
+    tokio::spawn(async move {
+        let _ = send_to_ae(app_for_ae, file_path).await;
+    });
+
+    Ok(result)
 }
 
 /// Parse yt-dlp progress line: [download] XX.X% of XXX at XXX ETA XXX
@@ -1121,6 +1141,26 @@ fn unregister_shortcut(app: AppHandle, shortcut: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn set_window_size(app: AppHandle, width: u32, height: u32) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_size(tauri::LogicalSize::new(width, height))
+            .map_err(|e| format!("Failed to set window size: {}", e))
+    } else {
+        Err("Window not found".to_string())
+    }
+}
+
+#[tauri::command]
+fn set_window_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_position(tauri::LogicalPosition::new(x, y))
+            .map_err(|e| format!("Failed to set window position: {}", e))
+    } else {
+        Err("Window not found".to_string())
+    }
+}
+
+#[tauri::command]
 fn is_directory(path: String) -> bool {
     Path::new(&path).is_dir()
 }
@@ -1334,11 +1374,34 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
         "video_selected" => {
             if let Some(data) = msg.data {
                 if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
+                    // Extract cookies and videoUrl from extension
+                    let cookies = data.get("cookies").and_then(|v| v.as_str());
+                    let video_url = data.get("videoUrl").and_then(|v| v.as_str());
+                    let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
+
                     let app_clone = app.clone();
-                    let url_owned = url.to_string();
-                    tokio::spawn(async move {
-                        let _ = download_video(app_clone, url_owned).await;
-                    });
+
+                    // Check if Douyin URL - use custom downloader
+                    if is_douyin_url(page_url) || is_douyin_url(url) {
+                        let download_url = video_url.unwrap_or(url).to_string();
+                        let cookies_owned = cookies.map(|s| s.to_string());
+                        println!(">>> [Rust] Douyin video URL: {}", download_url);
+                        tokio::spawn(async move {
+                            if let Err(e) = download_douyin_direct(app_clone, download_url, cookies_owned).await {
+                                println!(">>> [Rust] Douyin download error: {}", e);
+                            }
+                        });
+                    } else {
+                        // Use yt-dlp for other platforms
+                        let url_owned = url.to_string();
+                        let cookies_path = cookies
+                            .filter(|s| !s.is_empty())
+                            .and_then(|s| save_extension_cookies(s).ok());
+                        tokio::spawn(async move {
+                            let _ = download_video_internal(app_clone, url_owned, cookies_path).await;
+                        });
+                    }
+
                     WsResponse {
                         success: true,
                         message: Some("Download started".to_string()),
@@ -1450,7 +1513,9 @@ pub fn run() {
             start_ws_server,
             stop_ws_server,
             get_ws_server_status,
-            broadcast_theme
+            broadcast_theme,
+            set_window_size,
+            set_window_position
         ])
         .setup(|app| {
             // Create Tray Menu

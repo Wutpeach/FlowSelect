@@ -3,7 +3,8 @@
   "name": "FlowSelect Video Picker",
   "version": "1.0.0",
   "description": "Pick video elements from web pages for FlowSelect",
-  "permissions": ["activeTab", "scripting"],
+  "permissions": ["activeTab", "scripting", "cookies"],
+  "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -17,6 +18,12 @@
       "matches": ["https://twitter.com/*", "https://x.com/*"],
       "js": ["twitter-detector.js"],
       "css": ["twitter-button.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.douyin.com/*"],
+      "js": ["douyin-detector.js"],
+      "css": ["douyin-button.css"],
       "run_at": "document_idle"
     }
   ],
