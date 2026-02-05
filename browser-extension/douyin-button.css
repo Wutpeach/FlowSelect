@@ -1,5 +1,35 @@
 /* FlowSelect Browser Extension - Douyin Download Button Styles */
 
+/* Control bar button (inside xgplayer controls) */
+.flowselect-douyin-control-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  margin: 0 2px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.flowselect-douyin-control-btn:hover {
+  color: rgba(254, 44, 85, 1);
+}
+
+.flowselect-douyin-control-btn:active {
+  opacity: 0.8;
+}
+
+.flowselect-douyin-control-btn svg {
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+
+/* Fallback: Absolute positioned button on video container */
 .flowselect-douyin-btn {
   position: absolute;
   bottom: 80px;
@@ -32,4 +62,44 @@
   width: 24px;
   height: 24px;
   pointer-events: none;
+}
+
+/* Cover/Card button styles */
+.flowselect-douyin-cover-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.2s;
+  z-index: 10;
+  opacity: 0;
+}
+
+.flowselect-douyin-cover-btn:hover {
+  background-color: rgba(254, 44, 85, 0.9);
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+.flowselect-douyin-cover-btn:active {
+  transform: scale(0.95);
+}
+
+.flowselect-douyin-cover-btn svg {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+
+/* Show button on hover */
+*:hover > .flowselect-douyin-cover-btn {
+  opacity: 1;
 }

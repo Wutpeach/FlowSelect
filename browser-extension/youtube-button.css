@@ -1,0 +1,30 @@
+/* FlowSelect Browser Extension - YouTube Download Button Styles */
+
+.flowselect-youtube-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: color 0.2s, transform 0.2s;
+}
+
+.flowselect-youtube-btn:hover {
+  color: #ff0000;
+  transform: scale(1.1);
+}
+
+.flowselect-youtube-btn:active {
+  transform: scale(0.95);
+}
+
+.flowselect-youtube-btn svg {
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+}
