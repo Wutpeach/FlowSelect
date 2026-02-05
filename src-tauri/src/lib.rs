@@ -678,6 +678,7 @@ async fn download_douyin_direct(
     app: AppHandle,
     video_url: String,
     cookies: Option<String>,
+    title: Option<String>,
 ) -> Result<DownloadResult, String> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
@@ -729,8 +730,38 @@ async fn download_douyin_direct(
             .map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
-    let seq_num = get_next_sequence_number(&output_dir)?;
-    let output_path = output_dir.join(format!("{}.mp4", seq_num));
+    // Check videoKeepOriginalName setting
+    let keep_original_name = config.get("videoKeepOriginalName")
+        .and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let output_path = if keep_original_name && title.is_some() {
+        let raw_title = title.as_ref().unwrap();
+        // Clean title: remove " - 抖音" suffix and invalid filename characters
+        let clean_title = raw_title
+            .trim_end_matches(" - 抖音")
+            .trim()
+            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+            .chars()
+            .take(100) // Limit filename length
+            .collect::<String>();
+
+        if clean_title.is_empty() {
+            let seq_num = get_next_sequence_number(&output_dir)?;
+            output_dir.join(format!("{}.mp4", seq_num))
+        } else {
+            // Check if file exists, add sequence number if needed
+            let base_path = output_dir.join(format!("{}.mp4", clean_title));
+            if base_path.exists() {
+                let seq_num = get_next_sequence_number(&output_dir)?;
+                output_dir.join(format!("{}_{}.mp4", clean_title, seq_num))
+            } else {
+                base_path
+            }
+        }
+    } else {
+        let seq_num = get_next_sequence_number(&output_dir)?;
+        output_dir.join(format!("{}.mp4", seq_num))
+    };
 
     // Download video
     let response = client.get(&video_url)
@@ -744,10 +775,18 @@ async fn download_douyin_direct(
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
 
+    // Send initial progress event to show download started
+    let _ = app.emit("video-download-progress", DownloadProgress {
+        percent: if total_size > 0 { 0.0 } else { -1.0 }, // -1 indicates indeterminate
+        speed: "Starting...".to_string(),
+        eta: "N/A".to_string(),
+    });
+
     let mut file = tokio::fs::File::create(&output_path).await
         .map_err(|e| format!("Failed to create file: {}", e))?;
 
     let mut stream = response.bytes_stream();
+    let mut last_emit = std::time::Instant::now();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
@@ -756,13 +795,24 @@ async fn download_douyin_direct(
 
         downloaded += chunk.len() as u64;
 
-        if total_size > 0 {
-            let percent = (downloaded as f32 / total_size as f32) * 100.0;
-            let _ = app.emit("video-download-progress", DownloadProgress {
-                percent,
-                speed: "N/A".to_string(),
-                eta: "N/A".to_string(),
-            });
+        // Throttle progress updates to every 100ms
+        if last_emit.elapsed().as_millis() >= 100 {
+            last_emit = std::time::Instant::now();
+            if total_size > 0 {
+                let percent = (downloaded as f32 / total_size as f32) * 100.0;
+                let _ = app.emit("video-download-progress", DownloadProgress {
+                    percent,
+                    speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
+                    eta: "N/A".to_string(),
+                });
+            } else {
+                // Indeterminate progress - show downloaded size
+                let _ = app.emit("video-download-progress", DownloadProgress {
+                    percent: -1.0,
+                    speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
+                    eta: "N/A".to_string(),
+                });
+            }
         }
     }
 
@@ -1378,6 +1428,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     let cookies = data.get("cookies").and_then(|v| v.as_str());
                     let video_url = data.get("videoUrl").and_then(|v| v.as_str());
                     let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
+                    let title = data.get("title").and_then(|v| v.as_str());
 
                     let app_clone = app.clone();
 
@@ -1385,9 +1436,10 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     if is_douyin_url(page_url) || is_douyin_url(url) {
                         let download_url = video_url.unwrap_or(url).to_string();
                         let cookies_owned = cookies.map(|s| s.to_string());
+                        let title_owned = title.map(|s| s.to_string());
                         println!(">>> [Rust] Douyin video URL: {}", download_url);
                         tokio::spawn(async move {
-                            if let Err(e) = download_douyin_direct(app_clone, download_url, cookies_owned).await {
+                            if let Err(e) = download_douyin_direct(app_clone, download_url, cookies_owned, title_owned).await {
                                 println!(">>> [Rust] Douyin download error: {}", e);
                             }
                         });

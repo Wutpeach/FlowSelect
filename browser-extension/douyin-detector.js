@@ -65,9 +65,14 @@
   function extractVideoUrl() {
     // Method 1: Try to get from video element directly
     const videoEl = document.querySelector('video');
-    if (videoEl && videoEl.src && !videoEl.src.startsWith('blob:')) {
-      console.log('[FlowSelect Douyin] Found video src:', videoEl.src);
-      return videoEl.src;
+    if (videoEl) {
+      console.log('[FlowSelect Douyin] Video element found, src:', videoEl.src, 'currentSrc:', videoEl.currentSrc);
+      if (videoEl.src && !videoEl.src.startsWith('blob:')) {
+        return videoEl.src;
+      }
+      if (videoEl.currentSrc && !videoEl.currentSrc.startsWith('blob:')) {
+        return videoEl.currentSrc;
+      }
     }
 
     // Method 2: Try to get from source element
@@ -77,41 +82,93 @@
       return sourceEl.src;
     }
 
-    // Method 3: Try RENDER_DATA
+    // Method 3: Try RENDER_DATA (works on initial page load)
     try {
       const script = document.getElementById('RENDER_DATA');
-      if (script) {
+      if (script && script.textContent) {
         const decoded = decodeURIComponent(script.textContent);
         const data = JSON.parse(decoded);
+        console.log('[FlowSelect Douyin] RENDER_DATA keys:', Object.keys(data));
 
-        if (data.app?.videoDetail?.video) {
-          const video = data.app.videoDetail.video;
-          if (video.playAddr?.[0]?.src) return video.playAddr[0].src;
-          if (video.play_addr?.url_list?.[0]) return video.play_addr.url_list[0];
+        // Try multiple paths
+        const video = data.app?.videoDetail?.video
+          || data['36']?.awemeDetail?.video
+          || data['37']?.awemeDetail?.video;
+
+        if (video) {
+          const url = video.playAddr?.[0]?.src
+            || video.play_addr?.url_list?.[0]
+            || video.playApi;
+          if (url) {
+            console.log('[FlowSelect Douyin] Found URL from RENDER_DATA');
+            return url;
+          }
         }
       }
     } catch (e) {
       console.error('[FlowSelect Douyin] RENDER_DATA parse error:', e);
     }
 
+    // Method 4: Try React Fiber (for SPA navigation)
+    try {
+      const container = document.querySelector('.xg-video-container');
+      if (container) {
+        const fiberKey = Object.keys(container).find(k => k.startsWith('__reactFiber$'));
+        if (fiberKey) {
+          let fiber = container[fiberKey];
+          // Traverse fiber tree to find video data
+          for (let i = 0; i < 20 && fiber; i++) {
+            const props = fiber.memoizedProps || fiber.pendingProps;
+            if (props?.videoData?.video?.playApi) {
+              console.log('[FlowSelect Douyin] Found URL from React Fiber');
+              return props.videoData.video.playApi;
+            }
+            fiber = fiber.return;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[FlowSelect Douyin] React Fiber error:', e);
+    }
+
     console.log('[FlowSelect Douyin] Video URL not found');
     return null;
+  }
+
+  // Extract video title from page
+  function extractVideoTitle() {
+    // Method 1: Try to get from video description element
+    const descEl = document.querySelector('[data-e2e="video-desc"]');
+    if (descEl && descEl.textContent.trim()) {
+      return descEl.textContent.trim();
+    }
+
+    // Method 2: Try to get from title element in detail page
+    const titleEl = document.querySelector('.video-info-detail .title');
+    if (titleEl && titleEl.textContent.trim()) {
+      return titleEl.textContent.trim();
+    }
+
+    // Method 3: Fallback to document.title (will be cleaned in backend)
+    return document.title;
   }
 
   // Send download request
   function downloadVideo() {
     const pageUrl = window.location.href;
     const videoUrl = extractVideoUrl();
+    const title = extractVideoTitle();
 
     console.log('[FlowSelect Douyin] Page URL:', pageUrl);
     console.log('[FlowSelect Douyin] Video URL:', videoUrl);
+    console.log('[FlowSelect Douyin] Title:', title);
 
     chrome.runtime.sendMessage({
       type: 'video_selected',
       url: videoUrl || pageUrl,
       pageUrl: pageUrl,
       videoUrl: videoUrl,
-      title: document.title
+      title: title
     });
   }
 

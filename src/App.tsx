@@ -165,11 +165,23 @@ function App() {
   useEffect(() => {
     const unlistenProgress = listen<{ percent: number; speed: string; eta: string }>(
       "video-download-progress",
-      (event) => {
+      async (event) => {
         // 清除已有的 idle timer，防止下载中被最小化
         if (idleTimerRef.current) {
           clearTimeout(idleTimerRef.current);
           idleTimerRef.current = null;
+        }
+        // 直接恢复窗口大小（避免闭包问题）
+        try {
+          const win = getCurrentWindow();
+          const pos = await win.outerPosition();
+          await Promise.all([
+            invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
+            invoke('set_window_position', { x: pos.x, y: pos.y }),
+          ]);
+          setWindowResized(false);
+        } catch (err) {
+          console.error('Failed to expand window for download:', err);
         }
         setIsMinimized(false);
         setDownloadProgress(event.payload);
@@ -969,8 +981,14 @@ function App() {
                   strokeWidth="4"
                   strokeLinecap="round"
                   strokeDasharray={2 * Math.PI * 20}
-                  strokeDashoffset={2 * Math.PI * 20 * (1 - downloadProgress.percent / 100)}
-                  style={{ transition: 'stroke-dashoffset 0.3s ease' }}
+                  strokeDashoffset={downloadProgress.percent < 0
+                    ? 2 * Math.PI * 20 * 0.75  // Indeterminate: show 25% arc
+                    : 2 * Math.PI * 20 * (1 - downloadProgress.percent / 100)}
+                  style={{
+                    transition: downloadProgress.percent < 0 ? 'none' : 'stroke-dashoffset 0.3s ease',
+                    animation: downloadProgress.percent < 0 ? 'spin 1s linear infinite' : 'none',
+                    transformOrigin: 'center',
+                  }}
                 />
               </svg>
               <span style={{
@@ -982,7 +1000,7 @@ function App() {
                 userSelect: 'none',
                 pointerEvents: 'none',
               }}>
-                {Math.round(downloadProgress.percent)}%
+                {downloadProgress.percent < 0 ? '...' : `${Math.round(downloadProgress.percent)}%`}
               </span>
             </div>
             <span style={{ fontSize: 10, color: '#808080', lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>{downloadProgress.speed}</span>

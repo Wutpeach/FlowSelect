@@ -28,3 +28,9 @@ html, body, #root {
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* Spin animation for indeterminate progress */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

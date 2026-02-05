@@ -15,8 +15,6 @@ function SettingsPage() {
   const [shortcut, setShortcut] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [recordedKeys, setRecordedKeys] = useState("");
-  const [cookiesEnabled, setCookiesEnabled] = useState(false);
-  const [cookiesBrowser, setCookiesBrowser] = useState("chrome");
   const [videoSeparateFolder, setVideoSeparateFolder] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
@@ -30,12 +28,6 @@ function SettingsPage() {
         const config = JSON.parse(configStr);
         if (config.outputPath) {
           setOutputPath(config.outputPath);
-        }
-        if (config.cookiesEnabled !== undefined) {
-          setCookiesEnabled(config.cookiesEnabled);
-        }
-        if (config.cookiesBrowser) {
-          setCookiesBrowser(config.cookiesBrowser);
         }
         if (config.videoSeparateFolder !== undefined) {
           setVideoSeparateFolder(config.videoSeparateFolder);
@@ -169,33 +161,6 @@ function SettingsPage() {
       setAutostart(newValue);
     } catch (err) {
       console.error("Failed to toggle autostart:", err);
-    }
-  };
-
-  const toggleCookies = async () => {
-    try {
-      const newValue = !cookiesEnabled;
-      setCookiesEnabled(newValue);
-      const configStr = await invoke<string>("get_config");
-      const config = JSON.parse(configStr);
-      config.cookiesEnabled = newValue;
-      config.cookiesBrowser = cookiesBrowser;
-      await invoke("save_config", { json: JSON.stringify(config) });
-    } catch (err) {
-      console.error("Failed to toggle cookies:", err);
-    }
-  };
-
-  const changeCookiesBrowser = async (browser: string) => {
-    try {
-      setCookiesBrowser(browser);
-      const configStr = await invoke<string>("get_config");
-      const config = JSON.parse(configStr);
-      config.cookiesEnabled = cookiesEnabled;
-      config.cookiesBrowser = browser;
-      await invoke("save_config", { json: JSON.stringify(config) });
-    } catch (err) {
-      console.error("Failed to change cookies browser:", err);
     }
   };
 
@@ -376,37 +341,6 @@ function SettingsPage() {
               White
             </button>
           </div>
-        </div>
-
-        {/* Video Cookies */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-            Video Cookies
-          </label>
-          <NeonToggle checked={cookiesEnabled} onChange={toggleCookies} />
-          {cookiesEnabled && (
-            <select
-              value={cookiesBrowser}
-              onChange={(e) => changeCookiesBrowser(e.target.value)}
-              style={{
-                marginTop: 8,
-                width: '100%',
-                padding: '8px 12px',
-                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                borderRadius: 8,
-                fontSize: 12,
-                color: colors.textSecondary,
-                border: `1px solid ${colors.borderStart}`,
-                cursor: 'pointer',
-                outline: 'none',
-              }}
-            >
-              <option value="chrome">Chrome</option>
-              <option value="edge">Edge</option>
-              <option value="firefox">Firefox</option>
-              <option value="brave">Brave</option>
-            </select>
-          )}
         </div>
 
         {/* Video Separate Folder */}
