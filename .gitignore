@@ -25,3 +25,9 @@ dist-ssr
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Tauri sidecar binaries (downloaded in CI)
+src-tauri/binaries/*.exe
+
+# Test files
+test_video.mp4

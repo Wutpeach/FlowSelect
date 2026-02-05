@@ -42,6 +42,24 @@ jobs:
 
           Write-Host "Downloaded yt-dlp from: $downloadUrl"
 
+      - name: Download Deno
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/denoland/deno/releases/latest"
+          $asset = $release.assets | Where-Object { $_.name -eq "deno-x86_64-pc-windows-msvc.zip" }
+          $downloadUrl = $asset.browser_download_url
+
+          # 下载 zip 文件
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "deno.zip"
+
+          # 解压到 binaries 目录 (保持文件名为 deno.exe)
+          Expand-Archive -Path "deno.zip" -DestinationPath "src-tauri/binaries" -Force
+
+          # 清理 zip 文件
+          Remove-Item "deno.zip"
+
+          Write-Host "Downloaded Deno from: $downloadUrl"
+
       - name: Extract version from tag
         id: version
         shell: bash

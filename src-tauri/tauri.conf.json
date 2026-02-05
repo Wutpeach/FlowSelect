@@ -42,6 +42,9 @@
     ],
     "externalBin": [
       "binaries/yt-dlp"
+    ],
+    "resources": [
+      "binaries/deno.exe"
     ]
   }
 }

@@ -49,6 +49,20 @@ struct WsResponse {
 // Store current download process PID
 static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
 
+/// 获取 Deno JS 运行时的路径
+fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let exe_name = "deno.exe";
+
+    if cfg!(debug_assertions) {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        Ok(manifest_dir.join("binaries").join(exe_name))
+    } else {
+        let resource_dir = app.path().resource_dir()
+            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+        Ok(resource_dir.join("binaries").join(exe_name))
+    }
+}
+
 #[tauri::command]
 fn get_clipboard_files() -> Result<Vec<String>, String> {
     let file_list: Vec<String> = get_clipboard(formats::FileList)
@@ -461,7 +475,7 @@ async fn download_video_internal(
     // Build args
     let mut args = vec![
         "-f".to_string(),
-        "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b".to_string(),
+        "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best".to_string(),
         "--merge-output-format".to_string(),
         "mp4".to_string(),
         "--no-keep-video".to_string(),
@@ -469,6 +483,9 @@ async fn download_video_internal(
         "ext:mp4:m4a".to_string(),
         "--newline".to_string(),
         "--progress".to_string(),
+        // 使用 tv 变体解决 YouTube player 签名问题
+        "--extractor-args".to_string(),
+        "youtube:player_js_variant=tv".to_string(),
         "-o".to_string(),
         output_template.to_string_lossy().to_string(),
     ];
@@ -484,12 +501,25 @@ async fn download_video_internal(
 
     args.push(url.clone());
 
+    // 构建环境变量，将 Deno 目录添加到 PATH
+    let mut env_path = std::env::var("PATH").unwrap_or_default();
+    if let Ok(deno_path) = get_deno_path(&app) {
+        if let Some(deno_dir) = deno_path.parent() {
+            if deno_path.exists() {
+                // Windows 使用分号分隔 PATH
+                env_path = format!("{};{}", deno_dir.to_string_lossy(), env_path);
+                println!(">>> [Rust] Added Deno to PATH: {:?}", deno_dir);
+            }
+        }
+    }
+
     // Spawn yt-dlp process
     let shell = app.shell();
     let (mut rx, child) = shell
         .sidecar("yt-dlp")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?
         .args(&args)
+        .env("PATH", &env_path)
         .spawn()
         .map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
 
