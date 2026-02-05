@@ -58,13 +58,6 @@
     }
 
     if (!controls) {
-      // Fallback: inject into video container if controls not found
-      const videoContainer = document.querySelector('.xg-video-container');
-      if (videoContainer && !videoContainer.hasAttribute(PROCESSED_ATTR)) {
-        console.log('[FlowSelect Douyin] Controls not found, using container fallback');
-        injectVideoContainerButton(videoContainer);
-        videoContainer.setAttribute(PROCESSED_ATTR, 'true');
-      }
       return;
     }
 
@@ -78,8 +71,8 @@
 
   // Inject button into player control bar
   function injectControlBarButton(controls) {
-    // Remove all existing buttons (control bar and container fallback)
-    document.querySelectorAll('.flowselect-douyin-control-btn, .flowselect-douyin-btn').forEach(el => el.remove());
+    // Remove existing control bar button if any
+    document.querySelectorAll('.flowselect-douyin-control-btn').forEach(el => el.remove());
 
     const btn = document.createElement('div');
     btn.className = 'flowselect-douyin-control-btn';
@@ -95,26 +88,6 @@
     // Insert at the beginning of controls
     controls.insertBefore(btn, controls.firstChild);
     console.log('[FlowSelect Douyin] Control bar button injected');
-  }
-
-  // Fallback: Inject button into video container (absolute positioned)
-  function injectVideoContainerButton(container) {
-    const existing = container.querySelector('.flowselect-douyin-btn');
-    if (existing) existing.remove();
-
-    const btn = document.createElement('div');
-    btn.className = 'flowselect-douyin-btn';
-    btn.innerHTML = CAT_ICON_SVG;
-    btn.title = 'Download with FlowSelect';
-
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      downloadVideo();
-    });
-
-    container.appendChild(btn);
-    console.log('[FlowSelect Douyin] Container button injected (fallback)');
   }
 
   // ============================================
@@ -205,21 +178,13 @@
     for (const selector of modalSelectors) {
       const modal = document.querySelector(selector);
       if (modal && !modal.hasAttribute(PROCESSED_ATTR)) {
-        // Try to find control bar first
+        // Try to find control bar
         const controls = modal.querySelector('.xg-right-grid') ||
                         modal.querySelector('.xg-right-bar');
         if (controls && !controls.hasAttribute(PROCESSED_ATTR)) {
           injectControlBarButton(controls);
           controls.setAttribute(PROCESSED_ATTR, 'true');
           console.log('[FlowSelect Douyin] Modal control bar button injected');
-        } else {
-          // Fallback to container
-          const videoContainer = modal.querySelector('.xg-video-container');
-          if (videoContainer && !videoContainer.hasAttribute(PROCESSED_ATTR)) {
-            injectVideoContainerButton(videoContainer);
-            videoContainer.setAttribute(PROCESSED_ATTR, 'true');
-            console.log('[FlowSelect Douyin] Modal container button injected');
-          }
         }
       }
     }
