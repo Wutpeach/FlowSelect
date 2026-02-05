@@ -911,7 +911,7 @@ function App() {
           justifyContent: 'center',
           opacity: isPanelHovered && !isMinimized ? 1 : 0,
           transition: 'opacity 0.2s ease',
-          transitionDelay: !isMinimized ? '0.4s' : '0s',
+          transitionDelay: !isMinimized ? '0.2s' : '0s',
           pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
           zIndex: 10,
         }}
@@ -971,13 +971,13 @@ function App() {
                 <circle
                   cx="24" cy="24" r="20"
                   fill="none"
-                  stroke="#3a3a3a"
+                  stroke={colors.progressBgStroke}
                   strokeWidth="4"
                 />
                 <circle
                   cx="24" cy="24" r="20"
                   fill="none"
-                  stroke="#3b82f6"
+                  stroke={colors.progressFgStroke}
                   strokeWidth="4"
                   strokeLinecap="round"
                   strokeDasharray={2 * Math.PI * 20}
@@ -995,7 +995,7 @@ function App() {
                 position: 'absolute',
                 fontSize: 11,
                 fontWeight: 500,
-                color: '#60a5fa',
+                color: colors.progressText,
                 textAlign: 'center',
                 userSelect: 'none',
                 pointerEvents: 'none',
@@ -1003,7 +1003,7 @@ function App() {
                 {downloadProgress.percent < 0 ? '...' : `${Math.round(downloadProgress.percent)}%`}
               </span>
             </div>
-            <span style={{ fontSize: 10, color: '#808080', lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>{downloadProgress.speed}</span>
+            <span style={{ fontSize: 10, color: colors.progressSpeedText, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>{downloadProgress.speed}</span>
             {/* Cancel download button */}
             <button
               onClick={async () => {
@@ -1016,14 +1016,14 @@ function App() {
               }}
               onMouseDown={(e) => e.stopPropagation()}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.2)';
+                e.currentTarget.style.backgroundColor = colors.progressCancelHoverBg;
                 const svg = e.currentTarget.querySelector('svg');
-                if (svg) svg.style.color = '#f87171';
+                if (svg) svg.style.color = colors.progressCancelHoverIcon;
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = 'transparent';
                 const svg = e.currentTarget.querySelector('svg');
-                if (svg) svg.style.color = '#606060';
+                if (svg) svg.style.color = colors.progressCancelIcon;
               }}
               style={{
                 margin: 0,
@@ -1045,7 +1045,7 @@ function App() {
                 width="10"
                 height="10"
                 viewBox="0 0 10 10"
-                style={{ color: '#606060', transition: 'color 0.2s' }}
+                style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
               >
                 <path
                   d="M2 2L8 8M8 2L2 8"
@@ -1100,7 +1100,7 @@ function App() {
             justifyContent: 'center',
             opacity: isPanelHovered && !isMinimized ? 1 : 0,
             transition: 'opacity 0.2s ease',
-            transitionDelay: !isMinimized ? '0.4s' : '0s',
+            transitionDelay: !isMinimized ? '0.2s' : '0s',
             pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
             zIndex: 10,
           }}
@@ -1159,7 +1159,7 @@ function App() {
           justifyContent: 'center',
           opacity: isPanelHovered && !isMinimized ? 1 : 0,
           transition: 'opacity 0.2s ease',
-          transitionDelay: !isMinimized ? '0.4s' : '0s',
+          transitionDelay: !isMinimized ? '0.2s' : '0s',
           pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
           zIndex: 10,
         }}

@@ -19,6 +19,14 @@ interface ThemeColors {
   // 阴影
   shadowColor: string;
   shadowSpread: string;
+  // 进度环
+  progressBgStroke: string;
+  progressFgStroke: string;
+  progressText: string;
+  progressSpeedText: string;
+  progressCancelIcon: string;
+  progressCancelHoverBg: string;
+  progressCancelHoverIcon: string;
 }
 
 const themes: Record<Theme, ThemeColors> = {
@@ -33,6 +41,13 @@ const themes: Record<Theme, ThemeColors> = {
     textSecondary: '#AAAAAA',
     shadowColor: 'rgba(0,0,0,0.1)',
     shadowSpread: '#0D0D0D',
+    progressBgStroke: '#3a3a3a',
+    progressFgStroke: '#3b82f6',
+    progressText: '#60a5fa',
+    progressSpeedText: '#808080',
+    progressCancelIcon: '#606060',
+    progressCancelHoverBg: 'rgba(239,68,68,0.2)',
+    progressCancelHoverIcon: '#f87171',
   },
   white: {
     bgPrimary: '#E3E3E3',
@@ -45,6 +60,13 @@ const themes: Record<Theme, ThemeColors> = {
     textSecondary: '#666666',
     shadowColor: 'rgba(0,0,0,0.1)',
     shadowSpread: 'rgba(0,0,0,0.16)',
+    progressBgStroke: '#d1d5db',
+    progressFgStroke: '#2563eb',
+    progressText: '#1d4ed8',
+    progressSpeedText: '#6b7280',
+    progressCancelIcon: '#9ca3af',
+    progressCancelHoverBg: 'rgba(239,68,68,0.15)',
+    progressCancelHoverIcon: '#ef4444',
   },
 };
 
