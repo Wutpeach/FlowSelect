@@ -78,9 +78,8 @@
 
   // Inject button into player control bar
   function injectControlBarButton(controls) {
-    // Remove existing button if any
-    const existing = document.querySelector('.flowselect-douyin-control-btn');
-    if (existing) existing.remove();
+    // Remove all existing buttons (control bar and container fallback)
+    document.querySelectorAll('.flowselect-douyin-control-btn, .flowselect-douyin-btn').forEach(el => el.remove());
 
     const btn = document.createElement('div');
     btn.className = 'flowselect-douyin-control-btn';

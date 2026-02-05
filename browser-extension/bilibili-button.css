@@ -1,31 +1,55 @@
 /* FlowSelect Browser Extension - Bilibili Download Button Styles */
 
+/* Button wrapper - matches Bilibili's control bar item pattern */
 .flowselect-bilibili-btn {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
   justify-content: center;
-  width: 40px;
-  height: 100%;
-  padding: 0;
-  margin: 0;
-  border-radius: 0;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.8);
+  position: relative;
   cursor: pointer;
-  transition: color 0.2s;
-  vertical-align: top;
+  padding-top: 1px;
 }
 
-.flowselect-bilibili-btn:hover {
-  color: #00a1d6;
+/* For squirtle player (old player) */
+.squirtle-controller-wrap .flowselect-bilibili-btn {
+  align-items: center;
+  padding-top: 0;
 }
 
-.flowselect-bilibili-btn:active {
-  opacity: 0.8;
-}
-
+/* Icon container */
 .flowselect-bilibili-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
+  color: #fff;
+  fill: #fff;
+  transition: transform 0.2s ease-out;
   pointer-events: none;
+}
+
+/* Hover effect */
+.flowselect-bilibili-btn:hover svg {
+  color: #00a1d6;
+  fill: #00a1d6;
+}
+
+/* Active effect */
+.flowselect-bilibili-btn:active svg {
+  transform: scale(0.95);
+}
+
+/* Fullscreen mode - larger icons */
+body.player-mode-full .flowselect-bilibili-btn svg,
+body.player-fullscreen-fix .flowselect-bilibili-btn svg,
+body.player-mode-web .flowselect-bilibili-btn svg,
+body.player-full-win .flowselect-bilibili-btn svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* Fullscreen mode - padding adjustment */
+body.player-mode-full .bpx-player-control-wrap .flowselect-bilibili-btn,
+body.player-fullscreen-fix .bpx-player-control-wrap .flowselect-bilibili-btn,
+body.player-mode-web .bpx-player-control-wrap .flowselect-bilibili-btn,
+body.player-full-win .bpx-player-control-wrap .flowselect-bilibili-btn {
+  padding-top: 2px;
 }
