@@ -65,11 +65,57 @@ function App() {
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMinimized, setIsMinimized] = useState(true);
+  const [windowResized, setWindowResized] = useState(false);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
   const [isInitialMount, setIsInitialMount] = useState(true);
   const idleTimerRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Window size constants
+  const FULL_SIZE = 220;
+  const ICON_SIZE = 80;
+
+  // Expand window from icon mode
+  const expandWindow = async () => {
+    if (!windowResized) {
+      setIsMinimized(false);
+      return;
+    }
+
+    try {
+      // Expand window first, then animate
+      const window = getCurrentWindow();
+      const pos = await window.outerPosition();
+      await Promise.all([
+        invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
+        invoke('set_window_position', { x: pos.x, y: pos.y }),
+      ]);
+      setWindowResized(false);
+      setIsMinimized(false);
+    } catch (err) {
+      console.error('Failed to expand window:', err);
+      setIsMinimized(false);
+    }
+  };
+
+  // Shrink window after minimize animation completes
+  const handleAnimationComplete = async () => {
+    if (isMinimized && !windowResized && !isInitialMount) {
+      try {
+        // Shrink window - content is already at top-left due to transformOrigin
+        setWindowResized(true);
+        const window = getCurrentWindow();
+        const pos = await window.outerPosition();
+        await Promise.all([
+          invoke('set_window_size', { width: ICON_SIZE, height: ICON_SIZE }),
+          invoke('set_window_position', { x: pos.x, y: pos.y }),
+        ]);
+      } catch (err) {
+        console.error('Failed to shrink window:', err);
+      }
+    }
+  };
 
   // Load config on mount
   useEffect(() => {
@@ -169,11 +215,44 @@ function App() {
 
   // Listen for shortcut show event
   useEffect(() => {
-    const unlisten = listen("shortcut-show", () => {
-      resetIdleTimer();
+    const unlisten = listen("shortcut-show", async () => {
+      // 如果窗口处于图标模式（已缩小），需要先恢复窗口大小
+      if (windowResized) {
+        try {
+          const win = getCurrentWindow();
+          const pos = await win.outerPosition();
+          await Promise.all([
+            invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
+            invoke('set_window_position', { x: pos.x, y: pos.y }),
+          ]);
+          setWindowResized(false);
+        } catch (err) {
+          console.error('Failed to restore window size:', err);
+        }
+      }
+      setIsMinimized(false);
+      setShowEdgeGlow(false);
+      setTimeout(() => setShowEdgeGlow(true), 500);
+
+      // 重置 idle timer
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+      }
+      if (!downloadProgress && !isDraggingRef.current) {
+        idleTimerRef.current = window.setTimeout(() => {
+          setIsMinimized(true);
+          setShowEdgeGlow(false);
+        }, 3000);
+      }
+
+      // 聚焦以接收粘贴事件
+      setTimeout(() => {
+        const container = document.querySelector('[tabIndex="0"]') as HTMLElement;
+        if (container) container.focus();
+      }, 100);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, []);
+  }, [windowResized, downloadProgress]);
 
   // Check yt-dlp version on startup
   useEffect(() => {
@@ -208,10 +287,10 @@ function App() {
       clearTimeout(idleTimerRef.current);
     }
     const wasMinimized = isMinimized;
-    setIsMinimized(false);
 
-    // 如果从图标状态恢复，延迟显示边缘光（等动画完成）
+    // Use async expandWindow instead of direct setIsMinimized
     if (wasMinimized) {
+      expandWindow();
       setShowEdgeGlow(false);
       setTimeout(() => setShowEdgeGlow(true), 500);
       // 恢复后自动聚焦，确保能接收粘贴事件
@@ -731,13 +810,18 @@ function App() {
         borderRadius: isMinimized ? 100 : 16,
       }}
       transition={{
-        duration: isInitialMount ? 0.6 : 0.5,
-        ease: isInitialMount ? [0.34, 1.56, 0.64, 1] : [0.65, 0, 0.35, 1],
+        scale: isInitialMount
+          ? { duration: 0.6, ease: [0.34, 1.56, 0.64, 1] }
+          : { type: 'spring', stiffness: 400, damping: 30 },
+        borderRadius: isInitialMount
+          ? { duration: 0.6, ease: [0.34, 1.56, 0.64, 1] }
+          : { type: 'spring', stiffness: 400, damping: 30 },
       }}
+      onAnimationComplete={handleAnimationComplete}
       style={{
         width: 200,
         height: 200,
-        transformOrigin: 'center',
+        transformOrigin: 'top left',
         margin: 10,
         position: 'relative',
         display: 'flex',
@@ -751,6 +835,7 @@ function App() {
         boxShadow: (isHovering || downloadProgress)
           ? `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)`
           : `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`,
+        willChange: 'transform',
       }}
     >
       {/* Edge glow layer - follows mouse */}
