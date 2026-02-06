@@ -175,12 +175,23 @@ fn process_files(paths: Vec<String>, target_dir: Option<String>) -> Result<Strin
 async fn download_image(app: AppHandle, url: String, target_dir: Option<String>) -> Result<String, String> {
     println!(">>> [Rust] Downloading image from: {}", url);
 
-    // Determine target directory
+    // Determine target directory (read from config if not provided)
     let final_target_dir = if let Some(dir) = target_dir {
         std::path::PathBuf::from(dir)
     } else {
-        let desktop = desktop_dir().ok_or("Failed to get desktop directory")?;
-        desktop.join("FlowSelect_Received")
+        let config_str = get_config(app.clone())?;
+        let config: serde_json::Value = serde_json::from_str(&config_str)
+            .map_err(|e| format!("Failed to parse config: {}", e))?;
+
+        config.get("outputPath")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| std::path::PathBuf::from(s))
+            .unwrap_or_else(|| {
+                desktop_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("FlowSelect_Received")
+            })
     };
 
     // Create directory if not exists
@@ -284,12 +295,23 @@ async fn save_data_url(app: AppHandle, data_url: String, target_dir: Option<Stri
         .decode(base64_data)
         .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
-    // Determine target directory
+    // Determine target directory (read from config if not provided)
     let final_target_dir = if let Some(dir) = target_dir {
         std::path::PathBuf::from(dir)
     } else {
-        let desktop = desktop_dir().ok_or("Failed to get desktop directory")?;
-        desktop.join("FlowSelect_Received")
+        let config_str = get_config(app.clone())?;
+        let config: serde_json::Value = serde_json::from_str(&config_str)
+            .map_err(|e| format!("Failed to parse config: {}", e))?;
+
+        config.get("outputPath")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| std::path::PathBuf::from(s))
+            .unwrap_or_else(|| {
+                desktop_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("FlowSelect_Received")
+            })
     };
 
     // Create directory if not exists
@@ -595,6 +617,26 @@ async fn download_video_internal(
 
                 // Emit completion event
                 let _ = app.emit("video-download-complete", result.clone());
+
+                // Cleanup .m4a residual files after successful download
+                if success {
+                    if let Some(ref final_path) = last_file_path {
+                        let final_path = std::path::Path::new(final_path);
+                        if let Some(parent) = final_path.parent() {
+                            if let Ok(entries) = std::fs::read_dir(parent) {
+                                for entry in entries.flatten() {
+                                    let path = entry.path();
+                                    if let Some(ext) = path.extension() {
+                                        if ext == "m4a" {
+                                            println!(">>> [Rust] Cleaning up residual file: {:?}", path);
+                                            let _ = std::fs::remove_file(&path);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // AE Portal
                 if success {
@@ -1171,7 +1213,7 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                         // Position window: bottom-left of cursor
                         if let Ok(pos) = window.cursor_position() {
                             let window_width = 220.0;
-                            let x = (pos.x - 50.0 - window_width).max(0.0);
+                            let x = pos.x - 50.0 - window_width;
                             let y = pos.y + 50.0;
                             let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
                         }
