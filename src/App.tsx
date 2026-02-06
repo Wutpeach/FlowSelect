@@ -6,7 +6,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { isVideoUrl } from "./utils/videoUrl";
 import { useTheme } from "./contexts/ThemeContext";
 
@@ -48,6 +48,7 @@ function App() {
   const { colors } = useTheme();
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [downloadCancelled, setDownloadCancelled] = useState(false);
   const [outputPath, setOutputPath] = useState("");
   const [isPanelHovered, setIsPanelHovered] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<{
@@ -70,6 +71,7 @@ function App() {
   const [isInitialMount, setIsInitialMount] = useState(true);
   const idleTimerRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
+  const downloadCancelledRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Window size constants
@@ -191,9 +193,15 @@ function App() {
     const unlistenComplete = listen("video-download-complete", (event) => {
       console.log(">>> [Frontend] video-download-complete received:", event);
       setDownloadProgress(null);
-      // 显示打勾符号
+      // Check ref synchronously - if cancelled, don't show success checkmark
+      if (downloadCancelledRef.current) {
+        console.log(">>> [Frontend] Already cancelled, skipping success animation");
+        return;
+      }
+      // Show success checkmark
+      downloadCancelledRef.current = false; setDownloadCancelled(false);
       setIsProcessing(true);
-      setTimeout(() => setIsProcessing(false), 1000);
+      setTimeout(() => setIsProcessing(false), 1500);
       // 下载完成后延迟5秒再启动 idle timer
       setTimeout(() => {
         idleTimerRef.current = window.setTimeout(() => {
@@ -372,6 +380,7 @@ function App() {
     // 1. Check if clipboard text is a video URL (highest priority)
     if (text && isVideoUrl(text)) {
       console.log("Pasted video URL:", text);
+      downloadCancelledRef.current = false; setDownloadCancelled(false);
       setIsProcessing(true);
       try {
         const result = await invoke<{ success: boolean; file_path?: string; error?: string }>(
@@ -394,6 +403,7 @@ function App() {
     // 2. Check if clipboard text is an image URL
     if (text && isImageUrl(text)) {
       console.log("Pasted image URL:", text);
+      downloadCancelledRef.current = false; setDownloadCancelled(false);
       setIsProcessing(true);
       try {
         // Distinguish between Data URL and HTTP URL
@@ -424,6 +434,7 @@ function App() {
 
       if (paths && paths.length > 0) {
         console.log("Clipboard files from backend:", paths);
+        downloadCancelledRef.current = false; setDownloadCancelled(false);
         setIsProcessing(true);
 
         try {
@@ -494,6 +505,7 @@ function App() {
           if (selected && typeof selected === "string") {
             console.log("用户选择的路径:", selected);
             setOutputPath(selected);
+            downloadCancelledRef.current = false; setDownloadCancelled(false);
             setIsProcessing(true);
             setTimeout(() => setIsProcessing(false), 1000);
           }
@@ -523,6 +535,7 @@ function App() {
     if (url && url.startsWith("file://")) {
       const localPath = decodeURIComponent(url.replace("file:///", ""));
       console.log("Detected local file URL:", localPath);
+      downloadCancelledRef.current = false; setDownloadCancelled(false);
       setIsProcessing(true);
 
       try {
@@ -558,6 +571,7 @@ function App() {
 
         if (imageUrl) {
           console.log("Extracted Pinterest image URL:", imageUrl);
+          downloadCancelledRef.current = false; setDownloadCancelled(false);
           setIsProcessing(true);
           try {
             await invoke<string>("download_image", {
@@ -579,6 +593,7 @@ function App() {
     // Check if it's a video URL (highest priority)
     if (url && isVideoUrl(url)) {
       console.log("Detected video URL:", url);
+      downloadCancelledRef.current = false; setDownloadCancelled(false);
       setIsProcessing(true);
       try {
         const result = await invoke<{ success: boolean; file_path?: string; error?: string }>(
@@ -601,6 +616,7 @@ function App() {
     // Check if it's an image URL
     if (url && isImageUrl(url)) {
       console.log("Detected image URL:", url);
+      downloadCancelledRef.current = false; setDownloadCancelled(false);
       setIsProcessing(true);
 
       try {
@@ -668,6 +684,7 @@ function App() {
     // If URL not recognized but files exist, try reading from dataTransfer.files
     if (e.dataTransfer.files.length > 0) {
       console.log("URL not recognized, trying dataTransfer.files...");
+      downloadCancelledRef.current = false; setDownloadCancelled(false);
       setIsProcessing(true);
 
       // 收集所有文件路径
@@ -834,7 +851,7 @@ function App() {
       onContextMenu={handleContextMenu}
       initial={false}
       animate={{
-        scale: isInitialMount ? 0 : (isMinimized ? 0.3 : (isProcessing ? 0.95 : 1)),
+        scale: isInitialMount ? 0 : (isMinimized ? 0.3 : 1),
         borderRadius: isMinimized ? 100 : 16,
       }}
       transition={{
@@ -1026,6 +1043,13 @@ function App() {
                 try {
                   await invoke("cancel_download");
                   setDownloadProgress(null);
+                  downloadCancelledRef.current = true;
+                  setDownloadCancelled(true);
+                  setIsProcessing(true);
+                  setTimeout(() => {
+                    setIsProcessing(false);
+                    downloadCancelledRef.current = false;
+                  }, 1500);
                 } catch (err) {
                   console.error("Failed to cancel download:", err);
                 }
@@ -1075,12 +1099,16 @@ function App() {
         ) : isProcessing ? (
           <motion.div
             key="check"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: [1, 1.2, 1], opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={{ duration: 0.4 }}
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: [1, 1.05, 1], opacity: 1 }}
+            exit={{ scale: 0.8, opacity: 0 }}
+            transition={{ duration: 0.3 }}
           >
-            <Check size={48} className="text-green-400" strokeWidth={3} />
+            {downloadCancelled ? (
+              <X size={48} style={{ color: colors.errorIcon }} strokeWidth={3} />
+            ) : (
+              <Check size={48} style={{ color: colors.successIcon }} strokeWidth={3} />
+            )}
           </motion.div>
         ) : isMinimized ? (
           <motion.div

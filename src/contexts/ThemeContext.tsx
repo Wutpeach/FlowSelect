@@ -27,6 +27,9 @@ interface ThemeColors {
   progressCancelIcon: string;
   progressCancelHoverBg: string;
   progressCancelHoverIcon: string;
+  // Status icons
+  successIcon: string;
+  errorIcon: string;
 }
 
 const themes: Record<Theme, ThemeColors> = {
@@ -48,6 +51,8 @@ const themes: Record<Theme, ThemeColors> = {
     progressCancelIcon: '#606060',
     progressCancelHoverBg: 'rgba(239,68,68,0.2)',
     progressCancelHoverIcon: '#f87171',
+    successIcon: '#707070',
+    errorIcon: '#f87171',
   },
   white: {
     bgPrimary: '#E3E3E3',
@@ -67,6 +72,8 @@ const themes: Record<Theme, ThemeColors> = {
     progressCancelIcon: '#9ca3af',
     progressCancelHoverBg: 'rgba(239,68,68,0.15)',
     progressCancelHoverIcon: '#ef4444',
+    successIcon: '#666666',
+    errorIcon: '#ef4444',
   },
 };
 

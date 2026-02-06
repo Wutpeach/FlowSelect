@@ -49,6 +49,9 @@ struct WsResponse {
 // Store current download process PID
 static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
 
+// Global cancel flag for all downloads (including videodl SSE streams)
+static DOWNLOAD_CANCELLED: Mutex<bool> = Mutex::new(false);
+
 // videodl HTTP server state
 struct VideodlServerState {
     sidecar_pid: Mutex<Option<u32>>,
@@ -464,6 +467,9 @@ async fn download_video_internal(
 
     println!(">>> [Rust] Starting video download: {}", url);
 
+    // Reset cancel flag at start of new download
+    *DOWNLOAD_CANCELLED.lock().unwrap() = false;
+
     // Get config
     let config_str = get_config(app.clone())?;
     let config: serde_json::Value = serde_json::from_str(&config_str)
@@ -700,45 +706,79 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
 async fn cancel_download(app: AppHandle) -> Result<bool, String> {
     println!(">>> [Rust] cancel_download called");
 
-    // 1. 终止下载进程
-    let killed = if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
-        println!(">>> [Rust] Killing process with PID: {}", pid);
-        let result = std::process::Command::new("taskkill")
+    // Set global cancel flag (for videodl SSE streams)
+    *DOWNLOAD_CANCELLED.lock().unwrap() = true;
+
+    // 1. 终止下载进程 (for yt-dlp)
+    if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
+        println!(">>> [Rust] Killing yt-dlp process with PID: {}", pid);
+        let _ = std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .output()
-            .map_err(|e| e.to_string())?;
-        println!(">>> [Rust] taskkill result: {:?}", result.status);
-        true
-    } else {
-        println!(">>> [Rust] No download process to cancel");
-        false
-    };
+            .output();
+    }
 
-    // 2. 清理 .part 临时文件
-    if killed {
-        // 等待一小段时间让进程完全终止
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    // 2. 停止 videodl 服务器以释放文件锁
+    println!(">>> [Rust] Stopping videodl server to release file locks");
+    stop_videodl_server(&app);
 
-        // 获取输出目录
-        if let Ok(config_str) = get_config(app) {
-            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
-                let output_dir = config
-                    .get("outputPath")
-                    .and_then(|v| v.as_str())
-                    .map(|s| std::path::PathBuf::from(s))
-                    .unwrap_or_else(|| {
-                        desktop_dir()
-                            .unwrap_or_else(|| std::path::PathBuf::from("."))
-                            .join("FlowSelect_Received")
-                    });
+    // 3. 等待进程完全终止
+    tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
 
-                // 扫描并删除 .part 文件
+    // 4. 清理临时文件
+    if let Ok(config_str) = get_config(app) {
+        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
+            let base_output_dir = config
+                .get("outputPath")
+                .and_then(|v| v.as_str())
+                .map(|s| std::path::PathBuf::from(s))
+                .unwrap_or_else(|| {
+                    desktop_dir()
+                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                        .join("FlowSelect_Received")
+                });
+
+            // Check base dir and Videos subdir (if enabled)
+            let video_separate = config.get("videoSeparateFolder")
+                .and_then(|v| v.as_bool()).unwrap_or(false);
+
+            let dirs_to_check = if video_separate {
+                vec![base_output_dir.clone(), base_output_dir.join("Videos")]
+            } else {
+                vec![base_output_dir]
+            };
+
+            let now = std::time::SystemTime::now();
+            let video_extensions = ["mp4", "webm", "mkv", "flv", "avi", "mov"];
+
+            for output_dir in dirs_to_check {
                 if let Ok(entries) = fs::read_dir(&output_dir) {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        if path.extension().map_or(false, |ext| ext == "part") {
+                        let ext = path.extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+
+                        // Delete .part files (yt-dlp temp files)
+                        if ext == "part" {
                             println!(">>> [Rust] Deleting temp file: {:?}", path);
                             let _ = fs::remove_file(&path);
+                            continue;
+                        }
+
+                        // Delete recently modified video files (videodl residuals)
+                        if video_extensions.contains(&ext.as_str()) {
+                            if let Ok(metadata) = entry.metadata() {
+                                if let Ok(modified) = metadata.modified() {
+                                    // Delete if modified within last 30 seconds
+                                    if let Ok(duration) = now.duration_since(modified) {
+                                        if duration.as_secs() < 30 {
+                                            println!(">>> [Rust] Deleting recent video file: {:?}", path);
+                                            let _ = fs::remove_file(&path);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -746,7 +786,7 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
         }
     }
 
-    Ok(killed)
+    Ok(true)
 }
 
 /// Get browser cookies database path (Windows)
@@ -890,6 +930,9 @@ async fn download_with_videodl(
 
     println!(">>> [videodl] Starting download: {}", url);
 
+    // Reset cancel flag at start of new download
+    *DOWNLOAD_CANCELLED.lock().unwrap() = false;
+
     // Emit "preparing" event to show indeterminate progress
     let _ = app.emit("video-download-progress", DownloadProgress {
         percent: -1.0,
@@ -963,6 +1006,12 @@ async fn download_with_videodl(
 
     while let Some(chunk) = stream.next().await {
         if download_finished { break; }
+
+        // Check cancel flag
+        if *DOWNLOAD_CANCELLED.lock().unwrap() {
+            println!(">>> [videodl] Download cancelled by user");
+            return Err("Download cancelled".to_string());
+        }
 
         let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
         let text = String::from_utf8_lossy(&chunk);
@@ -1059,7 +1108,14 @@ async fn download_video_smart(
         println!(">>> [Smart] Trying videodl first for China platform");
         match download_with_videodl(app.clone(), url.clone(), title.clone()).await {
             Ok(result) if result.success => return Ok(result),
-            Err(e) => println!(">>> [Smart] videodl failed: {}, trying yt-dlp", e),
+            Err(e) => {
+                // Check if cancelled - don't fallback
+                if *DOWNLOAD_CANCELLED.lock().unwrap() {
+                    println!(">>> [Smart] Download cancelled, not falling back");
+                    return Err("Download cancelled".to_string());
+                }
+                println!(">>> [Smart] videodl failed: {}, trying yt-dlp", e);
+            }
             Ok(_) => println!(">>> [Smart] videodl returned failure, trying yt-dlp"),
         }
         // Fallback to yt-dlp
@@ -1069,7 +1125,14 @@ async fn download_video_smart(
         println!(">>> [Smart] Trying yt-dlp first for international platform");
         match download_video_internal(app.clone(), url.clone(), extension_cookies_path).await {
             Ok(result) if result.success => return Ok(result),
-            Err(e) => println!(">>> [Smart] yt-dlp failed: {}, trying videodl", e),
+            Err(e) => {
+                // Check if cancelled - don't fallback
+                if *DOWNLOAD_CANCELLED.lock().unwrap() {
+                    println!(">>> [Smart] Download cancelled, not falling back");
+                    return Err("Download cancelled".to_string());
+                }
+                println!(">>> [Smart] yt-dlp failed: {}, trying videodl", e);
+            }
             Ok(_) => println!(">>> [Smart] yt-dlp returned failure, trying videodl"),
         }
         // Fallback to videodl
