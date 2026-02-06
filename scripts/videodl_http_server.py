@@ -42,18 +42,30 @@ _video_client: Optional[VideoClient] = None
 _video_client_lock = threading.Lock()
 
 
+def create_video_client(work_dir: str = None, cookies: dict = None) -> VideoClient:
+    """Create a new VideoClient instance with optional cookies."""
+    cfg = {}
+    client_names = ['BilibiliVideoClient', 'DouyinVideoClient', 'KuaishouVideoClient',
+                   'XiaohongshuVideoClient', 'WeiboVideoClient', 'AcFunVideoClient']
+    for key in client_names:
+        client_cfg = {}
+        if work_dir:
+            client_cfg['work_dir'] = work_dir
+        if cookies:
+            # Set cookies for parsing API requests
+            client_cfg['default_parse_cookies'] = cookies
+            client_cfg['default_download_cookies'] = cookies
+        if client_cfg:
+            cfg[key] = client_cfg
+    return VideoClient(init_video_clients_cfg=cfg)
+
+
 def get_video_client(work_dir: str = None) -> VideoClient:
-    """Get or create VideoClient instance."""
+    """Get or create VideoClient instance (without cookies, for backward compat)."""
     global _video_client
     with _video_client_lock:
         if _video_client is None:
-            cfg = {}
-            if work_dir:
-                # Set work_dir for all clients
-                for key in ['BilibiliVideoClient', 'DouyinVideoClient', 'KuaishouVideoClient',
-                           'XiaohongshuVideoClient', 'WeiboVideoClient', 'AcFunVideoClient']:
-                    cfg[key] = {'work_dir': work_dir}
-            _video_client = VideoClient(init_video_clients_cfg=cfg)
+            _video_client = create_video_client(work_dir=work_dir)
         return _video_client
 
 
@@ -96,11 +108,33 @@ async def parse_url(request: ParseRequest):
         return {"success": False, "error": str(e), "video_infos": []}
 
 
+def parse_netscape_cookies(cookies_file: str) -> dict:
+    """Parse Netscape format cookies file to dict."""
+    cookies = {}
+    try:
+        with open(cookies_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Skip comments and empty lines
+                if not line or line.startswith('#'):
+                    continue
+                # Netscape format: domain, flag, path, secure, expiry, name, value
+                parts = line.split('\t')
+                if len(parts) >= 7:
+                    name, value = parts[5], parts[6]
+                    cookies[name] = value
+        print(f"[videodl] Parsed {len(cookies)} cookies from file")
+    except Exception as e:
+        print(f"[videodl] Failed to parse cookies file: {e}")
+    return cookies
+
+
 @app.get("/download_stream")
 async def download_stream(
     url: str = Query(..., description="Video URL to download"),
     work_dir: str = Query(None, description="Output directory"),
     title: str = Query(None, description="Video title"),
+    cookies_file: str = Query(None, description="Path to Netscape cookies file"),
 ):
     """
     Stream download with SSE progress updates.
@@ -139,7 +173,18 @@ async def download_stream(
                     "source": "CDN_Direct",
                 }
             else:
-                client = get_video_client(str(download_dir))
+                # Parse cookies if provided
+                cookies = None
+                if cookies_file:
+                    cookies = parse_netscape_cookies(cookies_file)
+                    if cookies:
+                        print(f"[videodl] Using {len(cookies)} cookies for parsing")
+
+                # Create client with cookies if available, otherwise use global client
+                if cookies:
+                    client = create_video_client(work_dir=str(download_dir), cookies=cookies)
+                else:
+                    client = get_video_client(str(download_dir))
 
                 # Parse URL first
                 yield json.dumps({"status": "parsing"}) + "\n"

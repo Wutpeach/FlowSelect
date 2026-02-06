@@ -812,10 +812,19 @@ fn is_douyin_url(url: &str) -> bool {
     url.contains("douyin.com/video/") || url.contains("v.douyin.com") || url.contains("douyinvod.com")
 }
 
+/// Check if URL is from Bilibili (use yt-dlp for better quality)
+fn is_bilibili_url(url: &str) -> bool {
+    url.contains("bilibili.com") || url.contains("b23.tv")
+}
+
 /// Check if URL is from a Chinese video platform (for videodl routing)
+/// Note: Bilibili is excluded - yt-dlp handles it better for high quality
 fn is_china_platform_url(url: &str) -> bool {
+    // Bilibili excluded - videodl's fnval=0 only returns low quality
+    if is_bilibili_url(url) {
+        return false;
+    }
     let patterns = [
-        "bilibili.com", "b23.tv",
         "douyin.com", "v.douyin.com", "douyinvod.com",
         "kuaishou.com", "gifshow.com",
         "xiaohongshu.com", "xhslink.com",
