@@ -171,6 +171,9 @@ function App() {
           clearTimeout(idleTimerRef.current);
           idleTimerRef.current = null;
         }
+        // Set progress immediately (sync) before async operations
+        setIsMinimized(false);
+        setDownloadProgress(event.payload);
         // 直接恢复窗口大小（避免闭包问题）
         try {
           const win = getCurrentWindow();
@@ -183,8 +186,6 @@ function App() {
         } catch (err) {
           console.error('Failed to expand window for download:', err);
         }
-        setIsMinimized(false);
-        setDownloadProgress(event.payload);
       }
     );
     const unlistenComplete = listen("video-download-complete", (event) => {

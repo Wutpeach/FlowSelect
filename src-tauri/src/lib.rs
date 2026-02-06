@@ -673,11 +673,14 @@ async fn download_video_internal(
     }
 
     // Fallback if loop exits without Terminated event
-    Ok(DownloadResult {
+    let result = DownloadResult {
         success: false,
         file_path: None,
         error: Some("Process ended unexpectedly".to_string()),
-    })
+    };
+    // Emit complete event with error to close progress bar
+    let _ = app.emit("video-download-complete", result.clone());
+    Ok(result)
 }
 
 /// Public command for downloading video (used by frontend paste/drag)
@@ -943,15 +946,19 @@ async fn download_with_videodl(
 
             if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
                 let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                println!(">>> [videodl] SSE event status: {}, raw: {}", status, line);
 
                 match status {
                     "progress" | "downloading" => {
                         if let Some(percent) = event.get("percent").and_then(|v| v.as_f64()) {
+                            println!(">>> [videodl] Emitting progress: {}%", percent);
                             let _ = app.emit("video-download-progress", DownloadProgress {
                                 percent: percent as f32,
                                 speed: "videodl".to_string(),
                                 eta: "N/A".to_string(),
                             });
+                        } else {
+                            println!(">>> [videodl] No percent field in progress event");
                         }
                     }
                     "parsed" => {
@@ -982,10 +989,9 @@ async fn download_with_videodl(
     };
 
     println!(">>> [videodl] Download complete, file_path: {:?}, success: {}", last_file_path, result.success);
-    match app.emit_to("main", "video-download-complete", result.clone()) {
-        Ok(_) => println!(">>> [videodl] Emitted video-download-complete event to main window"),
-        Err(e) => println!(">>> [videodl] Failed to emit event: {:?}", e),
-    }
+    // Use emit() instead of emit_to() for consistency with other download functions
+    let _ = app.emit("video-download-complete", result.clone());
+    println!(">>> [videodl] Emitted video-download-complete event");
 
     // AE Portal
     if let Some(ref path) = last_file_path {
@@ -1224,23 +1230,11 @@ fn parse_progress(line: &str) -> Option<DownloadProgress> {
         .parse::<f32>()
         .ok()?;
 
-    // Extract speed (after "at")
-    let speed = line
-        .split(" at ")
-        .nth(1)
-        .and_then(|s| s.split_whitespace().next())
-        .unwrap_or("N/A")
-        .to_string();
-
-    // Extract ETA
-    let eta = line
-        .split("ETA ")
-        .nth(1)
-        .and_then(|s| s.split_whitespace().next())
-        .unwrap_or("N/A")
-        .to_string();
-
-    Some(DownloadProgress { percent, speed, eta })
+    Some(DownloadProgress {
+        percent,
+        speed: "yt-dlp".to_string(),
+        eta: "N/A".to_string(),
+    })
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -1814,8 +1808,15 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                         let title_owned = title.map(|s| s.to_string());
                         println!(">>> [Rust] Douyin direct video URL: {}", download_url);
                         tokio::spawn(async move {
-                            if let Err(e) = download_douyin_direct(app_clone, download_url, cookies_owned, title_owned).await {
+                            if let Err(e) = download_douyin_direct(app_clone.clone(), download_url, cookies_owned, title_owned).await {
                                 println!(">>> [Rust] Douyin download error: {}", e);
+                                // Emit complete event with error to close progress bar
+                                let result = DownloadResult {
+                                    success: false,
+                                    file_path: None,
+                                    error: Some(e),
+                                };
+                                let _ = app_clone.emit("video-download-complete", result);
                             }
                         });
                     } else {
@@ -1826,7 +1827,16 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             .filter(|s| !s.is_empty())
                             .and_then(|s| save_extension_cookies(s).ok());
                         tokio::spawn(async move {
-                            let _ = download_video_smart(app_clone, url_owned, title_owned, cookies_path).await;
+                            if let Err(e) = download_video_smart(app_clone.clone(), url_owned, title_owned, cookies_path).await {
+                                println!(">>> [Rust] Smart download error: {}", e);
+                                // Emit complete event with error to close progress bar
+                                let result = DownloadResult {
+                                    success: false,
+                                    file_path: None,
+                                    error: Some(e),
+                                };
+                                let _ = app_clone.emit("video-download-complete", result);
+                            }
                         });
                     }
 
