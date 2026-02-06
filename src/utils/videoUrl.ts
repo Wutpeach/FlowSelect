@@ -84,6 +84,7 @@ const CHINA_PLATFORM_PATTERNS = [
   /b23\.tv/i,
   // Douyin
   /douyin\.com/i,
+  /douyinvod\.com/i,
   // Kuaishou
   /kuaishou\.com/i,
   /gifshow\.com/i,

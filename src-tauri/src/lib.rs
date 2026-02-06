@@ -766,7 +766,7 @@ fn is_douyin_url(url: &str) -> bool {
 fn is_china_platform_url(url: &str) -> bool {
     let patterns = [
         "bilibili.com", "b23.tv",
-        "douyin.com", "v.douyin.com",
+        "douyin.com", "v.douyin.com", "douyinvod.com",
         "kuaishou.com", "gifshow.com",
         "xiaohongshu.com", "xhslink.com",
         "v.qq.com",
@@ -862,6 +862,7 @@ fn get_videodl_status(app: AppHandle) -> bool {
 async fn download_with_videodl(
     app: AppHandle,
     url: String,
+    title: Option<String>,
 ) -> Result<DownloadResult, String> {
     use futures_util::StreamExt;
 
@@ -904,12 +905,17 @@ async fn download_with_videodl(
     }
 
     // Build SSE request URL
-    let download_url = format!(
+    let mut download_url = format!(
         "http://127.0.0.1:{}/download_stream?url={}&work_dir={}",
         port,
         urlencoding::encode(&url),
         urlencoding::encode(&output_dir.to_string_lossy())
     );
+
+    // Add title if available
+    if let Some(ref t) = title {
+        download_url.push_str(&format!("&title={}", urlencoding::encode(t)));
+    }
 
     let client = reqwest::Client::new();
     let response = client.get(&download_url)
@@ -924,8 +930,11 @@ async fn download_with_videodl(
     let mut stream = response.bytes_stream();
     let mut last_file_path: Option<String> = None;
     let mut last_title: Option<String> = None;
+    let mut download_finished = false;
 
     while let Some(chunk) = stream.next().await {
+        if download_finished { break; }
+
         let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
         let text = String::from_utf8_lossy(&chunk);
 
@@ -953,6 +962,8 @@ async fn download_with_videodl(
                         if last_title.is_none() {
                             last_title = event.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
                         }
+                        println!(">>> [videodl] Received complete event, file: {:?}", last_file_path);
+                        download_finished = true;
                     }
                     "error" => {
                         let msg = event.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown error");
@@ -970,7 +981,11 @@ async fn download_with_videodl(
         error: if last_file_path.is_none() { Some("Download failed".to_string()) } else { None },
     };
 
-    let _ = app.emit("video-download-complete", result.clone());
+    println!(">>> [videodl] Download complete, file_path: {:?}, success: {}", last_file_path, result.success);
+    match app.emit_to("main", "video-download-complete", result.clone()) {
+        Ok(_) => println!(">>> [videodl] Emitted video-download-complete event to main window"),
+        Err(e) => println!(">>> [videodl] Failed to emit event: {:?}", e),
+    }
 
     // AE Portal
     if let Some(ref path) = last_file_path {
@@ -990,6 +1005,7 @@ async fn download_with_videodl(
 async fn download_video_smart(
     app: AppHandle,
     url: String,
+    title: Option<String>,
     extension_cookies_path: Option<PathBuf>,
 ) -> Result<DownloadResult, String> {
     // Check if videodl is enabled
@@ -1009,7 +1025,7 @@ async fn download_video_smart(
     if videodl_enabled && is_china {
         // China platform: try videodl first
         println!(">>> [Smart] Trying videodl first for China platform");
-        match download_with_videodl(app.clone(), url.clone()).await {
+        match download_with_videodl(app.clone(), url.clone(), title.clone()).await {
             Ok(result) if result.success => return Ok(result),
             Err(e) => println!(">>> [Smart] videodl failed: {}, trying yt-dlp", e),
             Ok(_) => println!(">>> [Smart] videodl returned failure, trying yt-dlp"),
@@ -1025,7 +1041,7 @@ async fn download_video_smart(
             Ok(_) => println!(">>> [Smart] yt-dlp returned failure, trying videodl"),
         }
         // Fallback to videodl
-        download_with_videodl(app, url).await
+        download_with_videodl(app, url, title).await
     } else {
         // videodl disabled: use yt-dlp only
         download_video_internal(app, url, extension_cookies_path).await
@@ -1805,11 +1821,12 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     } else {
                         // Use smart download dispatcher
                         let url_owned = url.to_string();
+                        let title_owned = title.map(|s| s.to_string());
                         let cookies_path = cookies
                             .filter(|s| !s.is_empty())
                             .and_then(|s| save_extension_cookies(s).ok());
                         tokio::spawn(async move {
-                            let _ = download_video_smart(app_clone, url_owned, cookies_path).await;
+                            let _ = download_video_smart(app_clone, url_owned, title_owned, cookies_path).await;
                         });
                     }
 
@@ -2047,7 +2064,14 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Stop videodl server on app exit
+                stop_videodl_server(app);
+                println!(">>> [App] Exit, videodl server stopped");
+            }
+        });
 }
 
