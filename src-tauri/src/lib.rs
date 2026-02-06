@@ -925,6 +925,7 @@ async fn download_with_videodl(
     app: AppHandle,
     url: String,
     title: Option<String>,
+    cookies_path: Option<PathBuf>,
 ) -> Result<DownloadResult, String> {
     use futures_util::StreamExt;
 
@@ -987,6 +988,14 @@ async fn download_with_videodl(
     // Add title if available
     if let Some(ref t) = title {
         download_url.push_str(&format!("&title={}", urlencoding::encode(t)));
+    }
+
+    // Add cookies file path if available
+    if let Some(ref cp) = cookies_path {
+        if cp.exists() {
+            download_url.push_str(&format!("&cookies_file={}", urlencoding::encode(&cp.to_string_lossy())));
+            println!(">>> [videodl] Using cookies from: {:?}", cp);
+        }
     }
 
     let client = reqwest::Client::new();
@@ -1106,7 +1115,7 @@ async fn download_video_smart(
     if videodl_enabled && is_china {
         // China platform: try videodl first
         println!(">>> [Smart] Trying videodl first for China platform");
-        match download_with_videodl(app.clone(), url.clone(), title.clone()).await {
+        match download_with_videodl(app.clone(), url.clone(), title.clone(), extension_cookies_path.clone()).await {
             Ok(result) if result.success => return Ok(result),
             Err(e) => {
                 // Check if cancelled - don't fallback
@@ -1136,7 +1145,7 @@ async fn download_video_smart(
             Ok(_) => println!(">>> [Smart] yt-dlp returned failure, trying videodl"),
         }
         // Fallback to videodl
-        download_with_videodl(app, url, title).await
+        download_with_videodl(app, url, title, None).await
     } else {
         // videodl disabled: use yt-dlp only
         download_video_internal(app, url, extension_cookies_path).await
