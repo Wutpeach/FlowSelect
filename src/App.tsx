@@ -329,6 +329,14 @@ function App() {
     };
   }, []);
 
+  // Close context menu on window blur
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleWindowBlur = () => setContextMenu(null);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => window.removeEventListener('blur', handleWindowBlur);
+  }, [contextMenu]);
+
   // Handle window drag start - prevents minimize during drag
   const handleDragStart = async (e: React.MouseEvent) => {
     if (e.button !== 0) return; // 只响应左键
@@ -803,7 +811,10 @@ function App() {
         resetIdleTimer();
         containerRef.current?.focus();
       }}
-      onMouseLeave={() => setIsPanelHovered(false)}
+      onMouseLeave={() => {
+        setContextMenu(null);
+        setIsPanelHovered(false);
+      }}
       onMouseDown={handleDragStart}
       onMouseUp={() => {
         resetIdleTimer();
@@ -1196,8 +1207,8 @@ function App() {
               position: 'fixed',
               left: contextMenu.x,
               top: contextMenu.y,
-              backgroundColor: '#2a2a2a',
-              border: '1px solid #3a3a3a',
+              backgroundColor: colors.bgSecondary,
+              border: `1px solid ${colors.borderStart}`,
               borderRadius: 8,
               padding: '4px 0',
               minWidth: 140,
@@ -1212,13 +1223,13 @@ function App() {
                 padding: '8px 12px',
                 textAlign: 'left',
                 fontSize: 13,
-                color: '#e0e0e0',
+                color: colors.textPrimary,
                 backgroundColor: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 transition: 'background-color 0.15s',
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#404040'}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.bgPrimary}
               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
               Open Folder
