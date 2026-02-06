@@ -190,9 +190,10 @@ function App() {
     );
     const unlistenComplete = listen("video-download-complete", (event) => {
       console.log(">>> [Frontend] video-download-complete received:", event);
-      console.log(">>> [Frontend] Setting downloadProgress to null");
       setDownloadProgress(null);
-      console.log(">>> [Frontend] downloadProgress set to null");
+      // 显示打勾符号
+      setIsProcessing(true);
+      setTimeout(() => setIsProcessing(false), 1000);
       // 下载完成后延迟5秒再启动 idle timer
       setTimeout(() => {
         idleTimerRef.current = window.setTimeout(() => {

@@ -51,7 +51,7 @@ static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
 
 // videodl HTTP server state
 struct VideodlServerState {
-    process: Mutex<Option<std::process::Child>>,
+    sidecar_pid: Mutex<Option<u32>>,
     is_running: Mutex<bool>,
     port: u16,
 }
@@ -59,7 +59,7 @@ struct VideodlServerState {
 impl Default for VideodlServerState {
     fn default() -> Self {
         Self {
-            process: Mutex::new(None),
+            sidecar_pid: Mutex::new(None),
             is_running: Mutex::new(false),
             port: 18901,
         }
@@ -552,6 +552,13 @@ async fn download_video_internal(
         }
     }
 
+    // Emit "preparing" event to show indeterminate progress
+    let _ = app.emit("video-download-progress", DownloadProgress {
+        percent: -1.0,  // Negative value indicates indeterminate state
+        speed: "Preparing...".to_string(),
+        eta: "".to_string(),
+    });
+
     // Spawn yt-dlp process
     let shell = app.shell();
     let (mut rx, child) = shell
@@ -785,42 +792,48 @@ fn is_china_platform_url(url: &str) -> bool {
     patterns.iter().any(|p| url.contains(p))
 }
 
-/// Start videodl HTTP server
+/// Start videodl HTTP server (sidecar)
 async fn start_videodl_server(app: &AppHandle) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+
     let state = app.state::<VideodlServerState>();
 
     if *state.is_running.lock().unwrap() {
         return Ok(());
     }
 
-    // Get Python path from config
-    let config_str = get_config(app.clone())?;
-    let config: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    println!(">>> [videodl] Starting sidecar server on port {}", state.port);
 
-    let python_path = config
-        .get("videodlPythonPath")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("python");
-
-    let videodl_path = config
-        .get("videodlServerPath")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("D:\\videodl\\http_server.py");
-
-    println!(">>> [videodl] Starting server: {} {}", python_path, videodl_path);
-
-    let child = std::process::Command::new(python_path)
-        .args([videodl_path, "--port", &state.port.to_string()])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+    let (mut rx, child) = app.shell()
+        .sidecar("videodl-server")
+        .map_err(|e| format!("Failed to create sidecar: {}", e))?
+        .args(["--port", &state.port.to_string()])
         .spawn()
-        .map_err(|e| format!("Failed to start videodl server: {}", e))?;
+        .map_err(|e| format!("Failed to start videodl sidecar: {}", e))?;
 
-    *state.process.lock().unwrap() = Some(child);
+    // Store child PID for later cleanup
+    *state.sidecar_pid.lock().unwrap() = Some(child.pid());
     *state.is_running.lock().unwrap() = true;
+
+    // Spawn task to consume stdout/stderr
+    tauri::async_runtime::spawn(async move {
+        use tauri_plugin_shell::process::CommandEvent;
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(line) => {
+                    println!(">>> [videodl] {}", String::from_utf8_lossy(&line));
+                }
+                CommandEvent::Stderr(line) => {
+                    eprintln!(">>> [videodl] ERR: {}", String::from_utf8_lossy(&line));
+                }
+                CommandEvent::Terminated(payload) => {
+                    println!(">>> [videodl] Terminated: {:?}", payload);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
 
     // Wait for server to be ready
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
@@ -846,9 +859,15 @@ async fn start_videodl_server(app: &AppHandle) -> Result<(), String> {
 fn stop_videodl_server(app: &AppHandle) {
     let state = app.state::<VideodlServerState>();
 
-    if let Some(mut child) = state.process.lock().unwrap().take() {
-        let _ = child.kill();
-        println!(">>> [videodl] Server stopped");
+    if let Some(pid) = state.sidecar_pid.lock().unwrap().take() {
+        // Kill process by PID on Windows
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/PID", &pid.to_string()])
+                .output();
+        }
+        println!(">>> [videodl] Server stopped (PID: {})", pid);
     }
     *state.is_running.lock().unwrap() = false;
 }
@@ -870,6 +889,13 @@ async fn download_with_videodl(
     use futures_util::StreamExt;
 
     println!(">>> [videodl] Starting download: {}", url);
+
+    // Emit "preparing" event to show indeterminate progress
+    let _ = app.emit("video-download-progress", DownloadProgress {
+        percent: -1.0,
+        speed: "Preparing...".to_string(),
+        eta: "".to_string(),
+    });
 
     // Ensure server is running
     start_videodl_server(&app).await?;
@@ -1022,7 +1048,7 @@ async fn download_video_smart(
     let videodl_enabled = config
         .get("videodlEnabled")
         .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+        .unwrap_or(true);  // 默认开启
 
     let is_china = is_china_platform_url(&url);
 
@@ -1616,10 +1642,23 @@ async fn start_ws_server_internal(app: &AppHandle) -> Result<String, String> {
         return Ok("WebSocket server already running".to_string());
     }
 
-    let addr: SocketAddr = "127.0.0.1:18900".parse().unwrap();
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .map_err(|e| format!("Failed to bind: {}", e))?;
+    let addr: SocketAddr = "127.0.0.1:39527".parse().unwrap();
+
+    // Use socket2 to set SO_REUSEADDR before binding
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV4,
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    ).map_err(|e| format!("Failed to create socket: {}", e))?;
+
+    socket.set_reuse_address(true).map_err(|e| format!("Failed to set reuse address: {}", e))?;
+    socket.bind(&addr.into()).map_err(|e| format!("Failed to bind: {}", e))?;
+    socket.listen(128).map_err(|e| format!("Failed to listen: {}", e))?;
+    socket.set_nonblocking(true).map_err(|e| format!("Failed to set nonblocking: {}", e))?;
+
+    let std_listener: std::net::TcpListener = socket.into();
+    let listener = tokio::net::TcpListener::from_std(std_listener)
+        .map_err(|e| format!("Failed to convert to tokio listener: {}", e))?;
 
     // Create shutdown channel
     let (shutdown_tx, _) = broadcast::channel::<()>(1);

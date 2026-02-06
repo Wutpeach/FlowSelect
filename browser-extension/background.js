@@ -4,7 +4,7 @@
 let ws = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const WS_URL = 'ws://127.0.0.1:18900';
+const WS_URL = 'ws://127.0.0.1:39527';
 
 // Store current theme from desktop app
 let currentTheme = 'black';
