@@ -1210,9 +1210,9 @@ function App() {
               backgroundColor: colors.bgSecondary,
               border: `1px solid ${colors.borderStart}`,
               borderRadius: 8,
-              padding: '4px 0',
+              padding: 4,
               minWidth: 140,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+              boxShadow: `0 4px 12px ${colors.shadowSpread}`,
               zIndex: 9999,
             }}
           >
@@ -1226,6 +1226,7 @@ function App() {
                 color: colors.textPrimary,
                 backgroundColor: 'transparent',
                 border: 'none',
+                borderRadius: 4,
                 cursor: 'pointer',
                 transition: 'background-color 0.15s',
               }}
