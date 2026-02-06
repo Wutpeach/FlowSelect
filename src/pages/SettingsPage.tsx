@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { X, FolderOpen, Keyboard } from "lucide-react";
+import { X, FolderOpen, Keyboard, Circle } from "lucide-react";
 import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
 import { useTheme } from "../contexts/ThemeContext";
@@ -19,6 +19,10 @@ function SettingsPage() {
   const [devMode, setDevMode] = useState(false);
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
+  // videodl settings
+  const [videodlEnabled, setVideodlEnabled] = useState(false);
+  const [videodlPythonPath, setVideodlPythonPath] = useState("");
+  const [videodlStatus, setVideodlStatus] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -40,6 +44,13 @@ function SettingsPage() {
         }
         if (config.aeExePath) {
           setAeExePath(config.aeExePath);
+        }
+        // videodl settings
+        if (config.videodlEnabled !== undefined) {
+          setVideodlEnabled(config.videodlEnabled);
+        }
+        if (config.videodlPythonPath) {
+          setVideodlPythonPath(config.videodlPythonPath);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -67,6 +78,19 @@ function SettingsPage() {
       }
     };
     loadShortcut();
+
+    // Check videodl status periodically
+    const checkVideodlStatus = async () => {
+      try {
+        const status = await invoke<boolean>("get_videodl_status");
+        setVideodlStatus(status);
+      } catch (err) {
+        console.error("Failed to get videodl status:", err);
+      }
+    };
+    checkVideodlStatus();
+    const interval = setInterval(checkVideodlStatus, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   // Keyboard event listener for shortcut recording
@@ -201,6 +225,30 @@ function SettingsPage() {
       const configStr = await invoke<string>("get_config");
       const config = JSON.parse(configStr);
       config.aeExePath = selected;
+      await invoke("save_config", { json: JSON.stringify(config) });
+    }
+  };
+
+  // videodl functions
+  const toggleVideodl = async () => {
+    const newValue = !videodlEnabled;
+    setVideodlEnabled(newValue);
+    const configStr = await invoke<string>("get_config");
+    const config = JSON.parse(configStr);
+    config.videodlEnabled = newValue;
+    await invoke("save_config", { json: JSON.stringify(config) });
+  };
+
+  const selectPythonPath = async () => {
+    const selected = await open({
+      filters: [{ name: "Python", extensions: ["exe"] }],
+      title: "Select python.exe",
+    });
+    if (selected) {
+      setVideodlPythonPath(selected as string);
+      const configStr = await invoke<string>("get_config");
+      const config = JSON.parse(configStr);
+      config.videodlPythonPath = selected;
       await invoke("save_config", { json: JSON.stringify(config) });
     }
   };
@@ -387,6 +435,49 @@ function SettingsPage() {
               <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {aeExePath ? truncatePath(aeExePath) : "Select AfterFX.exe..."}
+              </span>
+            </button>
+          )}
+        </div>
+
+        {/* videodl Acceleration */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+            videodl Acceleration (China Platforms)
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <NeonToggle checked={videodlEnabled} onChange={toggleVideodl} />
+            <Circle
+              size={8}
+              fill={videodlStatus ? '#22c55e' : '#6b7280'}
+              color={videodlStatus ? '#22c55e' : '#6b7280'}
+            />
+            <span style={{ fontSize: 10, color: colors.textSecondary }}>
+              {videodlStatus ? 'Running' : 'Stopped'}
+            </span>
+          </div>
+          {videodlEnabled && (
+            <button
+              onClick={selectPythonPath}
+              style={{
+                marginTop: 8,
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 12px',
+                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                borderRadius: 8,
+                border: `1px solid ${colors.borderStart}`,
+                textAlign: 'left',
+                fontSize: 12,
+                color: colors.textSecondary,
+                cursor: 'pointer',
+              }}
+            >
+              <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {videodlPythonPath ? truncatePath(videodlPythonPath) : "Select python.exe..."}
               </span>
             </button>
           )}
