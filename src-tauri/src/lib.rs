@@ -8,6 +8,7 @@ use regex::Regex;
 
 use tokio::sync::broadcast;
 
+#[cfg(windows)]
 use clipboard_win::{formats, get_clipboard};
 use dirs::desktop_dir;
 use tauri::{
@@ -91,9 +92,17 @@ fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 #[tauri::command]
 fn get_clipboard_files() -> Result<Vec<String>, String> {
-    let file_list: Vec<String> = get_clipboard(formats::FileList)
-        .map_err(|e| format!("Failed to read clipboard: {}", e))?;
-    Ok(file_list)
+    #[cfg(windows)]
+    {
+        let file_list: Vec<String> = get_clipboard(formats::FileList)
+            .map_err(|e| format!("Failed to read clipboard: {}", e))?;
+        return Ok(file_list);
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err("Clipboard file list is currently supported on Windows only".to_string())
+    }
 }
 
 #[tauri::command]
@@ -2125,7 +2134,6 @@ pub fn run() {
                             .inner_size(320.0, 400.0)
                             .center()
                             .decorations(false)
-                            .transparent(true)
                             .resizable(false)
                             .build();
                         }
@@ -2214,4 +2222,3 @@ pub fn run() {
             }
         });
 }
-

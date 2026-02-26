@@ -10,7 +10,7 @@ import json
 import asyncio
 import threading
 import queue
-from typing import Optional
+from typing import Optional, Any
 from pathlib import Path
 
 from fastapi import FastAPI, Query, HTTPException
@@ -19,8 +19,15 @@ from pydantic import BaseModel
 import uvicorn
 import requests
 
-# Import videodl
-from videodl.videodl import VideoClient
+# Import videodl (optional on macOS dev env)
+try:
+    from videodl.videodl import VideoClient
+    VIDEODL_AVAILABLE = True
+    VIDEODL_IMPORT_ERROR = ""
+except Exception as e:
+    VideoClient = None  # type: ignore[assignment]
+    VIDEODL_AVAILABLE = False
+    VIDEODL_IMPORT_ERROR = str(e)
 
 
 app = FastAPI(title="videodl HTTP Server", version="1.0.0")
@@ -38,12 +45,15 @@ def is_cdn_direct_link(url: str) -> bool:
     return any(pattern in url for pattern in CDN_PATTERNS)
 
 # Global VideoClient instance (lazy init)
-_video_client: Optional[VideoClient] = None
+_video_client: Optional[Any] = None
 _video_client_lock = threading.Lock()
 
 
-def create_video_client(work_dir: str = None, cookies: dict = None) -> VideoClient:
+def create_video_client(work_dir: str = None, cookies: dict = None) -> Any:
     """Create a new VideoClient instance with optional cookies."""
+    if not VIDEODL_AVAILABLE:
+        raise RuntimeError(f"videodl package not available: {VIDEODL_IMPORT_ERROR}")
+
     cfg = {}
     client_names = ['BilibiliVideoClient', 'DouyinVideoClient', 'KuaishouVideoClient',
                    'XiaohongshuVideoClient', 'WeiboVideoClient', 'AcFunVideoClient']
@@ -60,7 +70,7 @@ def create_video_client(work_dir: str = None, cookies: dict = None) -> VideoClie
     return VideoClient(init_video_clients_cfg=cfg)
 
 
-def get_video_client(work_dir: str = None) -> VideoClient:
+def get_video_client(work_dir: str = None) -> Any:
     """Get or create VideoClient instance (without cookies, for backward compat)."""
     global _video_client
     with _video_client_lock:
@@ -82,12 +92,24 @@ class DownloadRequest(BaseModel):
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "ok", "service": "videodl"}
+    return {
+        "status": "ok",
+        "service": "videodl",
+        "videodl_available": VIDEODL_AVAILABLE,
+        "videodl_error": VIDEODL_IMPORT_ERROR if not VIDEODL_AVAILABLE else "",
+    }
 
 
 @app.post("/parse")
 async def parse_url(request: ParseRequest):
     """Parse video URL and return video info."""
+    if not VIDEODL_AVAILABLE:
+        return {
+            "success": False,
+            "error": f"videodl package not available: {VIDEODL_IMPORT_ERROR}",
+            "video_infos": [],
+        }
+
     try:
         client = get_video_client(request.work_dir)
         video_infos = client.parsefromurl(request.url)
@@ -173,6 +195,13 @@ async def download_stream(
                     "source": "CDN_Direct",
                 }
             else:
+                if not VIDEODL_AVAILABLE:
+                    yield json.dumps({
+                        "status": "error",
+                        "message": f"videodl package not available: {VIDEODL_IMPORT_ERROR}",
+                    }) + "\n"
+                    return
+
                 # Parse cookies if provided
                 cookies = None
                 if cookies_file:
