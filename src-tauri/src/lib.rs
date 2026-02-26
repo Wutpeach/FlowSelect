@@ -869,7 +869,8 @@ fn is_xiaohongshu_url(url: &str) -> bool {
 
 /// Check if URL is a direct Xiaohongshu CDN media link
 fn is_xiaohongshu_cdn_url(url: &str) -> bool {
-    url.contains("xhscdn.com")
+    let lower = url.to_ascii_lowercase();
+    lower.contains("xhscdn.com") && !lower.contains(".m3u8")
 }
 
 /// Convert Netscape cookie file content to Cookie header format: "k1=v1; k2=v2"
@@ -1475,7 +1476,32 @@ async fn download_video_direct(
         return Err(format!("HTTP error: {}", response.status()));
     }
 
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|ct| ct.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if content_type.contains("application/vnd.apple.mpegurl")
+        || content_type.contains("application/x-mpegurl")
+        || content_type.starts_with("text/")
+        || content_type.contains("application/json")
+    {
+        return Err(format!(
+            "{} direct URL returned non-video payload (content-type: {})",
+            platform,
+            content_type
+        ));
+    }
+
     let total_size = response.content_length().unwrap_or(0);
+    if total_size > 0 && total_size < 1024 {
+        return Err(format!(
+            "{} direct payload too small ({} bytes), likely not a playable video",
+            platform,
+            total_size
+        ));
+    }
     let mut downloaded: u64 = 0;
 
     // Send initial progress event to show download started
@@ -2198,22 +2224,46 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             }
                         });
                     } else if (is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url)) && video_url.is_some() {
-                        let download_url = video_url.unwrap().to_string();
+                        let extracted_video_url = video_url.unwrap().to_string();
                         let cookies_header = cookies.and_then(netscape_cookies_to_header);
                         let title_owned = title.map(|s| s.to_string());
-                        println!(">>> [Rust] Xiaohongshu direct video URL: {}", download_url);
-                        tokio::spawn(async move {
-                            if let Err(e) = download_xiaohongshu_direct(app_clone.clone(), download_url, cookies_header, title_owned).await {
-                                println!(">>> [Rust] Xiaohongshu download error: {}", e);
-                                // Emit complete event with error to close progress bar
-                                let result = DownloadResult {
-                                    success: false,
-                                    file_path: None,
-                                    error: Some(e),
-                                };
-                                let _ = app_clone.emit("video-download-complete", result);
-                            }
-                        });
+
+                        if is_xiaohongshu_cdn_url(&extracted_video_url) {
+                            println!(">>> [Rust] Xiaohongshu direct video URL: {}", extracted_video_url);
+                            tokio::spawn(async move {
+                                if let Err(e) = download_xiaohongshu_direct(app_clone.clone(), extracted_video_url, cookies_header, title_owned).await {
+                                    println!(">>> [Rust] Xiaohongshu download error: {}", e);
+                                    // Emit complete event with error to close progress bar
+                                    let result = DownloadResult {
+                                        success: false,
+                                        file_path: None,
+                                        error: Some(e),
+                                    };
+                                    let _ = app_clone.emit("video-download-complete", result);
+                                }
+                            });
+                        } else {
+                            // If extension extracted manifest/non-direct URL, fallback to smart download on page URL.
+                            let page_url_owned = page_url.to_string();
+                            let cookies_path = cookies
+                                .filter(|s| !s.is_empty())
+                                .and_then(|s| save_extension_cookies(s).ok());
+                            println!(
+                                ">>> [Rust] Xiaohongshu extracted URL is not direct media, fallback to smart: {}",
+                                extracted_video_url
+                            );
+                            tokio::spawn(async move {
+                                if let Err(e) = download_video_smart(app_clone.clone(), page_url_owned, title_owned, cookies_path).await {
+                                    println!(">>> [Rust] Xiaohongshu smart fallback error: {}", e);
+                                    let result = DownloadResult {
+                                        success: false,
+                                        file_path: None,
+                                        error: Some(e),
+                                    };
+                                    let _ = app_clone.emit("video-download-complete", result);
+                                }
+                            });
+                        }
                     } else {
                         // Use smart download dispatcher
                         let url_owned = url.to_string();

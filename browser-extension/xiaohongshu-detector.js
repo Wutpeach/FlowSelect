@@ -15,26 +15,56 @@
       window.location.pathname.includes('/discovery/item/');
   }
 
+  function normalizeUrl(url) {
+    if (!url || typeof url !== 'string') return null;
+    const normalized = url.replace(/\\u002F/g, '/').trim();
+    if (!normalized.startsWith('http') || normalized.startsWith('blob:')) return null;
+    return normalized;
+  }
+
   function isLikelyMediaUrl(url) {
-    if (!url || typeof url !== 'string') return false;
-    if (!url.startsWith('http') || url.startsWith('blob:')) return false;
-    return /xhscdn\.com|xiaohongshu|xhslink|\.mp4(\?|$)|\.m3u8(\?|$)/i.test(url);
+    const normalized = normalizeUrl(url);
+    if (!normalized) return false;
+    return /xhscdn\.com|xiaohongshu|xhslink|\.mp4(\?|$)|\.m3u8(\?|$)/i.test(normalized);
+  }
+
+  function isM3u8Url(url) {
+    return /\.m3u8(\?|$)/i.test(url);
+  }
+
+  function isDirectVideoUrl(url) {
+    if (!url) return false;
+    if (isM3u8Url(url)) return false;
+    // Prefer real CDN media links or explicit mp4 files.
+    return /xhscdn\.com/i.test(url) || /\.mp4(\?|$)/i.test(url);
   }
 
   function extractVideoUrl() {
+    let bestDirectUrl = null;
+    let fallbackMediaUrl = null;
+    const seen = new Set();
+
+    const collectCandidate = (raw) => {
+      const candidate = normalizeUrl(raw);
+      if (!candidate || seen.has(candidate)) return;
+      seen.add(candidate);
+      if (!isLikelyMediaUrl(candidate)) return;
+      if (isDirectVideoUrl(candidate) && !bestDirectUrl) {
+        bestDirectUrl = candidate;
+      }
+      if (!fallbackMediaUrl) {
+        fallbackMediaUrl = candidate;
+      }
+    };
+
     // Method 1: direct video element
     const videos = Array.from(document.querySelectorAll('video'));
     for (const video of videos) {
-      const candidates = [video.currentSrc, video.src];
-      for (const candidate of candidates) {
-        if (isLikelyMediaUrl(candidate)) {
-          return candidate;
-        }
-      }
+      const candidates = [video.currentSrc, video.src, video.getAttribute('src')];
+      candidates.forEach(collectCandidate);
       const source = video.querySelector('source');
-      if (isLikelyMediaUrl(source?.src)) {
-        return source.src;
-      }
+      collectCandidate(source?.src);
+      collectCandidate(source?.getAttribute('src'));
     }
 
     // Method 2: JSON-LD block
@@ -42,10 +72,7 @@
     for (const script of ldScripts) {
       try {
         const payload = JSON.parse(script.textContent || '{}');
-        const contentUrl = payload?.contentUrl || payload?.video?.contentUrl;
-        if (isLikelyMediaUrl(contentUrl)) {
-          return contentUrl;
-        }
+        collectCandidate(payload?.contentUrl || payload?.video?.contentUrl);
       } catch (_) {
         // Ignore malformed json-ld
       }
@@ -54,10 +81,7 @@
     // Method 3: Performance resources (blob-backed players usually still fetch real media URLs)
     const resources = performance.getEntriesByType('resource') || [];
     for (let i = resources.length - 1; i >= 0; i -= 1) {
-      const name = resources[i]?.name;
-      if (isLikelyMediaUrl(name)) {
-        return name;
-      }
+      collectCandidate(resources[i]?.name);
     }
 
     // Method 4: Script text scan for encoded/embedded media URLs
@@ -69,10 +93,16 @@
       const text = rawText.replace(/\\u002F/g, '/');
       const matches = text.match(urlRegex) || [];
       for (const match of matches) {
-        if (isLikelyMediaUrl(match)) {
-          return match;
-        }
+        collectCandidate(match);
       }
+    }
+
+    if (bestDirectUrl) return bestDirectUrl;
+
+    // Do not force direct download on manifest URLs like m3u8.
+    // Returning null lets backend fall back to smart extractors.
+    if (fallbackMediaUrl && !isM3u8Url(fallbackMediaUrl)) {
+      return fallbackMediaUrl;
     }
 
     return null;
