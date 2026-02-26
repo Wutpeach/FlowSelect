@@ -1,9 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { Agentation } from "agentation";
 import App from "./App";
 import SettingsPage from "./pages/SettingsPage";
+import { AgentationDevTools } from "./components/AgentationDevTools";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import "./index.css";
 
@@ -15,9 +15,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="/" element={<App />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
-        {import.meta.env.DEV && (
-          <Agentation endpoint="http://localhost:4747" />
-        )}
+        {import.meta.env.DEV && <AgentationDevTools />}
       </BrowserRouter>
     </ThemeProvider>
   </React.StrictMode>,
