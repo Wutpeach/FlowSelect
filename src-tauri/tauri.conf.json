@@ -42,8 +42,7 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/yt-dlp",
-      "binaries/videodl-server"
+      "binaries/yt-dlp"
     ],
     "resources": {
       "binaries/deno*": "binaries/"

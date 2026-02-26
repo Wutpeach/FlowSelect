@@ -90,29 +90,10 @@ struct DirectCandidateCacheEntry {
     expires_at_ms: u128,
 }
 
-#[derive(serde::Deserialize, Debug)]
-struct VideodlHealthResponse {
-    #[allow(dead_code)]
-    status: String,
-    #[allow(dead_code)]
-    service: String,
-    videodl_available: bool,
-    videodl_error: String,
-}
-
-#[derive(serde::Serialize, Clone)]
-struct VideodlHealthStatus {
-    #[serde(rename = "isRunning")]
-    is_running: bool,
-    #[serde(rename = "isAvailable")]
-    is_available: bool,
-    error: Option<String>,
-}
-
 // Store current download process PID
 static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
 
-// Global cancel flag for all downloads (including videodl SSE streams)
+// Global cancel flag for all downloads
 static DOWNLOAD_CANCELLED: Mutex<bool> = Mutex::new(false);
 // Incremental sequence for download trace ids.
 static DOWNLOAD_TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -120,23 +101,6 @@ static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCac
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
-
-// videodl HTTP server state
-struct VideodlServerState {
-    sidecar_pid: Mutex<Option<u32>>,
-    is_running: Mutex<bool>,
-    port: u16,
-}
-
-impl Default for VideodlServerState {
-    fn default() -> Self {
-        Self {
-            sidecar_pid: Mutex::new(None),
-            is_running: Mutex::new(false),
-            port: 18901,
-        }
-    }
-}
 
 fn keep_window_off_taskbar(_window: &tauri::WebviewWindow) {
     #[cfg(target_os = "windows")]
@@ -597,7 +561,6 @@ pub struct DownloadProgress {
 enum DownloadRoute {
     DirectDouyin,
     DirectXiaohongshu,
-    Videodl,
     YtDlp,
 }
 
@@ -606,7 +569,6 @@ impl DownloadRoute {
         match self {
             Self::DirectDouyin => "direct_douyin",
             Self::DirectXiaohongshu => "direct_xiaohongshu",
-            Self::Videodl => "videodl",
             Self::YtDlp => "yt_dlp",
         }
     }
@@ -681,24 +643,6 @@ fn next_download_trace_id() -> String {
 
 fn is_cancelled_error(err: &str) -> bool {
     err.to_ascii_lowercase().contains("cancelled")
-}
-
-fn env_flag_enabled(name: &str) -> bool {
-    match std::env::var(name) {
-        Ok(value) => {
-            let normalized = value.trim().to_ascii_lowercase();
-            matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
-        }
-        Err(_) => false,
-    }
-}
-
-fn is_videodl_forced_disabled_by_env() -> bool {
-    env_flag_enabled("FLOWSELECT_DISABLE_VIDEODL")
-}
-
-fn is_videodl_canary_enabled_by_env() -> bool {
-    env_flag_enabled("FLOWSELECT_ENABLE_VIDEODL_CANARY")
 }
 
 fn log_download_trace(trace_id: &str, stage: &str, payload: serde_json::Value) {
@@ -1233,7 +1177,7 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
 async fn cancel_download(app: AppHandle) -> Result<bool, String> {
     println!(">>> [Rust] cancel_download called");
 
-    // Set global cancel flag (for videodl SSE streams)
+    // Set global cancel flag
     *DOWNLOAD_CANCELLED.lock().unwrap() = true;
 
     // 1. 终止下载进程 (for yt-dlp)
@@ -1253,14 +1197,10 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
         }
     }
 
-    // 2. 停止 videodl 服务器以释放文件锁
-    println!(">>> [Rust] Stopping videodl server to release file locks");
-    stop_videodl_server(&app);
-
-    // 3. 等待进程完全终止
+    // 2. 等待进程完全终止
     tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
 
-    // 4. 清理临时文件
+    // 3. 清理临时文件
     if let Ok(config_str) = get_config(app) {
         if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
             let base_output_dir = config
@@ -1305,7 +1245,7 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
                             continue;
                         }
 
-                        // Delete recently modified video files (videodl residuals)
+                        // Delete recently modified video files
                         if video_extensions.contains(&ext.as_str()) {
                             if let Ok(metadata) = entry.metadata() {
                                 if let Ok(modified) = metadata.modified() {
@@ -1625,446 +1565,13 @@ fn cookies_file_to_header(cookies_path: &PathBuf) -> Option<String> {
     netscape_cookies_to_header(&content)
 }
 
-/// Check if URL is from Bilibili (use yt-dlp for better quality)
-fn is_bilibili_url(url: &str) -> bool {
-    url.contains("bilibili.com") || url.contains("b23.tv")
-}
-
 fn is_youtube_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     lower.contains("youtube.com/") || lower.contains("youtu.be/")
 }
 
-/// Check if URL is from a Chinese video platform (for videodl routing)
-/// Note: Bilibili is excluded - yt-dlp handles it better for high quality
-fn is_china_platform_url(url: &str) -> bool {
-    // Bilibili excluded - videodl's fnval=0 only returns low quality
-    if is_bilibili_url(url) {
-        return false;
-    }
-    let patterns = [
-        "douyin.com",
-        "v.douyin.com",
-        "douyinvod.com",
-        "kuaishou.com",
-        "gifshow.com",
-        "xiaohongshu.com",
-        "xhslink.com",
-        "v.qq.com",
-        "iqiyi.com",
-        "youku.com",
-        "cctv.com",
-        "cctv.cn",
-        "weibo.com",
-        "weibo.cn",
-        "acfun.cn",
-        "mgtv.com",
-        "xigua.com",
-        "ixigua.com",
-        "zhihu.com",
-    ];
-    patterns.iter().any(|p| url.contains(p))
-}
-
-/// Start videodl HTTP server (sidecar)
-async fn start_videodl_server(app: &AppHandle) -> Result<(), String> {
-    use tauri_plugin_shell::ShellExt;
-
-    let state = app.state::<VideodlServerState>();
-
-    if *state.is_running.lock().unwrap() {
-        return Ok(());
-    }
-
-    println!(
-        ">>> [videodl] Starting sidecar server on port {}",
-        state.port
-    );
-
-    let (mut rx, child) = app
-        .shell()
-        .sidecar("videodl-server")
-        .map_err(|e| format!("Failed to create sidecar: {}", e))?
-        .args(["--port", &state.port.to_string()])
-        .spawn()
-        .map_err(|e| format!("Failed to start videodl sidecar: {}", e))?;
-
-    // Store child PID for later cleanup
-    *state.sidecar_pid.lock().unwrap() = Some(child.pid());
-    *state.is_running.lock().unwrap() = true;
-
-    // Spawn task to consume stdout/stderr
-    tauri::async_runtime::spawn(async move {
-        use tauri_plugin_shell::process::CommandEvent;
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(line) => {
-                    println!(">>> [videodl] {}", String::from_utf8_lossy(&line));
-                }
-                CommandEvent::Stderr(line) => {
-                    eprintln!(">>> [videodl] ERR: {}", String::from_utf8_lossy(&line));
-                }
-                CommandEvent::Terminated(payload) => {
-                    println!(">>> [videodl] Terminated: {:?}", payload);
-                    break;
-                }
-                _ => {}
-            }
-        }
-    });
-
-    // Wait for server to be ready
-    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
-
-    // Health check
-    let client = reqwest::Client::new();
-    let health_url = format!("http://127.0.0.1:{}/health", state.port);
-
-    for _ in 0..5 {
-        if let Ok(resp) = client.get(&health_url).send().await {
-            if resp.status().is_success() {
-                println!(">>> [videodl] Server ready");
-                return Ok(());
-            }
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    }
-
-    Err("videodl server failed to start".to_string())
-}
-
-/// Stop videodl HTTP server
-fn stop_videodl_server(app: &AppHandle) {
-    let state = app.state::<VideodlServerState>();
-
-    if let Some(pid) = state.sidecar_pid.lock().unwrap().take() {
-        // Kill process by PID on Windows
-        #[cfg(windows)]
-        {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/F", "/PID", &pid.to_string()])
-                .output();
-        }
-        println!(">>> [videodl] Server stopped (PID: {})", pid);
-    }
-    *state.is_running.lock().unwrap() = false;
-}
-
-/// Check if videodl server is running
-#[tauri::command]
-fn get_videodl_status(app: AppHandle) -> bool {
-    let state = app.state::<VideodlServerState>();
-    let is_running = *state.is_running.lock().unwrap();
-    is_running
-}
-
-/// Get videodl availability from sidecar health endpoint
-#[tauri::command]
-async fn get_videodl_health(app: AppHandle) -> Result<VideodlHealthStatus, String> {
-    if !is_videodl_canary_enabled_by_env() {
-        let msg = "videodl canary soft-disabled; set FLOWSELECT_ENABLE_VIDEODL_CANARY=1 to enable emergency fallback".to_string();
-        println!(">>> [videodl] {}", msg);
-        return Ok(VideodlHealthStatus {
-            is_running: false,
-            is_available: false,
-            error: Some(msg),
-        });
-    }
-
-    if is_videodl_forced_disabled_by_env() {
-        let msg = "videodl forced disabled by FLOWSELECT_DISABLE_VIDEODL".to_string();
-        println!(">>> [videodl] {}", msg);
-        return Ok(VideodlHealthStatus {
-            is_running: false,
-            is_available: false,
-            error: Some(msg),
-        });
-    }
-
-    let was_running = {
-        let state = app.state::<VideodlServerState>();
-        let is_running = *state.is_running.lock().unwrap();
-        is_running
-    };
-
-    if !was_running {
-        if let Err(e) = start_videodl_server(&app).await {
-            println!(">>> [videodl] Health start failed: {}", e);
-            return Ok(VideodlHealthStatus {
-                is_running: false,
-                is_available: false,
-                error: Some(e),
-            });
-        }
-    }
-
-    let port = {
-        let state = app.state::<VideodlServerState>();
-        state.port
-    };
-
-    let health_url = format!("http://127.0.0.1:{}/health", port);
-    let client = reqwest::Client::new();
-
-    let response = match client.get(&health_url).send().await {
-        Ok(resp) => resp,
-        Err(e) => {
-            let msg = format!("Failed to query videodl health: {}", e);
-            println!(">>> [videodl] {}", msg);
-            return Ok(VideodlHealthStatus {
-                is_running: false,
-                is_available: false,
-                error: Some(msg),
-            });
-        }
-    };
-
-    if !response.status().is_success() {
-        let msg = format!("Health endpoint returned {}", response.status());
-        println!(">>> [videodl] {}", msg);
-        return Ok(VideodlHealthStatus {
-            is_running: false,
-            is_available: false,
-            error: Some(msg),
-        });
-    }
-
-    let payload = match response.json::<VideodlHealthResponse>().await {
-        Ok(data) => data,
-        Err(e) => {
-            let msg = format!("Invalid health payload: {}", e);
-            println!(">>> [videodl] {}", msg);
-            return Ok(VideodlHealthStatus {
-                is_running: true,
-                is_available: false,
-                error: Some(msg),
-            });
-        }
-    };
-
-    let error = if payload.videodl_error.is_empty() {
-        None
-    } else {
-        Some(payload.videodl_error)
-    };
-
-    Ok(VideodlHealthStatus {
-        is_running: true,
-        is_available: payload.videodl_available,
-        error,
-    })
-}
-
-/// Download video using videodl HTTP server with SSE progress
-async fn download_with_videodl(
-    app: AppHandle,
-    url: String,
-    title: Option<String>,
-    cookies_path: Option<PathBuf>,
-) -> Result<DownloadResult, String> {
-    use futures_util::StreamExt;
-
-    println!(">>> [videodl] Starting download: {}", url);
-
-    // Reset cancel flag at start of new download
-    *DOWNLOAD_CANCELLED.lock().unwrap() = false;
-
-    // Emit "preparing" event to show indeterminate progress
-    let _ = app.emit(
-        "video-download-progress",
-        DownloadProgress {
-            percent: -1.0,
-            speed: "Preparing...".to_string(),
-            eta: "".to_string(),
-        },
-    );
-
-    // Ensure server is running
-    start_videodl_server(&app).await?;
-
-    let state = app.state::<VideodlServerState>();
-    let port = state.port;
-
-    // Get output directory from config
-    let config_str = get_config(app.clone())?;
-    let config: serde_json::Value =
-        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
-
-    let base_output_dir = config
-        .get("outputPath")
-        .and_then(|v| v.as_str())
-        .map(|s| std::path::PathBuf::from(s))
-        .unwrap_or_else(|| {
-            desktop_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("FlowSelect_Received")
-        });
-
-    let video_separate = config
-        .get("videoSeparateFolder")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let output_dir = if video_separate {
-        base_output_dir.join("Videos")
-    } else {
-        base_output_dir
-    };
-
-    // Create output directory
-    if !output_dir.exists() {
-        fs::create_dir_all(&output_dir)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
-    }
-
-    // Build SSE request URL
-    let mut download_url = format!(
-        "http://127.0.0.1:{}/download_stream?url={}&work_dir={}",
-        port,
-        urlencoding::encode(&url),
-        urlencoding::encode(&output_dir.to_string_lossy())
-    );
-
-    // Add title if available
-    if let Some(ref t) = title {
-        download_url.push_str(&format!("&title={}", urlencoding::encode(t)));
-    }
-
-    // Add cookies file path if available
-    if let Some(ref cp) = cookies_path {
-        if cp.exists() {
-            download_url.push_str(&format!(
-                "&cookies_file={}",
-                urlencoding::encode(&cp.to_string_lossy())
-            ));
-            println!(">>> [videodl] Using cookies from: {:?}", cp);
-        }
-    }
-
-    let client = reqwest::Client::new();
-    let response = client
-        .get(&download_url)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to connect to videodl: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(format!("videodl error: {}", response.status()));
-    }
-
-    // Process SSE stream
-    let mut stream = response.bytes_stream();
-    let mut last_file_path: Option<String> = None;
-    let mut last_title: Option<String> = None;
-    let mut download_finished = false;
-
-    while let Some(chunk) = stream.next().await {
-        if download_finished {
-            break;
-        }
-
-        // Check cancel flag
-        if *DOWNLOAD_CANCELLED.lock().unwrap() {
-            println!(">>> [videodl] Download cancelled by user");
-            return Err("Download cancelled".to_string());
-        }
-
-        let chunk = chunk.map_err(|e| format!("Stream error: {}", e))?;
-        let text = String::from_utf8_lossy(&chunk);
-
-        for line in text.lines() {
-            if line.is_empty() {
-                continue;
-            }
-
-            if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
-                let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                println!(">>> [videodl] SSE event status: {}, raw: {}", status, line);
-
-                match status {
-                    "progress" | "downloading" => {
-                        if let Some(percent) = event.get("percent").and_then(|v| v.as_f64()) {
-                            println!(">>> [videodl] Emitting progress: {}%", percent);
-                            let _ = app.emit(
-                                "video-download-progress",
-                                DownloadProgress {
-                                    percent: percent as f32,
-                                    speed: "videodl".to_string(),
-                                    eta: "N/A".to_string(),
-                                },
-                            );
-                        } else {
-                            println!(">>> [videodl] No percent field in progress event");
-                        }
-                    }
-                    "parsed" => {
-                        last_title = event
-                            .get("title")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                    }
-                    "complete" => {
-                        last_file_path = event
-                            .get("file_path")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        if last_title.is_none() {
-                            last_title = event
-                                .get("title")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-                        }
-                        println!(
-                            ">>> [videodl] Received complete event, file: {:?}",
-                            last_file_path
-                        );
-                        download_finished = true;
-                    }
-                    "error" => {
-                        let msg = event
-                            .get("message")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown error");
-                        return Err(format!("videodl error: {}", msg));
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    let result = DownloadResult {
-        success: last_file_path.is_some(),
-        file_path: last_file_path.clone(),
-        error: if last_file_path.is_none() {
-            Some("Download failed".to_string())
-        } else {
-            None
-        },
-    };
-
-    println!(
-        ">>> [videodl] Download complete, file_path: {:?}, success: {}",
-        last_file_path, result.success
-    );
-    // Use emit() instead of emit_to() for consistency with other download functions
-    let _ = app.emit("video-download-complete", result.clone());
-    println!(">>> [videodl] Emitted video-download-complete event");
-
-    // AE Portal
-    if let Some(ref path) = last_file_path {
-        let app_for_ae = app.clone();
-        let path_for_ae = path.clone();
-        tokio::spawn(async move {
-            let _ = send_to_ae(app_for_ae, path_for_ae).await;
-        });
-    }
-
-    Ok(result)
-}
-
 /// Smart download dispatcher with fallback logic
-/// Phase 3+ policy: yt-dlp first; videodl is emergency-only fallback for China platforms.
+/// Current policy: direct routes for Douyin/Xiaohongshu CDN URLs, otherwise yt-dlp.
 async fn download_video_smart(
     app: AppHandle,
     url: String,
@@ -2088,7 +1595,7 @@ async fn download_video_smart(
     );
 
     // Direct Douyin CDN link: use direct downloader with browser cookies.
-    // This bypasses videodl parser and avoids extractor fallback for ephemeral signed URLs.
+    // This avoids extractor fallback for ephemeral signed URLs.
     if is_douyin_cdn_url(&url) {
         route_chain.push(DownloadRoute::DirectDouyin);
         let cookie_header = extension_cookies_path
@@ -2202,56 +1709,16 @@ async fn download_video_smart(
         return result;
     }
 
-    // Check if videodl is enabled
-    let config_str = get_config(app.clone())?;
-    let config: serde_json::Value =
-        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
-
-    let config_videodl_enabled = config
-        .get("videodlEnabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let videodl_canary_enabled_by_env = is_videodl_canary_enabled_by_env();
-    let videodl_forced_disabled_by_env = is_videodl_forced_disabled_by_env();
-    let videodl_enabled = config_videodl_enabled
-        && videodl_canary_enabled_by_env
-        && !videodl_forced_disabled_by_env;
-
-    let is_china = is_china_platform_url(&url);
-    let videodl_fallback_enabled = videodl_enabled && is_china;
-
-    println!(
-        ">>> [Smart] URL: {}, China: {}, videodlConfig: {}, videodlCanaryEnv: {}, videodlForcedDisableEnv: {}, videodl: {}, videodlFallback: {}",
-        url,
-        is_china,
-        config_videodl_enabled,
-        videodl_canary_enabled_by_env,
-        videodl_forced_disabled_by_env,
-        videodl_enabled,
-        videodl_fallback_enabled
-    );
-    if !videodl_canary_enabled_by_env {
-        println!(
-            ">>> [Smart] videodl canary soft-disabled (set FLOWSELECT_ENABLE_VIDEODL_CANARY=1 for emergency fallback)"
-        );
-    }
-    if videodl_forced_disabled_by_env {
-        println!(">>> [Smart] videodl forced disabled by FLOWSELECT_DISABLE_VIDEODL");
-    }
+    println!(">>> [Smart] URL: {}, route: yt-dlp-first", url);
     log_download_trace(
         &trace_id,
         "route_policy",
         serde_json::json!({
-            "isChinaPlatform": is_china,
-            "configVideodlEnabled": config_videodl_enabled,
-            "videodlCanaryEnabledByEnv": videodl_canary_enabled_by_env,
-            "videodlForcedDisabledByEnv": videodl_forced_disabled_by_env,
-            "videodlEnabled": videodl_enabled,
-            "videodlFallbackEnabled": videodl_fallback_enabled,
+            "policy": "yt_dlp_first_direct_plus_sidecar",
         }),
     );
 
-    // Phase 3 default route: always try yt-dlp first.
+    // Default route: always try yt-dlp first.
     println!(">>> [Smart] Trying yt-dlp first");
     route_chain.push(DownloadRoute::YtDlp);
     log_download_trace(
@@ -2275,7 +1742,7 @@ async fn download_video_smart(
             return Ok(result);
         }
         Err(e) => {
-            // Check if cancelled - don't fallback
+            // Check if cancelled.
             if *DOWNLOAD_CANCELLED.lock().unwrap() {
                 println!(">>> [Smart] Download cancelled, not falling back");
                 log_terminal_outcome(
@@ -2288,105 +1755,30 @@ async fn download_video_smart(
                 );
                 return Err("Download cancelled".to_string());
             }
-            if !videodl_fallback_enabled {
-                println!(">>> [Smart] yt-dlp failed and videodl fallback disabled: {}", e);
-                log_terminal_outcome(
-                    &trace_id,
-                    DownloadOutcomeCategory::AllFailed,
-                    Some(DownloadRoute::YtDlp),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    Some(e.as_str()),
-                );
-                return Err(e);
-            }
-            println!(">>> [Smart] yt-dlp failed: {}, trying videodl fallback", e);
-            log_download_trace(
-                &trace_id,
-                "attempt_failed",
-                serde_json::json!({
-                    "attempt": 1,
-                    "route": DownloadRoute::YtDlp.as_str(),
-                    "error": e,
-                }),
-            );
-        }
-        Ok(result) => {
-            if !videodl_fallback_enabled {
-                println!(">>> [Smart] yt-dlp returned failure and videodl fallback disabled");
-                log_terminal_outcome(
-                    &trace_id,
-                    DownloadOutcomeCategory::AllFailed,
-                    Some(DownloadRoute::YtDlp),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    result.error.as_deref(),
-                );
-                return Ok(result);
-            }
-            println!(">>> [Smart] yt-dlp returned failure, trying videodl fallback");
-            log_download_trace(
-                &trace_id,
-                "attempt_failed",
-                serde_json::json!({
-                    "attempt": 1,
-                    "route": DownloadRoute::YtDlp.as_str(),
-                    "error": result.error,
-                }),
-            );
-        }
-    }
-
-    // Optional canary fallback for China platforms.
-    println!(">>> [Smart] Trying videodl fallback for China platform");
-    route_chain.push(DownloadRoute::Videodl);
-    log_download_trace(
-        &trace_id,
-        "attempt_start",
-        serde_json::json!({
-            "attempt": 2,
-            "route": DownloadRoute::Videodl.as_str(),
-        }),
-    );
-    let fallback_result = download_with_videodl(app, url, title, extension_cookies_path).await;
-    match &fallback_result {
-        Ok(result) if result.success => {
-            log_terminal_outcome(
-                &trace_id,
-                success_outcome_for_route_chain(&route_chain, DownloadRoute::Videodl),
-                Some(DownloadRoute::Videodl),
-                &route_chain,
-                started_at.elapsed().as_millis(),
-                None,
-            );
-        }
-        Ok(result) => {
+            println!(">>> [Smart] yt-dlp failed: {}", e);
             log_terminal_outcome(
                 &trace_id,
                 DownloadOutcomeCategory::AllFailed,
-                Some(DownloadRoute::Videodl),
+                Some(DownloadRoute::YtDlp),
+                &route_chain,
+                started_at.elapsed().as_millis(),
+                Some(e.as_str()),
+            );
+            return Err(e);
+        }
+        Ok(result) => {
+            println!(">>> [Smart] yt-dlp returned failure");
+            log_terminal_outcome(
+                &trace_id,
+                DownloadOutcomeCategory::AllFailed,
+                Some(DownloadRoute::YtDlp),
                 &route_chain,
                 started_at.elapsed().as_millis(),
                 result.error.as_deref(),
             );
-        }
-        Err(err) => {
-            let category = if is_cancelled_error(err.as_str()) {
-                DownloadOutcomeCategory::Cancelled
-            } else {
-                DownloadOutcomeCategory::AllFailed
-            };
-            log_terminal_outcome(
-                &trace_id,
-                category,
-                Some(DownloadRoute::Videodl),
-                &route_chain,
-                started_at.elapsed().as_millis(),
-                Some(err.as_str()),
-            );
+            return Ok(result);
         }
     }
-    fallback_result
 }
 
 /// Download direct video media URL with custom referer/cookie header.
@@ -3515,7 +2907,6 @@ pub fn run() {
             is_running: Mutex::new(false),
             broadcast_tx: Mutex::new(None),
         })
-        .manage(VideodlServerState::default())
         .invoke_handler(tauri::generate_handler![
             list_files,
             process_files,
@@ -3542,9 +2933,7 @@ pub fn run() {
             get_ws_server_status,
             broadcast_theme,
             set_window_size,
-            set_window_position,
-            get_videodl_status,
-            get_videodl_health
+            set_window_position
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -3568,8 +2957,6 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app: &tauri::AppHandle, event| match event.id.as_ref() {
                     "quit" => {
-                        // Stop videodl server before exit
-                        stop_videodl_server(app);
                         app.exit(0);
                     }
                     "show" => {
@@ -3674,11 +3061,7 @@ pub fn run() {
                 tauri::RunEvent::Reopen { .. } => {
                     show_main_window(app);
                 }
-                tauri::RunEvent::Exit => {
-                    // Stop videodl server on app exit
-                    stop_videodl_server(app);
-                    println!(">>> [App] Exit, videodl server stopped");
-                }
+                tauri::RunEvent::Exit => {}
                 _ => {}
             }
         });

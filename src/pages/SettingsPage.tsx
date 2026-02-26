@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -7,12 +7,6 @@ import { X, FolderOpen, Keyboard } from "lucide-react";
 import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
 import { useTheme } from "../contexts/ThemeContext";
-
-type VideodlHealthStatus = {
-  isRunning: boolean;
-  isAvailable: boolean;
-  error?: string | null;
-};
 
 function SettingsPage() {
   const { theme, colors, setTheme } = useTheme();
@@ -25,28 +19,6 @@ function SettingsPage() {
   const [devMode, setDevMode] = useState(false);
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
-  // videodl settings
-  const [videodlEnabled, setVideodlEnabled] = useState(false); // 默认关闭
-  const [videodlStatus, setVideodlStatus] = useState<VideodlHealthStatus | null>(null);
-  const [isVideodlChecking, setIsVideodlChecking] = useState(false);
-
-  const refreshVideodlHealth = useCallback(async () => {
-    setIsVideodlChecking(true);
-    try {
-      const status = await invoke<VideodlHealthStatus>("get_videodl_health");
-      setVideodlStatus(status);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setVideodlStatus({
-        isRunning: false,
-        isAvailable: false,
-        error: message,
-      });
-    } finally {
-      setIsVideodlChecking(false);
-    }
-  }, []);
-
   // Load config on mount
   useEffect(() => {
     const loadConfig = async () => {
@@ -67,14 +39,6 @@ function SettingsPage() {
         }
         if (config.aeExePath) {
           setAeExePath(config.aeExePath);
-        }
-        // videodl settings
-        const enabled = config.videodlEnabled !== undefined ? config.videodlEnabled : false;
-        setVideodlEnabled(enabled);
-        if (enabled) {
-          await refreshVideodlHealth();
-        } else {
-          setVideodlStatus(null);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -102,7 +66,7 @@ function SettingsPage() {
       }
     };
     loadShortcut();
-  }, [refreshVideodlHealth]);
+  }, []);
 
   // Keyboard event listener for shortcut recording
   useEffect(() => {
@@ -240,27 +204,6 @@ function SettingsPage() {
     }
   };
 
-  // videodl functions
-  const toggleVideodl = async () => {
-    try {
-      const newValue = !videodlEnabled;
-      setVideodlEnabled(newValue);
-      const configStr = await invoke<string>("get_config");
-      const config = JSON.parse(configStr);
-      config.videodlEnabled = newValue;
-      await invoke("save_config", { json: JSON.stringify(config) });
-
-      if (newValue) {
-        setVideodlStatus(null);
-        await refreshVideodlHealth();
-      } else {
-        setVideodlStatus(null);
-      }
-    } catch (err) {
-      console.error("Failed to toggle videodl:", err);
-    }
-  };
-
   const truncatePath = (path: string, maxLen = 25) => {
     if (path.length <= maxLen) return path;
     return "..." + path.slice(-maxLen);
@@ -269,8 +212,6 @@ function SettingsPage() {
   const closeWindow = () => {
     getCurrentWindow().close();
   };
-
-  const showVideodlControls = devMode;
 
   return (
     <div style={{
@@ -449,55 +390,6 @@ function SettingsPage() {
             </button>
           )}
         </div>
-
-        {/* Hidden canary switch: only visible in developer mode */}
-        {showVideodlControls && (
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-              videodl Fallback (Emergency Canary / China Platforms)
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <NeonToggle checked={videodlEnabled} onChange={toggleVideodl} />
-              {videodlEnabled && (
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: isVideodlChecking || videodlStatus === null
-                      ? colors.textSecondary
-                      : videodlStatus.isAvailable ? '#22c55e' : '#ef4444',
-                  }}
-                  title={videodlStatus?.error || ""}
-                >
-                  {isVideodlChecking || videodlStatus === null
-                    ? "Checking..."
-                    : videodlStatus.isAvailable ? "Ready" : "Unavailable"}
-                </span>
-              )}
-            </div>
-            <div
-              style={{
-                marginTop: 6,
-                fontSize: 10,
-                color: colors.textSecondary,
-                lineHeight: 1.35,
-              }}
-            >
-              Requires env: FLOWSELECT_ENABLE_VIDEODL_CANARY=1 (soft decommission default is OFF).
-            </div>
-            {videodlEnabled && videodlStatus && !videodlStatus.isAvailable && videodlStatus.error && (
-              <div
-                style={{
-                  marginTop: 6,
-                  fontSize: 10,
-                  color: colors.textSecondary,
-                  lineHeight: 1.35,
-                }}
-              >
-                {truncatePath(videodlStatus.error, 42)}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Shortcut */}
         <div style={{ marginBottom: 20 }}>
