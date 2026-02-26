@@ -683,14 +683,13 @@ fn is_cancelled_error(err: &str) -> bool {
     err.to_ascii_lowercase().contains("cancelled")
 }
 
-fn is_videodl_disabled_for_phase() -> bool {
+fn is_videodl_forced_disabled_by_env() -> bool {
     match std::env::var("FLOWSELECT_DISABLE_VIDEODL") {
         Ok(value) => {
             let normalized = value.trim().to_ascii_lowercase();
             matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
         }
-        // Default OFF during phase-out testing.
-        Err(_) => true,
+        Err(_) => false,
     }
 }
 
@@ -2037,8 +2036,7 @@ async fn download_with_videodl(
 }
 
 /// Smart download dispatcher with fallback logic
-/// China platforms: videodl first, fallback to yt-dlp
-/// International: yt-dlp first, fallback to videodl
+/// Phase 3 policy: yt-dlp first; videodl is optional fallback for China platforms.
 async fn download_video_smart(
     app: AppHandle,
     url: String,
@@ -2185,17 +2183,18 @@ async fn download_video_smart(
         .get("videodlEnabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let disable_videodl_for_phase = is_videodl_disabled_for_phase();
-    let videodl_enabled = config_videodl_enabled && !disable_videodl_for_phase;
+    let videodl_forced_disabled_by_env = is_videodl_forced_disabled_by_env();
+    let videodl_enabled = config_videodl_enabled && !videodl_forced_disabled_by_env;
 
     let is_china = is_china_platform_url(&url);
+    let videodl_fallback_enabled = videodl_enabled && is_china;
 
     println!(
-        ">>> [Smart] URL: {}, China: {}, videodl: {}",
-        url, is_china, videodl_enabled
+        ">>> [Smart] URL: {}, China: {}, videodl: {}, videodlFallback: {}",
+        url, is_china, videodl_enabled, videodl_fallback_enabled
     );
-    if disable_videodl_for_phase {
-        println!(">>> [Smart] videodl temporarily disabled by FLOWSELECT_DISABLE_VIDEODL");
+    if videodl_forced_disabled_by_env {
+        println!(">>> [Smart] videodl forced disabled by FLOWSELECT_DISABLE_VIDEODL");
     }
     log_download_trace(
         &trace_id,
@@ -2203,103 +2202,75 @@ async fn download_video_smart(
         serde_json::json!({
             "isChinaPlatform": is_china,
             "configVideodlEnabled": config_videodl_enabled,
-            "videodlDisabledForPhase": disable_videodl_for_phase,
+            "videodlForcedDisabledByEnv": videodl_forced_disabled_by_env,
             "videodlEnabled": videodl_enabled,
+            "videodlFallbackEnabled": videodl_fallback_enabled,
         }),
     );
 
-    if videodl_enabled && is_china {
-        // China platform: try videodl first
-        println!(">>> [Smart] Trying videodl first for China platform");
-        route_chain.push(DownloadRoute::Videodl);
-        log_download_trace(
-            &trace_id,
-            "attempt_start",
-            serde_json::json!({
-                "attempt": 1,
-                "route": DownloadRoute::Videodl.as_str(),
-            }),
-        );
-        match download_with_videodl(
-            app.clone(),
-            url.clone(),
-            title.clone(),
-            extension_cookies_path.clone(),
-        )
-        .await
-        {
-            Ok(result) if result.success => {
-                log_terminal_outcome(
-                    &trace_id,
-                    success_outcome_for_route_chain(&route_chain, DownloadRoute::Videodl),
-                    Some(DownloadRoute::Videodl),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    None,
-                );
-                return Ok(result);
-            }
-            Err(e) => {
-                // Check if cancelled - don't fallback
-                if *DOWNLOAD_CANCELLED.lock().unwrap() {
-                    println!(">>> [Smart] Download cancelled, not falling back");
-                    log_terminal_outcome(
-                        &trace_id,
-                        DownloadOutcomeCategory::Cancelled,
-                        Some(DownloadRoute::Videodl),
-                        &route_chain,
-                        started_at.elapsed().as_millis(),
-                        Some("Download cancelled"),
-                    );
-                    return Err("Download cancelled".to_string());
-                }
-                println!(">>> [Smart] videodl failed: {}, trying yt-dlp", e);
-                log_download_trace(
-                    &trace_id,
-                    "attempt_failed",
-                    serde_json::json!({
-                        "attempt": 1,
-                        "route": DownloadRoute::Videodl.as_str(),
-                        "error": e,
-                    }),
-                );
-            }
-            Ok(result) => {
-                println!(">>> [Smart] videodl returned failure, trying yt-dlp");
-                log_download_trace(
-                    &trace_id,
-                    "attempt_failed",
-                    serde_json::json!({
-                        "attempt": 1,
-                        "route": DownloadRoute::Videodl.as_str(),
-                        "error": result.error,
-                    }),
-                );
-            }
+    // Phase 3 default route: always try yt-dlp first.
+    println!(">>> [Smart] Trying yt-dlp first");
+    route_chain.push(DownloadRoute::YtDlp);
+    log_download_trace(
+        &trace_id,
+        "attempt_start",
+        serde_json::json!({
+            "attempt": 1,
+            "route": DownloadRoute::YtDlp.as_str(),
+        }),
+    );
+    match download_video_internal(app.clone(), url.clone(), extension_cookies_path.clone()).await {
+        Ok(result) if result.success => {
+            log_terminal_outcome(
+                &trace_id,
+                success_outcome_for_route_chain(&route_chain, DownloadRoute::YtDlp),
+                Some(DownloadRoute::YtDlp),
+                &route_chain,
+                started_at.elapsed().as_millis(),
+                None,
+            );
+            return Ok(result);
         }
-        // Fallback to yt-dlp
-        route_chain.push(DownloadRoute::YtDlp);
-        log_download_trace(
-            &trace_id,
-            "attempt_start",
-            serde_json::json!({
-                "attempt": 2,
-                "route": DownloadRoute::YtDlp.as_str(),
-            }),
-        );
-        let fallback_result = download_video_internal(app, url, extension_cookies_path).await;
-        match &fallback_result {
-            Ok(result) if result.success => {
+        Err(e) => {
+            // Check if cancelled - don't fallback
+            if *DOWNLOAD_CANCELLED.lock().unwrap() {
+                println!(">>> [Smart] Download cancelled, not falling back");
                 log_terminal_outcome(
                     &trace_id,
-                    success_outcome_for_route_chain(&route_chain, DownloadRoute::YtDlp),
+                    DownloadOutcomeCategory::Cancelled,
                     Some(DownloadRoute::YtDlp),
                     &route_chain,
                     started_at.elapsed().as_millis(),
-                    None,
+                    Some("Download cancelled"),
                 );
+                return Err("Download cancelled".to_string());
             }
-            Ok(result) => {
+            if !videodl_fallback_enabled {
+                println!(">>> [Smart] yt-dlp failed and videodl fallback disabled: {}", e);
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::AllFailed,
+                    Some(DownloadRoute::YtDlp),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    Some(e.as_str()),
+                );
+                return Err(e);
+            }
+            println!(">>> [Smart] yt-dlp failed: {}, trying videodl fallback", e);
+            log_download_trace(
+                &trace_id,
+                "attempt_failed",
+                serde_json::json!({
+                    "attempt": 1,
+                    "route": DownloadRoute::YtDlp.as_str(),
+                    "error": e,
+                }),
+            );
+        }
+        Ok(result) => {
+            if !videodl_fallback_enabled {
+                println!(">>> [Smart] yt-dlp returned failure and videodl fallback disabled");
                 log_terminal_outcome(
                     &trace_id,
                     DownloadOutcomeCategory::AllFailed,
@@ -2308,187 +2279,71 @@ async fn download_video_smart(
                     started_at.elapsed().as_millis(),
                     result.error.as_deref(),
                 );
-            }
-            Err(err) => {
-                let category = if is_cancelled_error(err.as_str()) {
-                    DownloadOutcomeCategory::Cancelled
-                } else {
-                    DownloadOutcomeCategory::AllFailed
-                };
-                log_terminal_outcome(
-                    &trace_id,
-                    category,
-                    Some(DownloadRoute::YtDlp),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    Some(err.as_str()),
-                );
-            }
-        }
-        fallback_result
-    } else if videodl_enabled {
-        // International: try yt-dlp first
-        println!(">>> [Smart] Trying yt-dlp first for international platform");
-        route_chain.push(DownloadRoute::YtDlp);
-        log_download_trace(
-            &trace_id,
-            "attempt_start",
-            serde_json::json!({
-                "attempt": 1,
-                "route": DownloadRoute::YtDlp.as_str(),
-            }),
-        );
-        match download_video_internal(app.clone(), url.clone(), extension_cookies_path).await {
-            Ok(result) if result.success => {
-                log_terminal_outcome(
-                    &trace_id,
-                    success_outcome_for_route_chain(&route_chain, DownloadRoute::YtDlp),
-                    Some(DownloadRoute::YtDlp),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    None,
-                );
                 return Ok(result);
             }
-            Err(e) => {
-                // Check if cancelled - don't fallback
-                if *DOWNLOAD_CANCELLED.lock().unwrap() {
-                    println!(">>> [Smart] Download cancelled, not falling back");
-                    log_terminal_outcome(
-                        &trace_id,
-                        DownloadOutcomeCategory::Cancelled,
-                        Some(DownloadRoute::YtDlp),
-                        &route_chain,
-                        started_at.elapsed().as_millis(),
-                        Some("Download cancelled"),
-                    );
-                    return Err("Download cancelled".to_string());
-                }
-                println!(">>> [Smart] yt-dlp failed: {}, trying videodl", e);
-                log_download_trace(
-                    &trace_id,
-                    "attempt_failed",
-                    serde_json::json!({
-                        "attempt": 1,
-                        "route": DownloadRoute::YtDlp.as_str(),
-                        "error": e,
-                    }),
-                );
-            }
-            Ok(result) => {
-                println!(">>> [Smart] yt-dlp returned failure, trying videodl");
-                log_download_trace(
-                    &trace_id,
-                    "attempt_failed",
-                    serde_json::json!({
-                        "attempt": 1,
-                        "route": DownloadRoute::YtDlp.as_str(),
-                        "error": result.error,
-                    }),
-                );
-            }
+            println!(">>> [Smart] yt-dlp returned failure, trying videodl fallback");
+            log_download_trace(
+                &trace_id,
+                "attempt_failed",
+                serde_json::json!({
+                    "attempt": 1,
+                    "route": DownloadRoute::YtDlp.as_str(),
+                    "error": result.error,
+                }),
+            );
         }
-        // Fallback to videodl
-        route_chain.push(DownloadRoute::Videodl);
-        log_download_trace(
-            &trace_id,
-            "attempt_start",
-            serde_json::json!({
-                "attempt": 2,
-                "route": DownloadRoute::Videodl.as_str(),
-            }),
-        );
-        let fallback_result = download_with_videodl(app, url, title, None).await;
-        match &fallback_result {
-            Ok(result) if result.success => {
-                log_terminal_outcome(
-                    &trace_id,
-                    success_outcome_for_route_chain(&route_chain, DownloadRoute::Videodl),
-                    Some(DownloadRoute::Videodl),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    None,
-                );
-            }
-            Ok(result) => {
-                log_terminal_outcome(
-                    &trace_id,
-                    DownloadOutcomeCategory::AllFailed,
-                    Some(DownloadRoute::Videodl),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    result.error.as_deref(),
-                );
-            }
-            Err(err) => {
-                let category = if is_cancelled_error(err.as_str()) {
-                    DownloadOutcomeCategory::Cancelled
-                } else {
-                    DownloadOutcomeCategory::AllFailed
-                };
-                log_terminal_outcome(
-                    &trace_id,
-                    category,
-                    Some(DownloadRoute::Videodl),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    Some(err.as_str()),
-                );
-            }
-        }
-        fallback_result
-    } else {
-        // videodl disabled: use yt-dlp only
-        route_chain.push(DownloadRoute::YtDlp);
-        log_download_trace(
-            &trace_id,
-            "attempt_start",
-            serde_json::json!({
-                "attempt": 1,
-                "route": DownloadRoute::YtDlp.as_str(),
-                "reason": "videodl_disabled",
-            }),
-        );
-        let result = download_video_internal(app, url, extension_cookies_path).await;
-        match &result {
-            Ok(download_result) if download_result.success => {
-                log_terminal_outcome(
-                    &trace_id,
-                    success_outcome_for_route_chain(&route_chain, DownloadRoute::YtDlp),
-                    Some(DownloadRoute::YtDlp),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    None,
-                );
-            }
-            Ok(download_result) => {
-                log_terminal_outcome(
-                    &trace_id,
-                    DownloadOutcomeCategory::AllFailed,
-                    Some(DownloadRoute::YtDlp),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    download_result.error.as_deref(),
-                );
-            }
-            Err(err) => {
-                let category = if is_cancelled_error(err.as_str()) {
-                    DownloadOutcomeCategory::Cancelled
-                } else {
-                    DownloadOutcomeCategory::AllFailed
-                };
-                log_terminal_outcome(
-                    &trace_id,
-                    category,
-                    Some(DownloadRoute::YtDlp),
-                    &route_chain,
-                    started_at.elapsed().as_millis(),
-                    Some(err.as_str()),
-                );
-            }
-        }
-        result
     }
+
+    // Optional canary fallback for China platforms.
+    println!(">>> [Smart] Trying videodl fallback for China platform");
+    route_chain.push(DownloadRoute::Videodl);
+    log_download_trace(
+        &trace_id,
+        "attempt_start",
+        serde_json::json!({
+            "attempt": 2,
+            "route": DownloadRoute::Videodl.as_str(),
+        }),
+    );
+    let fallback_result = download_with_videodl(app, url, title, extension_cookies_path).await;
+    match &fallback_result {
+        Ok(result) if result.success => {
+            log_terminal_outcome(
+                &trace_id,
+                success_outcome_for_route_chain(&route_chain, DownloadRoute::Videodl),
+                Some(DownloadRoute::Videodl),
+                &route_chain,
+                started_at.elapsed().as_millis(),
+                None,
+            );
+        }
+        Ok(result) => {
+            log_terminal_outcome(
+                &trace_id,
+                DownloadOutcomeCategory::AllFailed,
+                Some(DownloadRoute::Videodl),
+                &route_chain,
+                started_at.elapsed().as_millis(),
+                result.error.as_deref(),
+            );
+        }
+        Err(err) => {
+            let category = if is_cancelled_error(err.as_str()) {
+                DownloadOutcomeCategory::Cancelled
+            } else {
+                DownloadOutcomeCategory::AllFailed
+            };
+            log_terminal_outcome(
+                &trace_id,
+                category,
+                Some(DownloadRoute::Videodl),
+                &route_chain,
+                started_at.elapsed().as_millis(),
+                Some(err.as_str()),
+            );
+        }
+    }
+    fallback_result
 }
 
 /// Download direct video media URL with custom referer/cookie header.

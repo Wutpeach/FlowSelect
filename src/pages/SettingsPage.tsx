@@ -270,6 +270,8 @@ function SettingsPage() {
     getCurrentWindow().close();
   };
 
+  const showVideodlControls = devMode;
+
   return (
     <div style={{
       width: '100%',
@@ -448,42 +450,44 @@ function SettingsPage() {
           )}
         </div>
 
-        {/* videodl Acceleration */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-            videodl Acceleration (China Platforms)
-          </label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <NeonToggle checked={videodlEnabled} onChange={toggleVideodl} />
-            {videodlEnabled && (
-              <span
+        {/* Hidden canary switch: only visible in developer mode */}
+        {showVideodlControls && (
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+              videodl Fallback (Canary / China Platforms)
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <NeonToggle checked={videodlEnabled} onChange={toggleVideodl} />
+              {videodlEnabled && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: isVideodlChecking || videodlStatus === null
+                      ? colors.textSecondary
+                      : videodlStatus.isAvailable ? '#22c55e' : '#ef4444',
+                  }}
+                  title={videodlStatus?.error || ""}
+                >
+                  {isVideodlChecking || videodlStatus === null
+                    ? "Checking..."
+                    : videodlStatus.isAvailable ? "Ready" : "Unavailable"}
+                </span>
+              )}
+            </div>
+            {videodlEnabled && videodlStatus && !videodlStatus.isAvailable && videodlStatus.error && (
+              <div
                 style={{
+                  marginTop: 6,
                   fontSize: 10,
-                  color: isVideodlChecking || videodlStatus === null
-                    ? colors.textSecondary
-                    : videodlStatus.isAvailable ? '#22c55e' : '#ef4444',
+                  color: colors.textSecondary,
+                  lineHeight: 1.35,
                 }}
-                title={videodlStatus?.error || ""}
               >
-                {isVideodlChecking || videodlStatus === null
-                  ? "Checking..."
-                  : videodlStatus.isAvailable ? "Ready" : "Unavailable"}
-              </span>
+                {truncatePath(videodlStatus.error, 42)}
+              </div>
             )}
           </div>
-          {videodlEnabled && videodlStatus && !videodlStatus.isAvailable && videodlStatus.error && (
-            <div
-              style={{
-                marginTop: 6,
-                fontSize: 10,
-                color: colors.textSecondary,
-                lineHeight: 1.35,
-              }}
-            >
-              {truncatePath(videodlStatus.error, 42)}
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Shortcut */}
         <div style={{ marginBottom: 20 }}>
