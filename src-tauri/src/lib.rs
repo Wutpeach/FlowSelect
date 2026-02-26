@@ -683,14 +683,22 @@ fn is_cancelled_error(err: &str) -> bool {
     err.to_ascii_lowercase().contains("cancelled")
 }
 
-fn is_videodl_forced_disabled_by_env() -> bool {
-    match std::env::var("FLOWSELECT_DISABLE_VIDEODL") {
+fn env_flag_enabled(name: &str) -> bool {
+    match std::env::var(name) {
         Ok(value) => {
             let normalized = value.trim().to_ascii_lowercase();
             matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
         }
         Err(_) => false,
     }
+}
+
+fn is_videodl_forced_disabled_by_env() -> bool {
+    env_flag_enabled("FLOWSELECT_DISABLE_VIDEODL")
+}
+
+fn is_videodl_canary_enabled_by_env() -> bool {
+    env_flag_enabled("FLOWSELECT_ENABLE_VIDEODL_CANARY")
 }
 
 fn log_download_trace(trace_id: &str, stage: &str, payload: serde_json::Value) {
@@ -1753,6 +1761,26 @@ fn get_videodl_status(app: AppHandle) -> bool {
 /// Get videodl availability from sidecar health endpoint
 #[tauri::command]
 async fn get_videodl_health(app: AppHandle) -> Result<VideodlHealthStatus, String> {
+    if !is_videodl_canary_enabled_by_env() {
+        let msg = "videodl canary soft-disabled; set FLOWSELECT_ENABLE_VIDEODL_CANARY=1 to enable emergency fallback".to_string();
+        println!(">>> [videodl] {}", msg);
+        return Ok(VideodlHealthStatus {
+            is_running: false,
+            is_available: false,
+            error: Some(msg),
+        });
+    }
+
+    if is_videodl_forced_disabled_by_env() {
+        let msg = "videodl forced disabled by FLOWSELECT_DISABLE_VIDEODL".to_string();
+        println!(">>> [videodl] {}", msg);
+        return Ok(VideodlHealthStatus {
+            is_running: false,
+            is_available: false,
+            error: Some(msg),
+        });
+    }
+
     let was_running = {
         let state = app.state::<VideodlServerState>();
         let is_running = *state.is_running.lock().unwrap();
@@ -2036,7 +2064,7 @@ async fn download_with_videodl(
 }
 
 /// Smart download dispatcher with fallback logic
-/// Phase 3 policy: yt-dlp first; videodl is optional fallback for China platforms.
+/// Phase 3+ policy: yt-dlp first; videodl is emergency-only fallback for China platforms.
 async fn download_video_smart(
     app: AppHandle,
     url: String,
@@ -2183,16 +2211,30 @@ async fn download_video_smart(
         .get("videodlEnabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let videodl_canary_enabled_by_env = is_videodl_canary_enabled_by_env();
     let videodl_forced_disabled_by_env = is_videodl_forced_disabled_by_env();
-    let videodl_enabled = config_videodl_enabled && !videodl_forced_disabled_by_env;
+    let videodl_enabled = config_videodl_enabled
+        && videodl_canary_enabled_by_env
+        && !videodl_forced_disabled_by_env;
 
     let is_china = is_china_platform_url(&url);
     let videodl_fallback_enabled = videodl_enabled && is_china;
 
     println!(
-        ">>> [Smart] URL: {}, China: {}, videodl: {}, videodlFallback: {}",
-        url, is_china, videodl_enabled, videodl_fallback_enabled
+        ">>> [Smart] URL: {}, China: {}, videodlConfig: {}, videodlCanaryEnv: {}, videodlForcedDisableEnv: {}, videodl: {}, videodlFallback: {}",
+        url,
+        is_china,
+        config_videodl_enabled,
+        videodl_canary_enabled_by_env,
+        videodl_forced_disabled_by_env,
+        videodl_enabled,
+        videodl_fallback_enabled
     );
+    if !videodl_canary_enabled_by_env {
+        println!(
+            ">>> [Smart] videodl canary soft-disabled (set FLOWSELECT_ENABLE_VIDEODL_CANARY=1 for emergency fallback)"
+        );
+    }
     if videodl_forced_disabled_by_env {
         println!(">>> [Smart] videodl forced disabled by FLOWSELECT_DISABLE_VIDEODL");
     }
@@ -2202,6 +2244,7 @@ async fn download_video_smart(
         serde_json::json!({
             "isChinaPlatform": is_china,
             "configVideodlEnabled": config_videodl_enabled,
+            "videodlCanaryEnabledByEnv": videodl_canary_enabled_by_env,
             "videodlForcedDisabledByEnv": videodl_forced_disabled_by_env,
             "videodlEnabled": videodl_enabled,
             "videodlFallbackEnabled": videodl_fallback_enabled,

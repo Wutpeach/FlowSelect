@@ -454,7 +454,7 @@ function SettingsPage() {
         {showVideodlControls && (
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-              videodl Fallback (Canary / China Platforms)
+              videodl Fallback (Emergency Canary / China Platforms)
             </label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <NeonToggle checked={videodlEnabled} onChange={toggleVideodl} />
@@ -473,6 +473,16 @@ function SettingsPage() {
                     : videodlStatus.isAvailable ? "Ready" : "Unavailable"}
                 </span>
               )}
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 10,
+                color: colors.textSecondary,
+                lineHeight: 1.35,
+              }}
+            >
+              Requires env: FLOWSELECT_ENABLE_VIDEODL_CANARY=1 (soft decommission default is OFF).
             </div>
             {videodlEnabled && videodlStatus && !videodlStatus.isAvailable && videodlStatus.error && (
               <div
