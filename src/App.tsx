@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, type CSSProperties } from "react";
-import { createPortal } from 'react-dom';
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, X } from "lucide-react";
@@ -68,7 +67,6 @@ function App() {
     updateAvailable: boolean;
   } | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMinimized, setIsMinimized] = useState(true);
@@ -87,6 +85,9 @@ function App() {
   const EDGE_GLOW_RADIUS = 196;
   const EDGE_GLOW_BORDER_WIDTH = 1.45;
   const EDGE_GLOW_FALLOFF_EXPONENT = 0.9;
+  const CONTEXT_MENU_WIDTH = 148;
+  const CONTEXT_MENU_HEIGHT = 46;
+  const CONTEXT_MENU_MARGIN = 8;
 
   // Expand window from icon mode
   const expandWindow = async () => {
@@ -400,14 +401,6 @@ function App() {
     // resetIdleTimer should run once on mount to bootstrap idle behavior.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Close context menu on window blur
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handleWindowBlur = () => setContextMenu(null);
-    window.addEventListener('blur', handleWindowBlur);
-    return () => window.removeEventListener('blur', handleWindowBlur);
-  }, [contextMenu]);
 
   // Handle window drag start - prevents minimize during drag
   const handleDragStart = async (e: React.MouseEvent) => {
@@ -800,6 +793,11 @@ function App() {
 
   // Open settings window
   const openSettings = async () => {
+    const existingContextMenu = await WebviewWindow.getByLabel("context-menu");
+    if (existingContextMenu) {
+      await existingContextMenu.close();
+    }
+
     const existing = await WebviewWindow.getByLabel("settings");
     if (existing) {
       await existing.setFocus();
@@ -833,39 +831,56 @@ function App() {
   };
 
   // 右键菜单
-  const handleContextMenu = (e: React.MouseEvent) => {
+  const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    resetIdleTimer();
 
-    // 菜单尺寸估算
-    const menuWidth = 140;
-    const menuHeight = 40;
+    try {
+      const existing = await WebviewWindow.getByLabel("context-menu");
+      if (existing) {
+        await existing.close();
+      }
 
-    // 窗口尺寸
-    const windowWidth = 200;
-    const windowHeight = 200;
+      const currentWindow = getCurrentWindow();
+      const [outerPosition, scaleFactor] = await Promise.all([
+        currentWindow.outerPosition(),
+        currentWindow.scaleFactor(),
+      ]);
 
-    // 计算位置，确保菜单不超出窗口
-    let x = e.clientX;
-    let y = e.clientY;
+      const logicalWindowPosition = new PhysicalPosition(outerPosition).toLogical(scaleFactor);
+      let x = logicalWindowPosition.x + e.clientX;
+      let y = logicalWindowPosition.y + e.clientY;
 
-    if (x + menuWidth > windowWidth) {
-      x = windowWidth - menuWidth - 8;
+      const screenWidth = window.screen.availWidth;
+      const screenHeight = window.screen.availHeight;
+
+      if (x + CONTEXT_MENU_WIDTH > screenWidth) {
+        x = screenWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_MARGIN;
+      }
+      if (y + CONTEXT_MENU_HEIGHT > screenHeight) {
+        y = screenHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_MARGIN;
+      }
+
+      new WebviewWindow("context-menu", {
+        url: "/context-menu",
+        title: "Context Menu",
+        x,
+        y,
+        width: CONTEXT_MENU_WIDTH,
+        height: CONTEXT_MENU_HEIGHT,
+        decorations: false,
+        transparent: true,
+        resizable: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        shadow: false,
+        focus: true,
+        parent: "main",
+      });
+    } catch (err) {
+      console.error("Failed to open context menu window:", err);
     }
-    if (y + menuHeight > windowHeight) {
-      y = windowHeight - menuHeight - 8;
-    }
-
-    setContextMenu({ x, y });
-  };
-
-  const closeContextMenu = () => {
-    setContextMenu(null);
-  };
-
-  const openOutputFolder = async () => {
-    closeContextMenu();
-    const path = outputPath || `${await import('@tauri-apps/api/path').then(p => p.desktopDir())}\\FlowSelect_Received`;
-    await invoke("open_folder", { path });
   };
 
   const containerBoxShadow = downloadProgress
@@ -904,7 +919,6 @@ function App() {
         containerRef.current?.focus();
       }}
       onMouseLeave={() => {
-        setContextMenu(null);
         setIsPanelHovered(false);
       }}
       onMouseDown={handleDragStart}
@@ -1303,55 +1317,6 @@ function App() {
           />
         </svg>
       </button>
-
-      {/* 自定义右键菜单 */}
-      {contextMenu && createPortal(
-        <>
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 9998,
-            }}
-            onClick={closeContextMenu}
-          />
-          <div
-            style={{
-              position: 'fixed',
-              left: contextMenu.x,
-              top: contextMenu.y,
-              backgroundColor: colors.bgSecondary,
-              border: `1px solid ${colors.borderStart}`,
-              borderRadius: 8,
-              padding: 4,
-              minWidth: 140,
-              boxShadow: `0 4px 12px ${colors.shadowSpread}`,
-              zIndex: 9999,
-            }}
-          >
-            <button
-              onClick={openOutputFolder}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                textAlign: 'left',
-                fontSize: 13,
-                color: colors.textPrimary,
-                backgroundColor: 'transparent',
-                border: 'none',
-                borderRadius: 4,
-                cursor: 'pointer',
-                transition: 'background-color 0.15s',
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.bgPrimary}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
-              Open Folder
-            </button>
-          </div>
-        </>,
-        document.body
-      )}
 
     </motion.div>
   );
