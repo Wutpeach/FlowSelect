@@ -10,17 +10,18 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
         "title": "FlowSelect",
-        "width": 220,
-        "height": 220,
+        "width": 200,
+        "height": 200,
         "decorations": false,
         "transparent": true,
         "resizable": false,
         "alwaysOnTop": true,
-        "skipTaskbar": true,
+        "skipTaskbar": false,
         "dragDropEnabled": false,
         "backgroundColor": "#00000000",
         "shadow": false

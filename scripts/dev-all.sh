@@ -10,26 +10,95 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v lsof >/dev/null 2>&1; then
+  echo "[error] lsof is required but was not found in PATH."
+  exit 1
+fi
+
+FRONTEND_PORT="${FLOWSELECT_FRONTEND_PORT:-1420}"
+AGENTATION_PORT="${FLOWSELECT_AGENTATION_PORT:-4747}"
+
 TAURI_PID=""
 AGENTATION_PID=""
+
+port_listeners() {
+  port="$1"
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true
+}
+
+wait_for_port_free() {
+  port="$1"
+  max_checks="${2:-25}"
+  checks=0
+
+  while [ "$checks" -lt "$max_checks" ]; do
+    if [ -z "$(port_listeners "$port")" ]; then
+      return 0
+    fi
+    checks=$((checks + 1))
+    sleep 0.2
+  done
+
+  echo "[error] port $port is still in use."
+  return 1
+}
+
+kill_pid_tree() {
+  pid="$1"
+  [ -z "$pid" ] && return 0
+
+  if kill -0 "$pid" 2>/dev/null; then
+    if command -v pkill >/dev/null 2>&1; then
+      pkill -TERM -P "$pid" 2>/dev/null || true
+    fi
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  fi
+}
+
+ensure_port_available() {
+  port="$1"
+  owner_hint="$2"
+
+  pids=$(port_listeners "$port")
+  [ -z "$pids" ] && return 0
+
+  for pid in $pids; do
+    cmd=$(ps -p "$pid" -o command= 2>/dev/null || true)
+    case "$cmd" in
+      *"$owner_hint"*)
+        echo "[cleanup] reclaiming port $port from PID $pid"
+        kill "$pid" 2>/dev/null || true
+        ;;
+      *)
+        echo "[error] port $port is occupied by an unrelated process:"
+        echo "        PID $pid: $cmd"
+        echo "        stop it manually or set another port."
+        return 1
+        ;;
+    esac
+  done
+
+  wait_for_port_free "$port"
+}
 
 cleanup() {
   trap - INT TERM EXIT
   echo ""
   echo "[shutdown] stopping dev services..."
 
-  if [ -n "$TAURI_PID" ] && kill -0 "$TAURI_PID" 2>/dev/null; then
-    kill "$TAURI_PID" 2>/dev/null || true
-    wait "$TAURI_PID" 2>/dev/null || true
-  fi
+  kill_pid_tree "$TAURI_PID"
+  kill_pid_tree "$AGENTATION_PID"
 
-  if [ -n "$AGENTATION_PID" ] && kill -0 "$AGENTATION_PID" 2>/dev/null; then
-    kill "$AGENTATION_PID" 2>/dev/null || true
-    wait "$AGENTATION_PID" 2>/dev/null || true
-  fi
+  # Best effort: reclaim common dev ports from stale processes after fast Ctrl+C.
+  ensure_port_available "$FRONTEND_PORT" "vite" || true
+  ensure_port_available "$AGENTATION_PORT" "agentation-mcp" || true
 }
 
 trap cleanup INT TERM EXIT
+
+ensure_port_available "$FRONTEND_PORT" "vite"
+ensure_port_available "$AGENTATION_PORT" "agentation-mcp"
 
 echo "[start] Agentation MCP server"
 npm run agentation:mcp &
