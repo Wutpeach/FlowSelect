@@ -340,6 +340,8 @@ function App() {
     return () => {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
+    // resetIdleTimer should run once on mount to bootstrap idle behavior.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Close context menu on window blur
