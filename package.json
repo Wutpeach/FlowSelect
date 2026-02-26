@@ -5,9 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "sh ./scripts/dev-all.sh",
     "build": "tsc && vite build",
+    "lint": "eslint src vite.config.ts --ext .ts,.tsx",
+    "type-check": "tsc --noEmit",
+    "typecheck": "pnpm run type-check",
+    "test": "vitest run --passWithNoTests",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "agentation:mcp": "npx -y agentation-mcp server",
+    "agentation:doctor": "npx -y agentation-mcp doctor"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -23,15 +30,23 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.3",
     "@tailwindcss/postcss": "^4.1.18",
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "agentation": "^2.2.1",
     "autoprefixer": "^10.4.23",
+    "eslint": "^9.39.3",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.3.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "typescript-eslint": "^8.56.1",
+    "vite": "^7.0.4",
+    "vitest": "^4.0.18"
   }
 }
