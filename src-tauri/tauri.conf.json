@@ -44,8 +44,8 @@
       "binaries/yt-dlp",
       "binaries/videodl-server"
     ],
-    "resources": [
-      "binaries/deno.exe"
-    ]
+    "resources": {
+      "binaries/deno*": "binaries/"
+    }
   }
 }

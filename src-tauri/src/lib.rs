@@ -71,12 +71,18 @@ impl Default for VideodlServerState {
 
 /// 获取 Deno JS 运行时的路径
 fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
+    // 根据平台选择可执行文件名
+    #[cfg(target_os = "windows")]
     let exe_name = "deno.exe";
+    #[cfg(not(target_os = "windows"))]
+    let exe_name = "deno";
 
     if cfg!(debug_assertions) {
+        // 开发模式：从 binaries 目录读取
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         Ok(manifest_dir.join("binaries").join(exe_name))
     } else {
+        // 发布模式：从 resources 目录读取
         let resource_dir = app.path().resource_dir()
             .map_err(|e| format!("Failed to get resource dir: {}", e))?;
         Ok(resource_dir.join("binaries").join(exe_name))
@@ -551,8 +557,12 @@ async fn download_video_internal(
     if let Ok(deno_path) = get_deno_path(&app) {
         if let Some(deno_dir) = deno_path.parent() {
             if deno_path.exists() {
-                // Windows 使用分号分隔 PATH
-                env_path = format!("{};{}", deno_dir.to_string_lossy(), env_path);
+                // Windows 使用分号，macOS/Linux 使用冒号分隔 PATH
+                #[cfg(target_os = "windows")]
+                let separator = ";";
+                #[cfg(not(target_os = "windows"))]
+                let separator = ":";
+                env_path = format!("{}{}{}", deno_dir.to_string_lossy(), separator, env_path);
                 println!(">>> [Rust] Added Deno to PATH: {:?}", deno_dir);
             }
         }
