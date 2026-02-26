@@ -1,8 +1,10 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::net::SocketAddr;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 
@@ -73,6 +75,8 @@ static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
 
 // Global cancel flag for all downloads (including videodl SSE streams)
 static DOWNLOAD_CANCELLED: Mutex<bool> = Mutex::new(false);
+// Incremental sequence for download trace ids.
+static DOWNLOAD_TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
 
 // videodl HTTP server state
 struct VideodlServerState {
@@ -517,6 +521,105 @@ pub struct DownloadProgress {
     pub eta: String,
 }
 
+#[derive(Clone, Copy)]
+enum DownloadRoute {
+    DirectDouyin,
+    DirectXiaohongshu,
+    Videodl,
+    YtDlp,
+}
+
+impl DownloadRoute {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::DirectDouyin => "direct_douyin",
+            Self::DirectXiaohongshu => "direct_xiaohongshu",
+            Self::Videodl => "videodl",
+            Self::YtDlp => "yt_dlp",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum DownloadOutcomeCategory {
+    DirectSuccess,
+    DirectFailedThenYtdlpSuccess,
+    NonDirectSuccess,
+    AllFailed,
+    Cancelled,
+}
+
+impl DownloadOutcomeCategory {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::DirectSuccess => "direct_success",
+            Self::DirectFailedThenYtdlpSuccess => "direct_failed_then_ytdlp_success",
+            Self::NonDirectSuccess => "non_direct_success",
+            Self::AllFailed => "all_failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+fn now_timestamp_ms() -> u128 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis(),
+        Err(_) => 0,
+    }
+}
+
+fn next_download_trace_id() -> String {
+    let seq = DOWNLOAD_TRACE_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("dl-{}-{}", now_timestamp_ms(), seq)
+}
+
+fn is_cancelled_error(err: &str) -> bool {
+    err.to_ascii_lowercase().contains("cancelled")
+}
+
+fn is_videodl_disabled_for_phase() -> bool {
+    match std::env::var("FLOWSELECT_DISABLE_VIDEODL") {
+        Ok(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
+        }
+        // Default OFF during phase-out testing.
+        Err(_) => true,
+    }
+}
+
+fn log_download_trace(trace_id: &str, stage: &str, payload: serde_json::Value) {
+    let event = serde_json::json!({
+        "traceId": trace_id,
+        "stage": stage,
+        "tsMs": now_timestamp_ms(),
+        "payload": payload,
+    });
+    println!(">>> [DownloadTrace] {}", event);
+}
+
+fn log_terminal_outcome(
+    trace_id: &str,
+    category: DownloadOutcomeCategory,
+    final_route: Option<DownloadRoute>,
+    route_chain: &[DownloadRoute],
+    duration_ms: u128,
+    error: Option<&str>,
+) {
+    let chain: Vec<&str> = route_chain.iter().map(|route| route.as_str()).collect();
+    log_download_trace(
+        trace_id,
+        "terminal",
+        serde_json::json!({
+            "outcome": category.as_str(),
+            "finalRoute": final_route.map(|route| route.as_str()),
+            "routeChain": chain,
+            "durationMs": duration_ms,
+            "error": error,
+        }),
+    );
+}
+
 /// Internal download function that supports both extension cookies and browser cookies
 async fn download_video_internal(
     app: AppHandle,
@@ -591,12 +694,21 @@ async fn download_video_internal(
         // 使用 tv 变体解决 YouTube player 签名问题
         "--extractor-args".to_string(),
         "youtube:player_js_variant=tv".to_string(),
+        // Prefer Node first, fallback to deno for YouTube JS challenges.
+        "--js-runtimes".to_string(),
+        "node,deno".to_string(),
+        // Let yt-dlp fetch EJS solver assets for better YouTube compatibility.
+        "--remote-components".to_string(),
+        "ejs:github".to_string(),
         "-o".to_string(),
         output_template.to_string_lossy().to_string(),
     ];
 
-    // Use extension-provided cookies (from browser extension)
-    if let Some(ref cookies_path) = extension_cookies_path {
+    // Use extension-provided cookies (from browser extension).
+    // For YouTube, cookies can trigger stricter challenge flows; use anonymous path first.
+    if is_youtube_url(&url) {
+        println!(">>> [Rust] Skipping extension cookies for YouTube URL");
+    } else if let Some(ref cookies_path) = extension_cookies_path {
         if cookies_path.exists() {
             args.push("--cookies".to_string());
             args.push(cookies_path.to_string_lossy().to_string());
@@ -776,9 +888,18 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
     // 1. 终止下载进程 (for yt-dlp)
     if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
         println!(">>> [Rust] Killing yt-dlp process with PID: {}", pid);
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .output();
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .output();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .output();
+        }
     }
 
     // 2. 停止 videodl 服务器以释放文件锁
@@ -930,6 +1051,11 @@ fn cookies_file_to_header(cookies_path: &PathBuf) -> Option<String> {
 /// Check if URL is from Bilibili (use yt-dlp for better quality)
 fn is_bilibili_url(url: &str) -> bool {
     url.contains("bilibili.com") || url.contains("b23.tv")
+}
+
+fn is_youtube_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("youtube.com/") || lower.contains("youtu.be/")
 }
 
 /// Check if URL is from a Chinese video platform (for videodl routing)
@@ -1298,24 +1424,135 @@ async fn download_video_smart(
     url: String,
     title: Option<String>,
     extension_cookies_path: Option<PathBuf>,
+    trace_id: Option<String>,
 ) -> Result<DownloadResult, String> {
+    let trace_id = trace_id.unwrap_or_else(next_download_trace_id);
+    let started_at = std::time::Instant::now();
+    let mut route_chain: Vec<DownloadRoute> = Vec::new();
+
+    log_download_trace(
+        &trace_id,
+        "router_entry",
+        serde_json::json!({
+            "url": url,
+            "hasTitle": title.is_some(),
+            "hasExtensionCookies": extension_cookies_path.as_ref().is_some_and(|path| path.exists()),
+        }),
+    );
+
     // Direct Douyin CDN link: use direct downloader with browser cookies.
     // This bypasses videodl parser and avoids extractor fallback for ephemeral signed URLs.
     if is_douyin_cdn_url(&url) {
+        route_chain.push(DownloadRoute::DirectDouyin);
         let cookie_header = extension_cookies_path
             .as_ref()
             .and_then(cookies_file_to_header);
         println!(">>> [Smart] Direct Douyin CDN URL detected, using direct downloader");
-        return download_douyin_direct(app, url, cookie_header, title).await;
+        log_download_trace(
+            &trace_id,
+            "route_selected",
+            serde_json::json!({
+                "route": DownloadRoute::DirectDouyin.as_str(),
+                "reason": "douyin_cdn_url",
+            }),
+        );
+
+        let result = download_douyin_direct(app, url, cookie_header, title).await;
+        match &result {
+            Ok(download_result) if download_result.success => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::DirectSuccess,
+                    Some(DownloadRoute::DirectDouyin),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    None,
+                );
+            }
+            Ok(download_result) => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::AllFailed,
+                    Some(DownloadRoute::DirectDouyin),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    download_result.error.as_deref(),
+                );
+            }
+            Err(err) => {
+                let category = if is_cancelled_error(err.as_str()) {
+                    DownloadOutcomeCategory::Cancelled
+                } else {
+                    DownloadOutcomeCategory::AllFailed
+                };
+                log_terminal_outcome(
+                    &trace_id,
+                    category,
+                    Some(DownloadRoute::DirectDouyin),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    Some(err.as_str()),
+                );
+            }
+        }
+        return result;
     }
 
     // Direct Xiaohongshu CDN link: use direct downloader with browser cookies.
     if is_xiaohongshu_cdn_url(&url) {
+        route_chain.push(DownloadRoute::DirectXiaohongshu);
         let cookie_header = extension_cookies_path
             .as_ref()
             .and_then(cookies_file_to_header);
         println!(">>> [Smart] Direct Xiaohongshu CDN URL detected, using direct downloader");
-        return download_xiaohongshu_direct(app, url, cookie_header, title).await;
+        log_download_trace(
+            &trace_id,
+            "route_selected",
+            serde_json::json!({
+                "route": DownloadRoute::DirectXiaohongshu.as_str(),
+                "reason": "xiaohongshu_cdn_url",
+            }),
+        );
+
+        let result = download_xiaohongshu_direct(app, url, cookie_header, title).await;
+        match &result {
+            Ok(download_result) if download_result.success => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::DirectSuccess,
+                    Some(DownloadRoute::DirectXiaohongshu),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    None,
+                );
+            }
+            Ok(download_result) => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::AllFailed,
+                    Some(DownloadRoute::DirectXiaohongshu),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    download_result.error.as_deref(),
+                );
+            }
+            Err(err) => {
+                let category = if is_cancelled_error(err.as_str()) {
+                    DownloadOutcomeCategory::Cancelled
+                } else {
+                    DownloadOutcomeCategory::AllFailed
+                };
+                log_terminal_outcome(
+                    &trace_id,
+                    category,
+                    Some(DownloadRoute::DirectXiaohongshu),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    Some(err.as_str()),
+                );
+            }
+        }
+        return result;
     }
 
     // Check if videodl is enabled
@@ -1323,52 +1560,311 @@ async fn download_video_smart(
     let config: serde_json::Value = serde_json::from_str(&config_str)
         .map_err(|e| format!("Failed to parse config: {}", e))?;
 
-    let videodl_enabled = config
+    let config_videodl_enabled = config
         .get("videodlEnabled")
         .and_then(|v| v.as_bool())
-        .unwrap_or(true);  // 默认开启
+        .unwrap_or(false);
+    let disable_videodl_for_phase = is_videodl_disabled_for_phase();
+    let videodl_enabled = config_videodl_enabled && !disable_videodl_for_phase;
 
     let is_china = is_china_platform_url(&url);
 
     println!(">>> [Smart] URL: {}, China: {}, videodl: {}", url, is_china, videodl_enabled);
+    if disable_videodl_for_phase {
+        println!(">>> [Smart] videodl temporarily disabled by FLOWSELECT_DISABLE_VIDEODL");
+    }
+    log_download_trace(
+        &trace_id,
+        "route_policy",
+        serde_json::json!({
+            "isChinaPlatform": is_china,
+            "configVideodlEnabled": config_videodl_enabled,
+            "videodlDisabledForPhase": disable_videodl_for_phase,
+            "videodlEnabled": videodl_enabled,
+        }),
+    );
 
     if videodl_enabled && is_china {
         // China platform: try videodl first
         println!(">>> [Smart] Trying videodl first for China platform");
+        route_chain.push(DownloadRoute::Videodl);
+        log_download_trace(
+            &trace_id,
+            "attempt_start",
+            serde_json::json!({
+                "attempt": 1,
+                "route": DownloadRoute::Videodl.as_str(),
+            }),
+        );
         match download_with_videodl(app.clone(), url.clone(), title.clone(), extension_cookies_path.clone()).await {
-            Ok(result) if result.success => return Ok(result),
+            Ok(result) if result.success => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::NonDirectSuccess,
+                    Some(DownloadRoute::Videodl),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    None,
+                );
+                return Ok(result);
+            }
             Err(e) => {
                 // Check if cancelled - don't fallback
                 if *DOWNLOAD_CANCELLED.lock().unwrap() {
                     println!(">>> [Smart] Download cancelled, not falling back");
+                    log_terminal_outcome(
+                        &trace_id,
+                        DownloadOutcomeCategory::Cancelled,
+                        Some(DownloadRoute::Videodl),
+                        &route_chain,
+                        started_at.elapsed().as_millis(),
+                        Some("Download cancelled"),
+                    );
                     return Err("Download cancelled".to_string());
                 }
                 println!(">>> [Smart] videodl failed: {}, trying yt-dlp", e);
+                log_download_trace(
+                    &trace_id,
+                    "attempt_failed",
+                    serde_json::json!({
+                        "attempt": 1,
+                        "route": DownloadRoute::Videodl.as_str(),
+                        "error": e,
+                    }),
+                );
             }
-            Ok(_) => println!(">>> [Smart] videodl returned failure, trying yt-dlp"),
+            Ok(result) => {
+                println!(">>> [Smart] videodl returned failure, trying yt-dlp");
+                log_download_trace(
+                    &trace_id,
+                    "attempt_failed",
+                    serde_json::json!({
+                        "attempt": 1,
+                        "route": DownloadRoute::Videodl.as_str(),
+                        "error": result.error,
+                    }),
+                );
+            }
         }
         // Fallback to yt-dlp
-        download_video_internal(app, url, extension_cookies_path).await
+        route_chain.push(DownloadRoute::YtDlp);
+        log_download_trace(
+            &trace_id,
+            "attempt_start",
+            serde_json::json!({
+                "attempt": 2,
+                "route": DownloadRoute::YtDlp.as_str(),
+            }),
+        );
+        let fallback_result = download_video_internal(app, url, extension_cookies_path).await;
+        match &fallback_result {
+            Ok(result) if result.success => {
+                let category = if matches!(
+                    route_chain.first(),
+                    Some(DownloadRoute::DirectDouyin | DownloadRoute::DirectXiaohongshu)
+                ) {
+                    DownloadOutcomeCategory::DirectFailedThenYtdlpSuccess
+                } else {
+                    DownloadOutcomeCategory::NonDirectSuccess
+                };
+                log_terminal_outcome(
+                    &trace_id,
+                    category,
+                    Some(DownloadRoute::YtDlp),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    None,
+                );
+            }
+            Ok(result) => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::AllFailed,
+                    Some(DownloadRoute::YtDlp),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    result.error.as_deref(),
+                );
+            }
+            Err(err) => {
+                let category = if is_cancelled_error(err.as_str()) {
+                    DownloadOutcomeCategory::Cancelled
+                } else {
+                    DownloadOutcomeCategory::AllFailed
+                };
+                log_terminal_outcome(
+                    &trace_id,
+                    category,
+                    Some(DownloadRoute::YtDlp),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    Some(err.as_str()),
+                );
+            }
+        }
+        fallback_result
     } else if videodl_enabled {
         // International: try yt-dlp first
         println!(">>> [Smart] Trying yt-dlp first for international platform");
+        route_chain.push(DownloadRoute::YtDlp);
+        log_download_trace(
+            &trace_id,
+            "attempt_start",
+            serde_json::json!({
+                "attempt": 1,
+                "route": DownloadRoute::YtDlp.as_str(),
+            }),
+        );
         match download_video_internal(app.clone(), url.clone(), extension_cookies_path).await {
-            Ok(result) if result.success => return Ok(result),
+            Ok(result) if result.success => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::NonDirectSuccess,
+                    Some(DownloadRoute::YtDlp),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    None,
+                );
+                return Ok(result);
+            }
             Err(e) => {
                 // Check if cancelled - don't fallback
                 if *DOWNLOAD_CANCELLED.lock().unwrap() {
                     println!(">>> [Smart] Download cancelled, not falling back");
+                    log_terminal_outcome(
+                        &trace_id,
+                        DownloadOutcomeCategory::Cancelled,
+                        Some(DownloadRoute::YtDlp),
+                        &route_chain,
+                        started_at.elapsed().as_millis(),
+                        Some("Download cancelled"),
+                    );
                     return Err("Download cancelled".to_string());
                 }
                 println!(">>> [Smart] yt-dlp failed: {}, trying videodl", e);
+                log_download_trace(
+                    &trace_id,
+                    "attempt_failed",
+                    serde_json::json!({
+                        "attempt": 1,
+                        "route": DownloadRoute::YtDlp.as_str(),
+                        "error": e,
+                    }),
+                );
             }
-            Ok(_) => println!(">>> [Smart] yt-dlp returned failure, trying videodl"),
+            Ok(result) => {
+                println!(">>> [Smart] yt-dlp returned failure, trying videodl");
+                log_download_trace(
+                    &trace_id,
+                    "attempt_failed",
+                    serde_json::json!({
+                        "attempt": 1,
+                        "route": DownloadRoute::YtDlp.as_str(),
+                        "error": result.error,
+                    }),
+                );
+            }
         }
         // Fallback to videodl
-        download_with_videodl(app, url, title, None).await
+        route_chain.push(DownloadRoute::Videodl);
+        log_download_trace(
+            &trace_id,
+            "attempt_start",
+            serde_json::json!({
+                "attempt": 2,
+                "route": DownloadRoute::Videodl.as_str(),
+            }),
+        );
+        let fallback_result = download_with_videodl(app, url, title, None).await;
+        match &fallback_result {
+            Ok(result) if result.success => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::NonDirectSuccess,
+                    Some(DownloadRoute::Videodl),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    None,
+                );
+            }
+            Ok(result) => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::AllFailed,
+                    Some(DownloadRoute::Videodl),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    result.error.as_deref(),
+                );
+            }
+            Err(err) => {
+                let category = if is_cancelled_error(err.as_str()) {
+                    DownloadOutcomeCategory::Cancelled
+                } else {
+                    DownloadOutcomeCategory::AllFailed
+                };
+                log_terminal_outcome(
+                    &trace_id,
+                    category,
+                    Some(DownloadRoute::Videodl),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    Some(err.as_str()),
+                );
+            }
+        }
+        fallback_result
     } else {
         // videodl disabled: use yt-dlp only
-        download_video_internal(app, url, extension_cookies_path).await
+        route_chain.push(DownloadRoute::YtDlp);
+        log_download_trace(
+            &trace_id,
+            "attempt_start",
+            serde_json::json!({
+                "attempt": 1,
+                "route": DownloadRoute::YtDlp.as_str(),
+                "reason": "videodl_disabled",
+            }),
+        );
+        let result = download_video_internal(app, url, extension_cookies_path).await;
+        match &result {
+            Ok(download_result) if download_result.success => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::NonDirectSuccess,
+                    Some(DownloadRoute::YtDlp),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    None,
+                );
+            }
+            Ok(download_result) => {
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::AllFailed,
+                    Some(DownloadRoute::YtDlp),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    download_result.error.as_deref(),
+                );
+            }
+            Err(err) => {
+                let category = if is_cancelled_error(err.as_str()) {
+                    DownloadOutcomeCategory::Cancelled
+                } else {
+                    DownloadOutcomeCategory::AllFailed
+                };
+                log_terminal_outcome(
+                    &trace_id,
+                    category,
+                    Some(DownloadRoute::YtDlp),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    Some(err.as_str()),
+                );
+            }
+        }
+        result
     }
 }
 
@@ -1387,6 +1883,8 @@ async fn download_video_direct(
     use tokio::io::AsyncWriteExt;
 
     println!(">>> [Rust] Starting {} direct download: {}", platform, video_url);
+    // Reset cancel flag for a fresh direct download.
+    *DOWNLOAD_CANCELLED.lock().unwrap() = false;
 
     // Build HTTP client with headers
     let mut headers = reqwest::header::HeaderMap::new();
@@ -1537,6 +2035,14 @@ async fn download_video_direct(
     let mut last_emit = std::time::Instant::now();
 
     while let Some(chunk) = stream.next().await {
+        if *DOWNLOAD_CANCELLED.lock().unwrap() {
+            println!(">>> [Rust] {} direct download cancelled by user", platform);
+            let _ = file.flush().await;
+            drop(file);
+            let _ = tokio::fs::remove_file(&output_path).await;
+            return Err("Download cancelled".to_string());
+        }
+
         let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
         file.write_all(&chunk).await
             .map_err(|e| format!("Write error: {}", e))?;
@@ -2217,37 +2723,80 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     let video_url = data.get("videoUrl").and_then(|v| v.as_str());
                     let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
                     let title = data.get("title").and_then(|v| v.as_str());
+                    let trace_id = next_download_trace_id();
 
                     let app_clone = app.clone();
+                    log_download_trace(
+                        &trace_id,
+                        "ws_video_selected",
+                        serde_json::json!({
+                            "url": url,
+                            "pageUrl": page_url,
+                            "hasVideoUrl": video_url.is_some(),
+                            "hasCookies": cookies.is_some_and(|value| !value.is_empty()),
+                            "hasTitle": title.is_some_and(|value| !value.is_empty()),
+                        }),
+                    );
 
                     // Direct downloader for platforms where extension provides direct media URL
                     if (is_douyin_url(page_url) || is_douyin_url(url)) && video_url.is_some() {
-                        let download_url = video_url.unwrap().to_string();
+                        let download_url = video_url.unwrap_or_default().to_string();
                         let cookies_header = cookies.and_then(netscape_cookies_to_header);
                         let title_owned = title.map(|s| s.to_string());
+                        let trace_id_for_task = trace_id.clone();
                         println!(">>> [Rust] Douyin direct video URL: {}", download_url);
+                        log_download_trace(
+                            &trace_id_for_task,
+                            "route_selected",
+                            serde_json::json!({
+                                "route": DownloadRoute::DirectDouyin.as_str(),
+                                "source": "ws_video_selected",
+                            }),
+                        );
                         tokio::spawn(async move {
-                            if let Err(e) = download_douyin_direct(app_clone.clone(), download_url, cookies_header, title_owned).await {
-                                println!(">>> [Rust] Douyin download error: {}", e);
-                                // Emit complete event with error to close progress bar
-                                let result = DownloadResult {
-                                    success: false,
-                                    file_path: None,
-                                    error: Some(e),
-                                };
-                                let _ = app_clone.emit("video-download-complete", result);
-                            }
-                        });
-                    } else if (is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url)) && video_url.is_some() {
-                        let extracted_video_url = video_url.unwrap().to_string();
-                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
-                        let title_owned = title.map(|s| s.to_string());
-
-                        if is_xiaohongshu_cdn_url(&extracted_video_url) {
-                            println!(">>> [Rust] Xiaohongshu direct video URL: {}", extracted_video_url);
-                            tokio::spawn(async move {
-                                if let Err(e) = download_xiaohongshu_direct(app_clone.clone(), extracted_video_url, cookies_header, title_owned).await {
-                                    println!(">>> [Rust] Xiaohongshu download error: {}", e);
+                            let route_chain = [DownloadRoute::DirectDouyin];
+                            let started_at = std::time::Instant::now();
+                            log_download_trace(
+                                &trace_id_for_task,
+                                "attempt_start",
+                                serde_json::json!({
+                                    "attempt": 1,
+                                    "route": DownloadRoute::DirectDouyin.as_str(),
+                                }),
+                            );
+                            match download_douyin_direct(app_clone.clone(), download_url, cookies_header, title_owned).await {
+                                Ok(result) => {
+                                    let category = if result.success {
+                                        DownloadOutcomeCategory::DirectSuccess
+                                    } else if is_cancelled_error(result.error.as_deref().unwrap_or_default()) {
+                                        DownloadOutcomeCategory::Cancelled
+                                    } else {
+                                        DownloadOutcomeCategory::AllFailed
+                                    };
+                                    log_terminal_outcome(
+                                        &trace_id_for_task,
+                                        category,
+                                        Some(DownloadRoute::DirectDouyin),
+                                        &route_chain,
+                                        started_at.elapsed().as_millis(),
+                                        result.error.as_deref(),
+                                    );
+                                }
+                                Err(e) => {
+                                    println!(">>> [Rust] Douyin download error: {}", e);
+                                    let category = if is_cancelled_error(e.as_str()) {
+                                        DownloadOutcomeCategory::Cancelled
+                                    } else {
+                                        DownloadOutcomeCategory::AllFailed
+                                    };
+                                    log_terminal_outcome(
+                                        &trace_id_for_task,
+                                        category,
+                                        Some(DownloadRoute::DirectDouyin),
+                                        &route_chain,
+                                        started_at.elapsed().as_millis(),
+                                        Some(e.as_str()),
+                                    );
                                     // Emit complete event with error to close progress bar
                                     let result = DownloadResult {
                                         success: false,
@@ -2255,6 +2804,77 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                         error: Some(e),
                                     };
                                     let _ = app_clone.emit("video-download-complete", result);
+                                }
+                            }
+                        });
+                    } else if (is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url)) && video_url.is_some() {
+                        let extracted_video_url = video_url.unwrap_or_default().to_string();
+                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
+                        let title_owned = title.map(|s| s.to_string());
+                        let trace_id_for_task = trace_id.clone();
+
+                        if is_xiaohongshu_cdn_url(&extracted_video_url) {
+                            println!(">>> [Rust] Xiaohongshu direct video URL: {}", extracted_video_url);
+                            log_download_trace(
+                                &trace_id_for_task,
+                                "route_selected",
+                                serde_json::json!({
+                                    "route": DownloadRoute::DirectXiaohongshu.as_str(),
+                                    "source": "ws_video_selected",
+                                }),
+                            );
+                            tokio::spawn(async move {
+                                let route_chain = [DownloadRoute::DirectXiaohongshu];
+                                let started_at = std::time::Instant::now();
+                                log_download_trace(
+                                    &trace_id_for_task,
+                                    "attempt_start",
+                                    serde_json::json!({
+                                        "attempt": 1,
+                                        "route": DownloadRoute::DirectXiaohongshu.as_str(),
+                                    }),
+                                );
+                                match download_xiaohongshu_direct(app_clone.clone(), extracted_video_url, cookies_header, title_owned).await {
+                                    Ok(result) => {
+                                        let category = if result.success {
+                                            DownloadOutcomeCategory::DirectSuccess
+                                        } else if is_cancelled_error(result.error.as_deref().unwrap_or_default()) {
+                                            DownloadOutcomeCategory::Cancelled
+                                        } else {
+                                            DownloadOutcomeCategory::AllFailed
+                                        };
+                                        log_terminal_outcome(
+                                            &trace_id_for_task,
+                                            category,
+                                            Some(DownloadRoute::DirectXiaohongshu),
+                                            &route_chain,
+                                            started_at.elapsed().as_millis(),
+                                            result.error.as_deref(),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        println!(">>> [Rust] Xiaohongshu download error: {}", e);
+                                        let category = if is_cancelled_error(e.as_str()) {
+                                            DownloadOutcomeCategory::Cancelled
+                                        } else {
+                                            DownloadOutcomeCategory::AllFailed
+                                        };
+                                        log_terminal_outcome(
+                                            &trace_id_for_task,
+                                            category,
+                                            Some(DownloadRoute::DirectXiaohongshu),
+                                            &route_chain,
+                                            started_at.elapsed().as_millis(),
+                                            Some(e.as_str()),
+                                        );
+                                        // Emit complete event with error to close progress bar
+                                        let result = DownloadResult {
+                                            success: false,
+                                            file_path: None,
+                                            error: Some(e),
+                                        };
+                                        let _ = app_clone.emit("video-download-complete", result);
+                                    }
                                 }
                             });
                         } else {
@@ -2267,8 +2887,23 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                 ">>> [Rust] Xiaohongshu extracted URL is not direct media, fallback to smart: {}",
                                 extracted_video_url
                             );
+                            log_download_trace(
+                                &trace_id_for_task,
+                                "route_selected",
+                                serde_json::json!({
+                                    "route": "smart_router",
+                                    "reason": "xiaohongshu_non_direct_video_url",
+                                    "extractedVideoUrl": extracted_video_url,
+                                }),
+                            );
                             tokio::spawn(async move {
-                                if let Err(e) = download_video_smart(app_clone.clone(), page_url_owned, title_owned, cookies_path).await {
+                                if let Err(e) = download_video_smart(
+                                    app_clone.clone(),
+                                    page_url_owned,
+                                    title_owned,
+                                    cookies_path,
+                                    Some(trace_id_for_task.clone()),
+                                ).await {
                                     println!(">>> [Rust] Xiaohongshu smart fallback error: {}", e);
                                     let result = DownloadResult {
                                         success: false,
@@ -2286,8 +2921,15 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                         let cookies_path = cookies
                             .filter(|s| !s.is_empty())
                             .and_then(|s| save_extension_cookies(s).ok());
+                        let trace_id_for_task = trace_id.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = download_video_smart(app_clone.clone(), url_owned, title_owned, cookies_path).await {
+                            if let Err(e) = download_video_smart(
+                                app_clone.clone(),
+                                url_owned,
+                                title_owned,
+                                cookies_path,
+                                Some(trace_id_for_task.clone()),
+                            ).await {
                                 println!(">>> [Rust] Smart download error: {}", e);
                                 // Emit complete event with error to close progress bar
                                 let result = DownloadResult {

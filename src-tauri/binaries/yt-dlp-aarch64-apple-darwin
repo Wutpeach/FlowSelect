@@ -2,10 +2,42 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_PYTHON="$SCRIPT_DIR/../../.venv/bin/python"
 
-if [ -x "$VENV_PYTHON" ]; then
-  exec "$VENV_PYTHON" -m yt_dlp "$@"
+choose_python() {
+  local candidates=(
+    "$SCRIPT_DIR/../../.venv/bin/python"
+    "$SCRIPT_DIR/../../../.venv/bin/python"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+
+  return 1
+}
+
+PYTHON_BIN="$(choose_python || true)"
+if [ -z "$PYTHON_BIN" ]; then
+  echo "python3 not found for yt-dlp sidecar" >&2
+  exit 1
 fi
 
-exec python3 -m yt_dlp "$@"
+if "$PYTHON_BIN" -c "import yt_dlp" >/dev/null 2>&1; then
+  exec "$PYTHON_BIN" -m yt_dlp "$@"
+fi
+
+echo "yt_dlp module missing, attempting bootstrap install..." >&2
+if "$PYTHON_BIN" -m pip install --disable-pip-version-check -q yt-dlp >/dev/null 2>&1; then
+  exec "$PYTHON_BIN" -m yt_dlp "$@"
+fi
+
+echo "No module named yt_dlp. Install manually: python3 -m pip install yt-dlp" >&2
+exit 1

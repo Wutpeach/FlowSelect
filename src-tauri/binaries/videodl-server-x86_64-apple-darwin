@@ -2,16 +2,54 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_PYTHON="$SCRIPT_DIR/../../.venv/bin/python"
-DEV_SERVER="$SCRIPT_DIR/../../scripts/videodl_http_server.py"
 
-if [ ! -f "$DEV_SERVER" ]; then
-  echo "videodl server script not found: $DEV_SERVER" >&2
+choose_python() {
+  local candidates=(
+    "$SCRIPT_DIR/../../.venv/bin/python"
+    "$SCRIPT_DIR/../../../.venv/bin/python"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+
+  return 1
+}
+
+choose_server() {
+  local candidates=(
+    "$SCRIPT_DIR/../../scripts/videodl_http_server.py"
+    "$SCRIPT_DIR/../../../scripts/videodl_http_server.py"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+PYTHON_BIN="$(choose_python || true)"
+if [ -z "$PYTHON_BIN" ]; then
+  echo "python3 not found for videodl sidecar" >&2
   exit 1
 fi
 
-if [ -x "$VENV_PYTHON" ]; then
-  exec "$VENV_PYTHON" "$DEV_SERVER" "$@"
+DEV_SERVER="$(choose_server || true)"
+if [ -z "$DEV_SERVER" ]; then
+  echo "videodl server script not found from $SCRIPT_DIR" >&2
+  exit 1
 fi
 
-exec python3 "$DEV_SERVER" "$@"
+exec "$PYTHON_BIN" "$DEV_SERVER" "$@"

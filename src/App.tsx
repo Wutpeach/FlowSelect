@@ -19,6 +19,12 @@ const checkSequenceOverflow = (error: unknown): boolean => {
   return false;
 };
 
+const isCancelledDownloadError = (error?: string | null): boolean => {
+  if (!error) return false;
+  const normalized = error.toLowerCase();
+  return normalized.includes("cancelled") || normalized.includes("canceled");
+};
+
 // Cat icon for minimized state
 const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) => (
   <svg
@@ -247,32 +253,36 @@ function App() {
         }
       }
     );
-    const unlistenComplete = listen("video-download-complete", (event) => {
-      console.log(">>> [Frontend] video-download-complete received:", event);
-      setDownloadProgress(null);
-      // Check ref synchronously - if cancelled, don't show success checkmark
-      if (downloadCancelledRef.current) {
-        console.log(">>> [Frontend] Already cancelled, skipping success animation");
-        return;
+    const unlistenComplete = listen<{ success: boolean; file_path?: string | null; error?: string | null }>(
+      "video-download-complete",
+      (event) => {
+        console.log(">>> [Frontend] video-download-complete received:", event);
+        setDownloadProgress(null);
+
+        const payload = event.payload;
+        const cancelled = downloadCancelledRef.current || isCancelledDownloadError(payload?.error);
+        const success = Boolean(payload?.success) && !cancelled;
+
+        downloadCancelledRef.current = false;
+        setDownloadCancelled(!success);
+        setIsProcessing(true);
+        setTimeout(() => setIsProcessing(false), 1500);
+
+        // 下载完成后延迟5秒再启动 idle timer
+        setTimeout(() => {
+          if (idleTimerRef.current) {
+            clearTimeout(idleTimerRef.current);
+          }
+          if (!isDraggingRef.current && !isPanelHoveredRef.current) {
+            idleTimerRef.current = window.setTimeout(() => {
+              if (isDraggingRef.current || isPanelHoveredRef.current) return;
+              setIsMinimized(true);
+              setShowEdgeGlow(false);
+            }, 3000);
+          }
+        }, 5000);
       }
-      // Show success checkmark
-      downloadCancelledRef.current = false; setDownloadCancelled(false);
-      setIsProcessing(true);
-      setTimeout(() => setIsProcessing(false), 1500);
-      // 下载完成后延迟5秒再启动 idle timer
-      setTimeout(() => {
-        if (idleTimerRef.current) {
-          clearTimeout(idleTimerRef.current);
-        }
-        if (!isDraggingRef.current && !isPanelHoveredRef.current) {
-          idleTimerRef.current = window.setTimeout(() => {
-            if (isDraggingRef.current || isPanelHoveredRef.current) return;
-            setIsMinimized(true);
-            setShowEdgeGlow(false);
-          }, 3000);
-        }
-      }, 5000);
-    });
+    );
     return () => {
       unlistenProgress.then(fn => fn());
       unlistenComplete.then(fn => fn());
@@ -1157,7 +1167,6 @@ function App() {
                   setIsProcessing(true);
                   setTimeout(() => {
                     setIsProcessing(false);
-                    downloadCancelledRef.current = false;
                   }, 1500);
                 } catch (err) {
                   console.error("Failed to cancel download:", err);

@@ -26,7 +26,7 @@ function SettingsPage() {
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
   // videodl settings
-  const [videodlEnabled, setVideodlEnabled] = useState(true); // 默认开启
+  const [videodlEnabled, setVideodlEnabled] = useState(false); // 默认关闭
   const [videodlStatus, setVideodlStatus] = useState<VideodlHealthStatus | null>(null);
   const [isVideodlChecking, setIsVideodlChecking] = useState(false);
 
@@ -69,7 +69,7 @@ function SettingsPage() {
           setAeExePath(config.aeExePath);
         }
         // videodl settings
-        const enabled = config.videodlEnabled !== undefined ? config.videodlEnabled : true;
+        const enabled = config.videodlEnabled !== undefined ? config.videodlEnabled : false;
         setVideodlEnabled(enabled);
         if (enabled) {
           await refreshVideodlHealth();

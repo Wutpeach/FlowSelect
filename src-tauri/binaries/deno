@@ -1,4 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec deno "$@"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SELF_PATH="$SCRIPT_DIR/deno"
+
+find_deno_bin() {
+  local path_entry candidate
+  IFS=':' read -r -a PATH_ENTRIES <<< "${PATH:-}"
+
+  for path_entry in "${PATH_ENTRIES[@]}"; do
+    [ -z "$path_entry" ] && continue
+    candidate="$path_entry/deno"
+    if [ "$candidate" = "$SELF_PATH" ]; then
+      continue
+    fi
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  local fallbacks=(
+    "/opt/homebrew/bin/deno"
+    "/usr/local/bin/deno"
+    "/usr/bin/deno"
+  )
+  for candidate in "${fallbacks[@]}"; do
+    if [ -x "$candidate" ] && [ "$candidate" != "$SELF_PATH" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+DENO_BIN="$(find_deno_bin || true)"
+if [ -z "$DENO_BIN" ]; then
+  echo "FlowSelect deno wrapper: no real deno binary found in PATH" >&2
+  exit 127
+fi
+
+exec "$DENO_BIN" "$@"
