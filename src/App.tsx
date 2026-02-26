@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { createPortal } from 'react-dom';
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -21,8 +21,13 @@ const checkSequenceOverflow = (error: unknown): boolean => {
 };
 
 // Cat icon for minimized state
-const CatIcon = () => (
-  <svg viewBox="0 0 24 24" width="40" height="40">
+const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    style={{ shapeRendering: 'geometricPrecision' }}
+  >
     <defs>
       <linearGradient id="catGradient" x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="#93c5fd" />
@@ -38,7 +43,7 @@ const CatIcon = () => (
     </defs>
     <path
       fill="url(#catGradient)"
-      filter="url(#catGlow)"
+      filter={glow ? "url(#catGlow)" : undefined}
       d="M11.75 6.406c-1.48 0-1.628.157-2.394.157C8.718 6.563 6.802 5 5.845 5S3.77 5.563 3.77 7.188v1.875c.002.492.18 2 .88 1.597c-.827.978-.91 2.119-.899 3.223c-.223.064-.45.137-.671.212c-.684.234-1.41.532-1.737.744a.75.75 0 0 0 .814 1.26c.156-.101.721-.35 1.408-.585l.228-.075c.046.433.161.83.332 1.19l-.024.013c-.41.216-.79.465-1.032.623l-.113.074a.75.75 0 1 0 .814 1.26l.131-.086c.245-.16.559-.365.901-.545q.12-.064.231-.116C6.763 19.475 9.87 20 11.75 20s4.987-.525 6.717-2.148q.11.052.231.116c.342.18.656.385.901.545l.131.086a.75.75 0 0 0 .814-1.26l-.113-.074a13 13 0 0 0-1.032-.623l-.024-.013c.171-.36.286-.757.332-1.19l.228.075c.687.235 1.252.484 1.409.585a.75.75 0 0 0 .813-1.26c-.327-.212-1.053-.51-1.736-.744a16 16 0 0 0-.672-.213c.012-1.104-.072-2.244-.9-3.222c.7.403.88-1.105.881-1.598V7.188C19.73 5.563 18.613 5 17.655 5c-.957 0-2.873 1.563-3.51 1.563c-.767 0-.915-.157-2.395-.157m-.675 9.194c.202-.069.441-.1.675-.1s.473.031.676.1c.1.034.22.088.328.174a.62.62 0 0 1 .246.476c0 .23-.139.39-.246.476s-.229.14-.328.174c-.203.069-.442.1-.676.1s-.473-.031-.675-.1a1.1 1.1 0 0 1-.329-.174a.62.62 0 0 1-.246-.476c0-.23.139-.39.246-.476s.23-.14.329-.174m2.845-3.1c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812m-5.96 0c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812"
     />
   </svg>
@@ -46,6 +51,7 @@ const CatIcon = () => (
 
 function App() {
   const { colors } = useTheme();
+  const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadCancelled, setDownloadCancelled] = useState(false);
@@ -75,12 +81,17 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Window size constants
-  const FULL_SIZE = 220;
+  const FULL_SIZE = 200;
   const ICON_SIZE = 80;
+  const EDGE_GLOW_TRIGGER_DISTANCE = 98;
+  const EDGE_GLOW_RADIUS = 196;
+  const EDGE_GLOW_BORDER_WIDTH = 1.45;
+  const EDGE_GLOW_FALLOFF_EXPONENT = 0.9;
 
   // Expand window from icon mode
   const expandWindow = async () => {
-    if (!windowResized) {
+    if (isMacOS || !windowResized) {
+      setWindowResized(false);
       setIsMinimized(false);
       return;
     }
@@ -104,6 +115,9 @@ function App() {
   // Shrink window after minimize animation completes
   const handleAnimationComplete = async () => {
     if (isMinimized && !windowResized && !isInitialMount) {
+      if (isMacOS) {
+        return;
+      }
       try {
         // Shrink window - content is already at top-left due to transformOrigin
         setWindowResized(true);
@@ -117,6 +131,43 @@ function App() {
         console.error('Failed to shrink window:', err);
       }
     }
+  };
+
+  const shouldShowEdgeGlow =
+    isPanelHovered && !isHovering && !downloadProgress && !isMinimized && showEdgeGlow;
+
+  const getMacEdgeGlowOpacity = () => {
+    const distanceToEdge = Math.min(
+      mousePos.x,
+      mousePos.y,
+      FULL_SIZE - mousePos.x,
+      FULL_SIZE - mousePos.y,
+    );
+    const normalized = Math.max(0, 1 - distanceToEdge / EDGE_GLOW_TRIGGER_DISTANCE);
+    return Math.pow(normalized, EDGE_GLOW_FALLOFF_EXPONENT);
+  };
+
+  const macEdgeGlowOpacity = getMacEdgeGlowOpacity();
+
+  const getMacEdgeGlowStyle = (): CSSProperties => {
+    return {
+      position: 'absolute',
+      inset: 0,
+      borderRadius: 16,
+      pointerEvents: 'none',
+      padding: EDGE_GLOW_BORDER_WIDTH,
+      background: `radial-gradient(
+        ${EDGE_GLOW_RADIUS}px circle at ${mousePos.x}px ${mousePos.y}px,
+        rgba(59,130,246,1) 0%,
+        rgba(96,165,250,0.78) 28%,
+        rgba(147,197,253,0.28) 52%,
+        transparent 80%
+      )`,
+      mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+      maskComposite: 'exclude',
+      WebkitMaskComposite: 'xor',
+      filter: 'drop-shadow(0 0 1.6px rgba(59,130,246,0.62))',
+    };
   };
 
   // Load config on mount
@@ -134,7 +185,7 @@ function App() {
       }
     };
     loadConfig();
-  }, []);
+  }, [isMacOS]);
 
   // Startup animation: brief delay to trigger bounce effect
   useEffect(() => {
@@ -142,7 +193,7 @@ function App() {
       setIsInitialMount(false);
     }, 100);
     return () => clearTimeout(timer);
-  }, []);
+  }, [isMacOS]);
 
   // Save config when outputPath changes
   useEffect(() => {
@@ -177,16 +228,20 @@ function App() {
         setIsMinimized(false);
         setDownloadProgress(event.payload);
         // 直接恢复窗口大小（避免闭包问题）
-        try {
-          const win = getCurrentWindow();
-          const pos = await win.outerPosition();
-          await Promise.all([
-            invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
-            invoke('set_window_position', { x: pos.x, y: pos.y }),
-          ]);
+        if (!isMacOS) {
+          try {
+            const win = getCurrentWindow();
+            const pos = await win.outerPosition();
+            await Promise.all([
+              invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
+              invoke('set_window_position', { x: pos.x, y: pos.y }),
+            ]);
+            setWindowResized(false);
+          } catch (err) {
+            console.error('Failed to expand window for download:', err);
+          }
+        } else {
           setWindowResized(false);
-        } catch (err) {
-          console.error('Failed to expand window for download:', err);
         }
       }
     );
@@ -214,7 +269,7 @@ function App() {
       unlistenProgress.then(fn => fn());
       unlistenComplete.then(fn => fn());
     };
-  }, []);
+  }, [isMacOS]);
 
   // Listen for settings window close to reload config
   useEffect(() => {
@@ -242,7 +297,7 @@ function App() {
   useEffect(() => {
     const unlisten = listen("shortcut-show", async () => {
       // 如果窗口处于图标模式（已缩小），需要先恢复窗口大小
-      if (windowResized) {
+      if (windowResized && !isMacOS) {
         try {
           const win = getCurrentWindow();
           const pos = await win.outerPosition();
@@ -254,6 +309,8 @@ function App() {
         } catch (err) {
           console.error('Failed to restore window size:', err);
         }
+      } else {
+        setWindowResized(false);
       }
       setIsMinimized(false);
       setShowEdgeGlow(false);
@@ -277,7 +334,7 @@ function App() {
       }, 100);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [windowResized, downloadProgress]);
+  }, [windowResized, downloadProgress, isMacOS]);
 
   // Check yt-dlp version on startup
   useEffect(() => {
@@ -830,7 +887,12 @@ function App() {
       onDrop={handleDrop}
       onDragLeave={() => setIsHovering(false)}
       onPaste={handlePaste}
-      onMouseEnter={() => {
+      onMouseEnter={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setMousePos({
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
+        });
         setIsPanelHovered(true);
         resetIdleTimer();
         containerRef.current?.focus();
@@ -866,10 +928,9 @@ function App() {
       }}
       onAnimationComplete={handleAnimationComplete}
       style={{
-        width: 200,
-        height: 200,
+        width: FULL_SIZE,
+        height: FULL_SIZE,
         transformOrigin: 'top left',
-        margin: 10,
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
@@ -887,40 +948,53 @@ function App() {
     >
       {/* Edge glow layer - follows mouse */}
       <AnimatePresence>
-        {isPanelHovered && !isHovering && !downloadProgress && !isMinimized && showEdgeGlow && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3, ease: 'easeOut' }}
-            style={{
-              position: 'absolute',
-              inset: -4,
-              borderRadius: 20,
-              pointerEvents: 'none',
-              background: `conic-gradient(
-                from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
-                transparent 0deg,
-                rgba(59,130,246,1) 30deg,
-                rgba(96,165,250,1) 60deg,
-                rgba(147,197,253,1) 90deg,
-                rgba(96,165,250,1) 120deg,
-                rgba(59,130,246,1) 150deg,
-                transparent 180deg
-              )`,
-              mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-              maskComposite: 'exclude',
-              WebkitMaskComposite: 'xor',
-              padding: 4,
-              filter: 'blur(2px)',
-            }}
-          />
+        {shouldShowEdgeGlow && (
+          isMacOS ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: macEdgeGlowOpacity }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.045, ease: 'linear' }}
+              style={getMacEdgeGlowStyle()}
+            />
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+              style={{
+                position: 'absolute',
+                inset: -4,
+                borderRadius: 20,
+                pointerEvents: 'none',
+                background: `conic-gradient(
+                  from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
+                  transparent 0deg,
+                  rgba(59,130,246,1) 30deg,
+                  rgba(96,165,250,1) 60deg,
+                  rgba(147,197,253,1) 90deg,
+                  rgba(96,165,250,1) 120deg,
+                  rgba(59,130,246,1) 150deg,
+                  transparent 180deg
+                )`,
+                mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                maskComposite: 'exclude',
+                WebkitMaskComposite: 'xor',
+                padding: 4,
+                filter: 'blur(2px)',
+              }}
+            />
+          )
         )}
       </AnimatePresence>
 
       {/* Close button - top right circle */}
       <button
-        onClick={() => getCurrentWindow().hide()}
+        onClick={() => {
+          setIsMinimized(true);
+          setShowEdgeGlow(false);
+        }}
         onMouseDown={(e) => e.stopPropagation()}
         onMouseEnter={(e) => {
           const span = e.currentTarget.querySelector('span');
@@ -950,7 +1024,7 @@ function App() {
           pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
           zIndex: 10,
         }}
-        title="Hide window"
+        title="Minimize to icon"
       >
         <span
           style={{
@@ -1116,10 +1190,10 @@ function App() {
           <motion.div
             key="minimized"
             initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 3.33, opacity: 1 }}
+            animate={{ scale: isMacOS ? 1 : 3.33, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
           >
-            <CatIcon />
+            <CatIcon size={isMacOS ? 120 : 40} glow={!isMacOS} />
           </motion.div>
         ) : null}
       </AnimatePresence>
