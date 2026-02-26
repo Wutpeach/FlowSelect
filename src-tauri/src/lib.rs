@@ -47,6 +47,25 @@ struct WsResponse {
     data: Option<serde_json::Value>,
 }
 
+#[derive(serde::Deserialize, Debug)]
+struct VideodlHealthResponse {
+    #[allow(dead_code)]
+    status: String,
+    #[allow(dead_code)]
+    service: String,
+    videodl_available: bool,
+    videodl_error: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct VideodlHealthStatus {
+    #[serde(rename = "isRunning")]
+    is_running: bool,
+    #[serde(rename = "isAvailable")]
+    is_available: bool,
+    error: Option<String>,
+}
+
 // Store current download process PID
 static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
 
@@ -67,6 +86,13 @@ impl Default for VideodlServerState {
             is_running: Mutex::new(false),
             port: 18901,
         }
+    }
+}
+
+fn keep_window_off_taskbar(_window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = _window.set_skip_taskbar(true);
     }
 }
 
@@ -831,6 +857,56 @@ fn is_douyin_url(url: &str) -> bool {
     url.contains("douyin.com/video/") || url.contains("v.douyin.com") || url.contains("douyinvod.com")
 }
 
+/// Check if URL is a direct Douyin CDN media link
+fn is_douyin_cdn_url(url: &str) -> bool {
+    url.contains("douyinvod.com") || url.contains("douyincdn.com")
+}
+
+/// Check if URL is a Xiaohongshu page URL
+fn is_xiaohongshu_url(url: &str) -> bool {
+    url.contains("xiaohongshu.com") || url.contains("xhslink.com")
+}
+
+/// Check if URL is a direct Xiaohongshu CDN media link
+fn is_xiaohongshu_cdn_url(url: &str) -> bool {
+    url.contains("xhscdn.com")
+}
+
+/// Convert Netscape cookie file content to Cookie header format: "k1=v1; k2=v2"
+fn netscape_cookies_to_header(cookies_content: &str) -> Option<String> {
+    let pairs: Vec<String> = cookies_content
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 7 {
+                Some(format!("{}={}", parts[5], parts[6]))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if pairs.is_empty() {
+        None
+    } else {
+        Some(pairs.join("; "))
+    }
+}
+
+/// Convert Netscape cookies file to Cookie header format: "k1=v1; k2=v2"
+fn cookies_file_to_header(cookies_path: &PathBuf) -> Option<String> {
+    if !cookies_path.exists() {
+        return None;
+    }
+
+    let content = fs::read_to_string(cookies_path).ok()?;
+    netscape_cookies_to_header(&content)
+}
+
 /// Check if URL is from Bilibili (use yt-dlp for better quality)
 fn is_bilibili_url(url: &str) -> bool {
     url.contains("bilibili.com") || url.contains("b23.tv")
@@ -946,6 +1022,83 @@ fn get_videodl_status(app: AppHandle) -> bool {
     let state = app.state::<VideodlServerState>();
     let is_running = *state.is_running.lock().unwrap();
     is_running
+}
+
+/// Get videodl availability from sidecar health endpoint
+#[tauri::command]
+async fn get_videodl_health(app: AppHandle) -> Result<VideodlHealthStatus, String> {
+    let was_running = {
+        let state = app.state::<VideodlServerState>();
+        let is_running = *state.is_running.lock().unwrap();
+        is_running
+    };
+
+    if !was_running {
+        if let Err(e) = start_videodl_server(&app).await {
+            println!(">>> [videodl] Health start failed: {}", e);
+            return Ok(VideodlHealthStatus {
+                is_running: false,
+                is_available: false,
+                error: Some(e),
+            });
+        }
+    }
+
+    let port = {
+        let state = app.state::<VideodlServerState>();
+        state.port
+    };
+
+    let health_url = format!("http://127.0.0.1:{}/health", port);
+    let client = reqwest::Client::new();
+
+    let response = match client.get(&health_url).send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            let msg = format!("Failed to query videodl health: {}", e);
+            println!(">>> [videodl] {}", msg);
+            return Ok(VideodlHealthStatus {
+                is_running: false,
+                is_available: false,
+                error: Some(msg),
+            });
+        }
+    };
+
+    if !response.status().is_success() {
+        let msg = format!("Health endpoint returned {}", response.status());
+        println!(">>> [videodl] {}", msg);
+        return Ok(VideodlHealthStatus {
+            is_running: false,
+            is_available: false,
+            error: Some(msg),
+        });
+    }
+
+    let payload = match response.json::<VideodlHealthResponse>().await {
+        Ok(data) => data,
+        Err(e) => {
+            let msg = format!("Invalid health payload: {}", e);
+            println!(">>> [videodl] {}", msg);
+            return Ok(VideodlHealthStatus {
+                is_running: true,
+                is_available: false,
+                error: Some(msg),
+            });
+        }
+    };
+
+    let error = if payload.videodl_error.is_empty() {
+        None
+    } else {
+        Some(payload.videodl_error)
+    };
+
+    Ok(VideodlHealthStatus {
+        is_running: true,
+        is_available: payload.videodl_available,
+        error,
+    })
 }
 
 /// Download video using videodl HTTP server with SSE progress
@@ -1126,6 +1279,25 @@ async fn download_video_smart(
     title: Option<String>,
     extension_cookies_path: Option<PathBuf>,
 ) -> Result<DownloadResult, String> {
+    // Direct Douyin CDN link: use direct downloader with browser cookies.
+    // This bypasses videodl parser and avoids extractor fallback for ephemeral signed URLs.
+    if is_douyin_cdn_url(&url) {
+        let cookie_header = extension_cookies_path
+            .as_ref()
+            .and_then(cookies_file_to_header);
+        println!(">>> [Smart] Direct Douyin CDN URL detected, using direct downloader");
+        return download_douyin_direct(app, url, cookie_header, title).await;
+    }
+
+    // Direct Xiaohongshu CDN link: use direct downloader with browser cookies.
+    if is_xiaohongshu_cdn_url(&url) {
+        let cookie_header = extension_cookies_path
+            .as_ref()
+            .and_then(cookies_file_to_header);
+        println!(">>> [Smart] Direct Xiaohongshu CDN URL detected, using direct downloader");
+        return download_xiaohongshu_direct(app, url, cookie_header, title).await;
+    }
+
     // Check if videodl is enabled
     let config_str = get_config(app.clone())?;
     let config: serde_json::Value = serde_json::from_str(&config_str)
@@ -1180,22 +1352,36 @@ async fn download_video_smart(
     }
 }
 
-/// Download Douyin video directly from video URL
-async fn download_douyin_direct(
+/// Download direct video media URL with custom referer/cookie header.
+async fn download_video_direct(
     app: AppHandle,
     video_url: String,
     cookies: Option<String>,
     title: Option<String>,
+    referer: &str,
+    title_suffix_to_strip: Option<&str>,
+    platform: &str,
+    default_prefix: &str,
 ) -> Result<DownloadResult, String> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
 
-    println!(">>> [Rust] Starting Douyin direct download: {}", video_url);
+    println!(">>> [Rust] Starting {} direct download: {}", platform, video_url);
 
     // Build HTTP client with headers
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".parse().unwrap());
-    headers.insert("Referer", "https://www.douyin.com/".parse().unwrap());
+    headers.insert(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            .parse()
+            .map_err(|e| format!("Failed to build User-Agent header: {}", e))?,
+    );
+    headers.insert(
+        "Referer",
+        referer
+            .parse()
+            .map_err(|e| format!("Failed to build Referer header: {}", e))?,
+    );
 
     if let Some(ref cookie_str) = cookies {
         if let Ok(cookie_val) = cookie_str.parse() {
@@ -1243,10 +1429,13 @@ async fn download_douyin_direct(
 
     let output_path = if keep_original_name && title.is_some() {
         let raw_title = title.as_ref().unwrap();
-        // Clean title: remove " - 抖音" suffix and invalid filename characters
-        let clean_title = raw_title
-            .trim_end_matches(" - 抖音")
-            .trim()
+        // Clean title: strip site suffix and invalid filename characters
+        let stripped_title = if let Some(suffix) = title_suffix_to_strip {
+            raw_title.trim_end_matches(suffix).trim()
+        } else {
+            raw_title.trim()
+        };
+        let clean_title = stripped_title
             .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
             .chars()
             .take(100) // Limit filename length
@@ -1268,6 +1457,13 @@ async fn download_douyin_direct(
     } else {
         let seq_num = get_next_sequence_number(&output_dir)?;
         output_dir.join(format!("{}.mp4", seq_num))
+    };
+
+    // Keep deterministic filename when title is missing
+    let output_path = if output_path.extension().is_none() {
+        output_dir.join(format!("{}_{}.mp4", default_prefix, get_next_sequence_number(&output_dir)?))
+    } else {
+        output_path
     };
 
     // Download video
@@ -1326,7 +1522,7 @@ async fn download_douyin_direct(
     file.flush().await.map_err(|e| format!("Flush error: {}", e))?;
 
     let file_path = output_path.to_string_lossy().to_string();
-    println!(">>> [Rust] Douyin video saved: {}", file_path);
+    println!(">>> [Rust] {} video saved: {}", platform, file_path);
 
     let result = DownloadResult {
         success: true,
@@ -1343,6 +1539,44 @@ async fn download_douyin_direct(
     });
 
     Ok(result)
+}
+
+/// Download Douyin video directly from video URL
+async fn download_douyin_direct(
+    app: AppHandle,
+    video_url: String,
+    cookies: Option<String>,
+    title: Option<String>,
+) -> Result<DownloadResult, String> {
+    download_video_direct(
+        app,
+        video_url,
+        cookies,
+        title,
+        "https://www.douyin.com/",
+        Some(" - 抖音"),
+        "Douyin",
+        "douyin",
+    ).await
+}
+
+/// Download Xiaohongshu video directly from video URL
+async fn download_xiaohongshu_direct(
+    app: AppHandle,
+    video_url: String,
+    cookies: Option<String>,
+    title: Option<String>,
+) -> Result<DownloadResult, String> {
+    download_video_direct(
+        app,
+        video_url,
+        cookies,
+        title,
+        "https://www.xiaohongshu.com/",
+        Some(" - 小红书"),
+        "Xiaohongshu",
+        "xiaohongshu",
+    ).await
 }
 
 /// Parse yt-dlp progress line: [download] XX.X% of XXX at XXX ETA XXX
@@ -1635,14 +1869,14 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                     } else {
                         // Position window: bottom-left of cursor
                         if let Ok(pos) = window.cursor_position() {
-                            let window_width = 220.0;
+                            let window_width = 200.0;
                             let x = pos.x - 50.0 - window_width;
                             let y = pos.y + 50.0;
                             let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
                         }
                         let _ = window.show();
                         let _ = window.set_focus();
-                        let _ = window.set_skip_taskbar(true);
+                        keep_window_off_taskbar(&window);
                         // Notify frontend to cancel icon mode
                         let _ = app_handle.emit("shortcut-show", ());
                     }
@@ -1712,13 +1946,18 @@ fn is_directory(path: String) -> bool {
 
 #[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
+    let open_command = match std::env::consts::OS {
+        "windows" => "explorer",
+        "macos" => "open",
+        "linux" => "xdg-open",
+        os => return Err(format!("Opening folder is not supported on platform: {}", os)),
+    };
+
+    std::process::Command::new(open_command)
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("Failed to open folder with {}: {}", open_command, e))?;
+
     Ok(())
 }
 
@@ -1940,15 +2179,32 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
 
                     let app_clone = app.clone();
 
-                    // Check if Douyin URL with direct video URL - use custom downloader
+                    // Direct downloader for platforms where extension provides direct media URL
                     if (is_douyin_url(page_url) || is_douyin_url(url)) && video_url.is_some() {
                         let download_url = video_url.unwrap().to_string();
-                        let cookies_owned = cookies.map(|s| s.to_string());
+                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
                         let title_owned = title.map(|s| s.to_string());
                         println!(">>> [Rust] Douyin direct video URL: {}", download_url);
                         tokio::spawn(async move {
-                            if let Err(e) = download_douyin_direct(app_clone.clone(), download_url, cookies_owned, title_owned).await {
+                            if let Err(e) = download_douyin_direct(app_clone.clone(), download_url, cookies_header, title_owned).await {
                                 println!(">>> [Rust] Douyin download error: {}", e);
+                                // Emit complete event with error to close progress bar
+                                let result = DownloadResult {
+                                    success: false,
+                                    file_path: None,
+                                    error: Some(e),
+                                };
+                                let _ = app_clone.emit("video-download-complete", result);
+                            }
+                        });
+                    } else if (is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url)) && video_url.is_some() {
+                        let download_url = video_url.unwrap().to_string();
+                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
+                        let title_owned = title.map(|s| s.to_string());
+                        println!(">>> [Rust] Xiaohongshu direct video URL: {}", download_url);
+                        tokio::spawn(async move {
+                            if let Err(e) = download_xiaohongshu_direct(app_clone.clone(), download_url, cookies_header, title_owned).await {
+                                println!(">>> [Rust] Xiaohongshu download error: {}", e);
                                 // Emit complete event with error to close progress bar
                                 let result = DownloadResult {
                                     success: false,
@@ -2094,7 +2350,8 @@ pub fn run() {
             broadcast_theme,
             set_window_size,
             set_window_position,
-            get_videodl_status
+            get_videodl_status,
+            get_videodl_health
         ])
         .setup(|app| {
             // Create Tray Menu
@@ -2118,7 +2375,8 @@ pub fn run() {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
-                            let _ = window.set_skip_taskbar(true);
+                            keep_window_off_taskbar(&window);
+                            let _ = app.emit("shortcut-show", ());
                         }
                     }
                     "settings" => {
@@ -2150,7 +2408,8 @@ pub fn run() {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
-                            let _ = window.set_skip_taskbar(true);
+                            keep_window_off_taskbar(&window);
+                            let _ = app.emit("shortcut-show", ());
                         }
                     }
                 })
@@ -2175,7 +2434,7 @@ pub fn run() {
 
             // Hide from taskbar
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_skip_taskbar(true);
+                keep_window_off_taskbar(&window);
             }
 
             // Enable devtools if devMode is enabled
@@ -2215,10 +2474,21 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                // Stop videodl server on app exit
-                stop_videodl_server(app);
-                println!(">>> [App] Exit, videodl server stopped");
+            match event {
+                tauri::RunEvent::Reopen { .. } => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        keep_window_off_taskbar(&window);
+                        let _ = app.emit("shortcut-show", ());
+                    }
+                }
+                tauri::RunEvent::Exit => {
+                    // Stop videodl server on app exit
+                    stop_videodl_server(app);
+                    println!(">>> [App] Exit, videodl server stopped");
+                }
+                _ => {}
             }
         });
 }

@@ -37,6 +37,17 @@
       "js": ["bilibili-detector.js"],
       "css": ["bilibili-button.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.xiaohongshu.com/*",
+        "https://xiaohongshu.com/*",
+        "https://*.xhslink.com/*",
+        "https://xhslink.com/*"
+      ],
+      "js": ["xiaohongshu-detector.js"],
+      "css": ["xiaohongshu-button.css"],
+      "run_at": "document_idle"
     }
   ],
   "background": {

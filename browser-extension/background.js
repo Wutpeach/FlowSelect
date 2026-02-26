@@ -153,6 +153,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           url: message.url,
           pageUrl: pageUrl,
           title: message.title,
+          videoUrl: message.videoUrl,
           cookies: cookies
         }
       });
