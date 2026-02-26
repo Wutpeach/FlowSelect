@@ -77,6 +77,7 @@ function App() {
   const isDraggingRef = useRef(false);
   const downloadCancelledRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const isPanelHoveredRef = useRef(false);
 
   // Window size constants
   const FULL_SIZE = 200;
@@ -260,10 +261,16 @@ function App() {
       setTimeout(() => setIsProcessing(false), 1500);
       // 下载完成后延迟5秒再启动 idle timer
       setTimeout(() => {
-        idleTimerRef.current = window.setTimeout(() => {
-          setIsMinimized(true);
-          setShowEdgeGlow(false);
-        }, 3000);
+        if (idleTimerRef.current) {
+          clearTimeout(idleTimerRef.current);
+        }
+        if (!isDraggingRef.current && !isPanelHoveredRef.current) {
+          idleTimerRef.current = window.setTimeout(() => {
+            if (isDraggingRef.current || isPanelHoveredRef.current) return;
+            setIsMinimized(true);
+            setShowEdgeGlow(false);
+          }, 3000);
+        }
       }, 5000);
     });
     return () => {
@@ -317,12 +324,12 @@ function App() {
       setShowEdgeGlow(false);
       setTimeout(() => setShowEdgeGlow(true), 500);
 
-      // 重置 idle timer
       if (idleTimerRef.current) {
         clearTimeout(idleTimerRef.current);
       }
-      if (!downloadProgress && !isDraggingRef.current) {
+      if (!downloadProgress && !isDraggingRef.current && !isPanelHoveredRef.current) {
         idleTimerRef.current = window.setTimeout(() => {
+          if (isDraggingRef.current || isPanelHoveredRef.current) return;
           setIsMinimized(true);
           setShowEdgeGlow(false);
         }, 3000);
@@ -365,14 +372,14 @@ function App() {
   }, [devMode]);
 
   // Idle auto-minimize: reset timer helper
-  const resetIdleTimer = () => {
+  const resetIdleTimer = ({ expandIfMinimized = true }: { expandIfMinimized?: boolean } = {}) => {
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
     }
     const wasMinimized = isMinimized;
 
     // Use async expandWindow instead of direct setIsMinimized
-    if (wasMinimized) {
+    if (expandIfMinimized && wasMinimized) {
       expandWindow();
       setShowEdgeGlow(false);
       setTimeout(() => setShowEdgeGlow(true), 500);
@@ -383,10 +390,11 @@ function App() {
       }, 100);
     }
 
-    // 下载进行中或拖拽中时不启动 idle timer
-    if (downloadProgress || isDraggingRef.current) return;
+    // 下载进行中、拖拽中或鼠标仍停留在面板内时不启动 idle timer
+    if (downloadProgress || isDraggingRef.current || isPanelHoveredRef.current) return;
 
     idleTimerRef.current = window.setTimeout(() => {
+      if (isDraggingRef.current || isPanelHoveredRef.current) return;
       setIsMinimized(true);
       setShowEdgeGlow(false); // 缩小时立即隐藏边缘光
     }, 3000);
@@ -405,6 +413,10 @@ function App() {
   // Handle window drag start - prevents minimize during drag
   const handleDragStart = async (e: React.MouseEvent) => {
     if (e.button !== 0) return; // 只响应左键
+    if (isMinimized) {
+      resetIdleTimer();
+      return;
+    }
 
     isDraggingRef.current = true;
     if (idleTimerRef.current) {
@@ -914,12 +926,15 @@ function App() {
           x: e.clientX - rect.left,
           y: e.clientY - rect.top,
         });
+        isPanelHoveredRef.current = true;
         setIsPanelHovered(true);
         resetIdleTimer();
         containerRef.current?.focus();
       }}
       onMouseLeave={() => {
+        isPanelHoveredRef.current = false;
         setIsPanelHovered(false);
+        resetIdleTimer({ expandIfMinimized: false });
       }}
       onMouseDown={handleDragStart}
       onMouseUp={() => {

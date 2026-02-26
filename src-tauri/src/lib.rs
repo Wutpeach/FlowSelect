@@ -16,6 +16,8 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
@@ -93,6 +95,23 @@ fn keep_window_off_taskbar(_window: &tauri::WebviewWindow) {
     #[cfg(target_os = "windows")]
     {
         let _ = _window.set_skip_taskbar(true);
+    }
+}
+
+fn show_main_window(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.set_activation_policy(ActivationPolicy::Accessory);
+        let _ = app.set_dock_visibility(false);
+        let _ = app.show();
+    }
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        keep_window_off_taskbar(&window);
+        let _ = app.emit("shortcut-show", ());
     }
 }
 
@@ -1900,11 +1919,7 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                             let y = pos.y + 50.0;
                             let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
                         }
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                        keep_window_off_taskbar(&window);
-                        // Notify frontend to cancel icon mode
-                        let _ = app_handle.emit("shortcut-show", ());
+                        show_main_window(&app_handle);
                     }
                 }
             }
@@ -2404,6 +2419,12 @@ pub fn run() {
             get_videodl_health
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                let _ = app.handle().set_activation_policy(ActivationPolicy::Accessory);
+                let _ = app.handle().set_dock_visibility(false);
+            }
+
             // Create Tray Menu
             let quit_i = MenuItem::with_id(app, "quit", "Quit FlowSelect", true, None::<&str>)?;
             let show_i = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
@@ -2422,12 +2443,7 @@ pub fn run() {
                         app.exit(0);
                     }
                     "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            keep_window_off_taskbar(&window);
-                            let _ = app.emit("shortcut-show", ());
-                        }
+                        show_main_window(app);
                     }
                     "settings" => {
                         if let Some(window) = app.get_webview_window("settings") {
@@ -2455,12 +2471,7 @@ pub fn run() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            keep_window_off_taskbar(&window);
-                            let _ = app.emit("shortcut-show", ());
-                        }
+                        show_main_window(&app);
                     }
                 })
                 .build(app)?;
@@ -2526,12 +2537,7 @@ pub fn run() {
         .run(|app, event| {
             match event {
                 tauri::RunEvent::Reopen { .. } => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                        keep_window_off_taskbar(&window);
-                        let _ = app.emit("shortcut-show", ());
-                    }
+                    show_main_window(app);
                 }
                 tauri::RunEvent::Exit => {
                     // Stop videodl server on app exit
