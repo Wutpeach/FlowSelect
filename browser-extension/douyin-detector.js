@@ -193,52 +193,125 @@
   // ============================================
   // Video URL Extraction
   // ============================================
-  function extractVideoUrl() {
-    // Method 1: Try to get from video element directly
+  function normalizeCandidateUrl(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    const normalized = raw.replace(/\\u002F/g, '/').trim();
+    if (!normalized.startsWith('http')) return null;
+    if (normalized.startsWith('blob:')) return null;
+    return normalized;
+  }
+
+  function isManifestUrl(url) {
+    return /\.m3u8(\?|$)/i.test(url);
+  }
+
+  function isLikelyDouyinMediaUrl(url) {
+    return /douyin|douyinvod|douyincdn|bytedance|\.mp4(\?|$)|\.m3u8(\?|$)/i.test(url);
+  }
+
+  function classifyCandidateType(url) {
+    const lower = url.toLowerCase();
+    if (isManifestUrl(lower)) return 'manifest_m3u8';
+    if (/douyinvod|douyincdn|bytedance/.test(lower)) return 'direct_cdn';
+    if (/\.mp4(\?|$)/.test(lower)) return 'direct_mp4';
+    return 'indirect_media';
+  }
+
+  function typeScore(type) {
+    switch (type) {
+      case 'direct_cdn':
+        return 100;
+      case 'direct_mp4':
+        return 90;
+      case 'indirect_media':
+        return 45;
+      case 'manifest_m3u8':
+        return 10;
+      default:
+        return 0;
+    }
+  }
+
+  function sourceScore(source) {
+    switch (source) {
+      case 'video_element':
+        return 20;
+      case 'video_source':
+        return 18;
+      case 'render_data':
+        return 15;
+      case 'react_fiber':
+        return 12;
+      case 'performance_resource':
+        return 8;
+      default:
+        return 0;
+    }
+  }
+
+  function confidenceForScore(score) {
+    if (score >= 110) return 'high';
+    if (score >= 70) return 'medium';
+    return 'low';
+  }
+
+  function extractVideoCandidates() {
+    const seen = new Set();
+    const candidates = [];
+
+    const collectCandidate = (raw, source) => {
+      const url = normalizeCandidateUrl(raw);
+      if (!url || seen.has(url) || !isLikelyDouyinMediaUrl(url)) return;
+      seen.add(url);
+      const type = classifyCandidateType(url);
+      const score = typeScore(type) + sourceScore(source);
+      candidates.push({
+        url,
+        type,
+        confidence: confidenceForScore(score),
+        source,
+        score,
+      });
+    };
+
+    // Method 1: video element src/currentSrc
     const videoEl = document.querySelector('video');
     if (videoEl) {
       console.log('[FlowSelect Douyin] Video element found');
-      if (videoEl.src && !videoEl.src.startsWith('blob:')) {
-        return videoEl.src;
-      }
-      if (videoEl.currentSrc && !videoEl.currentSrc.startsWith('blob:')) {
-        return videoEl.currentSrc;
-      }
+      collectCandidate(videoEl.currentSrc, 'video_element');
+      collectCandidate(videoEl.src, 'video_element');
+      collectCandidate(videoEl.getAttribute('src'), 'video_element');
     }
 
-    // Method 2: Try to get from source element
+    // Method 2: source element
     const sourceEl = document.querySelector('video source');
-    if (sourceEl && sourceEl.src) {
-      console.log('[FlowSelect Douyin] Found source src');
-      return sourceEl.src;
+    if (sourceEl) {
+      collectCandidate(sourceEl.src, 'video_source');
+      collectCandidate(sourceEl.getAttribute('src'), 'video_source');
     }
 
-    // Method 3: Try RENDER_DATA (works on initial page load)
+    // Method 3: RENDER_DATA
     try {
       const script = document.getElementById('RENDER_DATA');
       if (script && script.textContent) {
         const decoded = decodeURIComponent(script.textContent);
         const data = JSON.parse(decoded);
-
         const video = data.app?.videoDetail?.video
           || data['36']?.awemeDetail?.video
           || data['37']?.awemeDetail?.video;
 
         if (video) {
-          const url = video.playAddr?.[0]?.src
-            || video.play_addr?.url_list?.[0]
-            || video.playApi;
-          if (url) {
-            console.log('[FlowSelect Douyin] Found URL from RENDER_DATA');
-            return url;
-          }
+          collectCandidate(video.playAddr?.[0]?.src, 'render_data');
+          const playAddrList = Array.isArray(video.play_addr?.url_list) ? video.play_addr.url_list : [];
+          playAddrList.forEach((candidate) => collectCandidate(candidate, 'render_data'));
+          collectCandidate(video.playApi, 'render_data');
         }
       }
     } catch (e) {
       console.error('[FlowSelect Douyin] RENDER_DATA parse error:', e);
     }
 
-    // Method 4: Try React Fiber (for SPA navigation)
+    // Method 4: React Fiber
     try {
       const container = document.querySelector('.xg-video-container');
       if (container) {
@@ -247,10 +320,8 @@
           let fiber = container[fiberKey];
           for (let i = 0; i < 20 && fiber; i++) {
             const props = fiber.memoizedProps || fiber.pendingProps;
-            if (props?.videoData?.video?.playApi) {
-              console.log('[FlowSelect Douyin] Found URL from React Fiber');
-              return props.videoData.video.playApi;
-            }
+            collectCandidate(props?.videoData?.video?.playApi, 'react_fiber');
+            collectCandidate(props?.videoData?.video?.playAddr?.[0]?.src, 'react_fiber');
             fiber = fiber.return;
           }
         }
@@ -259,8 +330,26 @@
       console.error('[FlowSelect Douyin] React Fiber error:', e);
     }
 
-    console.log('[FlowSelect Douyin] Video URL not found');
-    return null;
+    // Method 5: Performance resource scan
+    const resources = performance.getEntriesByType('resource') || [];
+    for (let i = resources.length - 1; i >= 0 && i > resources.length - 80; i -= 1) {
+      collectCandidate(resources[i]?.name, 'performance_resource');
+    }
+
+    return candidates
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12)
+      .map(({ score, ...candidate }) => candidate);
+  }
+
+  function extractVideoUrl() {
+    const candidates = extractVideoCandidates();
+    const directCandidate = candidates.find((candidate) => candidate.type !== 'manifest_m3u8');
+    if (!directCandidate) {
+      console.log('[FlowSelect Douyin] Direct candidate not found');
+      return null;
+    }
+    return directCandidate.url;
   }
 
   // Extract video title from page
@@ -286,7 +375,8 @@
   // ============================================
   function downloadVideo() {
     const pageUrl = window.location.href;
-    const videoUrl = extractVideoUrl();
+    const videoCandidates = extractVideoCandidates();
+    const videoUrl = videoCandidates.find((candidate) => candidate.type !== 'manifest_m3u8')?.url || null;
     const title = extractVideoTitle();
 
     console.log('[FlowSelect Douyin] Downloading video');
@@ -299,6 +389,7 @@
       url: videoUrl || pageUrl,
       pageUrl: pageUrl,
       videoUrl: videoUrl,
+      videoCandidates: videoCandidates,
       title: title
     });
   }
@@ -312,6 +403,7 @@
       type: 'video_selected',
       url: pageUrl,
       pageUrl: pageUrl,
+      videoCandidates: [],
       title: title || ''
     });
   }

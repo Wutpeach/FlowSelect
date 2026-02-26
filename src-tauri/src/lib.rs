@@ -51,6 +51,38 @@ struct WsResponse {
     data: Option<serde_json::Value>,
 }
 
+#[derive(Clone, Debug)]
+struct ExtensionVideoCandidate {
+    url: String,
+    candidate_type: Option<String>,
+    source: Option<String>,
+    confidence: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+enum DirectPlatform {
+    Douyin,
+    Xiaohongshu,
+}
+
+impl DirectPlatform {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Douyin => "douyin",
+            Self::Xiaohongshu => "xiaohongshu",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct SelectedDirectCandidate {
+    url: String,
+    origin: &'static str,
+    candidate_type: Option<String>,
+    source: Option<String>,
+    confidence: Option<String>,
+}
+
 #[derive(serde::Deserialize, Debug)]
 struct VideodlHealthResponse {
     #[allow(dead_code)]
@@ -999,7 +1031,10 @@ fn is_douyin_url(url: &str) -> bool {
 
 /// Check if URL is a direct Douyin CDN media link
 fn is_douyin_cdn_url(url: &str) -> bool {
-    url.contains("douyinvod.com") || url.contains("douyincdn.com")
+    let lower = url.to_ascii_lowercase();
+    lower.contains("douyinvod.com")
+        || lower.contains("douyincdn.com")
+        || lower.contains("bytedance.com")
 }
 
 /// Check if URL is a Xiaohongshu page URL
@@ -1011,6 +1046,105 @@ fn is_xiaohongshu_url(url: &str) -> bool {
 fn is_xiaohongshu_cdn_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     lower.contains("xhscdn.com") && !lower.contains(".m3u8")
+}
+
+fn normalize_video_candidate_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if !trimmed.starts_with("http") || trimmed.starts_with("blob:") {
+        return None;
+    }
+
+    Some(trimmed.replace("\\u002F", "/"))
+}
+
+fn is_manifest_video_url(url: &str) -> bool {
+    url.to_ascii_lowercase().contains(".m3u8")
+}
+
+fn parse_extension_video_candidates(data: &serde_json::Value) -> Vec<ExtensionVideoCandidate> {
+    let mut candidates: Vec<ExtensionVideoCandidate> = Vec::new();
+
+    let Some(raw_candidates) = data.get("videoCandidates").and_then(|v| v.as_array()) else {
+        return candidates;
+    };
+
+    for candidate in raw_candidates {
+        let Some(raw_url) = candidate.get("url").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(url) = normalize_video_candidate_url(raw_url) else {
+            continue;
+        };
+
+        let candidate_type = candidate
+            .get("type")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let source = candidate
+            .get("source")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let confidence = candidate
+            .get("confidence")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        candidates.push(ExtensionVideoCandidate {
+            url,
+            candidate_type,
+            source,
+            confidence,
+        });
+    }
+
+    candidates
+}
+
+fn is_direct_candidate_for_platform(platform: DirectPlatform, url: &str) -> bool {
+    if is_manifest_video_url(url) {
+        return false;
+    }
+
+    match platform {
+        DirectPlatform::Douyin => is_douyin_cdn_url(url),
+        DirectPlatform::Xiaohongshu => is_xiaohongshu_cdn_url(url),
+    }
+}
+
+fn select_direct_candidate(
+    platform: DirectPlatform,
+    primary_video_url: Option<&str>,
+    video_candidates: &[ExtensionVideoCandidate],
+) -> Option<SelectedDirectCandidate> {
+    if let Some(primary) = primary_video_url.and_then(normalize_video_candidate_url) {
+        if is_direct_candidate_for_platform(platform, &primary) {
+            return Some(SelectedDirectCandidate {
+                url: primary,
+                origin: "videoUrl",
+                candidate_type: Some("legacy_video_url".to_string()),
+                source: Some("legacy".to_string()),
+                confidence: Some("medium".to_string()),
+            });
+        }
+    }
+
+    for candidate in video_candidates {
+        if is_direct_candidate_for_platform(platform, &candidate.url) {
+            return Some(SelectedDirectCandidate {
+                url: candidate.url.clone(),
+                origin: "videoCandidates",
+                candidate_type: candidate.candidate_type.clone(),
+                source: candidate.source.clone(),
+                confidence: candidate.confidence.clone(),
+            });
+        }
+    }
+
+    None
 }
 
 /// Convert Netscape cookie file content to Cookie header format: "k1=v1; k2=v2"
@@ -2718,11 +2852,19 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
         "video_selected" => {
             if let Some(data) = msg.data {
                 if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
-                    // Extract cookies and videoUrl from extension
+                    // Extract cookies and optional direct candidates from extension.
                     let cookies = data.get("cookies").and_then(|v| v.as_str());
                     let video_url = data.get("videoUrl").and_then(|v| v.as_str());
                     let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
                     let title = data.get("title").and_then(|v| v.as_str());
+                    let video_candidates = parse_extension_video_candidates(&data);
+                    let douyin_direct_candidate =
+                        select_direct_candidate(DirectPlatform::Douyin, video_url, &video_candidates);
+                    let xiaohongshu_direct_candidate = select_direct_candidate(
+                        DirectPlatform::Xiaohongshu,
+                        video_url,
+                        &video_candidates,
+                    );
                     let trace_id = next_download_trace_id();
 
                     let app_clone = app.clone();
@@ -2732,72 +2874,120 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                         serde_json::json!({
                             "url": url,
                             "pageUrl": page_url,
-                            "hasVideoUrl": video_url.is_some(),
+                            "hasVideoUrl": video_url.is_some_and(|value| !value.is_empty()),
+                            "videoCandidatesCount": video_candidates.len(),
+                            "hasDouyinDirectCandidate": douyin_direct_candidate.is_some(),
+                            "hasXiaohongshuDirectCandidate": xiaohongshu_direct_candidate.is_some(),
                             "hasCookies": cookies.is_some_and(|value| !value.is_empty()),
                             "hasTitle": title.is_some_and(|value| !value.is_empty()),
                         }),
                     );
 
-                    // Direct downloader for platforms where extension provides direct media URL
-                    if (is_douyin_url(page_url) || is_douyin_url(url)) && video_url.is_some() {
-                        let download_url = video_url.unwrap_or_default().to_string();
-                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
-                        let title_owned = title.map(|s| s.to_string());
-                        let trace_id_for_task = trace_id.clone();
-                        println!(">>> [Rust] Douyin direct video URL: {}", download_url);
-                        log_download_trace(
-                            &trace_id_for_task,
-                            "route_selected",
-                            serde_json::json!({
-                                "route": DownloadRoute::DirectDouyin.as_str(),
-                                "source": "ws_video_selected",
-                            }),
-                        );
-                        tokio::spawn(async move {
-                            let route_chain = [DownloadRoute::DirectDouyin];
-                            let started_at = std::time::Instant::now();
+                    if is_douyin_url(page_url) || is_douyin_url(url) {
+                        if let Some(selected) = douyin_direct_candidate {
+                            let download_url = selected.url;
+                            let selected_origin = selected.origin;
+                            let selected_type = selected.candidate_type;
+                            let selected_source = selected.source;
+                            let selected_confidence = selected.confidence;
+                            let cookies_header = cookies.and_then(netscape_cookies_to_header);
+                            let title_owned = title.map(|s| s.to_string());
+                            let trace_id_for_task = trace_id.clone();
+                            println!(">>> [Rust] Douyin direct video URL: {}", download_url);
                             log_download_trace(
                                 &trace_id_for_task,
-                                "attempt_start",
+                                "route_selected",
                                 serde_json::json!({
-                                    "attempt": 1,
                                     "route": DownloadRoute::DirectDouyin.as_str(),
+                                    "platform": DirectPlatform::Douyin.as_str(),
+                                    "source": selected_origin,
+                                    "candidateType": selected_type,
+                                    "candidateSource": selected_source,
+                                    "candidateConfidence": selected_confidence,
                                 }),
                             );
-                            match download_douyin_direct(app_clone.clone(), download_url, cookies_header, title_owned).await {
-                                Ok(result) => {
-                                    let category = if result.success {
-                                        DownloadOutcomeCategory::DirectSuccess
-                                    } else if is_cancelled_error(result.error.as_deref().unwrap_or_default()) {
-                                        DownloadOutcomeCategory::Cancelled
-                                    } else {
-                                        DownloadOutcomeCategory::AllFailed
-                                    };
-                                    log_terminal_outcome(
-                                        &trace_id_for_task,
-                                        category,
-                                        Some(DownloadRoute::DirectDouyin),
-                                        &route_chain,
-                                        started_at.elapsed().as_millis(),
-                                        result.error.as_deref(),
-                                    );
+                            tokio::spawn(async move {
+                                let route_chain = [DownloadRoute::DirectDouyin];
+                                let started_at = std::time::Instant::now();
+                                log_download_trace(
+                                    &trace_id_for_task,
+                                    "attempt_start",
+                                    serde_json::json!({
+                                        "attempt": 1,
+                                        "route": DownloadRoute::DirectDouyin.as_str(),
+                                    }),
+                                );
+                                match download_douyin_direct(app_clone.clone(), download_url, cookies_header, title_owned).await {
+                                    Ok(result) => {
+                                        let category = if result.success {
+                                            DownloadOutcomeCategory::DirectSuccess
+                                        } else if is_cancelled_error(result.error.as_deref().unwrap_or_default()) {
+                                            DownloadOutcomeCategory::Cancelled
+                                        } else {
+                                            DownloadOutcomeCategory::AllFailed
+                                        };
+                                        log_terminal_outcome(
+                                            &trace_id_for_task,
+                                            category,
+                                            Some(DownloadRoute::DirectDouyin),
+                                            &route_chain,
+                                            started_at.elapsed().as_millis(),
+                                            result.error.as_deref(),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        println!(">>> [Rust] Douyin download error: {}", e);
+                                        let category = if is_cancelled_error(e.as_str()) {
+                                            DownloadOutcomeCategory::Cancelled
+                                        } else {
+                                            DownloadOutcomeCategory::AllFailed
+                                        };
+                                        log_terminal_outcome(
+                                            &trace_id_for_task,
+                                            category,
+                                            Some(DownloadRoute::DirectDouyin),
+                                            &route_chain,
+                                            started_at.elapsed().as_millis(),
+                                            Some(e.as_str()),
+                                        );
+                                        // Emit complete event with error to close progress bar
+                                        let result = DownloadResult {
+                                            success: false,
+                                            file_path: None,
+                                            error: Some(e),
+                                        };
+                                        let _ = app_clone.emit("video-download-complete", result);
+                                    }
                                 }
-                                Err(e) => {
-                                    println!(">>> [Rust] Douyin download error: {}", e);
-                                    let category = if is_cancelled_error(e.as_str()) {
-                                        DownloadOutcomeCategory::Cancelled
-                                    } else {
-                                        DownloadOutcomeCategory::AllFailed
-                                    };
-                                    log_terminal_outcome(
-                                        &trace_id_for_task,
-                                        category,
-                                        Some(DownloadRoute::DirectDouyin),
-                                        &route_chain,
-                                        started_at.elapsed().as_millis(),
-                                        Some(e.as_str()),
-                                    );
-                                    // Emit complete event with error to close progress bar
+                            });
+                        } else {
+                            // If no direct candidate exists, route by page URL through smart path.
+                            let page_url_owned = page_url.to_string();
+                            let title_owned = title.map(|s| s.to_string());
+                            let cookies_path = cookies
+                                .filter(|s| !s.is_empty())
+                                .and_then(|s| save_extension_cookies(s).ok());
+                            let trace_id_for_task = trace_id.clone();
+                            log_download_trace(
+                                &trace_id_for_task,
+                                "route_selected",
+                                serde_json::json!({
+                                    "route": "smart_router",
+                                    "platform": DirectPlatform::Douyin.as_str(),
+                                    "reason": "douyin_no_direct_candidate",
+                                    "hasVideoUrl": video_url.is_some_and(|value| !value.is_empty()),
+                                    "videoCandidatesCount": video_candidates.len(),
+                                }),
+                            );
+                            tokio::spawn(async move {
+                                if let Err(e) = download_video_smart(
+                                    app_clone.clone(),
+                                    page_url_owned,
+                                    title_owned,
+                                    cookies_path,
+                                    Some(trace_id_for_task.clone()),
+                                ).await {
+                                    println!(">>> [Rust] Douyin smart fallback error: {}", e);
                                     let result = DownloadResult {
                                         success: false,
                                         file_path: None,
@@ -2805,22 +2995,29 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                     };
                                     let _ = app_clone.emit("video-download-complete", result);
                                 }
-                            }
-                        });
-                    } else if (is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url)) && video_url.is_some() {
-                        let extracted_video_url = video_url.unwrap_or_default().to_string();
-                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
-                        let title_owned = title.map(|s| s.to_string());
-                        let trace_id_for_task = trace_id.clone();
-
-                        if is_xiaohongshu_cdn_url(&extracted_video_url) {
+                            });
+                        }
+                    } else if is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url) {
+                        if let Some(selected) = xiaohongshu_direct_candidate {
+                            let extracted_video_url = selected.url;
+                            let selected_origin = selected.origin;
+                            let selected_type = selected.candidate_type;
+                            let selected_source = selected.source;
+                            let selected_confidence = selected.confidence;
+                            let cookies_header = cookies.and_then(netscape_cookies_to_header);
+                            let title_owned = title.map(|s| s.to_string());
+                            let trace_id_for_task = trace_id.clone();
                             println!(">>> [Rust] Xiaohongshu direct video URL: {}", extracted_video_url);
                             log_download_trace(
                                 &trace_id_for_task,
                                 "route_selected",
                                 serde_json::json!({
                                     "route": DownloadRoute::DirectXiaohongshu.as_str(),
-                                    "source": "ws_video_selected",
+                                    "platform": DirectPlatform::Xiaohongshu.as_str(),
+                                    "source": selected_origin,
+                                    "candidateType": selected_type,
+                                    "candidateSource": selected_source,
+                                    "candidateConfidence": selected_confidence,
                                 }),
                             );
                             tokio::spawn(async move {
@@ -2878,22 +3075,22 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                 }
                             });
                         } else {
-                            // If extension extracted manifest/non-direct URL, fallback to smart download on page URL.
+                            // If extension extracted only manifest/non-direct URLs, fallback to smart download on page URL.
                             let page_url_owned = page_url.to_string();
+                            let title_owned = title.map(|s| s.to_string());
                             let cookies_path = cookies
                                 .filter(|s| !s.is_empty())
                                 .and_then(|s| save_extension_cookies(s).ok());
-                            println!(
-                                ">>> [Rust] Xiaohongshu extracted URL is not direct media, fallback to smart: {}",
-                                extracted_video_url
-                            );
+                            let trace_id_for_task = trace_id.clone();
                             log_download_trace(
                                 &trace_id_for_task,
                                 "route_selected",
                                 serde_json::json!({
                                     "route": "smart_router",
-                                    "reason": "xiaohongshu_non_direct_video_url",
-                                    "extractedVideoUrl": extracted_video_url,
+                                    "platform": DirectPlatform::Xiaohongshu.as_str(),
+                                    "reason": "xiaohongshu_no_direct_candidate",
+                                    "hasVideoUrl": video_url.is_some_and(|value| !value.is_empty()),
+                                    "videoCandidatesCount": video_candidates.len(),
                                 }),
                             );
                             tokio::spawn(async move {

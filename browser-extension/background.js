@@ -94,6 +94,25 @@ function sendToApp(data) {
   }
 }
 
+function normalizeVideoCandidates(rawCandidates) {
+  if (!Array.isArray(rawCandidates)) return [];
+
+  const normalized = [];
+  for (const candidate of rawCandidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const url = typeof candidate.url === 'string' ? candidate.url.trim() : '';
+    if (!url || !url.startsWith('http') || url.startsWith('blob:')) continue;
+    normalized.push({
+      url,
+      type: typeof candidate.type === 'string' ? candidate.type : 'unknown',
+      confidence: typeof candidate.confidence === 'string' ? candidate.confidence : 'low',
+      source: typeof candidate.source === 'string' ? candidate.source : 'unknown',
+    });
+  }
+
+  return normalized;
+}
+
 // Convert cookies to Netscape format for yt-dlp
 function cookiesToNetscape(cookies) {
   // Netscape cookie file header is required
@@ -146,6 +165,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'video_selected') {
     // Get cookies and send to app
     const pageUrl = sender.tab?.url || message.url;
+    const videoCandidates = normalizeVideoCandidates(message.videoCandidates);
     getCookiesForUrl(pageUrl).then(cookies => {
       sendToApp({
         action: 'video_selected',
@@ -154,6 +174,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           pageUrl: pageUrl,
           title: message.title,
           videoUrl: message.videoUrl,
+          videoCandidates: videoCandidates,
           cookies: cookies
         }
       });
