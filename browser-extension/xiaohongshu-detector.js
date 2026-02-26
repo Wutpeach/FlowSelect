@@ -102,14 +102,7 @@
     });
   }
 
-  function ensureControlBarButton() {
-    const controls = document.querySelector('xg-controls.xgplayer-controls, .xgplayer-controls');
-    if (!controls) return false;
-
-    let existing = controls.querySelector(`.${CONTROL_BUTTON_CLASS}`);
-    if (existing) return true;
-
-    // Build button with xgplayer-like structure so layout matches native controls.
+  function createControlBarButton() {
     const button = document.createElement('xg-pip');
     button.className = `xgplayer-pip ${CONTROL_BUTTON_CLASS}`;
     button.title = 'Download with FlowSelect';
@@ -129,21 +122,66 @@
       handleDownload();
     });
 
-    // Place to the left of playback rate button when available.
+    return button;
+  }
+
+  function resolveControlAnchor(controls) {
     const playback = controls.querySelector('xg-playbackrate');
-    const pip = controls.querySelector('xg-pip');
-    const fullscreen = controls.querySelector('xg-fullscreen');
     if (playback && playback.parentNode === controls) {
-      controls.insertBefore(button, playback);
-    } else if (pip && pip.parentNode === controls) {
-      controls.insertBefore(button, pip);
-    } else if (fullscreen && fullscreen.parentNode === controls) {
-      controls.insertBefore(button, fullscreen);
-    } else {
+      return { anchor: playback, playback };
+    }
+
+    const nativePip = Array.from(controls.querySelectorAll('xg-pip')).find(
+      (el) => !el.classList.contains(CONTROL_BUTTON_CLASS) && el.parentNode === controls
+    );
+    if (nativePip) {
+      return { anchor: nativePip, playback: null };
+    }
+
+    const fullscreen = controls.querySelector('xg-fullscreen');
+    if (fullscreen && fullscreen.parentNode === controls) {
+      return { anchor: fullscreen, playback: null };
+    }
+
+    return { anchor: null, playback: null };
+  }
+
+  function syncButtonOrder(button, playback) {
+    if (!playback) {
+      button.style.removeProperty('order');
+      return;
+    }
+
+    const playbackOrder = window.getComputedStyle(playback).order;
+    if (playbackOrder && playbackOrder !== '0') {
+      // Match xgplayer's flex order so the custom control stays in the same group.
+      button.style.order = playbackOrder;
+      return;
+    }
+
+    button.style.removeProperty('order');
+  }
+
+  function ensureControlBarButton() {
+    const controls = document.querySelector('xg-controls.xgplayer-controls, .xgplayer-controls');
+    if (!controls) return false;
+
+    let button = controls.querySelector(`.${CONTROL_BUTTON_CLASS}`);
+    if (!button) {
+      button = createControlBarButton();
+      console.log('[FlowSelect XHS] Control button injected');
+    }
+
+    const { anchor, playback } = resolveControlAnchor(controls);
+    if (anchor) {
+      if (button.parentNode !== controls || button.nextSibling !== anchor) {
+        controls.insertBefore(button, anchor);
+      }
+    } else if (button.parentNode !== controls) {
       controls.appendChild(button);
     }
 
-    console.log('[FlowSelect XHS] Control button injected');
+    syncButtonOrder(button, playback);
     return true;
   }
 
