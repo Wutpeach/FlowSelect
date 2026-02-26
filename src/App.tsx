@@ -868,6 +868,12 @@ function App() {
     await invoke("open_folder", { path });
   };
 
+  const containerBoxShadow = downloadProgress
+    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px rgba(59,130,246,0.35), 0 2px 4px rgba(0,0,0,0.1)`
+    : isHovering
+      ? `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)`
+      : `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`;
+
   return (
     <motion.div
       ref={containerRef}
@@ -940,9 +946,7 @@ function App() {
         outline: 'none',
         background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
         border: 'none',
-        boxShadow: (isHovering || downloadProgress)
-          ? `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)`
-          : `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`,
+        boxShadow: containerBoxShadow,
         willChange: 'transform',
       }}
     >
