@@ -1,9 +1,10 @@
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
-use std::net::SocketAddr;
+use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
@@ -13,13 +14,13 @@ use tokio::sync::broadcast;
 #[cfg(windows)]
 use clipboard_win::{formats, get_clipboard};
 use dirs::desktop_dir;
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
-#[cfg(target_os = "macos")]
-use tauri::ActivationPolicy;
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
@@ -83,6 +84,12 @@ struct SelectedDirectCandidate {
     confidence: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+struct DirectCandidateCacheEntry {
+    url: String,
+    expires_at_ms: u128,
+}
+
 #[derive(serde::Deserialize, Debug)]
 struct VideodlHealthResponse {
     #[allow(dead_code)]
@@ -109,6 +116,10 @@ static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
 static DOWNLOAD_CANCELLED: Mutex<bool> = Mutex::new(false);
 // Incremental sequence for download trace ids.
 static DOWNLOAD_TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
+static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCacheEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
+const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
 
 // videodl HTTP server state
 struct VideodlServerState {
@@ -165,7 +176,9 @@ fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
         Ok(manifest_dir.join("binaries").join(exe_name))
     } else {
         // 发布模式：从 resources 目录读取
-        let resource_dir = app.path().resource_dir()
+        let resource_dir = app
+            .path()
+            .resource_dir()
             .map_err(|e| format!("Failed to get resource dir: {}", e))?;
         Ok(resource_dir.join("binaries").join(exe_name))
     }
@@ -198,8 +211,7 @@ fn list_files(path: String) -> Result<Vec<String>, String> {
         return Err(format!("Path is not a directory: {}", path));
     }
 
-    let entries = fs::read_dir(dir_path)
-        .map_err(|e| format!("Failed to read directory: {}", e))?;
+    let entries = fs::read_dir(dir_path).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     let files: Vec<String> = entries
         .filter_map(|entry| entry.ok())
@@ -215,8 +227,8 @@ fn get_next_sequence_number(target_dir: &Path) -> Result<u32, String> {
     let mut used_numbers: std::collections::HashSet<u32> = std::collections::HashSet::new();
 
     if target_dir.exists() {
-        let entries = fs::read_dir(target_dir)
-            .map_err(|e| format!("Failed to read directory: {}", e))?;
+        let entries =
+            fs::read_dir(target_dir).map_err(|e| format!("Failed to read directory: {}", e))?;
 
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
@@ -268,27 +280,30 @@ fn process_files(paths: Vec<String>, target_dir: Option<String>) -> Result<Strin
         let source = Path::new(path_str);
         if source.exists() && source.is_file() {
             // 获取原文件扩展名
-            let ext = source
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("bin");
+            let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("bin");
 
             // 获取下一个可用序号
             let seq_num = get_next_sequence_number(&final_target_dir)?;
             let filename = format!("{}.{}", seq_num, ext);
             let dest = final_target_dir.join(&filename);
 
-            fs::copy(source, &dest)
-                .map_err(|e| format!("Failed to copy {}: {}", path_str, e))?;
+            fs::copy(source, &dest).map_err(|e| format!("Failed to copy {}: {}", path_str, e))?;
             copied_count += 1;
         }
     }
 
-    Ok(format!("Copied {} files to {:?}", copied_count, final_target_dir))
+    Ok(format!(
+        "Copied {} files to {:?}",
+        copied_count, final_target_dir
+    ))
 }
 
 #[tauri::command]
-async fn download_image(app: AppHandle, url: String, target_dir: Option<String>) -> Result<String, String> {
+async fn download_image(
+    app: AppHandle,
+    url: String,
+    target_dir: Option<String>,
+) -> Result<String, String> {
     println!(">>> [Rust] Downloading image from: {}", url);
 
     // Determine target directory (read from config if not provided)
@@ -299,7 +314,8 @@ async fn download_image(app: AppHandle, url: String, target_dir: Option<String>)
         let config: serde_json::Value = serde_json::from_str(&config_str)
             .map_err(|e| format!("Failed to parse config: {}", e))?;
 
-        config.get("outputPath")
+        config
+            .get("outputPath")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(|s| std::path::PathBuf::from(s))
@@ -317,15 +333,16 @@ async fn download_image(app: AppHandle, url: String, target_dir: Option<String>)
     }
 
     // Download image
-    let response = reqwest::blocking::get(&url)
-        .map_err(|e| format!("Failed to download: {}", e))?;
+    let response =
+        reqwest::blocking::get(&url).map_err(|e| format!("Failed to download: {}", e))?;
 
     if !response.status().is_success() {
         return Err(format!("HTTP error: {}", response.status()));
     }
 
     // Get extension from Content-Type or URL
-    let ext = response.headers()
+    let ext = response
+        .headers()
         .get("content-type")
         .and_then(|ct| ct.to_str().ok())
         .map(|ct| match ct {
@@ -344,11 +361,12 @@ async fn download_image(app: AppHandle, url: String, target_dir: Option<String>)
     let dest_path = final_target_dir.join(&filename);
 
     // Write to file
-    let bytes = response.bytes()
+    let bytes = response
+        .bytes()
         .map_err(|e| format!("Failed to read response: {}", e))?;
 
-    let mut file = fs::File::create(&dest_path)
-        .map_err(|e| format!("Failed to create file: {}", e))?;
+    let mut file =
+        fs::File::create(&dest_path).map_err(|e| format!("Failed to create file: {}", e))?;
 
     file.write_all(&bytes)
         .map_err(|e| format!("Failed to write file: {}", e))?;
@@ -366,7 +384,12 @@ async fn download_image(app: AppHandle, url: String, target_dir: Option<String>)
 }
 
 #[tauri::command]
-async fn save_data_url(app: AppHandle, data_url: String, target_dir: Option<String>, original_filename: Option<String>) -> Result<String, String> {
+async fn save_data_url(
+    app: AppHandle,
+    data_url: String,
+    target_dir: Option<String>,
+    original_filename: Option<String>,
+) -> Result<String, String> {
     use base64::Engine;
     println!(">>> [Rust] Saving data URL");
 
@@ -376,7 +399,8 @@ async fn save_data_url(app: AppHandle, data_url: String, target_dir: Option<Stri
     }
 
     let data_url = &data_url[5..]; // Remove "data:" prefix
-    let comma_pos = data_url.find(',')
+    let comma_pos = data_url
+        .find(',')
         .ok_or("Invalid data URL: missing comma")?;
 
     let metadata = &data_url[..comma_pos];
@@ -419,7 +443,8 @@ async fn save_data_url(app: AppHandle, data_url: String, target_dir: Option<Stri
         let config: serde_json::Value = serde_json::from_str(&config_str)
             .map_err(|e| format!("Failed to parse config: {}", e))?;
 
-        config.get("outputPath")
+        config
+            .get("outputPath")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(|s| std::path::PathBuf::from(s))
@@ -442,8 +467,8 @@ async fn save_data_url(app: AppHandle, data_url: String, target_dir: Option<Stri
     let dest_path = final_target_dir.join(&filename);
 
     // Write to file
-    let mut file = fs::File::create(&dest_path)
-        .map_err(|e| format!("Failed to create file: {}", e))?;
+    let mut file =
+        fs::File::create(&dest_path).map_err(|e| format!("Failed to create file: {}", e))?;
 
     file.write_all(&bytes)
         .map_err(|e| format!("Failed to write file: {}", e))?;
@@ -475,7 +500,8 @@ fn generate_jsx_script(file_path: &str, target_folder: &str) -> String {
         .replace("\n", "\\n")
         .replace("\r", "\\r")
         .replace("\t", "\\t");
-    format!(r#"(function() {{
+    format!(
+        r#"(function() {{
     var filePath = "{}";
     var targetFolderName = "{}";
     function getOrCreateFolder(name) {{
@@ -492,25 +518,40 @@ fn generate_jsx_script(file_path: &str, target_folder: &str) -> String {
         var importedItem = app.project.importFile(importOptions);
         importedItem.parentFolder = getOrCreateFolder(targetFolderName);
     }}
-}})();"#, escaped_path, escaped_folder)
+}})();"#,
+        escaped_path, escaped_folder
+    )
 }
 
 #[tauri::command]
 async fn send_to_ae(app: AppHandle, file_path: String) -> Result<(), String> {
     let config_str = get_config(app.clone())?;
-    let config: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
 
     // 检查是否启用
-    let enabled = config.get("aePortalEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-    if !enabled { return Ok(()); }
+    let enabled = config
+        .get("aePortalEnabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !enabled {
+        return Ok(());
+    }
 
     // 获取 AE 路径
-    let ae_path = config.get("aeExePath").and_then(|v| v.as_str()).unwrap_or("");
-    if ae_path.is_empty() { return Err("AE path not configured".to_string()); }
+    let ae_path = config
+        .get("aeExePath")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if ae_path.is_empty() {
+        return Err("AE path not configured".to_string());
+    }
 
     // 从 outputPath 提取文件夹名
-    let output_path = config.get("outputPath").and_then(|v| v.as_str()).unwrap_or("");
+    let output_path = config
+        .get("outputPath")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let folder_name = Path::new(output_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -520,8 +561,7 @@ async fn send_to_ae(app: AppHandle, file_path: String) -> Result<(), String> {
     let jsx_content = generate_jsx_script(&file_path, folder_name);
     let temp_dir = std::env::temp_dir();
     let jsx_path = temp_dir.join("flowselect_ae_import.jsx");
-    fs::write(&jsx_path, &jsx_content)
-        .map_err(|e| format!("Failed to write JSX: {}", e))?;
+    fs::write(&jsx_path, &jsx_content).map_err(|e| format!("Failed to write JSX: {}", e))?;
 
     // 执行 afterfx.exe -r script.jsx
     std::process::Command::new(ae_path)
@@ -553,7 +593,7 @@ pub struct DownloadProgress {
     pub eta: String,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum DownloadRoute {
     DirectDouyin,
     DirectXiaohongshu,
@@ -591,6 +631,40 @@ impl DownloadOutcomeCategory {
             Self::Cancelled => "cancelled",
         }
     }
+}
+
+fn stage_error(stage: &str, message: &str) -> String {
+    format!("[{}] {}", stage, message)
+}
+
+fn direct_route_for_platform(platform: DirectPlatform) -> DownloadRoute {
+    match platform {
+        DirectPlatform::Douyin => DownloadRoute::DirectDouyin,
+        DirectPlatform::Xiaohongshu => DownloadRoute::DirectXiaohongshu,
+    }
+}
+
+fn success_outcome_for_route_chain(
+    route_chain: &[DownloadRoute],
+    final_route: DownloadRoute,
+) -> DownloadOutcomeCategory {
+    if final_route == DownloadRoute::YtDlp
+        && matches!(
+            route_chain.first(),
+            Some(DownloadRoute::DirectDouyin | DownloadRoute::DirectXiaohongshu)
+        )
+    {
+        return DownloadOutcomeCategory::DirectFailedThenYtdlpSuccess;
+    }
+
+    if matches!(
+        final_route,
+        DownloadRoute::DirectDouyin | DownloadRoute::DirectXiaohongshu
+    ) {
+        return DownloadOutcomeCategory::DirectSuccess;
+    }
+
+    DownloadOutcomeCategory::NonDirectSuccess
 }
 
 fn now_timestamp_ms() -> u128 {
@@ -652,6 +726,226 @@ fn log_terminal_outcome(
     );
 }
 
+async fn download_direct_for_platform(
+    app: AppHandle,
+    platform: DirectPlatform,
+    video_url: String,
+    cookies_header: Option<String>,
+    title: Option<String>,
+) -> Result<DownloadResult, String> {
+    match platform {
+        DirectPlatform::Douyin => {
+            download_douyin_direct(app, video_url, cookies_header, title).await
+        }
+        DirectPlatform::Xiaohongshu => {
+            download_xiaohongshu_direct(app, video_url, cookies_header, title).await
+        }
+    }
+}
+
+async fn download_platform_direct_with_retry(
+    app: AppHandle,
+    platform: DirectPlatform,
+    page_url: String,
+    title: Option<String>,
+    cookies_header: Option<String>,
+    extension_cookies_path: Option<PathBuf>,
+    direct_candidates: Vec<SelectedDirectCandidate>,
+    trace_id: String,
+) -> Result<DownloadResult, String> {
+    let direct_route = direct_route_for_platform(platform);
+    let started_at = std::time::Instant::now();
+    let max_direct_attempts = std::cmp::min(2, direct_candidates.len());
+
+    let candidate_origins: Vec<&str> = direct_candidates
+        .iter()
+        .map(|candidate| candidate.origin)
+        .collect();
+    log_download_trace(
+        &trace_id,
+        "direct_candidate_policy",
+        serde_json::json!({
+            "platform": platform.as_str(),
+            "policy": "cache_then_videoUrl_then_videoCandidates",
+            "candidateCount": direct_candidates.len(),
+            "candidateOrigins": candidate_origins,
+            "maxDirectAttempts": max_direct_attempts,
+        }),
+    );
+
+    if max_direct_attempts == 0 {
+        log_download_trace(
+            &trace_id,
+            "route_selected",
+            serde_json::json!({
+                "route": "smart_router",
+                "platform": platform.as_str(),
+                "reason": "no_direct_candidate",
+                "stage": "select",
+            }),
+        );
+        return download_video_smart(
+            app,
+            page_url,
+            title,
+            extension_cookies_path,
+            Some(trace_id),
+            None,
+        )
+        .await
+        .map_err(|err| stage_error("fallback", err.as_str()));
+    }
+
+    let mut first_error: Option<String> = None;
+    for attempt_idx in 0..max_direct_attempts {
+        let attempt = attempt_idx + 1;
+        let selected = &direct_candidates[attempt_idx];
+        log_download_trace(
+            &trace_id,
+            "route_selected",
+            serde_json::json!({
+                "route": direct_route.as_str(),
+                "platform": platform.as_str(),
+                "attempt": attempt,
+                "source": selected.origin,
+                "candidateType": selected.candidate_type,
+                "candidateSource": selected.source,
+                "candidateConfidence": selected.confidence,
+            }),
+        );
+        log_download_trace(
+            &trace_id,
+            "attempt_start",
+            serde_json::json!({
+                "attempt": attempt,
+                "route": direct_route.as_str(),
+                "stage": "download",
+                "source": selected.origin,
+            }),
+        );
+
+        match download_direct_for_platform(
+            app.clone(),
+            platform,
+            selected.url.clone(),
+            cookies_header.clone(),
+            title.clone(),
+        )
+        .await
+        {
+            Ok(result) if result.success => {
+                let cache_key =
+                    put_direct_candidate_cache(platform, page_url.as_str(), selected.url.as_str());
+                if let Some(key) = cache_key {
+                    log_download_trace(
+                        &trace_id,
+                        "direct_cache_update",
+                        serde_json::json!({
+                            "platform": platform.as_str(),
+                            "cacheKey": key,
+                            "source": selected.origin,
+                            "ttlMs": DIRECT_CANDIDATE_CACHE_TTL_MS,
+                        }),
+                    );
+                }
+                let route_chain = [direct_route];
+                log_terminal_outcome(
+                    &trace_id,
+                    DownloadOutcomeCategory::DirectSuccess,
+                    Some(direct_route),
+                    &route_chain,
+                    started_at.elapsed().as_millis(),
+                    None,
+                );
+                return Ok(result);
+            }
+            Ok(result) => {
+                let staged_error = stage_error(
+                    "download",
+                    result
+                        .error
+                        .as_deref()
+                        .unwrap_or("Direct downloader returned unsuccessful result"),
+                );
+                if is_cancelled_error(staged_error.as_str()) {
+                    let route_chain = [direct_route];
+                    log_terminal_outcome(
+                        &trace_id,
+                        DownloadOutcomeCategory::Cancelled,
+                        Some(direct_route),
+                        &route_chain,
+                        started_at.elapsed().as_millis(),
+                        Some(staged_error.as_str()),
+                    );
+                    return Ok(result);
+                }
+                if first_error.is_none() {
+                    first_error = Some(staged_error.clone());
+                }
+                log_download_trace(
+                    &trace_id,
+                    "attempt_failed",
+                    serde_json::json!({
+                        "attempt": attempt,
+                        "route": direct_route.as_str(),
+                        "stage": "download",
+                        "error": staged_error,
+                    }),
+                );
+            }
+            Err(err) => {
+                let staged_error = stage_error("download", err.as_str());
+                if is_cancelled_error(staged_error.as_str()) {
+                    let route_chain = [direct_route];
+                    log_terminal_outcome(
+                        &trace_id,
+                        DownloadOutcomeCategory::Cancelled,
+                        Some(direct_route),
+                        &route_chain,
+                        started_at.elapsed().as_millis(),
+                        Some(staged_error.as_str()),
+                    );
+                    return Err(staged_error);
+                }
+                if first_error.is_none() {
+                    first_error = Some(staged_error.clone());
+                }
+                log_download_trace(
+                    &trace_id,
+                    "attempt_failed",
+                    serde_json::json!({
+                        "attempt": attempt,
+                        "route": direct_route.as_str(),
+                        "stage": "download",
+                        "error": staged_error,
+                    }),
+                );
+            }
+        }
+    }
+
+    log_download_trace(
+        &trace_id,
+        "fallback_selected",
+        serde_json::json!({
+            "fromRoute": direct_route.as_str(),
+            "stage": "fallback",
+            "reason": "direct_attempt_failed",
+            "error": first_error,
+        }),
+    );
+    download_video_smart(
+        app,
+        page_url,
+        title,
+        extension_cookies_path,
+        Some(trace_id),
+        Some(vec![direct_route]),
+    )
+    .await
+    .map_err(|err| stage_error("fallback", err.as_str()))
+}
+
 /// Internal download function that supports both extension cookies and browser cookies
 async fn download_video_internal(
     app: AppHandle,
@@ -667,8 +961,8 @@ async fn download_video_internal(
 
     // Get config
     let config_str = get_config(app.clone())?;
-    let config: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
 
     // Get output directory
     let base_output_dir = config
@@ -744,7 +1038,10 @@ async fn download_video_internal(
         if cookies_path.exists() {
             args.push("--cookies".to_string());
             args.push(cookies_path.to_string_lossy().to_string());
-            println!(">>> [Rust] Using extension cookies from: {:?}", cookies_path);
+            println!(
+                ">>> [Rust] Using extension cookies from: {:?}",
+                cookies_path
+            );
         }
     }
 
@@ -767,11 +1064,14 @@ async fn download_video_internal(
     }
 
     // Emit "preparing" event to show indeterminate progress
-    let _ = app.emit("video-download-progress", DownloadProgress {
-        percent: -1.0,  // Negative value indicates indeterminate state
-        speed: "Preparing...".to_string(),
-        eta: "".to_string(),
-    });
+    let _ = app.emit(
+        "video-download-progress",
+        DownloadProgress {
+            percent: -1.0, // Negative value indicates indeterminate state
+            speed: "Preparing...".to_string(),
+            eta: "".to_string(),
+        },
+    );
 
     // Spawn yt-dlp process
     let shell = app.shell();
@@ -836,7 +1136,10 @@ async fn download_video_internal(
                 // Cleanup extension cookies file
                 if let Some(ref cookies_path) = extension_cookies_path {
                     if let Err(e) = fs::remove_file(cookies_path) {
-                        println!(">>> [Rust] Warning: Failed to cleanup extension cookies: {}", e);
+                        println!(
+                            ">>> [Rust] Warning: Failed to cleanup extension cookies: {}",
+                            e
+                        );
                     } else {
                         println!(">>> [Rust] Cleaned up extension cookies file");
                     }
@@ -846,11 +1149,17 @@ async fn download_video_internal(
                 let result = DownloadResult {
                     success,
                     file_path: if success {
-                        last_file_path.clone().or_else(|| Some(output_dir.to_string_lossy().to_string()))
+                        last_file_path
+                            .clone()
+                            .or_else(|| Some(output_dir.to_string_lossy().to_string()))
                     } else {
                         None
                     },
-                    error: if success { None } else { Some(stderr_buffer.clone()) },
+                    error: if success {
+                        None
+                    } else {
+                        Some(stderr_buffer.clone())
+                    },
                 };
 
                 // Emit completion event
@@ -866,7 +1175,10 @@ async fn download_video_internal(
                                     let path = entry.path();
                                     if let Some(ext) = path.extension() {
                                         if ext == "m4a" {
-                                            println!(">>> [Rust] Cleaning up residual file: {:?}", path);
+                                            println!(
+                                                ">>> [Rust] Cleaning up residual file: {:?}",
+                                                path
+                                            );
                                             let _ = std::fs::remove_file(&path);
                                         }
                                     }
@@ -955,8 +1267,10 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
                 });
 
             // Check base dir and Videos subdir (if enabled)
-            let video_separate = config.get("videoSeparateFolder")
-                .and_then(|v| v.as_bool()).unwrap_or(false);
+            let video_separate = config
+                .get("videoSeparateFolder")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
 
             let dirs_to_check = if video_separate {
                 vec![base_output_dir.clone(), base_output_dir.join("Videos")]
@@ -971,7 +1285,8 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
                 if let Ok(entries) = fs::read_dir(&output_dir) {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        let ext = path.extension()
+                        let ext = path
+                            .extension()
                             .and_then(|e| e.to_str())
                             .unwrap_or("")
                             .to_lowercase();
@@ -990,7 +1305,10 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
                                     // Delete if modified within last 30 seconds
                                     if let Ok(duration) = now.duration_since(modified) {
                                         if duration.as_secs() < 30 {
-                                            println!(">>> [Rust] Deleting recent video file: {:?}", path);
+                                            println!(
+                                                ">>> [Rust] Deleting recent video file: {:?}",
+                                                path
+                                            );
                                             let _ = fs::remove_file(&path);
                                         }
                                     }
@@ -1026,7 +1344,9 @@ fn save_extension_cookies(cookies_str: &str) -> Result<PathBuf, String> {
 
 /// Check if URL is a Douyin video URL
 fn is_douyin_url(url: &str) -> bool {
-    url.contains("douyin.com/video/") || url.contains("v.douyin.com") || url.contains("douyinvod.com")
+    url.contains("douyin.com/video/")
+        || url.contains("v.douyin.com")
+        || url.contains("douyinvod.com")
 }
 
 /// Check if URL is a direct Douyin CDN media link
@@ -1059,6 +1379,36 @@ fn normalize_video_candidate_url(raw: &str) -> Option<String> {
     }
 
     Some(trimmed.replace("\\u002F", "/"))
+}
+
+fn normalize_page_url_for_direct_cache(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut parsed = url::Url::parse(trimmed).ok()?;
+    parsed.set_fragment(None);
+
+    let kept_pairs: Vec<(String, String)> = parsed
+        .query_pairs()
+        .filter(|(key, _)| {
+            matches!(
+                key.as_ref().to_ascii_lowercase().as_str(),
+                "id" | "item_id" | "itemid" | "aweme_id" | "note_id" | "noteid"
+            )
+        })
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    parsed.set_query(None);
+    if !kept_pairs.is_empty() {
+        let mut query = parsed.query_pairs_mut();
+        for (key, value) in kept_pairs {
+            query.append_pair(&key, &value);
+        }
+    }
+
+    Some(parsed.to_string())
 }
 
 fn is_manifest_video_url(url: &str) -> bool {
@@ -1115,36 +1465,122 @@ fn is_direct_candidate_for_platform(platform: DirectPlatform, url: &str) -> bool
     }
 }
 
-fn select_direct_candidate(
+fn direct_candidate_cache_key(platform: DirectPlatform, page_url: &str) -> Option<String> {
+    normalize_page_url_for_direct_cache(page_url)
+        .map(|normalized| format!("{}::{}", platform.as_str(), normalized))
+}
+
+fn get_cached_direct_candidate(
     platform: DirectPlatform,
+    page_url: &str,
+) -> Option<SelectedDirectCandidate> {
+    let key = direct_candidate_cache_key(platform, page_url)?;
+    let now = now_timestamp_ms();
+    let mut cache = DIRECT_CANDIDATE_CACHE.lock().unwrap();
+
+    let cached = cache.get(&key).cloned();
+    match cached {
+        Some(entry) if entry.expires_at_ms > now => Some(SelectedDirectCandidate {
+            url: entry.url,
+            origin: "cache",
+            candidate_type: Some("cached_direct_url".to_string()),
+            source: Some("direct_cache".to_string()),
+            confidence: Some("medium".to_string()),
+        }),
+        Some(_) => {
+            cache.remove(&key);
+            None
+        }
+        None => None,
+    }
+}
+
+fn put_direct_candidate_cache(
+    platform: DirectPlatform,
+    page_url: &str,
+    candidate_url: &str,
+) -> Option<String> {
+    if !is_direct_candidate_for_platform(platform, candidate_url) {
+        return None;
+    }
+
+    let key = direct_candidate_cache_key(platform, page_url)?;
+    let now = now_timestamp_ms();
+
+    let mut cache = DIRECT_CANDIDATE_CACHE.lock().unwrap();
+    cache.retain(|_, entry| entry.expires_at_ms > now);
+    if cache.len() >= DIRECT_CANDIDATE_CACHE_MAX_ENTRIES {
+        if let Some(first_key) = cache.keys().next().cloned() {
+            cache.remove(&first_key);
+        }
+    }
+    cache.insert(
+        key.clone(),
+        DirectCandidateCacheEntry {
+            url: candidate_url.to_string(),
+            expires_at_ms: now + DIRECT_CANDIDATE_CACHE_TTL_MS,
+        },
+    );
+
+    Some(key)
+}
+
+fn append_direct_candidate(
+    selected: &mut Vec<SelectedDirectCandidate>,
+    seen: &mut HashSet<String>,
+    candidate: SelectedDirectCandidate,
+) {
+    if seen.insert(candidate.url.clone()) {
+        selected.push(candidate);
+    }
+}
+
+fn collect_direct_candidates_for_platform(
+    platform: DirectPlatform,
+    page_url: &str,
     primary_video_url: Option<&str>,
     video_candidates: &[ExtensionVideoCandidate],
-) -> Option<SelectedDirectCandidate> {
+) -> Vec<SelectedDirectCandidate> {
+    let mut selected: Vec<SelectedDirectCandidate> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    if let Some(cached) = get_cached_direct_candidate(platform, page_url) {
+        append_direct_candidate(&mut selected, &mut seen, cached);
+    }
+
     if let Some(primary) = primary_video_url.and_then(normalize_video_candidate_url) {
         if is_direct_candidate_for_platform(platform, &primary) {
-            return Some(SelectedDirectCandidate {
-                url: primary,
-                origin: "videoUrl",
-                candidate_type: Some("legacy_video_url".to_string()),
-                source: Some("legacy".to_string()),
-                confidence: Some("medium".to_string()),
-            });
+            append_direct_candidate(
+                &mut selected,
+                &mut seen,
+                SelectedDirectCandidate {
+                    url: primary,
+                    origin: "videoUrl",
+                    candidate_type: Some("legacy_video_url".to_string()),
+                    source: Some("legacy".to_string()),
+                    confidence: Some("medium".to_string()),
+                },
+            );
         }
     }
 
     for candidate in video_candidates {
         if is_direct_candidate_for_platform(platform, &candidate.url) {
-            return Some(SelectedDirectCandidate {
-                url: candidate.url.clone(),
-                origin: "videoCandidates",
-                candidate_type: candidate.candidate_type.clone(),
-                source: candidate.source.clone(),
-                confidence: candidate.confidence.clone(),
-            });
+            append_direct_candidate(
+                &mut selected,
+                &mut seen,
+                SelectedDirectCandidate {
+                    url: candidate.url.clone(),
+                    origin: "videoCandidates",
+                    candidate_type: candidate.candidate_type.clone(),
+                    source: candidate.source.clone(),
+                    confidence: candidate.confidence.clone(),
+                },
+            );
         }
     }
 
-    None
+    selected
 }
 
 /// Convert Netscape cookie file content to Cookie header format: "k1=v1; k2=v2"
@@ -1200,17 +1636,24 @@ fn is_china_platform_url(url: &str) -> bool {
         return false;
     }
     let patterns = [
-        "douyin.com", "v.douyin.com", "douyinvod.com",
-        "kuaishou.com", "gifshow.com",
-        "xiaohongshu.com", "xhslink.com",
+        "douyin.com",
+        "v.douyin.com",
+        "douyinvod.com",
+        "kuaishou.com",
+        "gifshow.com",
+        "xiaohongshu.com",
+        "xhslink.com",
         "v.qq.com",
         "iqiyi.com",
         "youku.com",
-        "cctv.com", "cctv.cn",
-        "weibo.com", "weibo.cn",
+        "cctv.com",
+        "cctv.cn",
+        "weibo.com",
+        "weibo.cn",
         "acfun.cn",
         "mgtv.com",
-        "xigua.com", "ixigua.com",
+        "xigua.com",
+        "ixigua.com",
         "zhihu.com",
     ];
     patterns.iter().any(|p| url.contains(p))
@@ -1226,9 +1669,13 @@ async fn start_videodl_server(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    println!(">>> [videodl] Starting sidecar server on port {}", state.port);
+    println!(
+        ">>> [videodl] Starting sidecar server on port {}",
+        state.port
+    );
 
-    let (mut rx, child) = app.shell()
+    let (mut rx, child) = app
+        .shell()
         .sidecar("videodl-server")
         .map_err(|e| format!("Failed to create sidecar: {}", e))?
         .args(["--port", &state.port.to_string()])
@@ -1396,11 +1843,14 @@ async fn download_with_videodl(
     *DOWNLOAD_CANCELLED.lock().unwrap() = false;
 
     // Emit "preparing" event to show indeterminate progress
-    let _ = app.emit("video-download-progress", DownloadProgress {
-        percent: -1.0,
-        speed: "Preparing...".to_string(),
-        eta: "".to_string(),
-    });
+    let _ = app.emit(
+        "video-download-progress",
+        DownloadProgress {
+            percent: -1.0,
+            speed: "Preparing...".to_string(),
+            eta: "".to_string(),
+        },
+    );
 
     // Ensure server is running
     start_videodl_server(&app).await?;
@@ -1410,8 +1860,8 @@ async fn download_with_videodl(
 
     // Get output directory from config
     let config_str = get_config(app.clone())?;
-    let config: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
 
     let base_output_dir = config
         .get("outputPath")
@@ -1423,8 +1873,10 @@ async fn download_with_videodl(
                 .join("FlowSelect_Received")
         });
 
-    let video_separate = config.get("videoSeparateFolder")
-        .and_then(|v| v.as_bool()).unwrap_or(false);
+    let video_separate = config
+        .get("videoSeparateFolder")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let output_dir = if video_separate {
         base_output_dir.join("Videos")
@@ -1454,14 +1906,19 @@ async fn download_with_videodl(
     // Add cookies file path if available
     if let Some(ref cp) = cookies_path {
         if cp.exists() {
-            download_url.push_str(&format!("&cookies_file={}", urlencoding::encode(&cp.to_string_lossy())));
+            download_url.push_str(&format!(
+                "&cookies_file={}",
+                urlencoding::encode(&cp.to_string_lossy())
+            ));
             println!(">>> [videodl] Using cookies from: {:?}", cp);
         }
     }
 
     let client = reqwest::Client::new();
-    let response = client.get(&download_url)
-        .send().await
+    let response = client
+        .get(&download_url)
+        .send()
+        .await
         .map_err(|e| format!("Failed to connect to videodl: {}", e))?;
 
     if !response.status().is_success() {
@@ -1475,7 +1932,9 @@ async fn download_with_videodl(
     let mut download_finished = false;
 
     while let Some(chunk) = stream.next().await {
-        if download_finished { break; }
+        if download_finished {
+            break;
+        }
 
         // Check cancel flag
         if *DOWNLOAD_CANCELLED.lock().unwrap() {
@@ -1487,7 +1946,9 @@ async fn download_with_videodl(
         let text = String::from_utf8_lossy(&chunk);
 
         for line in text.lines() {
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
 
             if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
                 let status = event.get("status").and_then(|v| v.as_str()).unwrap_or("");
@@ -1497,28 +1958,46 @@ async fn download_with_videodl(
                     "progress" | "downloading" => {
                         if let Some(percent) = event.get("percent").and_then(|v| v.as_f64()) {
                             println!(">>> [videodl] Emitting progress: {}%", percent);
-                            let _ = app.emit("video-download-progress", DownloadProgress {
-                                percent: percent as f32,
-                                speed: "videodl".to_string(),
-                                eta: "N/A".to_string(),
-                            });
+                            let _ = app.emit(
+                                "video-download-progress",
+                                DownloadProgress {
+                                    percent: percent as f32,
+                                    speed: "videodl".to_string(),
+                                    eta: "N/A".to_string(),
+                                },
+                            );
                         } else {
                             println!(">>> [videodl] No percent field in progress event");
                         }
                     }
                     "parsed" => {
-                        last_title = event.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        last_title = event
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
                     }
                     "complete" => {
-                        last_file_path = event.get("file_path").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        last_file_path = event
+                            .get("file_path")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
                         if last_title.is_none() {
-                            last_title = event.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            last_title = event
+                                .get("title")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                         }
-                        println!(">>> [videodl] Received complete event, file: {:?}", last_file_path);
+                        println!(
+                            ">>> [videodl] Received complete event, file: {:?}",
+                            last_file_path
+                        );
                         download_finished = true;
                     }
                     "error" => {
-                        let msg = event.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                        let msg = event
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown error");
                         return Err(format!("videodl error: {}", msg));
                     }
                     _ => {}
@@ -1530,10 +2009,17 @@ async fn download_with_videodl(
     let result = DownloadResult {
         success: last_file_path.is_some(),
         file_path: last_file_path.clone(),
-        error: if last_file_path.is_none() { Some("Download failed".to_string()) } else { None },
+        error: if last_file_path.is_none() {
+            Some("Download failed".to_string())
+        } else {
+            None
+        },
     };
 
-    println!(">>> [videodl] Download complete, file_path: {:?}, success: {}", last_file_path, result.success);
+    println!(
+        ">>> [videodl] Download complete, file_path: {:?}, success: {}",
+        last_file_path, result.success
+    );
     // Use emit() instead of emit_to() for consistency with other download functions
     let _ = app.emit("video-download-complete", result.clone());
     println!(">>> [videodl] Emitted video-download-complete event");
@@ -1559,10 +2045,11 @@ async fn download_video_smart(
     title: Option<String>,
     extension_cookies_path: Option<PathBuf>,
     trace_id: Option<String>,
+    initial_route_chain: Option<Vec<DownloadRoute>>,
 ) -> Result<DownloadResult, String> {
     let trace_id = trace_id.unwrap_or_else(next_download_trace_id);
     let started_at = std::time::Instant::now();
-    let mut route_chain: Vec<DownloadRoute> = Vec::new();
+    let mut route_chain: Vec<DownloadRoute> = initial_route_chain.unwrap_or_default();
 
     log_download_trace(
         &trace_id,
@@ -1691,8 +2178,8 @@ async fn download_video_smart(
 
     // Check if videodl is enabled
     let config_str = get_config(app.clone())?;
-    let config: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
 
     let config_videodl_enabled = config
         .get("videodlEnabled")
@@ -1703,7 +2190,10 @@ async fn download_video_smart(
 
     let is_china = is_china_platform_url(&url);
 
-    println!(">>> [Smart] URL: {}, China: {}, videodl: {}", url, is_china, videodl_enabled);
+    println!(
+        ">>> [Smart] URL: {}, China: {}, videodl: {}",
+        url, is_china, videodl_enabled
+    );
     if disable_videodl_for_phase {
         println!(">>> [Smart] videodl temporarily disabled by FLOWSELECT_DISABLE_VIDEODL");
     }
@@ -1730,11 +2220,18 @@ async fn download_video_smart(
                 "route": DownloadRoute::Videodl.as_str(),
             }),
         );
-        match download_with_videodl(app.clone(), url.clone(), title.clone(), extension_cookies_path.clone()).await {
+        match download_with_videodl(
+            app.clone(),
+            url.clone(),
+            title.clone(),
+            extension_cookies_path.clone(),
+        )
+        .await
+        {
             Ok(result) if result.success => {
                 log_terminal_outcome(
                     &trace_id,
-                    DownloadOutcomeCategory::NonDirectSuccess,
+                    success_outcome_for_route_chain(&route_chain, DownloadRoute::Videodl),
                     Some(DownloadRoute::Videodl),
                     &route_chain,
                     started_at.elapsed().as_millis(),
@@ -1793,17 +2290,9 @@ async fn download_video_smart(
         let fallback_result = download_video_internal(app, url, extension_cookies_path).await;
         match &fallback_result {
             Ok(result) if result.success => {
-                let category = if matches!(
-                    route_chain.first(),
-                    Some(DownloadRoute::DirectDouyin | DownloadRoute::DirectXiaohongshu)
-                ) {
-                    DownloadOutcomeCategory::DirectFailedThenYtdlpSuccess
-                } else {
-                    DownloadOutcomeCategory::NonDirectSuccess
-                };
                 log_terminal_outcome(
                     &trace_id,
-                    category,
+                    success_outcome_for_route_chain(&route_chain, DownloadRoute::YtDlp),
                     Some(DownloadRoute::YtDlp),
                     &route_chain,
                     started_at.elapsed().as_millis(),
@@ -1853,7 +2342,7 @@ async fn download_video_smart(
             Ok(result) if result.success => {
                 log_terminal_outcome(
                     &trace_id,
-                    DownloadOutcomeCategory::NonDirectSuccess,
+                    success_outcome_for_route_chain(&route_chain, DownloadRoute::YtDlp),
                     Some(DownloadRoute::YtDlp),
                     &route_chain,
                     started_at.elapsed().as_millis(),
@@ -1914,7 +2403,7 @@ async fn download_video_smart(
             Ok(result) if result.success => {
                 log_terminal_outcome(
                     &trace_id,
-                    DownloadOutcomeCategory::NonDirectSuccess,
+                    success_outcome_for_route_chain(&route_chain, DownloadRoute::Videodl),
                     Some(DownloadRoute::Videodl),
                     &route_chain,
                     started_at.elapsed().as_millis(),
@@ -1965,7 +2454,7 @@ async fn download_video_smart(
             Ok(download_result) if download_result.success => {
                 log_terminal_outcome(
                     &trace_id,
-                    DownloadOutcomeCategory::NonDirectSuccess,
+                    success_outcome_for_route_chain(&route_chain, DownloadRoute::YtDlp),
                     Some(DownloadRoute::YtDlp),
                     &route_chain,
                     started_at.elapsed().as_millis(),
@@ -2016,7 +2505,10 @@ async fn download_video_direct(
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
 
-    println!(">>> [Rust] Starting {} direct download: {}", platform, video_url);
+    println!(
+        ">>> [Rust] Starting {} direct download: {}",
+        platform, video_url
+    );
     // Reset cancel flag for a fresh direct download.
     *DOWNLOAD_CANCELLED.lock().unwrap() = false;
 
@@ -2048,8 +2540,8 @@ async fn download_video_direct(
 
     // Get output directory from config
     let config_str = get_config(app.clone())?;
-    let config: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
 
     let base_output_dir = config
         .get("outputPath")
@@ -2061,8 +2553,10 @@ async fn download_video_direct(
                 .join("FlowSelect_Received")
         });
 
-    let video_separate = config.get("videoSeparateFolder")
-        .and_then(|v| v.as_bool()).unwrap_or(false);
+    let video_separate = config
+        .get("videoSeparateFolder")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let output_dir = if video_separate {
         base_output_dir.join("Videos")
@@ -2076,8 +2570,10 @@ async fn download_video_direct(
     }
 
     // Check videoKeepOriginalName setting
-    let keep_original_name = config.get("videoKeepOriginalName")
-        .and_then(|v| v.as_bool()).unwrap_or(false);
+    let keep_original_name = config
+        .get("videoKeepOriginalName")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let output_path = if keep_original_name && title.is_some() {
         let raw_title = title.as_ref().unwrap();
@@ -2113,14 +2609,20 @@ async fn download_video_direct(
 
     // Keep deterministic filename when title is missing
     let output_path = if output_path.extension().is_none() {
-        output_dir.join(format!("{}_{}.mp4", default_prefix, get_next_sequence_number(&output_dir)?))
+        output_dir.join(format!(
+            "{}_{}.mp4",
+            default_prefix,
+            get_next_sequence_number(&output_dir)?
+        ))
     } else {
         output_path
     };
 
     // Download video
-    let response = client.get(&video_url)
-        .send().await
+    let response = client
+        .get(&video_url)
+        .send()
+        .await
         .map_err(|e| format!("Failed to download: {}", e))?;
 
     if !response.status().is_success() {
@@ -2140,8 +2642,7 @@ async fn download_video_direct(
     {
         return Err(format!(
             "{} direct URL returned non-video payload (content-type: {})",
-            platform,
-            content_type
+            platform, content_type
         ));
     }
 
@@ -2149,20 +2650,23 @@ async fn download_video_direct(
     if total_size > 0 && total_size < 1024 {
         return Err(format!(
             "{} direct payload too small ({} bytes), likely not a playable video",
-            platform,
-            total_size
+            platform, total_size
         ));
     }
     let mut downloaded: u64 = 0;
 
     // Send initial progress event to show download started
-    let _ = app.emit("video-download-progress", DownloadProgress {
-        percent: if total_size > 0 { 0.0 } else { -1.0 }, // -1 indicates indeterminate
-        speed: "Starting...".to_string(),
-        eta: "N/A".to_string(),
-    });
+    let _ = app.emit(
+        "video-download-progress",
+        DownloadProgress {
+            percent: if total_size > 0 { 0.0 } else { -1.0 }, // -1 indicates indeterminate
+            speed: "Starting...".to_string(),
+            eta: "N/A".to_string(),
+        },
+    );
 
-    let mut file = tokio::fs::File::create(&output_path).await
+    let mut file = tokio::fs::File::create(&output_path)
+        .await
         .map_err(|e| format!("Failed to create file: {}", e))?;
 
     let mut stream = response.bytes_stream();
@@ -2178,7 +2682,8 @@ async fn download_video_direct(
         }
 
         let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
-        file.write_all(&chunk).await
+        file.write_all(&chunk)
+            .await
             .map_err(|e| format!("Write error: {}", e))?;
 
         downloaded += chunk.len() as u64;
@@ -2188,23 +2693,31 @@ async fn download_video_direct(
             last_emit = std::time::Instant::now();
             if total_size > 0 {
                 let percent = (downloaded as f32 / total_size as f32) * 100.0;
-                let _ = app.emit("video-download-progress", DownloadProgress {
-                    percent,
-                    speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
-                    eta: "N/A".to_string(),
-                });
+                let _ = app.emit(
+                    "video-download-progress",
+                    DownloadProgress {
+                        percent,
+                        speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
+                        eta: "N/A".to_string(),
+                    },
+                );
             } else {
                 // Indeterminate progress - show downloaded size
-                let _ = app.emit("video-download-progress", DownloadProgress {
-                    percent: -1.0,
-                    speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
-                    eta: "N/A".to_string(),
-                });
+                let _ = app.emit(
+                    "video-download-progress",
+                    DownloadProgress {
+                        percent: -1.0,
+                        speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
+                        eta: "N/A".to_string(),
+                    },
+                );
             }
         }
     }
 
-    file.flush().await.map_err(|e| format!("Flush error: {}", e))?;
+    file.flush()
+        .await
+        .map_err(|e| format!("Flush error: {}", e))?;
 
     let file_path = output_path.to_string_lossy().to_string();
     println!(">>> [Rust] {} video saved: {}", platform, file_path);
@@ -2242,7 +2755,8 @@ async fn download_douyin_direct(
         Some(" - 抖音"),
         "Douyin",
         "douyin",
-    ).await
+    )
+    .await
 }
 
 /// Download Xiaohongshu video directly from video URL
@@ -2261,7 +2775,8 @@ async fn download_xiaohongshu_direct(
         Some(" - 小红书"),
         "Xiaohongshu",
         "xiaohongshu",
-    ).await
+    )
+    .await
 }
 
 /// Parse yt-dlp progress line: [download] XX.X% of XXX at XXX ETA XXX
@@ -2370,14 +2885,23 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
     let sidecar_path = if cfg!(debug_assertions) {
         // Dev: use compile-time manifest directory
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        manifest_dir.join("binaries").join("yt-dlp-x86_64-pc-windows-msvc.exe")
+        manifest_dir
+            .join("binaries")
+            .join("yt-dlp-x86_64-pc-windows-msvc.exe")
     } else {
         // Release: use resource directory
-        let resource_dir = app.path().resource_dir()
+        let resource_dir = app
+            .path()
+            .resource_dir()
             .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-        resource_dir.join("binaries").join("yt-dlp-x86_64-pc-windows-msvc.exe")
+        resource_dir
+            .join("binaries")
+            .join("yt-dlp-x86_64-pc-windows-msvc.exe")
     };
-    println!(">>> [Rust] CARGO_MANIFEST_DIR: {}", env!("CARGO_MANIFEST_DIR"));
+    println!(
+        ">>> [Rust] CARGO_MANIFEST_DIR: {}",
+        env!("CARGO_MANIFEST_DIR")
+    );
     println!(">>> [Rust] sidecar_path: {:?}", sidecar_path);
     println!(">>> [Rust] sidecar_path exists: {}", sidecar_path.exists());
 
@@ -2438,7 +2962,9 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
         );
     }
 
-    file.flush().await.map_err(|e| format!("Flush error: {}", e))?;
+    file.flush()
+        .await
+        .map_err(|e| format!("Flush error: {}", e))?;
     drop(file);
 
     // Replace old file with new one (use copy + remove for cross-partition support)
@@ -2480,8 +3006,7 @@ fn get_config(app: tauri::AppHandle) -> Result<String, String> {
     let config_path = get_config_path(&app)?;
 
     if config_path.exists() {
-        fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read config: {}", e))
+        fs::read_to_string(&config_path).map_err(|e| format!("Failed to read config: {}", e))
     } else {
         Ok("{}".to_string())
     }
@@ -2491,8 +3016,7 @@ fn get_config(app: tauri::AppHandle) -> Result<String, String> {
 fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     let config_path = get_config_path(&app)?;
 
-    fs::write(&config_path, json)
-        .map_err(|e| format!("Failed to write config: {}", e))
+    fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))
 }
 
 #[tauri::command]
@@ -2508,19 +3032,24 @@ fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
     let autostart = app.autolaunch();
     if enabled {
-        autostart.enable().map_err(|e| format!("Failed to enable autostart: {}", e))
+        autostart
+            .enable()
+            .map_err(|e| format!("Failed to enable autostart: {}", e))
     } else {
-        autostart.disable().map_err(|e| format!("Failed to disable autostart: {}", e))
+        autostart
+            .disable()
+            .map_err(|e| format!("Failed to disable autostart: {}", e))
     }
 }
 
 #[tauri::command]
 fn get_current_shortcut(app: AppHandle) -> Result<String, String> {
     let config_str = get_config(app)?;
-    let config: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
 
-    Ok(config.get("shortcut")
+    Ok(config
+        .get("shortcut")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string())
@@ -2557,7 +3086,8 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                             let window_width = 200.0;
                             let x = pos.x - 50.0 - window_width;
                             let y = pos.y + 50.0;
-                            let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+                            let _ = window
+                                .set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
                         }
                         show_main_window(&app_handle);
                     }
@@ -2603,7 +3133,8 @@ fn unregister_shortcut(app: AppHandle, shortcut: String) -> Result<(), String> {
 #[tauri::command]
 fn set_window_size(app: AppHandle, width: u32, height: u32) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        window.set_size(tauri::LogicalSize::new(width, height))
+        window
+            .set_size(tauri::LogicalSize::new(width, height))
             .map_err(|e| format!("Failed to set window size: {}", e))
     } else {
         Err("Window not found".to_string())
@@ -2613,7 +3144,8 @@ fn set_window_size(app: AppHandle, width: u32, height: u32) -> Result<(), String
 #[tauri::command]
 fn set_window_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        window.set_position(tauri::LogicalPosition::new(x, y))
+        window
+            .set_position(tauri::LogicalPosition::new(x, y))
             .map_err(|e| format!("Failed to set window position: {}", e))
     } else {
         Err("Window not found".to_string())
@@ -2631,7 +3163,12 @@ fn open_folder(path: String) -> Result<(), String> {
         "windows" => "explorer",
         "macos" => "open",
         "linux" => "xdg-open",
-        os => return Err(format!("Opening folder is not supported on platform: {}", os)),
+        os => {
+            return Err(format!(
+                "Opening folder is not supported on platform: {}",
+                os
+            ))
+        }
     };
 
     std::process::Command::new(open_command)
@@ -2669,12 +3206,21 @@ async fn start_ws_server_internal(app: &AppHandle) -> Result<String, String> {
         socket2::Domain::IPV4,
         socket2::Type::STREAM,
         Some(socket2::Protocol::TCP),
-    ).map_err(|e| format!("Failed to create socket: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to create socket: {}", e))?;
 
-    socket.set_reuse_address(true).map_err(|e| format!("Failed to set reuse address: {}", e))?;
-    socket.bind(&addr.into()).map_err(|e| format!("Failed to bind: {}", e))?;
-    socket.listen(128).map_err(|e| format!("Failed to listen: {}", e))?;
-    socket.set_nonblocking(true).map_err(|e| format!("Failed to set nonblocking: {}", e))?;
+    socket
+        .set_reuse_address(true)
+        .map_err(|e| format!("Failed to set reuse address: {}", e))?;
+    socket
+        .bind(&addr.into())
+        .map_err(|e| format!("Failed to bind: {}", e))?;
+    socket
+        .listen(128)
+        .map_err(|e| format!("Failed to listen: {}", e))?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|e| format!("Failed to set nonblocking: {}", e))?;
 
     let std_listener: std::net::TcpListener = socket.into();
     let listener = tokio::net::TcpListener::from_std(std_listener)
@@ -2726,8 +3272,8 @@ async fn handle_ws_connection(
     app: AppHandle,
     mut broadcast_rx: broadcast::Receiver<String>,
 ) {
+    use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
-    use futures_util::{StreamExt, SinkExt};
 
     let ws_stream = match tokio_tungstenite::accept_async(stream).await {
         Ok(ws) => ws,
@@ -2794,29 +3340,29 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
             message: Some("pong".to_string()),
             data: None,
         },
-        "get_theme" => {
-            match get_config(app.clone()) {
-                Ok(config_str) => {
-                    let config: serde_json::Value = serde_json::from_str(&config_str).unwrap_or_default();
-                    let theme = config.get("theme")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("black")
-                        .to_string();
-                    WsResponse {
-                        success: true,
-                        message: None,
-                        data: Some(serde_json::json!({
-                            "action": "theme_info",
-                            "theme": theme
-                        })),
-                    }
+        "get_theme" => match get_config(app.clone()) {
+            Ok(config_str) => {
+                let config: serde_json::Value =
+                    serde_json::from_str(&config_str).unwrap_or_default();
+                let theme = config
+                    .get("theme")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("black")
+                    .to_string();
+                WsResponse {
+                    success: true,
+                    message: None,
+                    data: Some(serde_json::json!({
+                        "action": "theme_info",
+                        "theme": theme
+                    })),
                 }
-                Err(e) => WsResponse {
-                    success: false,
-                    message: Some(format!("Failed to get config: {}", e)),
-                    data: None,
-                },
             }
+            Err(e) => WsResponse {
+                success: false,
+                message: Some(format!("Failed to get config: {}", e)),
+                data: None,
+            },
         },
         "save_image" => {
             if let Some(data) = msg.data {
@@ -2858,10 +3404,15 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
                     let title = data.get("title").and_then(|v| v.as_str());
                     let video_candidates = parse_extension_video_candidates(&data);
-                    let douyin_direct_candidate =
-                        select_direct_candidate(DirectPlatform::Douyin, video_url, &video_candidates);
-                    let xiaohongshu_direct_candidate = select_direct_candidate(
+                    let douyin_direct_candidates = collect_direct_candidates_for_platform(
+                        DirectPlatform::Douyin,
+                        page_url,
+                        video_url,
+                        &video_candidates,
+                    );
+                    let xiaohongshu_direct_candidates = collect_direct_candidates_for_platform(
                         DirectPlatform::Xiaohongshu,
+                        page_url,
                         video_url,
                         &video_candidates,
                     );
@@ -2876,263 +3427,100 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             "pageUrl": page_url,
                             "hasVideoUrl": video_url.is_some_and(|value| !value.is_empty()),
                             "videoCandidatesCount": video_candidates.len(),
-                            "hasDouyinDirectCandidate": douyin_direct_candidate.is_some(),
-                            "hasXiaohongshuDirectCandidate": xiaohongshu_direct_candidate.is_some(),
+                            "douyinDirectCandidateCount": douyin_direct_candidates.len(),
+                            "xiaohongshuDirectCandidateCount": xiaohongshu_direct_candidates.len(),
+                            "douyinCacheHit": douyin_direct_candidates.iter().any(|candidate| candidate.origin == "cache"),
+                            "xiaohongshuCacheHit": xiaohongshu_direct_candidates.iter().any(|candidate| candidate.origin == "cache"),
                             "hasCookies": cookies.is_some_and(|value| !value.is_empty()),
                             "hasTitle": title.is_some_and(|value| !value.is_empty()),
                         }),
                     );
 
                     if is_douyin_url(page_url) || is_douyin_url(url) {
-                        if let Some(selected) = douyin_direct_candidate {
-                            let download_url = selected.url;
-                            let selected_origin = selected.origin;
-                            let selected_type = selected.candidate_type;
-                            let selected_source = selected.source;
-                            let selected_confidence = selected.confidence;
-                            let cookies_header = cookies.and_then(netscape_cookies_to_header);
-                            let title_owned = title.map(|s| s.to_string());
-                            let trace_id_for_task = trace_id.clone();
-                            println!(">>> [Rust] Douyin direct video URL: {}", download_url);
-                            log_download_trace(
-                                &trace_id_for_task,
-                                "route_selected",
-                                serde_json::json!({
-                                    "route": DownloadRoute::DirectDouyin.as_str(),
-                                    "platform": DirectPlatform::Douyin.as_str(),
-                                    "source": selected_origin,
-                                    "candidateType": selected_type,
-                                    "candidateSource": selected_source,
-                                    "candidateConfidence": selected_confidence,
-                                }),
-                            );
-                            tokio::spawn(async move {
-                                let route_chain = [DownloadRoute::DirectDouyin];
-                                let started_at = std::time::Instant::now();
-                                log_download_trace(
-                                    &trace_id_for_task,
-                                    "attempt_start",
-                                    serde_json::json!({
-                                        "attempt": 1,
-                                        "route": DownloadRoute::DirectDouyin.as_str(),
-                                    }),
-                                );
-                                match download_douyin_direct(app_clone.clone(), download_url, cookies_header, title_owned).await {
-                                    Ok(result) => {
-                                        let category = if result.success {
-                                            DownloadOutcomeCategory::DirectSuccess
-                                        } else if is_cancelled_error(result.error.as_deref().unwrap_or_default()) {
-                                            DownloadOutcomeCategory::Cancelled
-                                        } else {
-                                            DownloadOutcomeCategory::AllFailed
-                                        };
-                                        log_terminal_outcome(
-                                            &trace_id_for_task,
-                                            category,
-                                            Some(DownloadRoute::DirectDouyin),
-                                            &route_chain,
-                                            started_at.elapsed().as_millis(),
-                                            result.error.as_deref(),
-                                        );
-                                    }
-                                    Err(e) => {
-                                        println!(">>> [Rust] Douyin download error: {}", e);
-                                        let category = if is_cancelled_error(e.as_str()) {
-                                            DownloadOutcomeCategory::Cancelled
-                                        } else {
-                                            DownloadOutcomeCategory::AllFailed
-                                        };
-                                        log_terminal_outcome(
-                                            &trace_id_for_task,
-                                            category,
-                                            Some(DownloadRoute::DirectDouyin),
-                                            &route_chain,
-                                            started_at.elapsed().as_millis(),
-                                            Some(e.as_str()),
-                                        );
-                                        // Emit complete event with error to close progress bar
-                                        let result = DownloadResult {
-                                            success: false,
-                                            file_path: None,
-                                            error: Some(e),
-                                        };
-                                        let _ = app_clone.emit("video-download-complete", result);
-                                    }
-                                }
-                            });
-                        } else {
-                            // If no direct candidate exists, route by page URL through smart path.
-                            let page_url_owned = page_url.to_string();
-                            let title_owned = title.map(|s| s.to_string());
-                            let cookies_path = cookies
-                                .filter(|s| !s.is_empty())
-                                .and_then(|s| save_extension_cookies(s).ok());
-                            let trace_id_for_task = trace_id.clone();
-                            log_download_trace(
-                                &trace_id_for_task,
-                                "route_selected",
-                                serde_json::json!({
-                                    "route": "smart_router",
-                                    "platform": DirectPlatform::Douyin.as_str(),
-                                    "reason": "douyin_no_direct_candidate",
-                                    "hasVideoUrl": video_url.is_some_and(|value| !value.is_empty()),
-                                    "videoCandidatesCount": video_candidates.len(),
-                                }),
-                            );
-                            tokio::spawn(async move {
-                                if let Err(e) = download_video_smart(
-                                    app_clone.clone(),
-                                    page_url_owned,
-                                    title_owned,
-                                    cookies_path,
-                                    Some(trace_id_for_task.clone()),
-                                ).await {
-                                    println!(">>> [Rust] Douyin smart fallback error: {}", e);
-                                    let result = DownloadResult {
-                                        success: false,
-                                        file_path: None,
-                                        error: Some(e),
-                                    };
-                                    let _ = app_clone.emit("video-download-complete", result);
-                                }
-                            });
-                        }
+                        let page_url_owned = page_url.to_string();
+                        let title_owned = title.map(|value| value.to_string());
+                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
+                        let cookies_path = cookies
+                            .filter(|value| !value.is_empty())
+                            .and_then(|value| save_extension_cookies(value).ok());
+                        let trace_id_for_task = trace_id.clone();
+                        tokio::spawn(async move {
+                            if let Err(err) = download_platform_direct_with_retry(
+                                app_clone.clone(),
+                                DirectPlatform::Douyin,
+                                page_url_owned,
+                                title_owned,
+                                cookies_header,
+                                cookies_path,
+                                douyin_direct_candidates,
+                                trace_id_for_task.clone(),
+                            )
+                            .await
+                            {
+                                println!(">>> [Rust] Douyin direct pipeline error: {}", err);
+                                let result = DownloadResult {
+                                    success: false,
+                                    file_path: None,
+                                    error: Some(err),
+                                };
+                                let _ = app_clone.emit("video-download-complete", result);
+                            }
+                        });
                     } else if is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url) {
-                        if let Some(selected) = xiaohongshu_direct_candidate {
-                            let extracted_video_url = selected.url;
-                            let selected_origin = selected.origin;
-                            let selected_type = selected.candidate_type;
-                            let selected_source = selected.source;
-                            let selected_confidence = selected.confidence;
-                            let cookies_header = cookies.and_then(netscape_cookies_to_header);
-                            let title_owned = title.map(|s| s.to_string());
-                            let trace_id_for_task = trace_id.clone();
-                            println!(">>> [Rust] Xiaohongshu direct video URL: {}", extracted_video_url);
-                            log_download_trace(
-                                &trace_id_for_task,
-                                "route_selected",
-                                serde_json::json!({
-                                    "route": DownloadRoute::DirectXiaohongshu.as_str(),
-                                    "platform": DirectPlatform::Xiaohongshu.as_str(),
-                                    "source": selected_origin,
-                                    "candidateType": selected_type,
-                                    "candidateSource": selected_source,
-                                    "candidateConfidence": selected_confidence,
-                                }),
-                            );
-                            tokio::spawn(async move {
-                                let route_chain = [DownloadRoute::DirectXiaohongshu];
-                                let started_at = std::time::Instant::now();
-                                log_download_trace(
-                                    &trace_id_for_task,
-                                    "attempt_start",
-                                    serde_json::json!({
-                                        "attempt": 1,
-                                        "route": DownloadRoute::DirectXiaohongshu.as_str(),
-                                    }),
-                                );
-                                match download_xiaohongshu_direct(app_clone.clone(), extracted_video_url, cookies_header, title_owned).await {
-                                    Ok(result) => {
-                                        let category = if result.success {
-                                            DownloadOutcomeCategory::DirectSuccess
-                                        } else if is_cancelled_error(result.error.as_deref().unwrap_or_default()) {
-                                            DownloadOutcomeCategory::Cancelled
-                                        } else {
-                                            DownloadOutcomeCategory::AllFailed
-                                        };
-                                        log_terminal_outcome(
-                                            &trace_id_for_task,
-                                            category,
-                                            Some(DownloadRoute::DirectXiaohongshu),
-                                            &route_chain,
-                                            started_at.elapsed().as_millis(),
-                                            result.error.as_deref(),
-                                        );
-                                    }
-                                    Err(e) => {
-                                        println!(">>> [Rust] Xiaohongshu download error: {}", e);
-                                        let category = if is_cancelled_error(e.as_str()) {
-                                            DownloadOutcomeCategory::Cancelled
-                                        } else {
-                                            DownloadOutcomeCategory::AllFailed
-                                        };
-                                        log_terminal_outcome(
-                                            &trace_id_for_task,
-                                            category,
-                                            Some(DownloadRoute::DirectXiaohongshu),
-                                            &route_chain,
-                                            started_at.elapsed().as_millis(),
-                                            Some(e.as_str()),
-                                        );
-                                        // Emit complete event with error to close progress bar
-                                        let result = DownloadResult {
-                                            success: false,
-                                            file_path: None,
-                                            error: Some(e),
-                                        };
-                                        let _ = app_clone.emit("video-download-complete", result);
-                                    }
-                                }
-                            });
-                        } else {
-                            // If extension extracted only manifest/non-direct URLs, fallback to smart download on page URL.
-                            let page_url_owned = page_url.to_string();
-                            let title_owned = title.map(|s| s.to_string());
-                            let cookies_path = cookies
-                                .filter(|s| !s.is_empty())
-                                .and_then(|s| save_extension_cookies(s).ok());
-                            let trace_id_for_task = trace_id.clone();
-                            log_download_trace(
-                                &trace_id_for_task,
-                                "route_selected",
-                                serde_json::json!({
-                                    "route": "smart_router",
-                                    "platform": DirectPlatform::Xiaohongshu.as_str(),
-                                    "reason": "xiaohongshu_no_direct_candidate",
-                                    "hasVideoUrl": video_url.is_some_and(|value| !value.is_empty()),
-                                    "videoCandidatesCount": video_candidates.len(),
-                                }),
-                            );
-                            tokio::spawn(async move {
-                                if let Err(e) = download_video_smart(
-                                    app_clone.clone(),
-                                    page_url_owned,
-                                    title_owned,
-                                    cookies_path,
-                                    Some(trace_id_for_task.clone()),
-                                ).await {
-                                    println!(">>> [Rust] Xiaohongshu smart fallback error: {}", e);
-                                    let result = DownloadResult {
-                                        success: false,
-                                        file_path: None,
-                                        error: Some(e),
-                                    };
-                                    let _ = app_clone.emit("video-download-complete", result);
-                                }
-                            });
-                        }
+                        let page_url_owned = page_url.to_string();
+                        let title_owned = title.map(|value| value.to_string());
+                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
+                        let cookies_path = cookies
+                            .filter(|value| !value.is_empty())
+                            .and_then(|value| save_extension_cookies(value).ok());
+                        let trace_id_for_task = trace_id.clone();
+                        tokio::spawn(async move {
+                            if let Err(err) = download_platform_direct_with_retry(
+                                app_clone.clone(),
+                                DirectPlatform::Xiaohongshu,
+                                page_url_owned,
+                                title_owned,
+                                cookies_header,
+                                cookies_path,
+                                xiaohongshu_direct_candidates,
+                                trace_id_for_task.clone(),
+                            )
+                            .await
+                            {
+                                println!(">>> [Rust] Xiaohongshu direct pipeline error: {}", err);
+                                let result = DownloadResult {
+                                    success: false,
+                                    file_path: None,
+                                    error: Some(err),
+                                };
+                                let _ = app_clone.emit("video-download-complete", result);
+                            }
+                        });
                     } else {
                         // Use smart download dispatcher
                         let url_owned = url.to_string();
-                        let title_owned = title.map(|s| s.to_string());
+                        let title_owned = title.map(|value| value.to_string());
                         let cookies_path = cookies
-                            .filter(|s| !s.is_empty())
-                            .and_then(|s| save_extension_cookies(s).ok());
+                            .filter(|value| !value.is_empty())
+                            .and_then(|value| save_extension_cookies(value).ok());
                         let trace_id_for_task = trace_id.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = download_video_smart(
+                            if let Err(err) = download_video_smart(
                                 app_clone.clone(),
                                 url_owned,
                                 title_owned,
                                 cookies_path,
                                 Some(trace_id_for_task.clone()),
-                            ).await {
-                                println!(">>> [Rust] Smart download error: {}", e);
+                                None,
+                            )
+                            .await
+                            {
+                                println!(">>> [Rust] Smart download error: {}", err);
                                 // Emit complete event with error to close progress bar
                                 let result = DownloadResult {
                                     success: false,
                                     file_path: None,
-                                    error: Some(e),
+                                    error: Some(err),
                                 };
                                 let _ = app_clone.emit("video-download-complete", result);
                             }
@@ -3215,7 +3603,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![])))
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .manage(RegisteredShortcut {
@@ -3260,7 +3651,9 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {
-                let _ = app.handle().set_activation_policy(ActivationPolicy::Accessory);
+                let _ = app
+                    .handle()
+                    .set_activation_policy(ActivationPolicy::Accessory);
                 let _ = app.handle().set_dock_visibility(false);
             }
 
@@ -3322,7 +3715,8 @@ pub fn run() {
                 if path.exists() {
                     if let Ok(config_str) = fs::read_to_string(&path) {
                         if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
-                            if let Some(shortcut) = config.get("shortcut").and_then(|v| v.as_str()) {
+                            if let Some(shortcut) = config.get("shortcut").and_then(|v| v.as_str())
+                            {
                                 if !shortcut.is_empty() {
                                     let _ = register_shortcut_internal(&app_handle, shortcut);
                                 }
@@ -3342,7 +3736,11 @@ pub fn run() {
                 if path.exists() {
                     if let Ok(config_str) = fs::read_to_string(&path) {
                         if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
-                            if config.get("devMode").and_then(|v| v.as_bool()).unwrap_or(false) {
+                            if config
+                                .get("devMode")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false)
+                            {
                                 if let Some(window) = app.get_webview_window("main") {
                                     window.open_devtools();
                                 }
