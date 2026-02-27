@@ -1,5 +1,5 @@
 // FlowSelect Browser Extension - YouTube Video Detector
-// Detects video pages and injects download buttons
+// Detects video pages and injects download/screenshot buttons
 
 (function() {
   'use strict';
@@ -9,13 +9,17 @@
     'flowselect-youtube-btn',
     'flowselect-youtube-set-in-btn',
     'flowselect-youtube-set-out-btn',
+    'flowselect-youtube-screenshot-btn',
   ];
+  const SCREENSHOT_PANEL_ID = 'flowselect-youtube-screenshot-panel';
+  const SCREENSHOT_LIST_ID = 'flowselect-youtube-screenshot-list';
+  const MAX_SCREENSHOTS = 20;
+  const screenshots = [];
   const clipState = {
     startSec: null,
     endSec: null,
   };
 
-  // Cat icon SVG
   const CAT_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" fill-rule="evenodd" d="M11.75 6.406c-1.48 0-1.628.157-2.394.157C8.718 6.563 6.802 5 5.845 5S3.77 5.563 3.77 7.188v1.875c.002.492.18 2 .88 1.597c-.827.978-.91 2.119-.899 3.223c-.223.064-.45.137-.671.212c-.684.234-1.41.532-1.737.744a.75.75 0 0 0 .814 1.26c.156-.101.721-.35 1.408-.585l.228-.075c.046.433.161.83.332 1.19l-.024.013c-.41.216-.79.465-1.032.623l-.113.074a.75.75 0 1 0 .814 1.26l.131-.086c.245-.16.559-.365.901-.545q.12-.064.231-.116C6.763 19.475 9.87 20 11.75 20s4.987-.525 6.717-2.148q.11.052.231.116c.342.18.656.385.901.545l.131.086a.75.75 0 0 0 .814-1.26l-.113-.074a13 13 0 0 0-1.032-.623l-.024-.013c.171-.36.286-.757.332-1.19l.228.075c.687.235 1.252.484 1.409.585a.75.75 0 0 0 .813-1.26c-.327-.212-1.053-.51-1.736-.744a16 16 0 0 0-.672-.213c.012-1.104-.072-2.244-.9-3.222c.7.403.88-1.105.881-1.598V7.188C19.73 5.563 18.613 5 17.655 5c-.957 0-2.873 1.563-3.51 1.563c-.767 0-.915-.157-2.395-.157m-.675 9.194c.202-.069.441-.1.675-.1s.473.031.676.1c.1.034.22.088.328.174a.62.62 0 0 1 .246.476c0 .23-.139.39-.246.476s-.229.14-.328.174c-.203.069-.442.1-.676.1s-.473-.031-.675-.1a1.1 1.1 0 0 1-.329-.174a.62.62 0 0 1-.246-.476c0-.23.139-.39.246-.476s.23-.14.329-.174m2.845-3.1c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812m-5.96 0c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812" clip-rule="evenodd"/>
   </svg>`;
@@ -23,17 +27,22 @@
     <rect x="3" y="11" width="12" height="2" rx="1" style="fill:currentColor;"></rect>
     <circle cx="18" cy="12" r="3" style="fill:currentColor;"></circle>
   </svg>`;
+  const CAMERA_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true">
+    <path fill="currentColor" d="M9 4.5a2 2 0 0 0-1.79 1.11l-.47.94H5.5A3.5 3.5 0 0 0 2 10.05v7.45A3.5 3.5 0 0 0 5.5 21h13a3.5 3.5 0 0 0 3.5-3.5v-7.45A3.5 3.5 0 0 0 18.5 6.5h-1.24l-.47-.94A2 2 0 0 0 15 4.5H9Zm3 13a4.5 4.5 0 1 1 0-9a4.5 4.5 0 0 1 0 9Zm0-1.75a2.75 2.75 0 1 0 0-5.5a2.75 2.75 0 0 0 0 5.5Z"/>
+  </svg>`;
 
-  // Check if current page is a video page
   function isVideoPage() {
     return window.location.pathname === '/watch' &&
-           new URLSearchParams(window.location.search).has('v');
+      new URLSearchParams(window.location.search).has('v');
   }
 
-  // Get video ID from URL
   function getVideoId() {
     const params = new URLSearchParams(window.location.search);
     return params.get('v');
+  }
+
+  function getVideoElement() {
+    return document.querySelector('video.video-stream') || document.querySelector('video');
   }
 
   function resetClipState() {
@@ -47,18 +56,14 @@
       clipState.endSec > clipState.startSec;
   }
 
-  // Detect video player and inject button
   function detectVideoPlayer() {
     if (!isVideoPage()) return;
 
     const videoId = getVideoId();
     if (!videoId) return;
 
-    // Find YouTube player controls - right controls container
     const rightControls = document.querySelector('.ytp-right-controls');
     if (!rightControls) return;
-
-    // Check if already processed
     if (rightControls.hasAttribute(PROCESSED_ATTR)) return;
 
     console.log('[FlowSelect YouTube] Video detected:', videoId);
@@ -67,7 +72,7 @@
   }
 
   function getCurrentPlaybackSeconds() {
-    const videoEl = document.querySelector('video.video-stream') || document.querySelector('video');
+    const videoEl = getVideoElement();
     if (!videoEl) return null;
     const current = Number(videoEl.currentTime);
     if (!Number.isFinite(current) || current < 0) return null;
@@ -220,24 +225,27 @@
     downloadVideo();
   }
 
-  // Inject buttons
   function injectControlButtons(container) {
     removeInjectedButtons();
 
+    const screenshotBtn = createButton({
+      className: 'flowselect-youtube-screenshot-btn',
+      title: 'Screenshot',
+      html: CAMERA_ICON_SVG,
+      onClick: takeScreenshot,
+    });
     const fullBtn = createButton({
       className: 'flowselect-youtube-btn',
       title: 'Download with FlowSelect',
       html: CAT_ICON_SVG,
       onClick: handlePrimaryDownload,
     });
-
     const inBtn = createButton({
       className: 'flowselect-youtube-set-in-btn',
       title: 'Set IN point',
       html: DIRECTION_ICON_SVG,
       onClick: setInPoint,
     });
-
     const outBtn = createButton({
       className: 'flowselect-youtube-set-out-btn',
       title: 'Set OUT point',
@@ -245,7 +253,7 @@
       onClick: setOutPoint,
     });
 
-    const buttons = [outBtn, inBtn, fullBtn];
+    const buttons = [outBtn, inBtn, fullBtn, screenshotBtn];
     for (const btn of buttons) {
       container.insertBefore(btn, container.firstChild);
     }
@@ -254,25 +262,284 @@
     console.log('[FlowSelect YouTube] Buttons injected');
   }
 
-  // Extract video title
+  function ensureScreenshotPanel() {
+    let panel = document.getElementById(SCREENSHOT_PANEL_ID);
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = SCREENSHOT_PANEL_ID;
+      panel.className = 'flowselect-hidden';
+      panel.innerHTML = `<div id="${SCREENSHOT_LIST_ID}"></div>`;
+      document.body.appendChild(panel);
+    }
+
+    let list = document.getElementById(SCREENSHOT_LIST_ID);
+    if (!list) {
+      list = document.createElement('div');
+      list.id = SCREENSHOT_LIST_ID;
+      panel.appendChild(list);
+    }
+
+    return { panel, list };
+  }
+
+  function renderScreenshotPanel() {
+    const { panel, list } = ensureScreenshotPanel();
+    list.innerHTML = '';
+
+    if (screenshots.length === 0) {
+      panel.classList.add('flowselect-hidden');
+      return;
+    }
+
+    panel.classList.remove('flowselect-hidden');
+    for (const screenshot of screenshots) {
+      list.appendChild(createScreenshotItem(screenshot));
+    }
+  }
+
+  function createScreenshotItem(screenshot) {
+    const item = document.createElement('div');
+    item.className = 'flowselect-youtube-screenshot-item';
+
+    const img = document.createElement('img');
+    img.src = screenshot.url;
+    img.alt = screenshot.filename;
+    img.loading = 'lazy';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'flowselect-youtube-screenshot-overlay';
+
+    const timestamp = document.createElement('span');
+    timestamp.className = 'flowselect-youtube-screenshot-time';
+    timestamp.textContent = screenshot.playbackLabel;
+
+    const saveButton = createOverlayActionButton('保存', () => saveScreenshot(screenshot));
+    const copyButton = createOverlayActionButton('复制', () => copyScreenshot(screenshot, copyButton));
+    const deleteButton = createOverlayActionButton('删除', () => removeScreenshot(screenshot.id));
+    deleteButton.classList.add('flowselect-danger');
+
+    overlay.append(saveButton, copyButton, deleteButton, timestamp);
+    item.append(img, overlay);
+    return item;
+  }
+
+  function createOverlayActionButton(text, handler) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = text;
+    button.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      handler();
+    });
+    return button;
+  }
+
+  function addScreenshot(screenshot) {
+    screenshots.unshift(screenshot);
+    while (screenshots.length > MAX_SCREENSHOTS) {
+      const removed = screenshots.pop();
+      if (removed) {
+        URL.revokeObjectURL(removed.url);
+      }
+    }
+    renderScreenshotPanel();
+  }
+
+  async function takeScreenshot() {
+    const video = getVideoElement();
+    if (!(video instanceof HTMLVideoElement)) {
+      notify('Unable to locate video element.');
+      return;
+    }
+
+    try {
+      const screenshot = await captureVideoFrame(video);
+      if (!screenshot) {
+        notify('Screenshot failed. Please try again.');
+        return;
+      }
+      addScreenshot(screenshot);
+    } catch (error) {
+      console.error('[FlowSelect YouTube] Screenshot failed:', error);
+      notify('Screenshot failed. Please try again.');
+    }
+  }
+
+  async function captureVideoFrame(video) {
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.drawImage(video, 0, 0, width, height);
+
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob((result) => resolve(result), 'image/png');
+    });
+    if (!(blob instanceof Blob)) {
+      return null;
+    }
+
+    const playbackLabel = formatTimestamp(video.currentTime);
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      url: URL.createObjectURL(blob),
+      blob,
+      playbackLabel,
+      filename: buildScreenshotFileName(playbackLabel),
+    };
+  }
+
+  function buildScreenshotFileName(playbackLabel) {
+    const title = extractVideoTitle()
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80) || 'youtube-video';
+    return `${title}@${playbackLabel.replace(/:/g, '-')}-${Date.now()}.png`;
+  }
+
+  async function saveScreenshot(screenshot) {
+    const savedByFlowSelect = await saveScreenshotViaFlowSelect(screenshot);
+    if (savedByFlowSelect) {
+      return;
+    }
+    saveScreenshotByBrowser(screenshot);
+  }
+
+  async function saveScreenshotViaFlowSelect(screenshot) {
+    if (!chrome?.runtime?.sendMessage) {
+      return false;
+    }
+
+    try {
+      const dataUrl = await blobToDataUrl(screenshot.blob);
+      if (!dataUrl.startsWith('data:')) {
+        return false;
+      }
+
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          {
+            type: 'save_screenshot',
+            dataUrl,
+            filename: screenshot.filename,
+          },
+          (result) => {
+            if (chrome.runtime.lastError) {
+              resolve({ success: false });
+              return;
+            }
+            resolve(result || { success: false });
+          },
+        );
+      });
+
+      return Boolean(response?.success);
+    } catch (error) {
+      console.error('[FlowSelect YouTube] Save screenshot via app failed:', error);
+      return false;
+    }
+  }
+
+  function saveScreenshotByBrowser(screenshot) {
+    const link = document.createElement('a');
+    link.href = screenshot.url;
+    link.download = screenshot.filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error('Invalid data URL result'));
+      };
+      reader.onerror = () => {
+        reject(reader.error || new Error('Failed to read blob'));
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function copyScreenshot(screenshot, button) {
+    const clipboardItem = window.ClipboardItem;
+    if (!navigator.clipboard?.write || typeof clipboardItem === 'undefined') {
+      notify('Current browser does not support image copy.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.write([new clipboardItem({
+        [screenshot.blob.type]: screenshot.blob,
+      })]);
+      button.dataset.copied = 'true';
+      button.textContent = '已复制';
+      window.setTimeout(() => {
+        button.dataset.copied = 'false';
+        button.textContent = '复制';
+      }, 900);
+    } catch (error) {
+      console.error('[FlowSelect YouTube] Copy screenshot failed:', error);
+      notify('Copy failed. Please check clipboard permission.');
+    }
+  }
+
+  function removeScreenshot(id) {
+    const index = screenshots.findIndex((item) => item.id === id);
+    if (index < 0) return;
+
+    const [removed] = screenshots.splice(index, 1);
+    URL.revokeObjectURL(removed.url);
+    renderScreenshotPanel();
+  }
+
+  function clearScreenshots({ render = true } = {}) {
+    while (screenshots.length > 0) {
+      const removed = screenshots.pop();
+      if (removed) {
+        URL.revokeObjectURL(removed.url);
+      }
+    }
+    if (render && document.getElementById(SCREENSHOT_PANEL_ID)) {
+      renderScreenshotPanel();
+    }
+  }
+
+  function cleanupScreenshotPanel() {
+    clearScreenshots({ render: false });
+    const panel = document.getElementById(SCREENSHOT_PANEL_ID);
+    if (panel) {
+      panel.remove();
+    }
+  }
+
   function extractVideoTitle() {
-    // Method 1: Try to get from video title element
     const titleEl = document.querySelector('h1.ytd-video-primary-info-renderer yt-formatted-string');
     if (titleEl && titleEl.textContent.trim()) {
       return titleEl.textContent.trim();
     }
 
-    // Method 2: Try newer YouTube layout
     const titleEl2 = document.querySelector('#title h1 yt-formatted-string');
     if (titleEl2 && titleEl2.textContent.trim()) {
       return titleEl2.textContent.trim();
     }
 
-    // Method 3: Fallback to document.title
     return document.title.replace(' - YouTube', '');
   }
 
-  // Send download request
   function downloadVideo() {
     const videoId = getVideoId();
     const pageUrl = window.location.href;
@@ -285,38 +552,35 @@
     sendVideoSelectedMessage({
       type: 'video_selected',
       url: pageUrl,
-      pageUrl: pageUrl,
-      title: title
+      pageUrl,
+      title,
     });
   }
 
-  // MutationObserver for dynamic content
   const observer = new MutationObserver(() => {
     detectVideoPlayer();
   });
 
-  // Handle URL changes (SPA navigation)
   let lastUrl = window.location.href;
   function checkUrlChange() {
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
       console.log('[FlowSelect YouTube] URL changed:', lastUrl);
       resetClipState();
-      // Reset processed state for new video
       const processed = document.querySelectorAll(`[${PROCESSED_ATTR}]`);
-      processed.forEach(el => el.removeAttribute(PROCESSED_ATTR));
+      processed.forEach((el) => el.removeAttribute(PROCESSED_ATTR));
       removeInjectedButtons();
+      cleanupScreenshotPanel();
       detectVideoPlayer();
     }
   }
 
-  // Initialize
   function init() {
     console.log('[FlowSelect YouTube] Detector initialized');
     detectVideoPlayer();
     observer.observe(document.body, { childList: true, subtree: true });
-    // Check for URL changes periodically (for SPA navigation)
-    setInterval(checkUrlChange, 500);
+    window.setInterval(checkUrlChange, 500);
+    window.addEventListener('beforeunload', cleanupScreenshotPanel);
   }
 
   if (document.readyState === 'loading') {
