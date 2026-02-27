@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type CSSProperties } from "react";
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -80,6 +80,9 @@ function App() {
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
   const [isInitialMount, setIsInitialMount] = useState(true);
   const idleTimerRef = useRef<number | null>(null);
+  const contextMenuMonitorRef = useRef<number | null>(null);
+  const contextMenuMonitorBusyRef = useRef(false);
+  const contextMenuMonitorMissesRef = useRef(0);
   const isDraggingRef = useRef(false);
   const downloadCancelledRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -88,13 +91,62 @@ function App() {
   // Window size constants
   const FULL_SIZE = 200;
   const ICON_SIZE = 80;
-  const EDGE_GLOW_TRIGGER_DISTANCE = 98;
-  const EDGE_GLOW_RADIUS = 196;
-  const EDGE_GLOW_BORDER_WIDTH = 1.45;
-  const EDGE_GLOW_FALLOFF_EXPONENT = 0.9;
+  const EDGE_GLOW_TRIGGER_DISTANCE = 112;
+  const EDGE_GLOW_RADIUS = 222;
+  const EDGE_GLOW_BORDER_WIDTH = 1.75;
+  const EDGE_GLOW_FALLOFF_EXPONENT = 0.72;
   const CONTEXT_MENU_WIDTH = 148;
   const CONTEXT_MENU_HEIGHT = 46;
   const CONTEXT_MENU_MARGIN = 8;
+
+  const clearContextMenuMonitor = useCallback(() => {
+    if (contextMenuMonitorRef.current !== null) {
+      clearInterval(contextMenuMonitorRef.current);
+      contextMenuMonitorRef.current = null;
+    }
+    contextMenuMonitorBusyRef.current = false;
+    contextMenuMonitorMissesRef.current = 0;
+  }, []);
+
+  const closeContextMenuWindow = useCallback(async () => {
+    const existing = await WebviewWindow.getByLabel("context-menu");
+    if (existing) {
+      await existing.close().catch(() => undefined);
+    }
+    clearContextMenuMonitor();
+  }, [clearContextMenuMonitor]);
+
+  const startContextMenuMonitor = useCallback(() => {
+    clearContextMenuMonitor();
+    contextMenuMonitorRef.current = window.setInterval(async () => {
+      if (contextMenuMonitorBusyRef.current) {
+        return;
+      }
+      contextMenuMonitorBusyRef.current = true;
+      try {
+        const contextMenu = await WebviewWindow.getByLabel("context-menu");
+        if (!contextMenu) {
+          contextMenuMonitorMissesRef.current += 1;
+          if (contextMenuMonitorMissesRef.current >= 8) {
+            clearContextMenuMonitor();
+          }
+          return;
+        }
+        contextMenuMonitorMissesRef.current = 0;
+
+        const [mainFocused, menuFocused] = await Promise.all([
+          getCurrentWindow().isFocused().catch(() => false),
+          contextMenu.isFocused().catch(() => false),
+        ]);
+
+        if (!mainFocused && !menuFocused) {
+          await closeContextMenuWindow().catch(() => undefined);
+        }
+      } finally {
+        contextMenuMonitorBusyRef.current = false;
+      }
+    }, 200);
+  }, [clearContextMenuMonitor, closeContextMenuWindow]);
 
   // Expand window from icon mode
   const expandWindow = async () => {
@@ -167,14 +219,15 @@ function App() {
       background: `radial-gradient(
         ${EDGE_GLOW_RADIUS}px circle at ${mousePos.x}px ${mousePos.y}px,
         rgba(59,130,246,1) 0%,
-        rgba(96,165,250,0.78) 28%,
-        rgba(147,197,253,0.28) 52%,
-        transparent 80%
+        rgba(96,165,250,0.9) 24%,
+        rgba(147,197,253,0.42) 50%,
+        rgba(191,219,254,0.18) 66%,
+        transparent 84%
       )`,
       mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
       maskComposite: 'exclude',
       WebkitMaskComposite: 'xor',
-      filter: 'drop-shadow(0 0 1.6px rgba(59,130,246,0.62))',
+      filter: 'drop-shadow(0 0 2.6px rgba(59,130,246,0.78))',
     };
   };
 
@@ -202,6 +255,46 @@ function App() {
     }, 100);
     return () => clearTimeout(timer);
   }, [isMacOS]);
+
+  useEffect(() => {
+    return () => {
+      clearContextMenuMonitor();
+    };
+  }, [clearContextMenuMonitor]);
+
+  useEffect(() => {
+    const mainWindow = getCurrentWindow();
+    let isMounted = true;
+    let unlistenFocus: (() => void) | null = null;
+
+    mainWindow
+      .onFocusChanged(({ payload: focused }) => {
+        if (!focused) {
+          return;
+        }
+        void closeContextMenuWindow()
+          .catch((err) => {
+            console.error("Failed to close context menu on main focus:", err);
+          });
+      })
+      .then((fn) => {
+        if (isMounted) {
+          unlistenFocus = fn;
+        } else {
+          fn();
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to listen for main focus changes:", err);
+      });
+
+    return () => {
+      isMounted = false;
+      if (unlistenFocus) {
+        unlistenFocus();
+      }
+    };
+  }, [closeContextMenuWindow]);
 
   // Save config when outputPath changes
   useEffect(() => {
@@ -423,6 +516,13 @@ function App() {
   // Handle window drag start - prevents minimize during drag
   const handleDragStart = async (e: React.MouseEvent) => {
     if (e.button !== 0) return; // 只响应左键
+
+    const existingContextMenu = await WebviewWindow.getByLabel("context-menu");
+    if (existingContextMenu) {
+      await closeContextMenuWindow();
+      return;
+    }
+
     if (isMinimized) {
       resetIdleTimer();
       return;
@@ -817,7 +917,7 @@ function App() {
   const openSettings = async () => {
     const existingContextMenu = await WebviewWindow.getByLabel("context-menu");
     if (existingContextMenu) {
-      await existingContextMenu.close();
+      await closeContextMenuWindow();
     }
 
     const existing = await WebviewWindow.getByLabel("settings");
@@ -859,10 +959,7 @@ function App() {
     resetIdleTimer();
 
     try {
-      const existing = await WebviewWindow.getByLabel("context-menu");
-      if (existing) {
-        await existing.close();
-      }
+      await closeContextMenuWindow();
 
       const currentWindow = getCurrentWindow();
       const [outerPosition, scaleFactor] = await Promise.all([
@@ -897,9 +994,10 @@ function App() {
         alwaysOnTop: true,
         skipTaskbar: true,
         shadow: false,
-        focus: true,
+        focus: false,
         parent: "main",
       });
+      startContextMenuMonitor();
     } catch (err) {
       console.error("Failed to open context menu window:", err);
     }
@@ -1008,24 +1106,25 @@ function App() {
               transition={{ duration: 0.3, ease: 'easeOut' }}
               style={{
                 position: 'absolute',
-                inset: -4,
-                borderRadius: 20,
+                inset: -5,
+                borderRadius: 22,
                 pointerEvents: 'none',
                 background: `conic-gradient(
                   from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
                   transparent 0deg,
-                  rgba(59,130,246,1) 30deg,
-                  rgba(96,165,250,1) 60deg,
-                  rgba(147,197,253,1) 90deg,
-                  rgba(96,165,250,1) 120deg,
-                  rgba(59,130,246,1) 150deg,
-                  transparent 180deg
+                  rgba(59,130,246,1) 22deg,
+                  rgba(96,165,250,1) 52deg,
+                  rgba(147,197,253,1) 88deg,
+                  rgba(147,197,253,0.95) 122deg,
+                  rgba(96,165,250,1) 154deg,
+                  rgba(59,130,246,1) 186deg,
+                  transparent 230deg
                 )`,
                 mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
                 maskComposite: 'exclude',
                 WebkitMaskComposite: 'xor',
-                padding: 4,
-                filter: 'blur(2px)',
+                padding: 5,
+                filter: 'blur(2.8px) drop-shadow(0 0 7px rgba(59,130,246,0.5))',
               }}
             />
           )
@@ -1041,7 +1140,7 @@ function App() {
         onMouseDown={(e) => e.stopPropagation()}
         onMouseEnter={(e) => {
           const span = e.currentTarget.querySelector('span');
-          if (span) span.style.backgroundColor = '#808080';
+          if (span) span.style.backgroundColor = '#ef4444';
         }}
         onMouseLeave={(e) => {
           const span = e.currentTarget.querySelector('span');

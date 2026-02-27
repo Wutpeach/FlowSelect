@@ -269,6 +269,13 @@ async fn download_image(
     target_dir: Option<String>,
 ) -> Result<String, String> {
     println!(">>> [Rust] Downloading image from: {}", url);
+    let resolved_url = resolve_image_download_url(&url);
+    if resolved_url != url {
+        println!(
+            ">>> [Rust] Resolved image URL from wrapper: {} -> {}",
+            url, resolved_url
+        );
+    }
 
     // Determine target directory (read from config if not provided)
     let final_target_dir = if let Some(dir) = target_dir {
@@ -297,27 +304,48 @@ async fn download_image(
     }
 
     // Download image
-    let response =
-        reqwest::blocking::get(&url).map_err(|e| format!("Failed to download: {}", e))?;
+    let response = reqwest::Client::new()
+        .get(&resolved_url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download: {}", e))?;
 
     if !response.status().is_success() {
         return Err(format!("HTTP error: {}", response.status()));
     }
 
-    // Get extension from Content-Type or URL
-    let ext = response
+    // Reject obvious HTML/text payloads to avoid saving pages as image files.
+    let content_type = response
         .headers()
         .get("content-type")
         .and_then(|ct| ct.to_str().ok())
-        .map(|ct| match ct {
-            "image/png" => "png",
-            "image/gif" => "gif",
-            "image/webp" => "webp",
-            "image/bmp" => "bmp",
-            "image/svg+xml" => "svg",
-            _ => "jpg",
-        })
-        .unwrap_or("jpg");
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if content_type.starts_with("text/") {
+        return Err(format!(
+            "Unexpected non-image response content-type: {}",
+            content_type
+        ));
+    }
+
+    // Get extension from Content-Type.
+    let ext = if content_type.contains("image/png") {
+        "png"
+    } else if content_type.contains("image/gif") {
+        "gif"
+    } else if content_type.contains("image/webp") {
+        "webp"
+    } else if content_type.contains("image/bmp") {
+        "bmp"
+    } else if content_type.contains("image/svg+xml") {
+        "svg"
+    } else {
+        "jpg"
+    };
 
     // Get next sequence number
     let seq_num = get_next_sequence_number(&final_target_dir)?;
@@ -327,6 +355,7 @@ async fn download_image(
     // Write to file
     let bytes = response
         .bytes()
+        .await
         .map_err(|e| format!("Failed to read response: {}", e))?;
 
     let mut file =
@@ -345,6 +374,34 @@ async fn download_image(
     });
 
     Ok(dest_path.to_string_lossy().to_string())
+}
+
+fn resolve_image_download_url(raw_url: &str) -> String {
+    let trimmed = raw_url.trim();
+    if let Some(parsed) = url::Url::parse(trimmed).ok() {
+        let host = parsed
+            .host_str()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let path = parsed.path().to_ascii_lowercase();
+        let is_google_wrapper = (host == "google.com"
+            || host == "www.google.com"
+            || host.ends_with(".google.com"))
+            && path.starts_with("/imgres");
+        if is_google_wrapper {
+            if let Some((_, value)) = parsed
+                .query_pairs()
+                .find(|(key, _)| key.eq_ignore_ascii_case("imgurl"))
+            {
+                let candidate = value.trim();
+                if candidate.starts_with("http://") || candidate.starts_with("https://") {
+                    return candidate.to_string();
+                }
+            }
+        }
+    }
+
+    trimmed.to_string()
 }
 
 #[tauri::command]
