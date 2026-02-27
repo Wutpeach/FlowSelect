@@ -4,9 +4,8 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
-
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use regex::Regex;
 
 use tokio::sync::broadcast;
@@ -124,6 +123,97 @@ fn show_main_window(app: &AppHandle) {
         keep_window_off_taskbar(&window);
         let _ = app.emit("shortcut-show", ());
     }
+}
+
+#[cfg(target_os = "macos")]
+struct HoverActivationState {
+    was_inside: bool,
+    last_activate_ms: u128,
+}
+
+#[cfg(target_os = "macos")]
+fn start_macos_hover_activation_monitor(app_handle: AppHandle) {
+    const HOVER_CHECK_INTERVAL_MS: u64 = 80;
+    const HOVER_ACTIVATE_COOLDOWN_MS: u128 = 600;
+
+    std::thread::spawn(move || {
+        println!(">>> [Rust] Starting mac hover activation monitor");
+        println!(">>> [Rust] mac hover activation uses cursor polling");
+
+        let state = Arc::new(Mutex::new(HoverActivationState {
+            was_inside: false,
+            last_activate_ms: 0,
+        }));
+        let mut dispatch_error_logged = false;
+
+        loop {
+            let app_for_main_thread = app_handle.clone();
+            let state_for_main_thread = Arc::clone(&state);
+            let dispatch_result = app_handle.run_on_main_thread(move || {
+                let mut hover_state = match state_for_main_thread.lock() {
+                    Ok(state_guard) => state_guard,
+                    Err(_) => return,
+                };
+
+                let Some(window) = app_for_main_thread.get_webview_window("main") else {
+                    hover_state.was_inside = false;
+                    return;
+                };
+
+                if !window.is_visible().unwrap_or(false) {
+                    hover_state.was_inside = false;
+                    return;
+                }
+
+                let Ok(position) = window.outer_position() else {
+                    hover_state.was_inside = false;
+                    return;
+                };
+                let Ok(size) = window.outer_size() else {
+                    hover_state.was_inside = false;
+                    return;
+                };
+                let Ok(cursor_position) = window.cursor_position() else {
+                    hover_state.was_inside = false;
+                    return;
+                };
+
+                let left = f64::from(position.x);
+                let top = f64::from(position.y);
+                let right = left + f64::from(size.width);
+                let bottom = top + f64::from(size.height);
+                let is_inside = cursor_position.x >= left
+                    && cursor_position.x <= right
+                    && cursor_position.y >= top
+                    && cursor_position.y <= bottom;
+
+                if is_inside && !hover_state.was_inside {
+                    let is_focused = window.is_focused().unwrap_or(false);
+                    let now_ms = now_timestamp_ms();
+                    let can_activate = now_ms.saturating_sub(hover_state.last_activate_ms)
+                        >= HOVER_ACTIVATE_COOLDOWN_MS;
+
+                    if !is_focused && can_activate {
+                        show_main_window(&app_for_main_thread);
+                        hover_state.last_activate_ms = now_ms;
+                    }
+                }
+
+                hover_state.was_inside = is_inside;
+            });
+
+            if let Err(err) = dispatch_result {
+                if !dispatch_error_logged {
+                    dispatch_error_logged = true;
+                    println!(
+                        ">>> [Rust] mac hover monitor main-thread dispatch failed: {}",
+                        err
+                    );
+                }
+            }
+            std::thread::sleep(Duration::from_millis(HOVER_CHECK_INTERVAL_MS));
+        }
+    });
 }
 
 /// 获取 Deno JS 运行时的路径
@@ -3099,6 +3189,9 @@ pub fn run() {
                     println!(">>> [WS] Auto-start failed: {}", e);
                 }
             });
+
+            #[cfg(target_os = "macos")]
+            start_macos_hover_activation_monitor(app.handle().clone());
 
             Ok(())
         })
