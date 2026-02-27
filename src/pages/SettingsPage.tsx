@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -8,6 +8,45 @@ import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
 import { useTheme } from "../contexts/ThemeContext";
 
+type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
+
+const DEFAULT_RENAME_RULE_PRESET: RenameRulePreset = "desc_number";
+const ILLEGAL_FILENAME_CHARS = /[/\\:*?"<>|]/g;
+const DEV_MODE_TAP_THRESHOLD = 5;
+const DEV_MODE_TAP_RESET_MS = 1500;
+const DEV_MODE_HINT_DURATION_MS = 1200;
+
+const sanitizeRenameAffix = (raw: string): string => {
+  const cleaned = raw
+    .trim()
+    .replace(ILLEGAL_FILENAME_CHARS, "_")
+    .replace(/[\n\r\t]/g, " ");
+  return cleaned
+    .slice(0, 100)
+    .replace(/^[.\s]+|[.\s]+$/g, "");
+};
+
+const buildRenamePreview = (
+  preset: RenameRulePreset,
+  prefixRaw: string,
+  suffixRaw: string,
+): string => {
+  const number = preset === "asc_number" ? "1" : "99";
+  const parts: string[] = [];
+  if (preset === "prefix_number") {
+    const safePrefix = sanitizeRenameAffix(prefixRaw);
+    if (safePrefix) {
+      parts.push(safePrefix);
+    }
+  }
+  parts.push(number);
+  const safeSuffix = sanitizeRenameAffix(suffixRaw);
+  if (safeSuffix) {
+    parts.push(safeSuffix);
+  }
+  return `${parts.join("_")}.mp4`;
+};
+
 function SettingsPage() {
   const { theme, colors, setTheme } = useTheme();
   const [outputPath, setOutputPath] = useState("");
@@ -16,9 +55,16 @@ function SettingsPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedKeys, setRecordedKeys] = useState("");
   const [renameMediaOnDownload, setRenameMediaOnDownload] = useState(false);
+  const [renameRulePreset, setRenameRulePreset] = useState<RenameRulePreset>(DEFAULT_RENAME_RULE_PRESET);
+  const [renamePrefix, setRenamePrefix] = useState("");
+  const [renameSuffix, setRenameSuffix] = useState("");
   const [devMode, setDevMode] = useState(false);
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
+  const [versionTapHint, setVersionTapHint] = useState("");
+  const versionTapCountRef = useRef(0);
+  const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Load config on mount
   useEffect(() => {
     const loadConfig = async () => {
@@ -32,6 +78,18 @@ function SettingsPage() {
           setRenameMediaOnDownload(config.renameMediaOnDownload);
         } else if (typeof config.videoKeepOriginalName === "boolean") {
           setRenameMediaOnDownload(!config.videoKeepOriginalName);
+        }
+        const rawPreset = config.renameRulePreset;
+        if (rawPreset === "desc_number" || rawPreset === "asc_number" || rawPreset === "prefix_number") {
+          setRenameRulePreset(rawPreset);
+        } else {
+          setRenameRulePreset(DEFAULT_RENAME_RULE_PRESET);
+        }
+        if (typeof config.renamePrefix === "string") {
+          setRenamePrefix(config.renamePrefix);
+        }
+        if (typeof config.renameSuffix === "string") {
+          setRenameSuffix(config.renameSuffix);
         }
         if (config.devMode !== undefined) {
           setDevMode(config.devMode);
@@ -94,6 +152,19 @@ function SettingsPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isRecording]);
+
+  useEffect(() => {
+    return () => {
+      if (versionTapTimerRef.current) {
+        clearTimeout(versionTapTimerRef.current);
+        versionTapTimerRef.current = null;
+      }
+      if (versionTapHintTimerRef.current) {
+        clearTimeout(versionTapHintTimerRef.current);
+        versionTapHintTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const startRecording = () => {
     setRecordedKeys("");
@@ -166,22 +237,110 @@ function SettingsPage() {
   };
 
   const toggleRenameMediaOnDownload = async () => {
-    const newValue = !renameMediaOnDownload;
-    setRenameMediaOnDownload(newValue);
-    const configStr = await invoke<string>("get_config");
-    const config = JSON.parse(configStr);
-    config.renameMediaOnDownload = newValue;
-    config.videoKeepOriginalName = !newValue;
-    await invoke("save_config", { json: JSON.stringify(config) });
-    await emit("rename-setting-changed", { enabled: newValue });
+    try {
+      const newValue = !renameMediaOnDownload;
+      setRenameMediaOnDownload(newValue);
+      const configStr = await invoke<string>("get_config");
+      const config = JSON.parse(configStr);
+      config.renameMediaOnDownload = newValue;
+      config.videoKeepOriginalName = !newValue;
+      await invoke<void>("save_config", { json: JSON.stringify(config) });
+      await emit("rename-setting-changed", { enabled: newValue });
+    } catch (err) {
+      console.error("Failed to toggle rename media:", err);
+    }
   };
 
-  const toggleDevMode = async () => {
-    const newValue = !devMode;
-    setDevMode(newValue);
-    // 不保存到配置文件，仅通知主窗口 + 切换 devtools
-    await emit("devmode-changed", { enabled: newValue });
-    await invoke("toggle_devtools", { enabled: newValue });
+  const saveRenameRuleConfig = async (
+    updates: Partial<{
+      renameRulePreset: RenameRulePreset;
+      renamePrefix: string;
+      renameSuffix: string;
+    }>,
+  ) => {
+    try {
+      const configStr = await invoke<string>("get_config");
+      const config = JSON.parse(configStr);
+      if (updates.renameRulePreset !== undefined) {
+        config.renameRulePreset = updates.renameRulePreset;
+      }
+      if (updates.renamePrefix !== undefined) {
+        config.renamePrefix = updates.renamePrefix;
+      }
+      if (updates.renameSuffix !== undefined) {
+        config.renameSuffix = updates.renameSuffix;
+      }
+      await invoke<void>("save_config", { json: JSON.stringify(config) });
+    } catch (err) {
+      console.error("Failed to save rename rule config:", err);
+    }
+  };
+
+  const handleRenameRulePresetChange = async (value: RenameRulePreset) => {
+    setRenameRulePreset(value);
+    await saveRenameRuleConfig({ renameRulePreset: value });
+  };
+
+  const handleRenamePrefixChange = async (value: string) => {
+    setRenamePrefix(value);
+    await saveRenameRuleConfig({ renamePrefix: value });
+  };
+
+  const handleRenameSuffixChange = async (value: string) => {
+    setRenameSuffix(value);
+    await saveRenameRuleConfig({ renameSuffix: value });
+  };
+
+  const showVersionTapHint = (message: string) => {
+    setVersionTapHint(message);
+    if (versionTapHintTimerRef.current) {
+      clearTimeout(versionTapHintTimerRef.current);
+    }
+    versionTapHintTimerRef.current = setTimeout(() => {
+      setVersionTapHint("");
+      versionTapHintTimerRef.current = null;
+    }, DEV_MODE_HINT_DURATION_MS);
+  };
+
+  const toggleDevModeByVersionTap = async () => {
+    const nextValue = !devMode;
+    setDevMode(nextValue);
+    try {
+      await emit("devmode-changed", { enabled: nextValue });
+      await invoke("toggle_devtools", { enabled: nextValue });
+      showVersionTapHint(nextValue ? "开发模式已开启" : "开发模式已关闭");
+    } catch (err) {
+      setDevMode(devMode);
+      showVersionTapHint("切换开发模式失败");
+      console.error("Failed to toggle dev mode from version tap:", err);
+    }
+  };
+
+  const handleVersionClick = () => {
+    versionTapCountRef.current += 1;
+    const remaining = DEV_MODE_TAP_THRESHOLD - versionTapCountRef.current;
+
+    if (versionTapTimerRef.current) {
+      clearTimeout(versionTapTimerRef.current);
+    }
+    versionTapTimerRef.current = setTimeout(() => {
+      versionTapCountRef.current = 0;
+      versionTapTimerRef.current = null;
+      setVersionTapHint("");
+    }, DEV_MODE_TAP_RESET_MS);
+
+    if (remaining === 1) {
+      showVersionTapHint("再点一下切换开发模式");
+    }
+
+    if (versionTapCountRef.current >= DEV_MODE_TAP_THRESHOLD) {
+      versionTapCountRef.current = 0;
+      if (versionTapTimerRef.current) {
+        clearTimeout(versionTapTimerRef.current);
+        versionTapTimerRef.current = null;
+      }
+      void toggleDevModeByVersionTap();
+    }
   };
 
   const toggleAePortal = async () => {
@@ -215,6 +374,8 @@ function SettingsPage() {
   const closeWindow = () => {
     getCurrentWindow().close();
   };
+
+  const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
 
   return (
     <div style={{
@@ -351,14 +512,121 @@ function SettingsPage() {
             Enable Rename on Download
           </label>
           <NeonToggle checked={renameMediaOnDownload} onChange={toggleRenameMediaOnDownload} />
-        </div>
+          {renameMediaOnDownload && (
+            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+              {renameRulePreset === "prefix_number" ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
+                      Prefix
+                    </label>
+                    <input
+                      type="text"
+                      value={renamePrefix}
+                      onChange={(e) => void handleRenamePrefixChange(e.target.value)}
+                      placeholder="Flow"
+                      style={{
+                        width: '100%',
+                        height: 36,
+                        boxSizing: 'border-box',
+                        padding: '0 10px',
+                        borderRadius: 8,
+                        border: `1px solid ${colors.borderStart}`,
+                        background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                        color: colors.textPrimary,
+                        fontSize: 12,
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
+                      Rename Preset
+                    </label>
+                    <select
+                      value={renameRulePreset}
+                      onChange={(e) => void handleRenameRulePresetChange(e.target.value as RenameRulePreset)}
+                      style={{
+                        width: '100%',
+                        height: 36,
+                        boxSizing: 'border-box',
+                        padding: '0 10px',
+                        borderRadius: 8,
+                        border: `1px solid ${colors.borderStart}`,
+                        background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                        color: colors.textPrimary,
+                        fontSize: 12,
+                        outline: 'none',
+                      }}
+                    >
+                      <option value="desc_number">Descending</option>
+                      <option value="asc_number">Ascending</option>
+                      <option value="prefix_number">Prefix + Sequence</option>
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
+                    Rename Preset
+                  </label>
+                  <select
+                    value={renameRulePreset}
+                    onChange={(e) => void handleRenameRulePresetChange(e.target.value as RenameRulePreset)}
+                    style={{
+                      width: '100%',
+                      height: 36,
+                      boxSizing: 'border-box',
+                      padding: '0 10px',
+                      borderRadius: 8,
+                      border: `1px solid ${colors.borderStart}`,
+                      background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                      color: colors.textPrimary,
+                      fontSize: 12,
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="desc_number">Descending</option>
+                    <option value="asc_number">Ascending</option>
+                    <option value="prefix_number">Prefix + Sequence</option>
+                  </select>
+                </div>
+              )}
 
-        {/* Developer Mode */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-            Developer Mode (F12 DevTools)
-          </label>
-          <NeonToggle checked={devMode} onChange={toggleDevMode} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
+                  Suffix
+                </label>
+                <input
+                  type="text"
+                  value={renameSuffix}
+                  onChange={(e) => void handleRenameSuffixChange(e.target.value)}
+                  placeholder="done"
+                  style={{
+                    width: '100%',
+                    height: 36,
+                    boxSizing: 'border-box',
+                    padding: '0 10px',
+                    borderRadius: 8,
+                    border: `1px solid ${colors.borderStart}`,
+                    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                    color: colors.textPrimary,
+                    fontSize: 12,
+                    outline: 'none',
+                  }}
+                />
+              </div>
+
+              <div style={{ padding: '2px 0' }}>
+                <div style={{ fontSize: 10, color: colors.textSecondary, marginBottom: 4 }}>
+                  Preview
+                </div>
+                <div style={{ fontSize: 12, color: colors.textSecondary, opacity: 0.82, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {renamePreview}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* AE Portal */}
@@ -469,7 +737,22 @@ function SettingsPage() {
         borderTop: `1px solid ${colors.borderStart}`,
         background: 'transparent',
       }}>
-        <span style={{ fontSize: 10, color: colors.textSecondary }}>v0.1.5</span>
+        <span
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleVersionClick}
+          style={{
+            fontSize: 10,
+            color: colors.textSecondary,
+            cursor: 'pointer',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+          }}
+        >
+          v0.1.5
+        </span>
+        <div style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.65, minHeight: 14, marginTop: 2 }}>
+          {versionTapHint}
+        </div>
       </div>
     </div>
   );

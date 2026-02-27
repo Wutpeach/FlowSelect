@@ -107,6 +107,45 @@ static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCac
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
 const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
+const RENAME_RULE_PRESET_KEY: &str = "renameRulePreset";
+const RENAME_PREFIX_KEY: &str = "renamePrefix";
+const RENAME_SUFFIX_KEY: &str = "renameSuffix";
+
+#[derive(Clone, Copy, Debug)]
+enum RenameRulePreset {
+    DescNumber,
+    AscNumber,
+    PrefixNumber,
+}
+
+impl RenameRulePreset {
+    fn from_config(config: &serde_json::Value) -> Self {
+        match config
+            .get(RENAME_RULE_PRESET_KEY)
+            .and_then(|value| value.as_str())
+            .unwrap_or("desc_number")
+        {
+            "asc_number" => Self::AscNumber,
+            "prefix_number" => Self::PrefixNumber,
+            _ => Self::DescNumber,
+        }
+    }
+
+    fn as_counter_key(self) -> &'static str {
+        match self {
+            Self::DescNumber => "desc_number",
+            Self::AscNumber => "asc_number",
+            Self::PrefixNumber => "prefix_number",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct RenameRuleConfig {
+    preset: RenameRulePreset,
+    prefix: String,
+    suffix: String,
+}
 
 fn keep_window_off_taskbar(_window: &tauri::WebviewWindow) {
     #[cfg(target_os = "windows")]
@@ -318,12 +357,11 @@ fn get_next_sequence_number(target_dir: &Path) -> Result<u32, String> {
     Err("序号已用完，请整理文件夹".to_string())
 }
 
-fn is_sequence_stem_in_use(target_dir: &Path, sequence: u32) -> Result<bool, String> {
+fn is_stem_in_use(target_dir: &Path, target_stem: &str) -> Result<bool, String> {
     if !target_dir.exists() {
         return Ok(false);
     }
 
-    let sequence_str = sequence.to_string();
     let entries =
         fs::read_dir(target_dir).map_err(|e| format!("Failed to read directory: {}", e))?;
 
@@ -336,7 +374,7 @@ fn is_sequence_stem_in_use(target_dir: &Path, sequence: u32) -> Result<bool, Str
             .file_stem()
             .and_then(|value| value.to_str())
             .unwrap_or("");
-        if stem == sequence_str {
+        if stem == target_stem {
             return Ok(true);
         }
     }
@@ -355,52 +393,118 @@ fn clear_rename_sequence_counters(config: &mut serde_json::Value) -> Result<(), 
     Ok(())
 }
 
-fn get_next_rename_sequence_number(
+fn get_rename_rule_config(config: &serde_json::Value) -> RenameRuleConfig {
+    let preset = RenameRulePreset::from_config(config);
+    let prefix = config
+        .get(RENAME_PREFIX_KEY)
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    let suffix = config
+        .get(RENAME_SUFFIX_KEY)
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    RenameRuleConfig {
+        preset,
+        prefix,
+        suffix,
+    }
+}
+
+fn sanitize_rename_affix(raw: &str) -> String {
+    sanitize_file_stem(raw)
+}
+
+fn build_rename_stem(number: u32, rule: &RenameRuleConfig) -> String {
+    let mut parts = Vec::new();
+
+    if matches!(rule.preset, RenameRulePreset::PrefixNumber) {
+        let safe_prefix = sanitize_rename_affix(&rule.prefix);
+        if !safe_prefix.is_empty() {
+            parts.push(safe_prefix);
+        }
+    }
+
+    parts.push(number.to_string());
+
+    let safe_suffix = sanitize_rename_affix(&rule.suffix);
+    if !safe_suffix.is_empty() {
+        parts.push(safe_suffix);
+    }
+
+    parts.join("_")
+}
+
+fn get_next_rename_sequence_stem(
     app: &tauri::AppHandle,
     config: &mut serde_json::Value,
     target_dir: &Path,
-) -> Result<u32, String> {
-    let key = target_dir.to_string_lossy().to_string();
+) -> Result<String, String> {
+    let rule = get_rename_rule_config(config);
+    let key = format!(
+        "{}::{}",
+        target_dir.to_string_lossy(),
+        rule.preset.as_counter_key()
+    );
     let current_counter = config
         .get(RENAME_SEQUENCE_COUNTERS_KEY)
         .and_then(|value| value.as_object())
         .and_then(|counter_map| counter_map.get(&key))
         .and_then(|value| value.as_u64())
-        .unwrap_or(0);
+        .and_then(|value| u32::try_from(value).ok());
 
-    let mut candidate = current_counter.saturating_add(1);
-    if candidate == 0 {
-        candidate = 1;
+    let mut candidate = match rule.preset {
+        RenameRulePreset::DescNumber | RenameRulePreset::PrefixNumber => current_counter
+            .map(|value| value.saturating_sub(1))
+            .unwrap_or(99),
+        RenameRulePreset::AscNumber => current_counter
+            .map(|value| value.saturating_add(1))
+            .unwrap_or(1),
+    };
+
+    loop {
+        if candidate == 0 {
+            return Err("序号已用完，请整理文件夹".to_string());
+        }
+
+        let candidate_stem = build_rename_stem(candidate, &rule);
+        if !candidate_stem.is_empty() && !is_stem_in_use(target_dir, &candidate_stem)? {
+            let config_obj = config
+                .as_object_mut()
+                .ok_or("Config should be a JSON object".to_string())?;
+            let counter_entry = config_obj
+                .entry(RENAME_SEQUENCE_COUNTERS_KEY.to_string())
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            if !counter_entry.is_object() {
+                *counter_entry = serde_json::Value::Object(serde_json::Map::new());
+            }
+
+            let counter_map = counter_entry
+                .as_object_mut()
+                .ok_or("Rename counter map should be an object".to_string())?;
+            counter_map.insert(key, serde_json::Value::from(candidate));
+
+            let config_json = serde_json::to_string(config)
+                .map_err(|e| format!("Failed to serialize config: {}", e))?;
+            save_config(app.clone(), config_json)?;
+
+            return Ok(candidate_stem);
+        }
+
+        candidate = match rule.preset {
+            RenameRulePreset::DescNumber | RenameRulePreset::PrefixNumber => {
+                candidate.saturating_sub(1)
+            }
+            RenameRulePreset::AscNumber => {
+                if candidate == u32::MAX {
+                    return Err("Rename counter overflow".to_string());
+                }
+                candidate.saturating_add(1)
+            }
+        };
     }
-
-    while candidate <= u32::MAX as u64 && is_sequence_stem_in_use(target_dir, candidate as u32)? {
-        candidate += 1;
-    }
-
-    if candidate > u32::MAX as u64 {
-        return Err("Rename counter overflow".to_string());
-    }
-
-    let config_obj = config
-        .as_object_mut()
-        .ok_or("Config should be a JSON object".to_string())?;
-    let counter_entry = config_obj
-        .entry(RENAME_SEQUENCE_COUNTERS_KEY.to_string())
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-    if !counter_entry.is_object() {
-        *counter_entry = serde_json::Value::Object(serde_json::Map::new());
-    }
-
-    let counter_map = counter_entry
-        .as_object_mut()
-        .ok_or("Rename counter map should be an object".to_string())?;
-    counter_map.insert(key, serde_json::Value::from(candidate));
-
-    let config_json =
-        serde_json::to_string(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
-    save_config(app.clone(), config_json)?;
-
-    Ok(candidate as u32)
 }
 
 fn is_rename_media_enabled(config: &serde_json::Value) -> bool {
@@ -457,14 +561,14 @@ fn build_rename_sequence_file_path(
     target_dir: &Path,
     ext: &str,
 ) -> Result<PathBuf, String> {
-    let sequence = get_next_rename_sequence_number(app, config, target_dir)?;
+    let rename_stem = get_next_rename_sequence_stem(app, config, target_dir)?;
     let safe_ext = sanitize_file_extension(ext);
     let final_ext = if safe_ext.is_empty() {
         "bin".to_string()
     } else {
         safe_ext
     };
-    Ok(target_dir.join(format!("{}.{}", sequence, final_ext)))
+    Ok(target_dir.join(format!("{}.{}", rename_stem, final_ext)))
 }
 
 fn build_source_name_file_path(
@@ -1349,8 +1453,8 @@ async fn download_video_internal(
     let rename_media_on_download = is_rename_media_enabled(&config);
 
     let output_template = if rename_media_on_download {
-        let seq_num = get_next_rename_sequence_number(&app, &mut config, &output_dir)?;
-        output_dir.join(format!("{}.%(ext)s", seq_num))
+        let rename_stem = get_next_rename_sequence_stem(&app, &mut config, &output_dir)?;
+        output_dir.join(format!("{}.%(ext)s", rename_stem))
     } else {
         output_dir.join("%(title)s.%(ext)s")
     };
@@ -2369,8 +2473,8 @@ async fn download_video_direct(
             }
         }
     } else if rename_media_on_download {
-        let seq_num = get_next_rename_sequence_number(&app, &mut config, &output_dir)?;
-        output_dir.join(format!("{}.mp4", seq_num))
+        let rename_stem = get_next_rename_sequence_stem(&app, &mut config, &output_dir)?;
+        output_dir.join(format!("{}.mp4", rename_stem))
     } else {
         let seq_num = get_next_sequence_number(&output_dir)?;
         output_dir.join(format!("{}.mp4", seq_num))
