@@ -3,11 +3,10 @@
 /* Button wrapper - matches Bilibili's control bar item pattern */
 .flowselect-bilibili-btn {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   position: relative;
   cursor: pointer;
-  padding-top: 1px;
 }
 
 /* For squirtle player (old player) */

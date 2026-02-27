@@ -71,6 +71,13 @@
 
     const btn = document.createElement('div');
     btn.className = 'flowselect-bilibili-btn';
+
+    // Inherit native control-button base class so spacing rules stay consistent
+    const nativeBaseClass = getNativeControlButtonBaseClass(container);
+    if (nativeBaseClass) {
+      btn.classList.add(nativeBaseClass);
+    }
+
     btn.innerHTML = CAT_ICON_SVG;
     btn.title = 'Download with FlowSelect';
 
@@ -83,6 +90,33 @@
     // Insert at the beginning of controls
     container.insertBefore(btn, container.firstChild);
     console.log('[FlowSelect Bilibili] Button injected');
+  }
+
+  function getNativeControlButtonBaseClass(container) {
+    const baseClassPatterns = [
+      /^bpx-player-ctrl-btn$/,
+      /^bilibili-player-video-btn$/,
+      /^squirtle.*btn$/,
+    ];
+
+    const children = Array.from(container.children);
+    for (const child of children) {
+      if (!(child instanceof HTMLElement)) continue;
+      for (const className of child.classList) {
+        if (baseClassPatterns.some((pattern) => pattern.test(className))) {
+          return className;
+        }
+      }
+    }
+
+    if (container.classList.contains('bpx-player-control-bottom-right')) {
+      return 'bpx-player-ctrl-btn';
+    }
+    if (container.classList.contains('bilibili-player-video-control-bottom-right')) {
+      return 'bilibili-player-video-btn';
+    }
+
+    return null;
   }
 
   // Extract video title

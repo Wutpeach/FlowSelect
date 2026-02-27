@@ -90,7 +90,10 @@ function App() {
   const [windowResized, setWindowResized] = useState(false);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
   const [isInitialMount, setIsInitialMount] = useState(true);
+  const [isResetCounterHovered, setIsResetCounterHovered] = useState(false);
+  const [isResetCounterActive, setIsResetCounterActive] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
+  const resetCounterFeedbackTimerRef = useRef<number | null>(null);
   const contextMenuMonitorRef = useRef<number | null>(null);
   const contextMenuMonitorBusyRef = useRef(false);
   const contextMenuMonitorMissesRef = useRef(0);
@@ -277,6 +280,14 @@ function App() {
       clearContextMenuMonitor();
     };
   }, [clearContextMenuMonitor]);
+
+  useEffect(() => {
+    return () => {
+      if (resetCounterFeedbackTimerRef.current !== null) {
+        clearTimeout(resetCounterFeedbackTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const mainWindow = getCurrentWindow();
@@ -970,6 +981,18 @@ function App() {
     }
   };
 
+  const handleResetRenameCounter = async () => {
+    if (resetCounterFeedbackTimerRef.current !== null) {
+      clearTimeout(resetCounterFeedbackTimerRef.current);
+    }
+    setIsResetCounterActive(true);
+    resetCounterFeedbackTimerRef.current = window.setTimeout(() => {
+      setIsResetCounterActive(false);
+      resetCounterFeedbackTimerRef.current = null;
+    }, 600);
+    await resetRenameCounter();
+  };
+
   // Handle yt-dlp update
   const handleYtdlpUpdate = async () => {
     setIsUpdating(true);
@@ -1425,16 +1448,10 @@ function App() {
       {/* Rename counter reset button - bottom left solid rectangle */}
       {renameMediaOnDownload && (
         <button
-          onClick={resetRenameCounter}
+          onClick={handleResetRenameCounter}
           onMouseDown={(e) => e.stopPropagation()}
-          onMouseEnter={(e) => {
-            const rect = e.currentTarget.querySelector('rect');
-            if (rect) rect.style.fill = '#808080';
-          }}
-          onMouseLeave={(e) => {
-            const rect = e.currentTarget.querySelector('rect');
-            if (rect) rect.style.fill = '#444444';
-          }}
+          onMouseEnter={() => setIsResetCounterHovered(true)}
+          onMouseLeave={() => setIsResetCounterHovered(false)}
           style={{
             position: 'absolute',
             bottom: 8,
@@ -1463,7 +1480,7 @@ function App() {
               y="1"
               width="8"
               height="8"
-              fill="#444444"
+              fill={isResetCounterActive ? '#3b82f6' : (isResetCounterHovered ? '#808080' : '#444444')}
               stroke="none"
               rx="1"
               style={{ transition: 'fill 0.2s ease' }}
