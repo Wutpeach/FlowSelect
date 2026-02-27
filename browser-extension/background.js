@@ -6,7 +6,7 @@ let reconnectAttempts = 0;
 let reconnectTimer = null;
 const WS_URL = 'ws://127.0.0.1:39527';
 const REQUEST_TIMEOUT_MS = 7000;
-const CONNECT_WAIT_TIMEOUT_MS = 2500;
+const CONNECTING_WAIT_TIMEOUT_MS = 500;
 const pendingRequests = new Map();
 let requestCounter = 0;
 
@@ -172,11 +172,10 @@ function sleep(ms) {
   });
 }
 
-async function waitForConnection(timeoutMs = CONNECT_WAIT_TIMEOUT_MS) {
+async function waitForConnection(timeoutMs) {
   if (isConnected()) {
     return true;
   }
-  connect();
 
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -189,8 +188,27 @@ async function waitForConnection(timeoutMs = CONNECT_WAIT_TIMEOUT_MS) {
 }
 
 async function sendRequestToApp(action, data = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
-  const connected = await waitForConnection();
-  if (!connected) {
+  if (!isConnected()) {
+    if (isConnecting()) {
+      const connected = await waitForConnection(CONNECTING_WAIT_TIMEOUT_MS);
+      if (!connected) {
+        return {
+          success: false,
+          message: 'not_connected',
+          data: { code: 'not_connected' },
+        };
+      }
+    } else {
+      connect();
+      return {
+        success: false,
+        message: 'not_connected',
+        data: { code: 'not_connected' },
+      };
+    }
+  }
+
+  if (!isConnected()) {
     return {
       success: false,
       message: 'not_connected',
