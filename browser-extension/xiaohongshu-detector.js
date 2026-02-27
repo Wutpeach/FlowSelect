@@ -239,9 +239,57 @@
     button.style.removeProperty('order');
   }
 
+  function isRenderableControlBar(controls) {
+    if (!controls || !controls.isConnected) return false;
+    const style = window.getComputedStyle(controls);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+
+    const rect = controls.getBoundingClientRect();
+    if (rect.width < 16 || rect.height < 16) {
+      return false;
+    }
+
+    return rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+  }
+
+  function resolveBestControlBar() {
+    const candidates = Array.from(
+      document.querySelectorAll('xg-controls.xgplayer-controls, .xgplayer-controls')
+    );
+    const visible = candidates.filter(isRenderableControlBar);
+    if (visible.length === 0) return null;
+
+    const ranked = visible
+      .map((controls) => {
+        const rect = controls.getBoundingClientRect();
+        const area = rect.width * rect.height;
+        const inPlayer = controls.closest('xg-player, xgplayer, .xgplayer') ? 1 : 0;
+        return { controls, area, inPlayer, bottom: rect.bottom };
+      })
+      .sort((a, b) => {
+        if (b.inPlayer !== a.inPlayer) return b.inPlayer - a.inPlayer;
+        if (b.area !== a.area) return b.area - a.area;
+        return b.bottom - a.bottom;
+      });
+
+    return ranked[0].controls;
+  }
+
+  function cleanupStaleControlButtons(activeControls) {
+    document.querySelectorAll(`.${CONTROL_BUTTON_CLASS}`).forEach((button) => {
+      if (button.parentNode !== activeControls) {
+        button.remove();
+      }
+    });
+  }
+
   function ensureControlBarButton() {
-    const controls = document.querySelector('xg-controls.xgplayer-controls, .xgplayer-controls');
+    const controls = resolveBestControlBar();
     if (!controls) return false;
+
+    cleanupStaleControlButtons(controls);
 
     let button = controls.querySelector(`.${CONTROL_BUTTON_CLASS}`);
     if (!button) {
