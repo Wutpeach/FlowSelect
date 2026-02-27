@@ -106,6 +106,7 @@ static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCac
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
+const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
 
 fn keep_window_off_taskbar(_window: &tauri::WebviewWindow) {
     #[cfg(target_os = "windows")]
@@ -317,6 +318,91 @@ fn get_next_sequence_number(target_dir: &Path) -> Result<u32, String> {
     Err("序号已用完，请整理文件夹".to_string())
 }
 
+fn is_sequence_stem_in_use(target_dir: &Path, sequence: u32) -> Result<bool, String> {
+    if !target_dir.exists() {
+        return Ok(false);
+    }
+
+    let sequence_str = sequence.to_string();
+    let entries =
+        fs::read_dir(target_dir).map_err(|e| format!("Failed to read directory: {}", e))?;
+
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if stem == sequence_str {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn clear_rename_sequence_counters(config: &mut serde_json::Value) -> Result<(), String> {
+    let config_obj = config
+        .as_object_mut()
+        .ok_or("Config should be a JSON object".to_string())?;
+    config_obj.insert(
+        RENAME_SEQUENCE_COUNTERS_KEY.to_string(),
+        serde_json::Value::Object(serde_json::Map::new()),
+    );
+    Ok(())
+}
+
+fn get_next_rename_sequence_number(
+    app: &tauri::AppHandle,
+    config: &mut serde_json::Value,
+    target_dir: &Path,
+) -> Result<u32, String> {
+    let key = target_dir.to_string_lossy().to_string();
+    let current_counter = config
+        .get(RENAME_SEQUENCE_COUNTERS_KEY)
+        .and_then(|value| value.as_object())
+        .and_then(|counter_map| counter_map.get(&key))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+
+    let mut candidate = current_counter.saturating_add(1);
+    if candidate == 0 {
+        candidate = 1;
+    }
+
+    while candidate <= u32::MAX as u64 && is_sequence_stem_in_use(target_dir, candidate as u32)? {
+        candidate += 1;
+    }
+
+    if candidate > u32::MAX as u64 {
+        return Err("Rename counter overflow".to_string());
+    }
+
+    let config_obj = config
+        .as_object_mut()
+        .ok_or("Config should be a JSON object".to_string())?;
+    let counter_entry = config_obj
+        .entry(RENAME_SEQUENCE_COUNTERS_KEY.to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if !counter_entry.is_object() {
+        *counter_entry = serde_json::Value::Object(serde_json::Map::new());
+    }
+
+    let counter_map = counter_entry
+        .as_object_mut()
+        .ok_or("Rename counter map should be an object".to_string())?;
+    counter_map.insert(key, serde_json::Value::from(candidate));
+
+    let config_json =
+        serde_json::to_string(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    save_config(app.clone(), config_json)?;
+
+    Ok(candidate as u32)
+}
+
 fn is_rename_media_enabled(config: &serde_json::Value) -> bool {
     if let Some(rename_media) = config
         .get("renameMediaOnDownload")
@@ -356,6 +442,22 @@ fn sanitize_file_extension(raw: &str) -> String {
 
 fn build_sequence_file_path(target_dir: &Path, ext: &str) -> Result<PathBuf, String> {
     let sequence = get_next_sequence_number(target_dir)?;
+    let safe_ext = sanitize_file_extension(ext);
+    let final_ext = if safe_ext.is_empty() {
+        "bin".to_string()
+    } else {
+        safe_ext
+    };
+    Ok(target_dir.join(format!("{}.{}", sequence, final_ext)))
+}
+
+fn build_rename_sequence_file_path(
+    app: &tauri::AppHandle,
+    config: &mut serde_json::Value,
+    target_dir: &Path,
+    ext: &str,
+) -> Result<PathBuf, String> {
+    let sequence = get_next_rename_sequence_number(app, config, target_dir)?;
     let safe_ext = sanitize_file_extension(ext);
     let final_ext = if safe_ext.is_empty() {
         "bin".to_string()
@@ -499,7 +601,7 @@ async fn download_image(
     }
 
     let config_str = get_config(app.clone())?;
-    let config: serde_json::Value =
+    let mut config: serde_json::Value =
         serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
     let rename_media_on_download = is_rename_media_enabled(&config);
 
@@ -577,7 +679,7 @@ async fn download_image(
         .or_else(|| extract_filename_from_url(&resolved_url));
 
     let dest_path = if rename_media_on_download {
-        build_sequence_file_path(&final_target_dir, ext)?
+        build_rename_sequence_file_path(&app, &mut config, &final_target_dir, ext)?
     } else if let Some(source_name) = source_filename {
         if let Some(path) = build_source_name_file_path(&final_target_dir, &source_name, ext) {
             path
@@ -689,7 +791,7 @@ async fn save_data_url(
         .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
     let config_str = get_config(app.clone())?;
-    let config: serde_json::Value =
+    let mut config: serde_json::Value =
         serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
     let rename_media_on_download = is_rename_media_enabled(&config);
 
@@ -716,7 +818,7 @@ async fn save_data_url(
     }
 
     let dest_path = if rename_media_on_download {
-        build_sequence_file_path(&final_target_dir, ext)?
+        build_rename_sequence_file_path(&app, &mut config, &final_target_dir, ext)?
     } else if let Some(source_name) = original_filename.as_deref() {
         if let Some(path) = build_source_name_file_path(&final_target_dir, source_name, ext) {
             path
@@ -1212,7 +1314,7 @@ async fn download_video_internal(
 
     // Get config
     let config_str = get_config(app.clone())?;
-    let config: serde_json::Value =
+    let mut config: serde_json::Value =
         serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
 
     // Get output directory
@@ -1247,7 +1349,7 @@ async fn download_video_internal(
     let rename_media_on_download = is_rename_media_enabled(&config);
 
     let output_template = if rename_media_on_download {
-        let seq_num = get_next_sequence_number(&output_dir)?;
+        let seq_num = get_next_rename_sequence_number(&app, &mut config, &output_dir)?;
         output_dir.join(format!("{}.%(ext)s", seq_num))
     } else {
         output_dir.join("%(title)s.%(ext)s")
@@ -2212,7 +2314,7 @@ async fn download_video_direct(
 
     // Get output directory from config
     let config_str = get_config(app.clone())?;
-    let config: serde_json::Value =
+    let mut config: serde_json::Value =
         serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
 
     let base_output_dir = config
@@ -2266,6 +2368,9 @@ async fn download_video_direct(
                 base_path
             }
         }
+    } else if rename_media_on_download {
+        let seq_num = get_next_rename_sequence_number(&app, &mut config, &output_dir)?;
+        output_dir.join(format!("{}.mp4", seq_num))
     } else {
         let seq_num = get_next_sequence_number(&output_dir)?;
         output_dir.join(format!("{}.mp4", seq_num))
@@ -2681,6 +2786,21 @@ fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     let config_path = get_config_path(&app)?;
 
     fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))
+}
+
+#[tauri::command]
+fn reset_rename_counter(app: tauri::AppHandle) -> Result<bool, String> {
+    let config_str = get_config(app.clone())?;
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
+
+    clear_rename_sequence_counters(&mut config)?;
+
+    let json =
+        serde_json::to_string(&config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    save_config(app, json)?;
+    println!(">>> [Rust] Rename counter reset");
+    Ok(true)
 }
 
 #[tauri::command]
@@ -3308,6 +3428,7 @@ pub fn run() {
             get_clipboard_files,
             get_config,
             save_config,
+            reset_rename_counter,
             get_autostart,
             set_autostart,
             get_current_shortcut,

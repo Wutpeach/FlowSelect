@@ -173,6 +173,7 @@ function SettingsPage() {
     config.renameMediaOnDownload = newValue;
     config.videoKeepOriginalName = !newValue;
     await invoke("save_config", { json: JSON.stringify(config) });
+    await emit("rename-setting-changed", { enabled: newValue });
   };
 
   const toggleDevMode = async () => {

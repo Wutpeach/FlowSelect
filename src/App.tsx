@@ -25,6 +25,16 @@ const isCancelledDownloadError = (error?: string | null): boolean => {
   return normalized.includes("cancelled") || normalized.includes("canceled");
 };
 
+const resolveRenameMediaEnabled = (config: Record<string, unknown>): boolean => {
+  if (typeof config.renameMediaOnDownload === "boolean") {
+    return config.renameMediaOnDownload;
+  }
+  if (typeof config.videoKeepOriginalName === "boolean") {
+    return !config.videoKeepOriginalName;
+  }
+  return false;
+};
+
 // Cat icon for minimized state
 const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) => (
   <svg
@@ -61,6 +71,7 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadCancelled, setDownloadCancelled] = useState(false);
   const [outputPath, setOutputPath] = useState("");
+  const [renameMediaOnDownload, setRenameMediaOnDownload] = useState(false);
   const [isPanelHovered, setIsPanelHovered] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<{
     percent: number;
@@ -231,22 +242,27 @@ function App() {
     };
   };
 
+  const applyRuntimeConfig = useCallback((config: Record<string, unknown>) => {
+    if (typeof config.outputPath === "string") {
+      setOutputPath(config.outputPath);
+    }
+    setRenameMediaOnDownload(resolveRenameMediaEnabled(config));
+  }, []);
+
   // Load config on mount
   useEffect(() => {
     const loadConfig = async () => {
       try {
         const configStr = await invoke<string>("get_config");
         console.log("Loaded config:", configStr);
-        const config = JSON.parse(configStr);
-        if (config.outputPath) {
-          setOutputPath(config.outputPath);
-        }
+        const config = JSON.parse(configStr) as Record<string, unknown>;
+        applyRuntimeConfig(config);
       } catch (err) {
         console.error("Failed to load config:", err);
       }
     };
     loadConfig();
-  }, [isMacOS]);
+  }, [applyRuntimeConfig, isMacOS]);
 
   // Startup animation: brief delay to trigger bounce effect
   useEffect(() => {
@@ -387,19 +403,25 @@ function App() {
     const unlisten = listen("tauri://close-requested", async (event: any) => {
       if (event.windowLabel === "settings") {
         const configStr = await invoke<string>("get_config");
-        const config = JSON.parse(configStr);
-        if (config.outputPath) {
-          setOutputPath(config.outputPath);
-        }
+        const config = JSON.parse(configStr) as Record<string, unknown>;
+        applyRuntimeConfig(config);
       }
     });
     return () => { unlisten.then(fn => fn()); };
-  }, []);
+  }, [applyRuntimeConfig]);
 
   // Listen for devMode changes from settings window
   useEffect(() => {
     const unlisten = listen<{ enabled: boolean }>("devmode-changed", (event) => {
       setDevMode(event.payload.enabled);
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
+
+  // Listen for rename toggle changes from settings window
+  useEffect(() => {
+    const unlisten = listen<{ enabled: boolean }>("rename-setting-changed", (event) => {
+      setRenameMediaOnDownload(Boolean(event.payload.enabled));
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
@@ -940,6 +962,14 @@ function App() {
     });
   };
 
+  const resetRenameCounter = async () => {
+    try {
+      await invoke<boolean>("reset_rename_counter");
+    } catch (err) {
+      console.error("Failed to reset rename counter:", err);
+    }
+  };
+
   // Handle yt-dlp update
   const handleYtdlpUpdate = async () => {
     setIsUpdating(true);
@@ -1389,6 +1419,56 @@ function App() {
               }}
             />
           )}
+        </button>
+      )}
+
+      {/* Rename counter reset button - bottom left solid rectangle */}
+      {renameMediaOnDownload && (
+        <button
+          onClick={resetRenameCounter}
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseEnter={(e) => {
+            const rect = e.currentTarget.querySelector('rect');
+            if (rect) rect.style.fill = '#808080';
+          }}
+          onMouseLeave={(e) => {
+            const rect = e.currentTarget.querySelector('rect');
+            if (rect) rect.style.fill = '#444444';
+          }}
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            left: 8,
+            width: 16,
+            height: 16,
+            border: 'none',
+            borderRadius: 4,
+            backgroundColor: 'transparent',
+            cursor: 'pointer',
+            padding: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: isPanelHovered && !isMinimized ? 1 : 0,
+            transition: 'opacity 0.2s ease',
+            transitionDelay: !isMinimized ? '0.2s' : '0s',
+            pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
+            zIndex: 10,
+          }}
+          title="Reset rename counter"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" style={{ pointerEvents: 'none' }}>
+            <rect
+              x="1"
+              y="1"
+              width="8"
+              height="8"
+              fill="#444444"
+              stroke="none"
+              rx="1"
+              style={{ transition: 'fill 0.2s ease' }}
+            />
+          </svg>
         </button>
       )}
 
