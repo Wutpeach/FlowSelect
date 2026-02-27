@@ -41,6 +41,14 @@
     return params.get('v');
   }
 
+  function getCurrentVideoKey() {
+    if (!isVideoPage()) {
+      return window.location.pathname;
+    }
+    const videoId = getVideoId() || '';
+    return `${window.location.pathname}?v=${videoId}`;
+  }
+
   function getVideoElement() {
     return document.querySelector('video.video-stream') || document.querySelector('video');
   }
@@ -562,15 +570,20 @@
   });
 
   let lastUrl = window.location.href;
+  let lastVideoKey = getCurrentVideoKey();
   function checkUrlChange() {
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
-      console.log('[FlowSelect YouTube] URL changed:', lastUrl);
-      resetClipState();
-      const processed = document.querySelectorAll(`[${PROCESSED_ATTR}]`);
-      processed.forEach((el) => el.removeAttribute(PROCESSED_ATTR));
-      removeInjectedButtons();
-      cleanupScreenshotPanel();
+      const currentVideoKey = getCurrentVideoKey();
+      if (currentVideoKey !== lastVideoKey) {
+        console.log('[FlowSelect YouTube] Video changed:', lastUrl);
+        lastVideoKey = currentVideoKey;
+        resetClipState();
+        const processed = document.querySelectorAll(`[${PROCESSED_ATTR}]`);
+        processed.forEach((el) => el.removeAttribute(PROCESSED_ATTR));
+        removeInjectedButtons();
+        cleanupScreenshotPanel();
+      }
       detectVideoPlayer();
     }
   }
