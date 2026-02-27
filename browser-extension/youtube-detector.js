@@ -30,6 +30,26 @@
   const CAMERA_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" d="M9 4.5a2 2 0 0 0-1.79 1.11l-.47.94H5.5A3.5 3.5 0 0 0 2 10.05v7.45A3.5 3.5 0 0 0 5.5 21h13a3.5 3.5 0 0 0 3.5-3.5v-7.45A3.5 3.5 0 0 0 18.5 6.5h-1.24l-.47-.94A2 2 0 0 0 15 4.5H9Zm3 13a4.5 4.5 0 1 1 0-9a4.5 4.5 0 0 1 0 9Zm0-1.75a2.75 2.75 0 1 0 0-5.5a2.75 2.75 0 0 0 0 5.5Z"/>
   </svg>`;
+  const SCREENSHOT_SAVE_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
+    <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/>
+    <path d="M7 3v4a1 1 0 0 0 1 1h7"/>
+  </svg>`;
+  const SCREENSHOT_COPY_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect width="8" height="4" x="8" y="2" rx="1" ry="1"/>
+    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+  </svg>`;
+  const SCREENSHOT_DELETE_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 11v6"/>
+    <path d="M14 11v6"/>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+    <path d="M3 6h18"/>
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+  </svg>`;
+  const SCREENSHOT_COPIED_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 6 7 17l-5-5"/>
+    <path d="m22 10-7.5 7.5L13 16"/>
+  </svg>`;
 
   function isVideoPage() {
     return window.location.pathname === '/watch' &&
@@ -321,9 +341,21 @@
     timestamp.className = 'flowselect-youtube-screenshot-time';
     timestamp.textContent = screenshot.playbackLabel;
 
-    const saveButton = createOverlayActionButton('保存', () => saveScreenshot(screenshot));
-    const copyButton = createOverlayActionButton('复制', () => copyScreenshot(screenshot, copyButton));
-    const deleteButton = createOverlayActionButton('删除', () => removeScreenshot(screenshot.id));
+    const saveButton = createOverlayActionButton({
+      title: '保存',
+      icon: SCREENSHOT_SAVE_ICON_SVG,
+      onClick: () => saveScreenshot(screenshot),
+    });
+    const copyButton = createOverlayActionButton({
+      title: '复制',
+      icon: SCREENSHOT_COPY_ICON_SVG,
+      onClick: () => copyScreenshot(screenshot, copyButton),
+    });
+    const deleteButton = createOverlayActionButton({
+      title: '删除',
+      icon: SCREENSHOT_DELETE_ICON_SVG,
+      onClick: () => removeScreenshot(screenshot.id),
+    });
     deleteButton.classList.add('flowselect-danger');
 
     overlay.append(saveButton, copyButton, deleteButton, timestamp);
@@ -331,14 +363,16 @@
     return item;
   }
 
-  function createOverlayActionButton(text, handler) {
+  function createOverlayActionButton({ title, icon, onClick }) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = text;
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.innerHTML = icon;
     button.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      handler();
+      onClick();
     });
     return button;
   }
@@ -493,12 +527,17 @@
       await navigator.clipboard.write([new clipboardItem({
         [screenshot.blob.type]: screenshot.blob,
       })]);
+      const defaultLabel = '复制';
       button.dataset.copied = 'true';
-      button.textContent = '已复制';
+      button.title = '已复制';
+      button.setAttribute('aria-label', '已复制');
+      button.innerHTML = SCREENSHOT_COPIED_ICON_SVG;
       window.setTimeout(() => {
         button.dataset.copied = 'false';
-        button.textContent = '复制';
-      }, 900);
+        button.title = defaultLabel;
+        button.setAttribute('aria-label', defaultLabel);
+        button.innerHTML = SCREENSHOT_COPY_ICON_SVG;
+      }, 1200);
     } catch (error) {
       console.error('[FlowSelect YouTube] Copy screenshot failed:', error);
       notify('Copy failed. Please check clipboard permission.');
