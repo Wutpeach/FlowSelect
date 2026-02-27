@@ -15,6 +15,58 @@ const ILLEGAL_FILENAME_CHARS = /[/\\:*?"<>|]/g;
 const DEV_MODE_TAP_THRESHOLD = 5;
 const DEV_MODE_TAP_RESET_MS = 1500;
 const DEV_MODE_HINT_DURATION_MS = 1200;
+const SHORTCUT_KEY_ALIASES: Record<string, string> = {
+  CONTROL: "Ctrl",
+  CTRL: "Ctrl",
+  ALT: "Alt",
+  OPTION: "Alt",
+  SHIFT: "Shift",
+  META: "Meta",
+  COMMAND: "Meta",
+  CMD: "Meta",
+  COMMANDORCONTROL: "CommandOrControl",
+  CMDORCTRL: "CommandOrControl",
+  ESCAPE: "Esc",
+  " ": "Space",
+};
+
+const normalizeShortcutToken = (token: string): string => {
+  const normalized = token.trim();
+  if (!normalized) return "";
+  const alias = SHORTCUT_KEY_ALIASES[normalized.toUpperCase()];
+  if (alias) return alias;
+  return normalized.length === 1 ? normalized.toUpperCase() : normalized;
+};
+
+const formatShortcutForDisplay = (shortcut: string, isMacOS: boolean): string => {
+  if (!shortcut) return "";
+  const tokens = shortcut
+    .split("+")
+    .map((token) => normalizeShortcutToken(token))
+    .filter(Boolean);
+
+  if (isMacOS) {
+    const macSymbols: Record<string, string> = {
+      CommandOrControl: "⌘",
+      Meta: "⌘",
+      Shift: "⇧",
+      Alt: "⌥",
+      Ctrl: "⌃",
+    };
+    return tokens.map((token) => macSymbols[token] ?? token.toUpperCase()).join("+");
+  }
+
+  const windowsLabels: Record<string, string> = {
+    CommandOrControl: "Ctrl",
+    Meta: "Win",
+  };
+  return tokens.map((token) => windowsLabels[token] ?? token).join("+");
+};
+
+const isModifierKey = (key: string): boolean => {
+  const normalized = normalizeShortcutToken(key);
+  return ["Ctrl", "Alt", "Shift", "Meta", "CommandOrControl"].includes(normalized);
+};
 
 const sanitizeRenameAffix = (raw: string): string => {
   const cleaned = raw
@@ -49,6 +101,7 @@ const buildRenamePreview = (
 
 function SettingsPage() {
   const { theme, colors, setTheme } = useTheme();
+  const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
   const [outputPath, setOutputPath] = useState("");
   const [autostart, setAutostart] = useState(false);
   const [shortcut, setShortcut] = useState("");
@@ -135,13 +188,19 @@ function SettingsPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       const parts: string[] = [];
-      if (e.ctrlKey) parts.push("Ctrl");
+      if (isMacOS) {
+        if (e.metaKey) parts.push("CommandOrControl");
+        if (e.ctrlKey) parts.push("Ctrl");
+      } else {
+        if (e.ctrlKey) parts.push("CommandOrControl");
+        if (e.metaKey) parts.push("Meta");
+      }
       if (e.altKey) parts.push("Alt");
       if (e.shiftKey) parts.push("Shift");
 
-      const key = e.key.toUpperCase();
-      if (!["CONTROL", "ALT", "SHIFT", "META"].includes(key)) {
-        parts.push(key === " " ? "Space" : key);
+      const key = normalizeShortcutToken(e.key);
+      if (key && !isModifierKey(key)) {
+        parts.push(key);
       }
 
       if (parts.length > 0) {
@@ -151,7 +210,7 @@ function SettingsPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isRecording]);
+  }, [isRecording, isMacOS]);
 
   useEffect(() => {
     return () => {
@@ -683,7 +742,7 @@ function SettingsPage() {
                 border: '1px solid #3b82f6',
               }}>
                 <Keyboard size={14} style={{ color: '#3b82f6', flexShrink: 0 }} />
-                <span>{recordedKeys || "Press keys..."}</span>
+                <span>{formatShortcutForDisplay(recordedKeys, isMacOS) || "Press keys..."}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
                 <NeonButton
@@ -724,7 +783,7 @@ function SettingsPage() {
               }}
             >
               <Keyboard size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
-              <span>{shortcut || "Click to set..."}</span>
+              <span>{formatShortcutForDisplay(shortcut, isMacOS) || "Click to set..."}</span>
             </button>
           )}
         </div>

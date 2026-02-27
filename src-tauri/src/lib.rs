@@ -110,6 +110,12 @@ const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
 const RENAME_RULE_PRESET_KEY: &str = "renameRulePreset";
 const RENAME_PREFIX_KEY: &str = "renamePrefix";
 const RENAME_SUFFIX_KEY: &str = "renameSuffix";
+const MAIN_WINDOW_WIDTH: f64 = 200.0;
+const MAIN_WINDOW_HEIGHT: f64 = 200.0;
+const SETTINGS_WINDOW_WIDTH: f64 = 320.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 400.0;
+const SETTINGS_WINDOW_GAP: f64 = 16.0;
+const WINDOW_EDGE_PADDING: f64 = 8.0;
 
 #[derive(Clone, Copy, Debug)]
 enum RenameRulePreset {
@@ -152,6 +158,39 @@ fn keep_window_off_taskbar(_window: &tauri::WebviewWindow) {
     {
         let _ = _window.set_skip_taskbar(true);
     }
+}
+
+fn resolve_settings_window_position_near_main(app: &AppHandle) -> Option<(f64, f64)> {
+    let main_window = app.get_webview_window("main")?;
+    let scale_factor = main_window.scale_factor().ok()?;
+
+    let main_position = main_window
+        .outer_position()
+        .ok()?
+        .to_logical::<f64>(scale_factor);
+    let main_size = main_window.outer_size().ok()?.to_logical::<f64>(scale_factor);
+    let monitor = main_window.current_monitor().ok().flatten()?;
+    let monitor_position = monitor.position().to_logical::<f64>(scale_factor);
+    let monitor_size = monitor.size().to_logical::<f64>(scale_factor);
+
+    let mut x = main_position.x + main_size.width + SETTINGS_WINDOW_GAP;
+    let mut y = main_position.y;
+
+    let min_x = monitor_position.x + WINDOW_EDGE_PADDING;
+    let min_y = monitor_position.y + WINDOW_EDGE_PADDING;
+    let max_x =
+        monitor_position.x + monitor_size.width - SETTINGS_WINDOW_WIDTH - WINDOW_EDGE_PADDING;
+    let max_y =
+        monitor_position.y + monitor_size.height - SETTINGS_WINDOW_HEIGHT - WINDOW_EDGE_PADDING;
+
+    if x > max_x {
+        x = main_position.x - SETTINGS_WINDOW_WIDTH - SETTINGS_WINDOW_GAP;
+    }
+
+    x = x.clamp(min_x, max_x.max(min_x));
+    y = y.clamp(min_y, max_y.max(min_y));
+
+    Some((x, y))
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -2969,11 +3008,30 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                     if window.is_visible().unwrap_or(false) {
                         let _ = window.hide();
                     } else {
-                        // Position window: bottom-left of cursor
+                        // Position window: left-up of cursor
                         if let Ok(pos) = window.cursor_position() {
-                            let window_width = 200.0;
-                            let x = pos.x - 50.0 - window_width;
-                            let y = pos.y + 50.0;
+                            let x = pos.x - 50.0 - MAIN_WINDOW_WIDTH;
+                            let y = pos.y - 50.0;
+                            let (x, y) = if let Ok(Some(monitor)) = window.current_monitor() {
+                                let monitor_position = monitor.position();
+                                let monitor_size = monitor.size();
+                                let min_x = f64::from(monitor_position.x) + WINDOW_EDGE_PADDING;
+                                let min_y = f64::from(monitor_position.y) + WINDOW_EDGE_PADDING;
+                                let max_x = f64::from(monitor_position.x)
+                                    + f64::from(monitor_size.width)
+                                    - MAIN_WINDOW_WIDTH
+                                    - WINDOW_EDGE_PADDING;
+                                let max_y = f64::from(monitor_position.y)
+                                    + f64::from(monitor_size.height)
+                                    - MAIN_WINDOW_HEIGHT
+                                    - WINDOW_EDGE_PADDING;
+                                (
+                                    x.clamp(min_x, max_x.max(min_x)),
+                                    y.clamp(min_y, max_y.max(min_y)),
+                                )
+                            } else {
+                                (x, y)
+                            };
                             let _ = window
                                 .set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
                         }
@@ -3677,17 +3735,25 @@ pub fn run() {
                         if let Some(window) = app.get_webview_window("settings") {
                             let _ = window.set_focus();
                         } else {
-                            let _ = tauri::WebviewWindowBuilder::new(
+                            let mut settings_builder = tauri::WebviewWindowBuilder::new(
                                 app,
                                 "settings",
                                 tauri::WebviewUrl::App("/settings".into()),
                             )
                             .title("Settings")
-                            .inner_size(320.0, 400.0)
-                            .center()
+                            .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
                             .decorations(false)
-                            .resizable(false)
-                            .build();
+                            .resizable(false);
+
+                            settings_builder = if let Some((x, y)) =
+                                resolve_settings_window_position_near_main(app)
+                            {
+                                settings_builder.position(x, y)
+                            } else {
+                                settings_builder.center()
+                            };
+
+                            let _ = settings_builder.build();
                         }
                     }
                     _ => {}

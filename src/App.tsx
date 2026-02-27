@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, type CSSProperties } from "re
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, X } from "lucide-react";
@@ -109,9 +109,12 @@ function App() {
   const EDGE_GLOW_RADIUS = 222;
   const EDGE_GLOW_BORDER_WIDTH = 1.75;
   const EDGE_GLOW_FALLOFF_EXPONENT = 0.72;
+  const WINDOW_EDGE_PADDING = 8;
   const CONTEXT_MENU_WIDTH = 148;
   const CONTEXT_MENU_HEIGHT = 46;
-  const CONTEXT_MENU_MARGIN = 8;
+  const SETTINGS_WINDOW_WIDTH = 320;
+  const SETTINGS_WINDOW_HEIGHT = 400;
+  const SETTINGS_WINDOW_GAP = 16;
 
   const clearContextMenuMonitor = useCallback(() => {
     if (contextMenuMonitorRef.current !== null) {
@@ -959,17 +962,72 @@ function App() {
       return;
     }
 
-    new WebviewWindow("settings", {
+    const currentWindow = getCurrentWindow();
+    let settingsPosition: { x: number; y: number } | null = null;
+    try {
+      const [outerPosition, outerSize, scaleFactor, monitor] = await Promise.all([
+        currentWindow.outerPosition(),
+        currentWindow.outerSize(),
+        currentWindow.scaleFactor(),
+        currentMonitor(),
+      ]);
+
+      const gapPx = SETTINGS_WINDOW_GAP * scaleFactor;
+      const edgePaddingPx = WINDOW_EDGE_PADDING * scaleFactor;
+      const settingsWidthPx = SETTINGS_WINDOW_WIDTH * scaleFactor;
+      const settingsHeightPx = SETTINGS_WINDOW_HEIGHT * scaleFactor;
+      let x = outerPosition.x + outerSize.width + gapPx;
+      let y = outerPosition.y;
+
+      if (monitor) {
+        const monitorX = monitor.position.x;
+        const monitorY = monitor.position.y;
+        const minX = monitorX + edgePaddingPx;
+        const minY = monitorY + edgePaddingPx;
+        const maxX = monitorX + monitor.size.width - settingsWidthPx - edgePaddingPx;
+        const maxY = monitorY + monitor.size.height - settingsHeightPx - edgePaddingPx;
+
+        if (x > maxX) {
+          x = outerPosition.x - settingsWidthPx - gapPx;
+        }
+
+        x = Math.min(Math.max(x, minX), Math.max(minX, maxX));
+        y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
+      }
+
+      settingsPosition = {
+        x: x / scaleFactor,
+        y: y / scaleFactor,
+      };
+    } catch (err) {
+      console.error("Failed to resolve settings window position:", err);
+    }
+
+    const baseOptions = {
       url: "/settings",
       title: "Settings",
-      width: 320,
-      height: 400,
-      center: true,
+      width: SETTINGS_WINDOW_WIDTH,
+      height: SETTINGS_WINDOW_HEIGHT,
       decorations: false,
       transparent: true,
       resizable: false,
       alwaysOnTop: true,
       shadow: false,
+    };
+
+    if (settingsPosition) {
+      new WebviewWindow("settings", {
+        ...baseOptions,
+        center: false,
+        x: settingsPosition.x,
+        y: settingsPosition.y,
+      });
+      return;
+    }
+
+    new WebviewWindow("settings", {
+      ...baseOptions,
+      center: true,
     });
   };
 
@@ -1015,23 +1073,38 @@ function App() {
       await closeContextMenuWindow();
 
       const currentWindow = getCurrentWindow();
-      const [outerPosition, scaleFactor] = await Promise.all([
+      const [outerPosition, scaleFactor, monitor] = await Promise.all([
         currentWindow.outerPosition(),
         currentWindow.scaleFactor(),
+        currentMonitor(),
       ]);
 
       const logicalWindowPosition = new PhysicalPosition(outerPosition).toLogical(scaleFactor);
       let x = logicalWindowPosition.x + e.clientX;
       let y = logicalWindowPosition.y + e.clientY;
 
-      const screenWidth = window.screen.availWidth;
-      const screenHeight = window.screen.availHeight;
+      if (monitor) {
+        const monitorX = monitor.position.x / scaleFactor;
+        const monitorY = monitor.position.y / scaleFactor;
+        const monitorWidth = monitor.size.width / scaleFactor;
+        const monitorHeight = monitor.size.height / scaleFactor;
+        const minX = monitorX + WINDOW_EDGE_PADDING;
+        const minY = monitorY + WINDOW_EDGE_PADDING;
+        const maxX = monitorX + monitorWidth - CONTEXT_MENU_WIDTH - WINDOW_EDGE_PADDING;
+        const maxY = monitorY + monitorHeight - CONTEXT_MENU_HEIGHT - WINDOW_EDGE_PADDING;
 
-      if (x + CONTEXT_MENU_WIDTH > screenWidth) {
-        x = screenWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_MARGIN;
-      }
-      if (y + CONTEXT_MENU_HEIGHT > screenHeight) {
-        y = screenHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_MARGIN;
+        x = Math.min(Math.max(x, minX), Math.max(minX, maxX));
+        y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
+      } else {
+        const screenWidth = window.screen.availWidth;
+        const screenHeight = window.screen.availHeight;
+        const minX = WINDOW_EDGE_PADDING;
+        const minY = WINDOW_EDGE_PADDING;
+        const maxX = screenWidth - CONTEXT_MENU_WIDTH - WINDOW_EDGE_PADDING;
+        const maxY = screenHeight - CONTEXT_MENU_HEIGHT - WINDOW_EDGE_PADDING;
+
+        x = Math.min(Math.max(x, minX), Math.max(minX, maxX));
+        y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
       }
 
       new WebviewWindow("context-menu", {
