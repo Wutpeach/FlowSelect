@@ -1002,6 +1002,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "flowselect"
+version = "0.1.6"
+dependencies = [
+ "base64 0.22.1",
+ "clipboard-win",
+ "dirs 5.0.1",
+ "futures-util",
+ "regex",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "socket2 0.5.10",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+ "tauri-plugin-shell",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "urlencoding",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2100,32 +2126,6 @@ name = "mac"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c41e0c4fef86961ac6d6f8a82609f55f31b05e4fce149ac5710e439df7619ba4"
-
-[[package]]
-name = "main"
-version = "0.1.6"
-dependencies = [
- "base64 0.22.1",
- "clipboard-win",
- "dirs 5.0.1",
- "futures-util",
- "regex",
- "reqwest 0.11.27",
- "serde",
- "serde_json",
- "socket2 0.5.10",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-dialog",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
- "tauri-plugin-shell",
- "tokio",
- "tokio-tungstenite",
- "url",
- "urlencoding",
-]
 
 [[package]]
 name = "markup5ever"
