@@ -41,6 +41,12 @@
     clipState.endSec = null;
   }
 
+  function hasValidClipRange() {
+    return clipState.startSec != null &&
+      clipState.endSec != null &&
+      clipState.endSec > clipState.startSec;
+  }
+
   // Detect video player and inject button
   function detectVideoPlayer() {
     if (!isVideoPage()) return;
@@ -319,8 +325,3 @@
     init();
   }
 })();
-  function hasValidClipRange() {
-    return clipState.startSec != null &&
-      clipState.endSec != null &&
-      clipState.endSec > clipState.startSec;
-  }

@@ -1127,9 +1127,11 @@ async fn download_video_internal(
         // 使用 tv 变体解决 YouTube player 签名问题
         "--extractor-args".to_string(),
         "youtube:player_js_variant=tv".to_string(),
-        // Prefer Node first, fallback to deno for YouTube JS challenges.
+        // Enable both Node and Deno JavaScript runtimes for YouTube challenges.
         "--js-runtimes".to_string(),
-        "node,deno".to_string(),
+        "node".to_string(),
+        "--js-runtimes".to_string(),
+        "deno".to_string(),
         // Let yt-dlp fetch EJS solver assets for better YouTube compatibility.
         "--remote-components".to_string(),
         "ejs:github".to_string(),
@@ -1138,17 +1140,21 @@ async fn download_video_internal(
     ];
 
     // Use extension-provided cookies (from browser extension).
-    // For YouTube, cookies can trigger stricter challenge flows; use anonymous path first.
-    if is_youtube_url(&url) {
-        println!(">>> [Rust] Skipping extension cookies for YouTube URL");
-    } else if let Some(ref cookies_path) = extension_cookies_path {
+    if let Some(ref cookies_path) = extension_cookies_path {
         if cookies_path.exists() {
             args.push("--cookies".to_string());
             args.push(cookies_path.to_string_lossy().to_string());
-            println!(
-                ">>> [Rust] Using extension cookies from: {:?}",
-                cookies_path
-            );
+            if is_youtube_url(&url) {
+                println!(
+                    ">>> [Rust] Using extension cookies for YouTube URL from: {:?}",
+                    cookies_path
+                );
+            } else {
+                println!(
+                    ">>> [Rust] Using extension cookies from: {:?}",
+                    cookies_path
+                );
+            }
         }
     }
 
