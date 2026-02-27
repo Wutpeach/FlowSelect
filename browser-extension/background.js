@@ -91,7 +91,9 @@ async function stopPicker(tabId) {
 function sendToApp(data) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(data));
+    return true;
   }
+  return false;
 }
 
 function normalizeVideoCandidates(rawCandidates) {
@@ -111,6 +113,15 @@ function normalizeVideoCandidates(rawCandidates) {
   }
 
   return normalized;
+}
+
+function normalizeClipTimeSeconds(value) {
+  if (value == null) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+
+  const num = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return num;
 }
 
 // Convert cookies to Netscape format for yt-dlp
@@ -166,8 +177,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Get cookies and send to app
     const pageUrl = sender.tab?.url || message.url;
     const videoCandidates = normalizeVideoCandidates(message.videoCandidates);
+    const clipStartSec = normalizeClipTimeSeconds(message.clipStartSec);
+    const clipEndSec = normalizeClipTimeSeconds(message.clipEndSec);
     getCookiesForUrl(pageUrl).then(cookies => {
-      sendToApp({
+      const sent = sendToApp({
         action: 'video_selected',
         data: {
           url: message.url,
@@ -175,11 +188,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           title: message.title,
           videoUrl: message.videoUrl,
           videoCandidates: videoCandidates,
+          clipStartSec: clipStartSec,
+          clipEndSec: clipEndSec,
           cookies: cookies
         }
       });
+      if (!sent) {
+        console.warn('[FlowSelect] Desktop app not connected, retrying websocket connect');
+        connect();
+      }
+      sendResponse({
+        success: sent,
+        connected: ws && ws.readyState === WebSocket.OPEN,
+      });
     });
-    sendResponse({ success: true });
   } else if (message.type === 'connect') {
     connect();
     sendResponse({

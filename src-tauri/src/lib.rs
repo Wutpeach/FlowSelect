@@ -84,6 +84,12 @@ struct SelectedDirectCandidate {
 }
 
 #[derive(Clone, Debug)]
+struct ClipTimeRange {
+    start_seconds: f64,
+    end_seconds: f64,
+}
+
+#[derive(Clone, Debug)]
 struct DirectCandidateCacheEntry {
     url: String,
     expires_at_ms: u128,
@@ -887,6 +893,7 @@ async fn download_platform_direct_with_retry(
             page_url,
             title,
             extension_cookies_path,
+            None,
             Some(trace_id),
             None,
         )
@@ -1037,6 +1044,7 @@ async fn download_platform_direct_with_retry(
         page_url,
         title,
         extension_cookies_path,
+        None,
         Some(trace_id),
         Some(vec![direct_route]),
     )
@@ -1049,6 +1057,7 @@ async fn download_video_internal(
     app: AppHandle,
     url: String,
     extension_cookies_path: Option<PathBuf>,
+    clip_range: Option<ClipTimeRange>,
 ) -> Result<DownloadResult, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
@@ -1141,6 +1150,14 @@ async fn download_video_internal(
                 cookies_path
             );
         }
+    }
+
+    if let Some(range) = clip_range {
+        let start = format_seconds_for_download_section(range.start_seconds);
+        let end = format_seconds_for_download_section(range.end_seconds);
+        println!(">>> [Rust] Section download enabled: {} -> {}", start, end);
+        args.push("--download-sections".to_string());
+        args.push(format!("*{}-{}", start, end));
     }
 
     args.push(url.clone());
@@ -1317,7 +1334,7 @@ async fn download_video_internal(
 /// Public command for downloading video (used by frontend paste/drag)
 #[tauri::command]
 async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, String> {
-    download_video_internal(app, url, None).await
+    download_video_internal(app, url, None, None).await
 }
 
 #[tauri::command]
@@ -1507,6 +1524,68 @@ fn normalize_page_url_for_direct_cache(raw: &str) -> Option<String> {
 
 fn is_manifest_video_url(url: &str) -> bool {
     url.to_ascii_lowercase().contains(".m3u8")
+}
+
+fn parse_non_negative_seconds_field(
+    data: &serde_json::Value,
+    key: &str,
+) -> Result<Option<f64>, String> {
+    let Some(raw) = data.get(key) else {
+        return Ok(None);
+    };
+    if raw.is_null() {
+        return Ok(None);
+    }
+
+    let parsed = if let Some(value) = raw.as_f64() {
+        Some(value)
+    } else {
+        raw.as_str().and_then(|value| value.trim().parse::<f64>().ok())
+    };
+
+    let Some(seconds) = parsed else {
+        return Err(format!("Invalid {}: expected number seconds", key));
+    };
+    if !seconds.is_finite() || seconds < 0.0 {
+        return Err(format!("Invalid {}: expected non-negative seconds", key));
+    }
+
+    Ok(Some(seconds))
+}
+
+fn parse_clip_time_range(data: &serde_json::Value) -> Result<Option<ClipTimeRange>, String> {
+    let start = parse_non_negative_seconds_field(data, "clipStartSec")?;
+    let end = parse_non_negative_seconds_field(data, "clipEndSec")?;
+
+    match (start, end) {
+        (None, None) => Ok(None),
+        (Some(_), None) | (None, Some(_)) => {
+            Err("Both clipStartSec and clipEndSec are required".to_string())
+        }
+        (Some(start_seconds), Some(end_seconds)) => {
+            if end_seconds <= start_seconds {
+                return Err("Invalid clip range: OUT must be later than IN".to_string());
+            }
+            Ok(Some(ClipTimeRange {
+                start_seconds,
+                end_seconds,
+            }))
+        }
+    }
+}
+
+fn format_seconds_for_download_section(seconds: f64) -> String {
+    let millis_total = (seconds * 1000.0).round() as u64;
+    let hours = millis_total / 3_600_000;
+    let minutes = (millis_total % 3_600_000) / 60_000;
+    let secs = (millis_total % 60_000) / 1_000;
+    let millis = millis_total % 1_000;
+
+    if millis == 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, secs)
+    } else {
+        format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, secs, millis)
+    }
 }
 
 fn parse_extension_video_candidates(data: &serde_json::Value) -> Vec<ExtensionVideoCandidate> {
@@ -1724,6 +1803,7 @@ async fn download_video_smart(
     url: String,
     title: Option<String>,
     extension_cookies_path: Option<PathBuf>,
+    clip_range: Option<ClipTimeRange>,
     trace_id: Option<String>,
     initial_route_chain: Option<Vec<DownloadRoute>>,
 ) -> Result<DownloadResult, String> {
@@ -1738,6 +1818,7 @@ async fn download_video_smart(
             "url": url,
             "hasTitle": title.is_some(),
             "hasExtensionCookies": extension_cookies_path.as_ref().is_some_and(|path| path.exists()),
+            "hasClipRange": clip_range.is_some(),
         }),
     );
 
@@ -1876,7 +1957,14 @@ async fn download_video_smart(
             "route": DownloadRoute::YtDlp.as_str(),
         }),
     );
-    match download_video_internal(app.clone(), url.clone(), extension_cookies_path.clone()).await {
+    match download_video_internal(
+        app.clone(),
+        url.clone(),
+        extension_cookies_path.clone(),
+        clip_range.clone(),
+    )
+    .await
+    {
         Ok(result) if result.success => {
             log_terminal_outcome(
                 &trace_id,
@@ -2840,6 +2928,22 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     let video_url = data.get("videoUrl").and_then(|v| v.as_str());
                     let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
                     let title = data.get("title").and_then(|v| v.as_str());
+                    let clip_range = match parse_clip_time_range(&data) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            let result = DownloadResult {
+                                success: false,
+                                file_path: None,
+                                error: Some(err.clone()),
+                            };
+                            let _ = app.emit("video-download-complete", result);
+                            return WsResponse {
+                                success: false,
+                                message: Some(err),
+                                data: None,
+                            };
+                        }
+                    };
                     let video_candidates = parse_extension_video_candidates(&data);
                     let douyin_direct_candidates = collect_direct_candidates_for_platform(
                         DirectPlatform::Douyin,
@@ -2870,6 +2974,9 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             "xiaohongshuCacheHit": xiaohongshu_direct_candidates.iter().any(|candidate| candidate.origin == "cache"),
                             "hasCookies": cookies.is_some_and(|value| !value.is_empty()),
                             "hasTitle": title.is_some_and(|value| !value.is_empty()),
+                            "hasClipRange": clip_range.is_some(),
+                            "clipStartSec": clip_range.as_ref().map(|range| range.start_seconds),
+                            "clipEndSec": clip_range.as_ref().map(|range| range.end_seconds),
                         }),
                     );
 
@@ -2941,12 +3048,14 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             .filter(|value| !value.is_empty())
                             .and_then(|value| save_extension_cookies(value).ok());
                         let trace_id_for_task = trace_id.clone();
+                        let clip_range_for_task = clip_range.clone();
                         tokio::spawn(async move {
                             if let Err(err) = download_video_smart(
                                 app_clone.clone(),
                                 url_owned,
                                 title_owned,
                                 cookies_path,
+                                clip_range_for_task,
                                 Some(trace_id_for_task.clone()),
                                 None,
                             )
