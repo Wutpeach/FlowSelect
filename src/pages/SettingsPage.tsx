@@ -15,7 +15,7 @@ function SettingsPage() {
   const [shortcut, setShortcut] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [recordedKeys, setRecordedKeys] = useState("");
-  const [videoSeparateFolder, setVideoSeparateFolder] = useState(false);
+  const [renameMediaOnDownload, setRenameMediaOnDownload] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
@@ -28,8 +28,10 @@ function SettingsPage() {
         if (config.outputPath) {
           setOutputPath(config.outputPath);
         }
-        if (config.videoSeparateFolder !== undefined) {
-          setVideoSeparateFolder(config.videoSeparateFolder);
+        if (typeof config.renameMediaOnDownload === "boolean") {
+          setRenameMediaOnDownload(config.renameMediaOnDownload);
+        } else if (typeof config.videoKeepOriginalName === "boolean") {
+          setRenameMediaOnDownload(!config.videoKeepOriginalName);
         }
         if (config.devMode !== undefined) {
           setDevMode(config.devMode);
@@ -163,13 +165,13 @@ function SettingsPage() {
     }
   };
 
-  const toggleVideoSeparateFolder = async () => {
-    const newValue = !videoSeparateFolder;
-    setVideoSeparateFolder(newValue);
+  const toggleRenameMediaOnDownload = async () => {
+    const newValue = !renameMediaOnDownload;
+    setRenameMediaOnDownload(newValue);
     const configStr = await invoke<string>("get_config");
     const config = JSON.parse(configStr);
-    config.videoSeparateFolder = newValue;
-    config.videoKeepOriginalName = newValue;
+    config.renameMediaOnDownload = newValue;
+    config.videoKeepOriginalName = !newValue;
     await invoke("save_config", { json: JSON.stringify(config) });
   };
 
@@ -342,12 +344,12 @@ function SettingsPage() {
           </div>
         </div>
 
-        {/* Video Separate Folder */}
+        {/* Media Rename */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-            Save Videos to Separate Folder
+            Enable Rename on Download
           </label>
-          <NeonToggle checked={videoSeparateFolder} onChange={toggleVideoSeparateFolder} />
+          <NeonToggle checked={renameMediaOnDownload} onChange={toggleRenameMediaOnDownload} />
         </div>
 
         {/* Developer Mode */}

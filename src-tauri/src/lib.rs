@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
@@ -6,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use regex::Regex;
 
 use tokio::sync::broadcast;
 
@@ -317,6 +317,131 @@ fn get_next_sequence_number(target_dir: &Path) -> Result<u32, String> {
     Err("序号已用完，请整理文件夹".to_string())
 }
 
+fn is_rename_media_enabled(config: &serde_json::Value) -> bool {
+    if let Some(rename_media) = config
+        .get("renameMediaOnDownload")
+        .and_then(|v| v.as_bool())
+    {
+        return rename_media;
+    }
+
+    config
+        .get("videoKeepOriginalName")
+        .and_then(|v| v.as_bool())
+        .map(|keep_original| !keep_original)
+        .unwrap_or(false)
+}
+
+fn sanitize_file_stem(raw: &str) -> String {
+    let cleaned = raw
+        .trim()
+        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+        .replace(['\n', '\r', '\t'], " ");
+
+    let limited: String = cleaned.chars().take(100).collect();
+    limited
+        .trim_matches(|ch: char| ch == '.' || ch.is_whitespace())
+        .to_string()
+}
+
+fn sanitize_file_extension(raw: &str) -> String {
+    raw.trim()
+        .trim_start_matches('.')
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .take(10)
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+fn build_sequence_file_path(target_dir: &Path, ext: &str) -> Result<PathBuf, String> {
+    let sequence = get_next_sequence_number(target_dir)?;
+    let safe_ext = sanitize_file_extension(ext);
+    let final_ext = if safe_ext.is_empty() {
+        "bin".to_string()
+    } else {
+        safe_ext
+    };
+    Ok(target_dir.join(format!("{}.{}", sequence, final_ext)))
+}
+
+fn build_source_name_file_path(
+    target_dir: &Path,
+    source_name: &str,
+    fallback_ext: &str,
+) -> Option<PathBuf> {
+    let file_name = Path::new(source_name).file_name()?.to_str()?.trim();
+    if file_name.is_empty() {
+        return None;
+    }
+
+    let path = Path::new(file_name);
+    let stem = path
+        .file_stem()
+        .and_then(|v| v.to_str())
+        .map(sanitize_file_stem)?;
+    if stem.is_empty() {
+        return None;
+    }
+
+    let source_ext = path
+        .extension()
+        .and_then(|v| v.to_str())
+        .map(sanitize_file_extension)
+        .unwrap_or_default();
+    let ext = if source_ext.is_empty() {
+        sanitize_file_extension(fallback_ext)
+    } else {
+        source_ext
+    };
+
+    if ext.is_empty() {
+        return None;
+    }
+
+    let preferred = target_dir.join(format!("{}.{}", stem, ext));
+    if !preferred.exists() {
+        return Some(preferred);
+    }
+
+    let sequence = get_next_sequence_number(target_dir).ok()?;
+    Some(target_dir.join(format!("{}_{}.{}", stem, sequence, ext)))
+}
+
+fn extract_filename_from_content_disposition(content_disposition: &str) -> Option<String> {
+    for part in content_disposition.split(';').map(str::trim) {
+        let lowered = part.to_ascii_lowercase();
+        if lowered.starts_with("filename*=") {
+            let value = part.split_once('=')?.1.trim().trim_matches('"');
+            let normalized = value
+                .split_once("''")
+                .map(|(_, encoded)| encoded)
+                .unwrap_or(value);
+            if !normalized.is_empty() {
+                return Some(normalized.to_string());
+            }
+        } else if lowered.starts_with("filename=") {
+            let value = part.split_once('=')?.1.trim().trim_matches('"');
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn extract_filename_from_url(raw_url: &str) -> Option<String> {
+    let parsed = url::Url::parse(raw_url).ok()?;
+    let file_name = parsed
+        .path_segments()?
+        .filter(|segment| !segment.is_empty())
+        .next_back()?;
+    if file_name.is_empty() {
+        return None;
+    }
+    Some(file_name.to_string())
+}
+
 #[tauri::command]
 fn process_files(paths: Vec<String>, target_dir: Option<String>) -> Result<String, String> {
     println!(">>> [Rust] Receiving files to process: {:?}", paths);
@@ -373,14 +498,15 @@ async fn download_image(
         );
     }
 
+    let config_str = get_config(app.clone())?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
+    let rename_media_on_download = is_rename_media_enabled(&config);
+
     // Determine target directory (read from config if not provided)
     let final_target_dir = if let Some(dir) = target_dir {
         std::path::PathBuf::from(dir)
     } else {
-        let config_str = get_config(app.clone())?;
-        let config: serde_json::Value = serde_json::from_str(&config_str)
-            .map_err(|e| format!("Failed to parse config: {}", e))?;
-
         config
             .get("outputPath")
             .and_then(|v| v.as_str())
@@ -443,10 +569,24 @@ async fn download_image(
         "jpg"
     };
 
-    // Get next sequence number
-    let seq_num = get_next_sequence_number(&final_target_dir)?;
-    let filename = format!("{}.{}", seq_num, ext);
-    let dest_path = final_target_dir.join(&filename);
+    let source_filename = response
+        .headers()
+        .get("content-disposition")
+        .and_then(|value| value.to_str().ok())
+        .and_then(extract_filename_from_content_disposition)
+        .or_else(|| extract_filename_from_url(&resolved_url));
+
+    let dest_path = if rename_media_on_download {
+        build_sequence_file_path(&final_target_dir, ext)?
+    } else if let Some(source_name) = source_filename {
+        if let Some(path) = build_source_name_file_path(&final_target_dir, &source_name, ext) {
+            path
+        } else {
+            build_sequence_file_path(&final_target_dir, ext)?
+        }
+    } else {
+        build_sequence_file_path(&final_target_dir, ext)?
+    };
 
     // Write to file
     let bytes = response
@@ -475,15 +615,11 @@ async fn download_image(
 fn resolve_image_download_url(raw_url: &str) -> String {
     let trimmed = raw_url.trim();
     if let Some(parsed) = url::Url::parse(trimmed).ok() {
-        let host = parsed
-            .host_str()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
+        let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
         let path = parsed.path().to_ascii_lowercase();
-        let is_google_wrapper = (host == "google.com"
-            || host == "www.google.com"
-            || host.ends_with(".google.com"))
-            && path.starts_with("/imgres");
+        let is_google_wrapper =
+            (host == "google.com" || host == "www.google.com" || host.ends_with(".google.com"))
+                && path.starts_with("/imgres");
         if is_google_wrapper {
             if let Some((_, value)) = parsed
                 .query_pairs()
@@ -552,14 +688,15 @@ async fn save_data_url(
         .decode(base64_data)
         .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
+    let config_str = get_config(app.clone())?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
+    let rename_media_on_download = is_rename_media_enabled(&config);
+
     // Determine target directory (read from config if not provided)
     let final_target_dir = if let Some(dir) = target_dir {
         std::path::PathBuf::from(dir)
     } else {
-        let config_str = get_config(app.clone())?;
-        let config: serde_json::Value = serde_json::from_str(&config_str)
-            .map_err(|e| format!("Failed to parse config: {}", e))?;
-
         config
             .get("outputPath")
             .and_then(|v| v.as_str())
@@ -578,10 +715,17 @@ async fn save_data_url(
             .map_err(|e| format!("Failed to create target directory: {}", e))?;
     }
 
-    // Get next sequence number
-    let seq_num = get_next_sequence_number(&final_target_dir)?;
-    let filename = format!("{}.{}", seq_num, ext);
-    let dest_path = final_target_dir.join(&filename);
+    let dest_path = if rename_media_on_download {
+        build_sequence_file_path(&final_target_dir, ext)?
+    } else if let Some(source_name) = original_filename.as_deref() {
+        if let Some(path) = build_source_name_file_path(&final_target_dir, source_name, ext) {
+            path
+        } else {
+            build_sequence_file_path(&final_target_dir, ext)?
+        }
+    } else {
+        build_sequence_file_path(&final_target_dir, ext)?
+    };
 
     // Write to file
     let mut file =
@@ -1100,17 +1244,13 @@ async fn download_video_internal(
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
     }
 
-    // Check if should keep original video name
-    let keep_original_name = config
-        .get("videoKeepOriginalName")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let rename_media_on_download = is_rename_media_enabled(&config);
 
-    let output_template = if keep_original_name {
-        output_dir.join("%(title)s.%(ext)s")
-    } else {
+    let output_template = if rename_media_on_download {
         let seq_num = get_next_sequence_number(&output_dir)?;
         output_dir.join(format!("{}.%(ext)s", seq_num))
+    } else {
+        output_dir.join("%(title)s.%(ext)s")
     };
 
     // Build args
@@ -1546,7 +1686,8 @@ fn parse_non_negative_seconds_field(
     let parsed = if let Some(value) = raw.as_f64() {
         Some(value)
     } else {
-        raw.as_str().and_then(|value| value.trim().parse::<f64>().ok())
+        raw.as_str()
+            .and_then(|value| value.trim().parse::<f64>().ok())
     };
 
     let Some(seconds) = parsed else {
@@ -2100,13 +2241,9 @@ async fn download_video_direct(
             .map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
-    // Check videoKeepOriginalName setting
-    let keep_original_name = config
-        .get("videoKeepOriginalName")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let rename_media_on_download = is_rename_media_enabled(&config);
 
-    let output_path = if keep_original_name && title.is_some() {
+    let output_path = if !rename_media_on_download && title.is_some() {
         let raw_title = title.as_ref().unwrap();
         // Clean title: strip site suffix and invalid filename characters
         let stripped_title = if let Some(suffix) = title_suffix_to_strip {
@@ -2114,11 +2251,7 @@ async fn download_video_direct(
         } else {
             raw_title.trim()
         };
-        let clean_title = stripped_title
-            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
-            .chars()
-            .take(100) // Limit filename length
-            .collect::<String>();
+        let clean_title = sanitize_file_stem(stripped_title);
 
         if clean_title.is_empty() {
             let seq_num = get_next_sequence_number(&output_dir)?;
@@ -3321,13 +3454,11 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            match event {
-                tauri::RunEvent::Reopen { .. } => {
-                    show_main_window(app);
-                }
-                tauri::RunEvent::Exit => {}
-                _ => {}
+        .run(|app, event| match event {
+            tauri::RunEvent::Reopen { .. } => {
+                show_main_window(app);
             }
+            tauri::RunEvent::Exit => {}
+            _ => {}
         });
 }
