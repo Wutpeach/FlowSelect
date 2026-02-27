@@ -9,6 +9,14 @@
   cursor: pointer;
 }
 
+.flowselect-bilibili-screenshot-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+}
+
 /* For squirtle player (old player) */
 .squirtle-controller-wrap .flowselect-bilibili-btn {
   align-items: center;
@@ -25,14 +33,32 @@
   pointer-events: none;
 }
 
+.flowselect-bilibili-screenshot-btn svg {
+  width: 22px;
+  height: 22px;
+  color: #fff;
+  fill: #fff;
+  transition: transform 0.2s ease-out;
+  pointer-events: none;
+}
+
 /* Hover effect */
 .flowselect-bilibili-btn:hover svg {
   color: #00a1d6;
   fill: #00a1d6;
 }
 
+.flowselect-bilibili-screenshot-btn:hover svg {
+  color: #00a1d6;
+  fill: #00a1d6;
+}
+
 /* Active effect */
 .flowselect-bilibili-btn:active svg {
+  transform: scale(0.95);
+}
+
+.flowselect-bilibili-screenshot-btn:active svg {
   transform: scale(0.95);
 }
 
@@ -45,10 +71,130 @@ body.player-full-win .flowselect-bilibili-btn svg {
   height: 28px;
 }
 
+body.player-mode-full .flowselect-bilibili-screenshot-btn svg,
+body.player-fullscreen-fix .flowselect-bilibili-screenshot-btn svg,
+body.player-mode-web .flowselect-bilibili-screenshot-btn svg,
+body.player-full-win .flowselect-bilibili-screenshot-btn svg {
+  width: 28px;
+  height: 28px;
+}
+
 /* Fullscreen mode - padding adjustment */
 body.player-mode-full .bpx-player-control-wrap .flowselect-bilibili-btn,
 body.player-fullscreen-fix .bpx-player-control-wrap .flowselect-bilibili-btn,
 body.player-mode-web .bpx-player-control-wrap .flowselect-bilibili-btn,
 body.player-full-win .bpx-player-control-wrap .flowselect-bilibili-btn {
   padding-top: 2px;
+}
+
+body.player-mode-full .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn,
+body.player-fullscreen-fix .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn,
+body.player-mode-web .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn,
+body.player-full-win .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn {
+  padding-top: 2px;
+}
+
+#flowselect-bilibili-screenshot-panel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 240px;
+  max-height: calc(100vh - 24px);
+  z-index: 2147483646;
+  padding: 10px;
+  border-radius: 10px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+#flowselect-bilibili-screenshot-panel.flowselect-hidden {
+  display: none;
+}
+
+#flowselect-bilibili-screenshot-list {
+  max-height: calc(100vh - 44px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+#flowselect-bilibili-screenshot-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+#flowselect-bilibili-screenshot-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+}
+
+.flowselect-bilibili-screenshot-item {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  margin-bottom: 10px;
+}
+
+.flowselect-bilibili-screenshot-item:last-child {
+  margin-bottom: 0;
+}
+
+.flowselect-bilibili-screenshot-item img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.flowselect-bilibili-screenshot-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  opacity: 0;
+  background: rgba(0, 0, 0, 0.58);
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+}
+
+.flowselect-bilibili-screenshot-item:hover .flowselect-bilibili-screenshot-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.flowselect-bilibili-screenshot-overlay button {
+  border: none;
+  border-radius: 999px;
+  min-width: 46px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.75);
+  cursor: pointer;
+}
+
+.flowselect-bilibili-screenshot-overlay button:hover {
+  background: rgba(0, 161, 214, 0.9);
+}
+
+.flowselect-bilibili-screenshot-overlay button.flowselect-danger:hover {
+  background: rgba(244, 63, 94, 0.92);
+}
+
+.flowselect-bilibili-screenshot-overlay button[data-copied="true"] {
+  background: rgba(34, 197, 94, 0.92);
+}
+
+.flowselect-bilibili-screenshot-time {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.9);
 }

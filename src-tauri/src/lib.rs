@@ -3179,6 +3179,97 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                 }
             }
         }
+        "save_data_url" => {
+            if let Some(data) = msg.data {
+                let request_id = data
+                    .get("requestId")
+                    .or_else(|| data.get("request_id"))
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string());
+                let with_request_id = |code: Option<&str>| {
+                    request_id.as_ref().map(|rid| match code {
+                        Some(c) => serde_json::json!({
+                            "requestId": rid,
+                            "code": c
+                        }),
+                        None => serde_json::json!({
+                            "requestId": rid
+                        }),
+                    })
+                };
+                let data_url = data
+                    .get("dataUrl")
+                    .or_else(|| data.get("data_url"))
+                    .and_then(|v| v.as_str());
+                if let Some(data_url) = data_url {
+                    let target_dir = data
+                        .get("targetDir")
+                        .or_else(|| data.get("target_dir"))
+                        .and_then(|v| v.as_str())
+                        .map(|v| v.to_string());
+                    let original_filename = data
+                        .get("originalFilename")
+                        .or_else(|| data.get("original_filename"))
+                        .and_then(|v| v.as_str())
+                        .map(|v| v.to_string());
+                    let require_rename_enabled = data
+                        .get("requireRenameEnabled")
+                        .or_else(|| data.get("require_rename_enabled"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+
+                    if require_rename_enabled {
+                        match get_config(app.clone()) {
+                            Ok(config_str) => {
+                                let config: serde_json::Value =
+                                    serde_json::from_str(&config_str).unwrap_or_default();
+                                if !is_rename_media_enabled(&config) {
+                                    return WsResponse {
+                                        success: false,
+                                        message: Some("rename_disabled".to_string()),
+                                        data: with_request_id(Some("rename_disabled")),
+                                    };
+                                }
+                            }
+                            Err(e) => {
+                                return WsResponse {
+                                    success: false,
+                                    message: Some(format!("Failed to get config: {}", e)),
+                                    data: with_request_id(Some("config_error")),
+                                };
+                            }
+                        }
+                    }
+
+                    match save_data_url(app.clone(), data_url.to_string(), target_dir, original_filename)
+                        .await
+                    {
+                        Ok(path) => WsResponse {
+                            success: true,
+                            message: Some(path),
+                            data: with_request_id(None),
+                        },
+                        Err(e) => WsResponse {
+                            success: false,
+                            message: Some(e),
+                            data: with_request_id(Some("save_data_url_failed")),
+                        },
+                    }
+                } else {
+                    WsResponse {
+                        success: false,
+                        message: Some("Missing dataUrl".to_string()),
+                        data: with_request_id(Some("missing_data_url")),
+                    }
+                }
+            } else {
+                WsResponse {
+                    success: false,
+                    message: Some("Missing data".to_string()),
+                    data: None,
+                }
+            }
+        }
         "video_selected" => {
             if let Some(data) = msg.data {
                 if let Some(url) = data.get("url").and_then(|v| v.as_str()) {

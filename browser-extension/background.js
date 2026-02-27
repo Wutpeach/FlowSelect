@@ -3,20 +3,46 @@
 
 let ws = null;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
+let reconnectTimer = null;
 const WS_URL = 'ws://127.0.0.1:39527';
+const REQUEST_TIMEOUT_MS = 7000;
+const CONNECT_WAIT_TIMEOUT_MS = 2500;
+const pendingRequests = new Map();
+let requestCounter = 0;
 
 // Store current theme from desktop app
 let currentTheme = 'black';
 
+function isConnected() {
+  return ws && ws.readyState === WebSocket.OPEN;
+}
+
+function isConnecting() {
+  return ws && ws.readyState === WebSocket.CONNECTING;
+}
+
+function notifyConnectionStatus() {
+  chrome.runtime.sendMessage({ type: 'connection_update', connected: isConnected() }).catch(() => {});
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
 function connect() {
-  if (ws && ws.readyState === WebSocket.OPEN) return;
+  if (isConnected() || isConnecting()) return;
+
+  clearReconnectTimer();
 
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
     console.log('[FlowSelect] Connected to desktop app');
     reconnectAttempts = 0;
+    notifyConnectionStatus();
     // Query current theme after connection
     ws.send(JSON.stringify({ action: 'get_theme' }));
   };
@@ -24,6 +50,9 @@ function connect() {
   ws.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
+      if (handlePendingRequestResponse(message)) {
+        return;
+      }
       handleMessage(message);
     } catch (e) {
       console.error('[FlowSelect] Failed to parse message:', e);
@@ -32,6 +61,9 @@ function connect() {
 
   ws.onclose = () => {
     console.log('[FlowSelect] Disconnected');
+    rejectPendingRequests('ws_closed');
+    ws = null;
+    notifyConnectionStatus();
     scheduleReconnect();
   };
 
@@ -41,13 +73,50 @@ function connect() {
 }
 
 function scheduleReconnect() {
-  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    console.log('[FlowSelect] Max reconnect attempts reached');
+  if (reconnectTimer !== null) {
     return;
   }
+
   reconnectAttempts++;
-  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-  setTimeout(connect, delay);
+  const delay = Math.min(500 * Math.pow(1.5, reconnectAttempts), 5000);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, delay);
+}
+
+function nextRequestId() {
+  requestCounter += 1;
+  return `req_${Date.now()}_${requestCounter}`;
+}
+
+function handlePendingRequestResponse(message) {
+  const requestId = message?.data?.requestId || message?.data?.request_id;
+  if (!requestId) {
+    return false;
+  }
+
+  const pending = pendingRequests.get(requestId);
+  if (!pending) {
+    return false;
+  }
+
+  pendingRequests.delete(requestId);
+  clearTimeout(pending.timer);
+  pending.resolve(message);
+  return true;
+}
+
+function rejectPendingRequests(reason) {
+  for (const [requestId, pending] of pendingRequests.entries()) {
+    clearTimeout(pending.timer);
+    pending.resolve({
+      success: false,
+      message: reason,
+      data: { requestId, code: reason },
+    });
+  }
+  pendingRequests.clear();
 }
 
 function handleMessage(message) {
@@ -89,11 +158,82 @@ async function stopPicker(tabId) {
 }
 
 function sendToApp(data) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (isConnected()) {
     ws.send(JSON.stringify(data));
     return true;
   }
+  connect();
   return false;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForConnection(timeoutMs = CONNECT_WAIT_TIMEOUT_MS) {
+  if (isConnected()) {
+    return true;
+  }
+  connect();
+
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (isConnected()) {
+      return true;
+    }
+    await sleep(80);
+  }
+  return isConnected();
+}
+
+async function sendRequestToApp(action, data = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const connected = await waitForConnection();
+  if (!connected) {
+    return {
+      success: false,
+      message: 'not_connected',
+      data: { code: 'not_connected' },
+    };
+  }
+
+  const requestId = nextRequestId();
+  const payload = {
+    action,
+    data: {
+      ...data,
+      requestId,
+    },
+  };
+
+  return await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!pendingRequests.has(requestId)) {
+        return;
+      }
+      pendingRequests.delete(requestId);
+      resolve({
+        success: false,
+        message: 'request_timeout',
+        data: { requestId, code: 'request_timeout' },
+      });
+    }, timeoutMs);
+
+    pendingRequests.set(requestId, { resolve, timer });
+
+    try {
+      ws.send(JSON.stringify(payload));
+    } catch (error) {
+      clearTimeout(timer);
+      pendingRequests.delete(requestId);
+      resolve({
+        success: false,
+        message: 'send_failed',
+        data: { requestId, code: 'send_failed' },
+      });
+    }
+  });
 }
 
 function normalizeVideoCandidates(rawCandidates) {
@@ -199,18 +339,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       sendResponse({
         success: sent,
-        connected: ws && ws.readyState === WebSocket.OPEN,
+        connected: isConnected(),
       });
     });
   } else if (message.type === 'connect') {
     connect();
     sendResponse({
       success: true,
-      connected: ws && ws.readyState === WebSocket.OPEN
+      connected: isConnected()
     });
+  } else if (message.type === 'save_screenshot') {
+    const dataUrl = typeof message.dataUrl === 'string' ? message.dataUrl : '';
+    const filename = typeof message.filename === 'string' ? message.filename : null;
+
+    if (!dataUrl.startsWith('data:')) {
+      sendResponse({
+        success: false,
+        connected: isConnected(),
+        error: 'invalid_data_url',
+      });
+      return true;
+    }
+
+    sendRequestToApp('save_data_url', {
+      dataUrl,
+      originalFilename: filename,
+      requireRenameEnabled: true,
+    }).then((result) => {
+      if (!result?.success) {
+        console.warn('[FlowSelect] save_screenshot fallback reason:', result?.data?.code || result?.message || 'unknown');
+      }
+      sendResponse({
+        success: Boolean(result?.success),
+        connected: isConnected(),
+        reason: result?.data?.code || null,
+      });
+    });
+    return true;
   } else if (message.type === 'get_status') {
+    if (!isConnected()) {
+      connect();
+    }
     sendResponse({
-      connected: ws && ws.readyState === WebSocket.OPEN
+      connected: isConnected(),
+      connecting: isConnecting() || reconnectTimer !== null,
     });
   } else if (message.type === 'get_theme') {
     sendResponse({ theme: currentTheme });

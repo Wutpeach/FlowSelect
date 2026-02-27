@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
   const refreshBtn = document.getElementById('refreshBtn');
+  let statusTimer = null;
 
   function updateStatus(connected) {
     if (connected) {
@@ -43,6 +44,8 @@ document.addEventListener('DOMContentLoaded', () => {
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'theme_update') {
       applyTheme(message.theme);
+    } else if (message.type === 'connection_update') {
+      updateStatus(Boolean(message.connected));
     }
   });
 
@@ -55,5 +58,13 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshBtn.textContent = 'Reconnect';
       }, 500);
     });
+  });
+
+  statusTimer = window.setInterval(checkStatus, 1200);
+  window.addEventListener('beforeunload', () => {
+    if (statusTimer !== null) {
+      clearInterval(statusTimer);
+      statusTimer = null;
+    }
   });
 });
