@@ -7,6 +7,8 @@
   justify-content: center;
   position: relative;
   cursor: pointer;
+  line-height: 0;
+  font-size: 0;
 }
 
 .flowselect-bilibili-screenshot-btn {
@@ -15,6 +17,8 @@
   justify-content: center;
   position: relative;
   cursor: pointer;
+  line-height: 0;
+  font-size: 0;
 }
 
 /* For squirtle player (old player) */
@@ -25,6 +29,7 @@
 
 /* Icon container */
 .flowselect-bilibili-btn svg {
+  display: block;
   width: 22px;
   height: 22px;
   color: #fff;
@@ -34,6 +39,7 @@
 }
 
 .flowselect-bilibili-screenshot-btn svg {
+  display: block;
   width: 22px;
   height: 22px;
   color: #fff;

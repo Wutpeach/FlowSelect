@@ -34,7 +34,7 @@
     },
     {
       "matches": ["https://www.bilibili.com/*", "https://bilibili.com/*"],
-      "js": ["bilibili-detector.js"],
+      "js": ["control-style-utils.js", "bilibili-detector.js"],
       "css": ["bilibili-button.css"],
       "run_at": "document_idle"
     },

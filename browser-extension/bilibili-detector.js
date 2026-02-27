@@ -10,6 +10,7 @@
   const SCREENSHOT_LIST_ID = 'flowselect-bilibili-screenshot-list';
   const MAX_SCREENSHOTS = 20;
   const screenshots = [];
+  const controlStyleUtils = window.FlowSelectControlStyleUtils || null;
 
   const CAT_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" fill-rule="evenodd" d="M11.75 6.406c-1.48 0-1.628.157-2.394.157C8.718 6.563 6.802 5 5.845 5S3.77 5.563 3.77 7.188v1.875c.002.492.18 2 .88 1.597c-.827.978-.91 2.119-.899 3.223c-.223.064-.45.137-.671.212c-.684.234-1.41.532-1.737.744a.75.75 0 0 0 .814 1.26c.156-.101.721-.35 1.408-.585l.228-.075c.046.433.161.83.332 1.19l-.024.013c-.41.216-.79.465-1.032.623l-.113.074a.75.75 0 1 0 .814 1.26l.131-.086c.245-.16.559-.365.901-.545q.12-.064.231-.116C6.763 19.475 9.87 20 11.75 20s4.987-.525 6.717-2.148q.11.052.231.116c.342.18.656.385.901.545l.131.086a.75.75 0 0 0 .814-1.26l-.113-.074a13 13 0 0 0-1.032-.623l-.024-.013c.171-.36.286-.757.332-1.19l.228.075c.687.235 1.252.484 1.409.585a.75.75 0 0 0 .813-1.26c-.327-.212-1.053-.51-1.736-.744a16 16 0 0 0-.672-.213c.012-1.104-.072-2.244-.9-3.222c.7.403.88-1.105.881-1.598V7.188C19.73 5.563 18.613 5 17.655 5c-.957 0-2.873 1.563-3.51 1.563c-.767 0-.915-.157-2.395-.157m-.675 9.194c.202-.069.441-.1.675-.1s.473.031.676.1c.1.034.22.088.328.174a.62.62 0 0 1 .246.476c0 .23-.139.39-.246.476s-.229.14-.328.174c-.203.069-.442.1-.676.1s-.473-.031-.675-.1a1.1 1.1 0 0 1-.329-.174a.62.62 0 0 1-.246-.476c0-.23.139-.39.246-.476s.23-.14.329-.174m2.845-3.1c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812m-5.96 0c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812" clip-rule="evenodd"/>
@@ -36,6 +37,14 @@
     return null;
   }
 
+  function getCurrentVideoKey() {
+    if (!isVideoPage()) {
+      return window.location.pathname;
+    }
+    const videoId = getVideoId() || '';
+    return `${window.location.pathname}?v=${videoId}`;
+  }
+
   function detectVideoPlayer() {
     if (!isVideoPage()) return;
 
@@ -57,9 +66,71 @@
     if (!controls) return;
     if (controls.hasAttribute(PROCESSED_ATTR)) return;
 
+    const nativeBaseClass = getNativeControlButtonBaseClass(controls);
+    if (!isControlBarReady(controls, nativeBaseClass)) return;
+
     console.log('[FlowSelect Bilibili] Video detected:', videoId);
-    injectControlButtons(controls);
+    injectControlButtons(controls, nativeBaseClass);
     controls.setAttribute(PROCESSED_ATTR, 'true');
+  }
+
+  function isControlBarReady(container, nativeBaseClass) {
+    if (controlStyleUtils?.isControlBarReady) {
+      return controlStyleUtils.isControlBarReady(container, {
+        excludeClasses: BUTTON_CLASSES,
+        requiredClass: nativeBaseClass || null,
+      });
+    }
+
+    return isRenderableControlBarFallback(container) &&
+      hasRenderableNativeControlChildFallback(container, nativeBaseClass);
+  }
+
+  function isRenderableControlBarFallback(controls) {
+    if (!(controls instanceof HTMLElement) || !controls.isConnected) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(controls);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+
+    const rect = controls.getBoundingClientRect();
+    if (rect.width < 16 || rect.height < 16) {
+      return false;
+    }
+
+    return rect.bottom > 0 &&
+      rect.right > 0 &&
+      rect.top < window.innerHeight &&
+      rect.left < window.innerWidth;
+  }
+
+  function hasRenderableNativeControlChildFallback(container, nativeBaseClass) {
+    const children = Array.from(container.children).filter((child) => child instanceof HTMLElement);
+    if (children.length === 0) {
+      return false;
+    }
+
+    return children.some((child) => {
+      const isInjectedButton = BUTTON_CLASSES.some((className) => child.classList.contains(className));
+      if (isInjectedButton) {
+        return false;
+      }
+
+      if (nativeBaseClass && !child.classList.contains(nativeBaseClass)) {
+        return false;
+      }
+
+      const style = window.getComputedStyle(child);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return false;
+      }
+
+      const rect = child.getBoundingClientRect();
+      return rect.width >= 8 && rect.height >= 8;
+    });
   }
 
   function removeInjectedButtons() {
@@ -68,10 +139,10 @@
     }
   }
 
-  function injectControlButtons(container) {
+  function injectControlButtons(container, resolvedNativeBaseClass = null) {
     removeInjectedButtons();
 
-    const nativeBaseClass = getNativeControlButtonBaseClass(container);
+    const nativeBaseClass = resolvedNativeBaseClass || getNativeControlButtonBaseClass(container);
     const screenshotButton = createControlButton({
       className: 'flowselect-bilibili-screenshot-btn',
       title: 'Screenshot',
@@ -87,9 +158,53 @@
       onClick: downloadVideo,
     });
 
+    syncButtonSpacingWithNative(container, [screenshotButton, downloadButton], nativeBaseClass);
     container.insertBefore(downloadButton, container.firstChild);
     container.insertBefore(screenshotButton, container.firstChild);
     console.log('[FlowSelect Bilibili] Control buttons injected');
+  }
+
+  function syncButtonSpacingWithNative(container, customButtons, nativeBaseClass) {
+    if (controlStyleUtils?.syncHorizontalMarginsFromNative) {
+      controlStyleUtils.syncHorizontalMarginsFromNative(container, customButtons, {
+        excludeClasses: BUTTON_CLASSES,
+        requiredClass: nativeBaseClass || null,
+      });
+      return;
+    }
+
+    const nativeButtons = Array.from(container.children).filter((child) => {
+      if (!(child instanceof HTMLElement)) return false;
+
+      const isInjectedButton = BUTTON_CLASSES.some((className) => child.classList.contains(className));
+      if (isInjectedButton) return false;
+
+      if (nativeBaseClass && !child.classList.contains(nativeBaseClass)) {
+        return false;
+      }
+
+      const style = window.getComputedStyle(child);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return false;
+      }
+
+      const rect = child.getBoundingClientRect();
+      return rect.width >= 8 && rect.height >= 8;
+    });
+
+    if (nativeButtons.length === 0) return;
+
+    const withSpacing = nativeButtons.find((button) => {
+      const style = window.getComputedStyle(button);
+      return Number.parseFloat(style.marginLeft) > 0 || Number.parseFloat(style.marginRight) > 0;
+    });
+    const reference = withSpacing || nativeButtons[0];
+    const referenceStyle = window.getComputedStyle(reference);
+
+    for (const button of customButtons) {
+      button.style.marginLeft = referenceStyle.marginLeft;
+      button.style.marginRight = referenceStyle.marginRight;
+    }
   }
 
   function createControlButton({ className, title, icon, nativeBaseClass, onClick }) {
@@ -479,14 +594,19 @@
   });
 
   let lastUrl = window.location.href;
+  let lastVideoKey = getCurrentVideoKey();
   function checkUrlChange() {
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
-      console.log('[FlowSelect Bilibili] URL changed:', lastUrl);
-      const processed = document.querySelectorAll(`[${PROCESSED_ATTR}]`);
-      processed.forEach((el) => el.removeAttribute(PROCESSED_ATTR));
-      removeInjectedButtons();
-      cleanupScreenshotPanel();
+      const currentVideoKey = getCurrentVideoKey();
+      if (currentVideoKey !== lastVideoKey) {
+        console.log('[FlowSelect Bilibili] Video changed:', lastUrl);
+        lastVideoKey = currentVideoKey;
+        const processed = document.querySelectorAll(`[${PROCESSED_ATTR}]`);
+        processed.forEach((el) => el.removeAttribute(PROCESSED_ATTR));
+        removeInjectedButtons();
+        cleanupScreenshotPanel();
+      }
       detectVideoPlayer();
     }
   }
