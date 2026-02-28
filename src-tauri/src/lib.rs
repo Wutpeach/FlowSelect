@@ -1524,17 +1524,7 @@ async fn download_video_internal(
                 .join("FlowSelect_Received")
         });
 
-    // Check if video should go to separate folder
-    let video_separate_folder = config
-        .get("videoSeparateFolder")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let output_dir = if video_separate_folder {
-        base_output_dir.join("Videos")
-    } else {
-        base_output_dir
-    };
+    let output_dir = base_output_dir;
 
     // Create output directory if not exists
     if !output_dir.exists() {
@@ -1838,17 +1828,8 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
                         .join("FlowSelect_Received")
                 });
 
-            // Check base dir and Videos subdir (if enabled)
-            let video_separate = config
-                .get("videoSeparateFolder")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-
-            let dirs_to_check = if video_separate {
-                vec![base_output_dir.clone(), base_output_dir.join("Videos")]
-            } else {
-                vec![base_output_dir]
-            };
+            // Always check base dir, and also check legacy Videos subdir for cleanup compatibility.
+            let dirs_to_check = vec![base_output_dir.clone(), base_output_dir.join("Videos")];
 
             let now = std::time::SystemTime::now();
             let video_extensions = ["mp4", "webm", "mkv", "flv", "avi", "mov"];
@@ -2540,16 +2521,7 @@ async fn download_video_direct(
                 .join("FlowSelect_Received")
         });
 
-    let video_separate = config
-        .get("videoSeparateFolder")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let output_dir = if video_separate {
-        base_output_dir.join("Videos")
-    } else {
-        base_output_dir
-    };
+    let output_dir = base_output_dir;
 
     if !output_dir.exists() {
         fs::create_dir_all(&output_dir)
