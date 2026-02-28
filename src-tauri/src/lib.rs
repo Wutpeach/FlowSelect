@@ -5,8 +5,13 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{LazyLock, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
+#[cfg(target_os = "macos")]
+use std::time::Duration;
 
 use tokio::sync::broadcast;
 
@@ -3836,10 +3841,7 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| match event {
-            tauri::RunEvent::Reopen { .. } => {
-                show_main_window(app);
-            }
+        .run(|_app, event| match event {
             tauri::RunEvent::Exit => {}
             _ => {}
         });
