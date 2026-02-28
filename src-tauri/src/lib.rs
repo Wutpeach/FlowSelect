@@ -34,6 +34,7 @@ use tauri_plugin_shell::ShellExt;
 // Store current registered shortcut
 struct RegisteredShortcut {
     current: Mutex<Option<Shortcut>>,
+    last_trigger_ms: Mutex<u128>,
 }
 
 // WebSocket Server state
@@ -124,6 +125,7 @@ const SETTINGS_WINDOW_HEIGHT: f64 = 400.0;
 const SETTINGS_WINDOW_GAP: f64 = 16.0;
 const WINDOW_EDGE_PADDING: f64 = 8.0;
 const SHORTCUT_CURSOR_DIAGONAL_OFFSET: f64 = 50.0;
+const SHORTCUT_TOGGLE_COOLDOWN_MS: u128 = 420;
 
 #[derive(Clone, Copy, Debug)]
 enum RenameRulePreset {
@@ -201,37 +203,98 @@ fn resolve_settings_window_position_near_main(app: &AppHandle) -> Option<(f64, f
     Some((x, y))
 }
 
-fn resolve_main_window_position_near_cursor(window: &tauri::WebviewWindow) -> Option<(f64, f64)> {
-    let scale_factor = window.scale_factor().ok()?;
-    let cursor_position = window.cursor_position().ok()?.to_logical::<f64>(scale_factor);
-    let monitor = window.current_monitor().ok().flatten()?;
-    let monitor_position = monitor.position().to_logical::<f64>(scale_factor);
-    let monitor_size = monitor.size().to_logical::<f64>(scale_factor);
-    let axis_offset = SHORTCUT_CURSOR_DIAGONAL_OFFSET / std::f64::consts::SQRT_2;
+fn resolve_main_window_position_near_cursor(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+) -> Option<(i32, i32)> {
+    let cursor_position = app
+        .cursor_position()
+        .ok()
+        .or_else(|| window.cursor_position().ok())?;
+    let monitor = app
+        .available_monitors()
+        .ok()
+        .and_then(|monitors| {
+            monitors.into_iter().find(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                let left = f64::from(position.x);
+                let top = f64::from(position.y);
+                let right = left + f64::from(size.width);
+                let bottom = top + f64::from(size.height);
+                cursor_position.x >= left
+                    && cursor_position.x <= right
+                    && cursor_position.y >= top
+                    && cursor_position.y <= bottom
+            })
+        })
+        .or_else(|| {
+            app.monitor_from_point(cursor_position.x, cursor_position.y)
+                .ok()
+                .flatten()
+        })
+        .or_else(|| {
+            window
+                .monitor_from_point(cursor_position.x, cursor_position.y)
+                .ok()
+                .flatten()
+        })
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .or_else(|| window.current_monitor().ok().flatten())?;
+    let monitor_scale = monitor.scale_factor();
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let main_width_px = MAIN_WINDOW_WIDTH * monitor_scale;
+    let main_height_px = MAIN_WINDOW_HEIGHT * monitor_scale;
+    let axis_offset_px = (SHORTCUT_CURSOR_DIAGONAL_OFFSET * monitor_scale) / std::f64::consts::SQRT_2;
 
-    let mut x = cursor_position.x - MAIN_WINDOW_WIDTH - axis_offset;
-    let mut y = cursor_position.y - axis_offset;
+    let mut x = cursor_position.x - main_width_px - axis_offset_px;
+    let mut y = cursor_position.y - axis_offset_px;
 
-    let min_x = monitor_position.x + WINDOW_EDGE_PADDING;
-    let min_y = monitor_position.y + WINDOW_EDGE_PADDING;
-    let max_x = monitor_position.x + monitor_size.width - MAIN_WINDOW_WIDTH - WINDOW_EDGE_PADDING;
-    let max_y = monitor_position.y + monitor_size.height - MAIN_WINDOW_HEIGHT - WINDOW_EDGE_PADDING;
+    let min_x = f64::from(monitor_position.x) + WINDOW_EDGE_PADDING * monitor_scale;
+    let min_y = f64::from(monitor_position.y) + WINDOW_EDGE_PADDING * monitor_scale;
+    let max_x = f64::from(monitor_position.x)
+        + f64::from(monitor_size.width)
+        - main_width_px
+        - WINDOW_EDGE_PADDING * monitor_scale;
+    let max_y = f64::from(monitor_position.y)
+        + f64::from(monitor_size.height)
+        - main_height_px
+        - WINDOW_EDGE_PADDING * monitor_scale;
 
     x = x.clamp(min_x, max_x.max(min_x));
     y = y.clamp(min_y, max_y.max(min_y));
 
-    Some((x, y))
+    Some((x.round() as i32, y.round() as i32))
 }
 
-fn show_main_window(app: &AppHandle) {
+fn is_cursor_inside_window(window: &tauri::WebviewWindow, cursor_x: f64, cursor_y: f64) -> bool {
+    let Ok(position) = window.outer_position() else {
+        return false;
+    };
+    let Ok(size) = window.outer_size() else {
+        return false;
+    };
+
+    let left = f64::from(position.x);
+    let top = f64::from(position.y);
+    let right = left + f64::from(size.width);
+    let bottom = top + f64::from(size.height);
+
+    cursor_x >= left && cursor_x <= right && cursor_y >= top && cursor_y <= bottom
+}
+
+fn show_main_window(app: &AppHandle, position: Option<(i32, i32)>) {
     #[cfg(target_os = "macos")]
     {
         let _ = app.set_activation_policy(ActivationPolicy::Accessory);
         let _ = app.set_dock_visibility(false);
-        let _ = app.show();
     }
 
     if let Some(window) = app.get_webview_window("main") {
+        if let Some((x, y)) = position {
+            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+        }
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -309,7 +372,7 @@ fn start_macos_hover_activation_monitor(app_handle: AppHandle) {
                         >= HOVER_ACTIVATE_COOLDOWN_MS;
 
                     if !is_focused && can_activate {
-                        show_main_window(&app_for_main_thread);
+                        show_main_window(&app_for_main_thread, None);
                         hover_state.last_activate_ms = now_ms;
                     }
                 }
@@ -3125,15 +3188,52 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
     shortcut_manager
         .on_shortcut(new_shortcut.clone(), move |_app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) {
-                        let _ = window.hide();
-                    } else {
-                        if let Some((x, y)) = resolve_main_window_position_near_cursor(&window) {
-                            let _ = window.set_position(tauri::LogicalPosition::new(x, y));
-                        }
-                        show_main_window(&app_handle);
+                let now_ms = now_timestamp_ms();
+                {
+                    let state = app_handle.state::<RegisteredShortcut>();
+                    let mut last_trigger_ms = state.last_trigger_ms.lock().unwrap();
+                    if now_ms.saturating_sub(*last_trigger_ms) < SHORTCUT_TOGGLE_COOLDOWN_MS {
+                        return;
                     }
+                    *last_trigger_ms = now_ms;
+                }
+
+                let app_for_main_thread = app_handle.clone();
+                let dispatch_result = app_handle.run_on_main_thread(move || {
+                    if let Some(window) = app_for_main_thread.get_webview_window("main") {
+                        let is_visible = window.is_visible().unwrap_or(false);
+                        let is_focused = window.is_focused().unwrap_or(false);
+                        let cursor_position = app_for_main_thread
+                            .cursor_position()
+                            .ok()
+                            .or_else(|| window.cursor_position().ok());
+
+                        let should_hide = if is_visible && is_focused {
+                            if let Some(cursor) = cursor_position {
+                                is_cursor_inside_window(&window, cursor.x, cursor.y)
+                            } else {
+                                true
+                            }
+                        } else {
+                            false
+                        };
+
+                        if should_hide {
+                            let _ = window.hide();
+                            return;
+                        }
+
+                        let position =
+                            resolve_main_window_position_near_cursor(&app_for_main_thread, &window);
+                        show_main_window(&app_for_main_thread, position);
+                    }
+                });
+
+                if let Err(err) = dispatch_result {
+                    println!(
+                        ">>> [Rust] shortcut main-thread dispatch failed: {}",
+                        err
+                    );
                 }
             }
         })
@@ -3797,6 +3897,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(RegisteredShortcut {
             current: Mutex::new(None),
+            last_trigger_ms: Mutex::new(0),
         })
         .manage(WsServerState {
             shutdown_tx: Mutex::new(None),
@@ -3857,7 +3958,7 @@ pub fn run() {
                         app.exit(0);
                     }
                     "show" => {
-                        show_main_window(app);
+                        show_main_window(app, None);
                     }
                     "settings" => {
                         if let Some(window) = app.get_webview_window("settings") {
@@ -3893,7 +3994,7 @@ pub fn run() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        show_main_window(&app);
+                        show_main_window(&app, None);
                     }
                 })
                 .build(app)?;
