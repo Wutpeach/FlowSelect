@@ -121,6 +121,7 @@ const SETTINGS_WINDOW_WIDTH: f64 = 320.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 400.0;
 const SETTINGS_WINDOW_GAP: f64 = 16.0;
 const WINDOW_EDGE_PADDING: f64 = 8.0;
+const SHORTCUT_CURSOR_DIAGONAL_OFFSET: f64 = 50.0;
 
 #[derive(Clone, Copy, Debug)]
 enum RenameRulePreset {
@@ -191,6 +192,28 @@ fn resolve_settings_window_position_near_main(app: &AppHandle) -> Option<(f64, f
     if x > max_x {
         x = main_position.x - SETTINGS_WINDOW_WIDTH - SETTINGS_WINDOW_GAP;
     }
+
+    x = x.clamp(min_x, max_x.max(min_x));
+    y = y.clamp(min_y, max_y.max(min_y));
+
+    Some((x, y))
+}
+
+fn resolve_main_window_position_near_cursor(window: &tauri::WebviewWindow) -> Option<(f64, f64)> {
+    let scale_factor = window.scale_factor().ok()?;
+    let cursor_position = window.cursor_position().ok()?.to_logical::<f64>(scale_factor);
+    let monitor = window.current_monitor().ok().flatten()?;
+    let monitor_position = monitor.position().to_logical::<f64>(scale_factor);
+    let monitor_size = monitor.size().to_logical::<f64>(scale_factor);
+    let axis_offset = SHORTCUT_CURSOR_DIAGONAL_OFFSET / std::f64::consts::SQRT_2;
+
+    let mut x = cursor_position.x - MAIN_WINDOW_WIDTH - axis_offset;
+    let mut y = cursor_position.y - axis_offset;
+
+    let min_x = monitor_position.x + WINDOW_EDGE_PADDING;
+    let min_y = monitor_position.y + WINDOW_EDGE_PADDING;
+    let max_x = monitor_position.x + monitor_size.width - MAIN_WINDOW_WIDTH - WINDOW_EDGE_PADDING;
+    let max_y = monitor_position.y + monitor_size.height - MAIN_WINDOW_HEIGHT - WINDOW_EDGE_PADDING;
 
     x = x.clamp(min_x, max_x.max(min_x));
     y = y.clamp(min_y, max_y.max(min_y));
@@ -3013,32 +3036,8 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                     if window.is_visible().unwrap_or(false) {
                         let _ = window.hide();
                     } else {
-                        // Position window: left-up of cursor
-                        if let Ok(pos) = window.cursor_position() {
-                            let x = pos.x - 50.0 - MAIN_WINDOW_WIDTH;
-                            let y = pos.y - 50.0;
-                            let (x, y) = if let Ok(Some(monitor)) = window.current_monitor() {
-                                let monitor_position = monitor.position();
-                                let monitor_size = monitor.size();
-                                let min_x = f64::from(monitor_position.x) + WINDOW_EDGE_PADDING;
-                                let min_y = f64::from(monitor_position.y) + WINDOW_EDGE_PADDING;
-                                let max_x = f64::from(monitor_position.x)
-                                    + f64::from(monitor_size.width)
-                                    - MAIN_WINDOW_WIDTH
-                                    - WINDOW_EDGE_PADDING;
-                                let max_y = f64::from(monitor_position.y)
-                                    + f64::from(monitor_size.height)
-                                    - MAIN_WINDOW_HEIGHT
-                                    - WINDOW_EDGE_PADDING;
-                                (
-                                    x.clamp(min_x, max_x.max(min_x)),
-                                    y.clamp(min_y, max_y.max(min_y)),
-                                )
-                            } else {
-                                (x, y)
-                            };
-                            let _ = window
-                                .set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+                        if let Some((x, y)) = resolve_main_window_position_near_cursor(&window) {
+                            let _ = window.set_position(tauri::LogicalPosition::new(x, y));
                         }
                         show_main_window(&app_handle);
                     }
@@ -3131,13 +3130,44 @@ fn open_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn toggle_devtools(app: AppHandle, enabled: bool) {
-    if let Some(window) = app.get_webview_window("main") {
-        if enabled {
+fn toggle_devtools(app: AppHandle, enabled: bool) -> Result<(), String> {
+    if enabled {
+        if let Some(window) = app
+            .get_webview_window("settings")
+            .or_else(|| app.get_webview_window("main"))
+        {
             window.open_devtools();
-        } else {
-            window.close_devtools();
+            return Ok(());
         }
+        return Err("Window not found".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return Err(
+            "Windows WebView2 limitation: programmatic close_devtools is unsupported"
+                .to_string(),
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    let mut closed_any = false;
+    #[cfg(not(target_os = "windows"))]
+    if let Some(window) = app.get_webview_window("settings") {
+        window.close_devtools();
+        closed_any = true;
+    }
+    #[cfg(not(target_os = "windows"))]
+    if let Some(window) = app.get_webview_window("main") {
+        window.close_devtools();
+        closed_any = true;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    if closed_any {
+        Ok(())
+    } else {
+        Err("Window not found".to_string())
     }
 }
 
@@ -3798,18 +3828,21 @@ pub fn run() {
                 keep_window_off_taskbar(&window);
             }
 
-            // Enable devtools if devMode is enabled
-            if let Ok(path) = get_config_path(&app.handle()) {
-                if path.exists() {
-                    if let Ok(config_str) = fs::read_to_string(&path) {
-                        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
-                            if config
-                                .get("devMode")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false)
-                            {
-                                if let Some(window) = app.get_webview_window("main") {
-                                    window.open_devtools();
+            #[cfg(not(target_os = "windows"))]
+            {
+                // Enable devtools if devMode is enabled
+                if let Ok(path) = get_config_path(&app.handle()) {
+                    if path.exists() {
+                        if let Ok(config_str) = fs::read_to_string(&path) {
+                            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
+                                if config
+                                    .get("devMode")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false)
+                                {
+                                    if let Some(window) = app.get_webview_window("main") {
+                                        window.open_devtools();
+                                    }
                                 }
                             }
                         }

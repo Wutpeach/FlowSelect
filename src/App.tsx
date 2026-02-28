@@ -213,7 +213,7 @@ function App() {
   const shouldShowEdgeGlow =
     isPanelHovered && !isHovering && !downloadProgress && !isMinimized && showEdgeGlow;
 
-  const getMacEdgeGlowOpacity = () => {
+  const getEdgeGlowOpacity = () => {
     const distanceToEdge = Math.min(
       mousePos.x,
       mousePos.y,
@@ -224,26 +224,26 @@ function App() {
     return Math.pow(normalized, EDGE_GLOW_FALLOFF_EXPONENT);
   };
 
-  const macEdgeGlowOpacity = getMacEdgeGlowOpacity();
+  const edgeGlowOpacity = getEdgeGlowOpacity();
 
-  const getMacEdgeGlowStyle = (): CSSProperties => {
+  const getEdgeGlowStyle = (): CSSProperties => {
     return {
       position: 'absolute',
       inset: 0,
       borderRadius: 16,
       pointerEvents: 'none',
-      padding: EDGE_GLOW_BORDER_WIDTH,
-      background: `radial-gradient(
-        ${EDGE_GLOW_RADIUS}px circle at ${mousePos.x}px ${mousePos.y}px,
-        rgba(59,130,246,1) 0%,
-        rgba(96,165,250,0.9) 24%,
-        rgba(147,197,253,0.42) 50%,
-        rgba(191,219,254,0.18) 66%,
-        transparent 84%
-      )`,
-      mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-      maskComposite: 'exclude',
-      WebkitMaskComposite: 'xor',
+      border: `${EDGE_GLOW_BORDER_WIDTH}px solid transparent`,
+      background: `
+        linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%) padding-box,
+        radial-gradient(
+          ${EDGE_GLOW_RADIUS}px circle at ${mousePos.x}px ${mousePos.y}px,
+          rgba(59,130,246,1) 0%,
+          rgba(96,165,250,0.9) 24%,
+          rgba(147,197,253,0.42) 50%,
+          rgba(191,219,254,0.18) 66%,
+          transparent 84%
+        ) border-box
+      `,
       filter: 'drop-shadow(0 0 2.6px rgba(59,130,246,0.78))',
     };
   };
@@ -1216,44 +1216,13 @@ function App() {
       {/* Edge glow layer - follows mouse */}
       <AnimatePresence>
         {shouldShowEdgeGlow && (
-          isMacOS ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: macEdgeGlowOpacity }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.045, ease: 'linear' }}
-              style={getMacEdgeGlowStyle()}
-            />
-          ) : (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-              style={{
-                position: 'absolute',
-                inset: -5,
-                borderRadius: 22,
-                pointerEvents: 'none',
-                background: `conic-gradient(
-                  from ${Math.atan2(mousePos.y - 100, mousePos.x - 100) * 180 / Math.PI}deg at ${mousePos.x}px ${mousePos.y}px,
-                  transparent 0deg,
-                  rgba(59,130,246,1) 22deg,
-                  rgba(96,165,250,1) 52deg,
-                  rgba(147,197,253,1) 88deg,
-                  rgba(147,197,253,0.95) 122deg,
-                  rgba(96,165,250,1) 154deg,
-                  rgba(59,130,246,1) 186deg,
-                  transparent 230deg
-                )`,
-                mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                maskComposite: 'exclude',
-                WebkitMaskComposite: 'xor',
-                padding: 5,
-                filter: 'blur(2.8px) drop-shadow(0 0 7px rgba(59,130,246,0.5))',
-              }}
-            />
-          )
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: edgeGlowOpacity }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.08, ease: 'linear' }}
+            style={getEdgeGlowStyle()}
+          />
         )}
       </AnimatePresence>
 

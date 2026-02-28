@@ -102,6 +102,7 @@ const buildRenamePreview = (
 function SettingsPage() {
   const { theme, colors, setTheme } = useTheme();
   const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
+  const isWindows = navigator.userAgent.toLowerCase().includes("windows");
   const [outputPath, setOutputPath] = useState("");
   const [autostart, setAutostart] = useState(false);
   const [shortcut, setShortcut] = useState("");
@@ -118,6 +119,7 @@ function SettingsPage() {
   const versionTapCountRef = useRef(0);
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const devModeToggleInFlightRef = useRef(false);
   // Load config on mount
   useEffect(() => {
     const loadConfig = async () => {
@@ -145,7 +147,7 @@ function SettingsPage() {
           setRenameSuffix(config.renameSuffix);
         }
         if (config.devMode !== undefined) {
-          setDevMode(config.devMode);
+          setDevMode(isWindows ? false : config.devMode);
         }
         if (config.aePortalEnabled !== undefined) {
           setAePortalEnabled(config.aePortalEnabled);
@@ -179,7 +181,7 @@ function SettingsPage() {
       }
     };
     loadShortcut();
-  }, []);
+  }, [isWindows]);
 
   // Keyboard event listener for shortcut recording
   useEffect(() => {
@@ -361,17 +363,32 @@ function SettingsPage() {
     }, DEV_MODE_HINT_DURATION_MS);
   };
 
+  const persistDevModeConfig = async (enabled: boolean) => {
+    const configStr = await invoke<string>("get_config");
+    const config = JSON.parse(configStr);
+    config.devMode = enabled;
+    await invoke<void>("save_config", { json: JSON.stringify(config) });
+  };
+
   const toggleDevModeByVersionTap = async () => {
-    const nextValue = !devMode;
+    if (devModeToggleInFlightRef.current) return;
+    devModeToggleInFlightRef.current = true;
+    const previousValue = devMode;
+    const nextValue = isWindows ? true : !previousValue;
     setDevMode(nextValue);
     try {
-      await emit("devmode-changed", { enabled: nextValue });
-      await invoke("toggle_devtools", { enabled: nextValue });
+      await Promise.all([
+        emit("devmode-changed", { enabled: nextValue }),
+        invoke<void>("toggle_devtools", { enabled: nextValue }),
+      ]);
+      await persistDevModeConfig(isWindows ? false : nextValue);
       showVersionTapHint(nextValue ? "开发模式已开启" : "开发模式已关闭");
     } catch (err) {
-      setDevMode(devMode);
+      setDevMode(previousValue);
       showVersionTapHint("切换开发模式失败");
       console.error("Failed to toggle dev mode from version tap:", err);
+    } finally {
+      devModeToggleInFlightRef.current = false;
     }
   };
 
