@@ -332,25 +332,48 @@ fn start_macos_hover_activation_monitor(app_handle: AppHandle) {
 }
 
 /// 获取 Deno JS 运行时的路径
+fn executable_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|dir| dir.to_path_buf()))
+}
+
+fn binary_candidate_paths(app: &AppHandle, file_name: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if cfg!(debug_assertions) {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        candidates.push(manifest_dir.join("binaries").join(file_name));
+    }
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join("binaries").join(file_name));
+        candidates.push(resource_dir.join(file_name));
+    }
+
+    if let Some(exe_dir) = executable_dir() {
+        candidates.push(exe_dir.join("binaries").join(file_name));
+        candidates.push(exe_dir.join(file_name));
+    }
+
+    candidates
+}
+
 fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
-    // 根据平台选择可执行文件名
     #[cfg(target_os = "windows")]
     let exe_name = "deno.exe";
     #[cfg(not(target_os = "windows"))]
     let exe_name = "deno";
 
-    if cfg!(debug_assertions) {
-        // 开发模式：从 binaries 目录读取
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        Ok(manifest_dir.join("binaries").join(exe_name))
-    } else {
-        // 发布模式：从 resources 目录读取
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-        Ok(resource_dir.join("binaries").join(exe_name))
+    let candidates = binary_candidate_paths(app, exe_name);
+    if let Some(path) = candidates.iter().find(|path| path.exists()) {
+        return Ok(path.clone());
     }
+
+    candidates
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Failed to resolve deno runtime path candidates".to_string())
 }
 
 #[tauri::command]
@@ -1611,13 +1634,30 @@ async fn download_video_internal(
 
     // Spawn yt-dlp process
     let shell = app.shell();
-    let (mut rx, child) = shell
+    let sidecar_spawn = shell
         .sidecar("yt-dlp")
-        .map_err(|e| format!("Failed to create sidecar command: {}", e))?
-        .args(&args)
-        .env("PATH", &env_path)
-        .spawn()
-        .map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
+        .and_then(|command| command.args(&args).env("PATH", &env_path).spawn());
+    let (mut rx, child) = match sidecar_spawn {
+        Ok(result) => result,
+        Err(sidecar_err) => {
+            let ytdlp_path = ytdlp_sidecar_path(&app)?;
+            println!(
+                ">>> [Rust] yt-dlp sidecar spawn failed, trying fallback path {:?}: {}",
+                ytdlp_path, sidecar_err
+            );
+            shell
+                .command(ytdlp_path.to_string_lossy().to_string())
+                .args(&args)
+                .env("PATH", &env_path)
+                .spawn()
+                .map_err(|fallback_err| {
+                    format!(
+                        "Failed to spawn yt-dlp via sidecar ({}) and fallback path {:?} ({})",
+                        sidecar_err, ytdlp_path, fallback_err
+                    )
+                })?
+        }
+    };
 
     // Store child process PID for cancellation
     *DOWNLOAD_CHILD.lock().unwrap() = Some(child.pid());
@@ -2782,28 +2822,45 @@ fn ytdlp_download_url() -> Result<&'static str, String> {
 
 fn ytdlp_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
     let file_name = ytdlp_sidecar_filename()?;
-    if cfg!(debug_assertions) {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        Ok(manifest_dir.join("binaries").join(file_name))
-    } else {
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-        Ok(resource_dir.join("binaries").join(file_name))
+    let candidates = binary_candidate_paths(app, file_name);
+    if let Some(path) = candidates.iter().find(|path| path.exists()) {
+        return Ok(path.clone());
     }
+
+    candidates
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("Failed to resolve yt-dlp path for {}", file_name))
 }
 
 async fn get_local_ytdlp_version(app: &AppHandle) -> Result<String, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
     let shell = app.shell();
-    let (mut rx, _child) = shell
+    let sidecar_spawn = shell
         .sidecar("yt-dlp")
-        .map_err(|e| format!("Failed to create sidecar command: {}", e))?
-        .args(["--version"])
-        .spawn()
-        .map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
+        .and_then(|command| command.args(["--version"]).spawn());
+
+    let (mut rx, _child) = match sidecar_spawn {
+        Ok(result) => result,
+        Err(sidecar_err) => {
+            let ytdlp_path = ytdlp_sidecar_path(app)?;
+            println!(
+                ">>> [Rust] yt-dlp sidecar version check failed, trying fallback path {:?}: {}",
+                ytdlp_path, sidecar_err
+            );
+            shell
+                .command(ytdlp_path.to_string_lossy().to_string())
+                .args(["--version"])
+                .spawn()
+                .map_err(|fallback_err| {
+                    format!(
+                        "Failed to spawn yt-dlp via sidecar ({}) and fallback path {:?} ({})",
+                        sidecar_err, ytdlp_path, fallback_err
+                    )
+                })?
+        }
+    };
 
     let mut current_version = String::new();
     while let Some(event) = rx.recv().await {

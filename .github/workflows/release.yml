@@ -132,6 +132,8 @@ jobs:
           Copy-Item $appExe (Join-Path $portableDir "FlowSelect.exe") -Force
           Copy-Item "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "binaries/yt-dlp-x86_64-pc-windows-msvc.exe") -Force
           Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $portableDir "binaries/deno.exe") -Force
+          Copy-Item "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "yt-dlp-x86_64-pc-windows-msvc.exe") -Force
+          Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $portableDir "deno.exe") -Force
 
           if (Test-Path $portableZip) {
             Remove-Item $portableZip -Force

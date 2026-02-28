@@ -25,6 +25,16 @@ const isCancelledDownloadError = (error?: string | null): boolean => {
   return normalized.includes("cancelled") || normalized.includes("canceled");
 };
 
+const summarizeDownloadError = (error?: string | null): string | null => {
+  if (!error) return null;
+  const summary = error
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (!summary) return null;
+  return summary.length > 96 ? `${summary.slice(0, 93)}...` : summary;
+};
+
 const resolveRenameMediaEnabled = (config: Record<string, unknown>): boolean => {
   if (typeof config.renameMediaOnDownload === "boolean") {
     return config.renameMediaOnDownload;
@@ -70,6 +80,7 @@ function App() {
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadCancelled, setDownloadCancelled] = useState(false);
+  const [downloadErrorMessage, setDownloadErrorMessage] = useState<string | null>(null);
   const [outputPath, setOutputPath] = useState("");
   const [renameMediaOnDownload, setRenameMediaOnDownload] = useState(false);
   const [isPanelHovered, setIsPanelHovered] = useState(false);
@@ -358,6 +369,7 @@ function App() {
         // Set progress immediately (sync) before async operations
         setIsMinimized(false);
         setDownloadProgress(event.payload);
+        setDownloadErrorMessage(null);
         // 直接恢复窗口大小（避免闭包问题）
         if (!isMacOS) {
           try {
@@ -385,9 +397,14 @@ function App() {
         const payload = event.payload;
         const cancelled = downloadCancelledRef.current || isCancelledDownloadError(payload?.error);
         const success = Boolean(payload?.success) && !cancelled;
+        const errorSummary = summarizeDownloadError(payload?.error);
 
         downloadCancelledRef.current = false;
         setDownloadCancelled(!success);
+        setDownloadErrorMessage(success ? null : errorSummary);
+        if (!success) {
+          console.error(">>> [Frontend] Video download failed:", payload?.error ?? "Unknown error");
+        }
         setIsProcessing(true);
         setTimeout(() => setIsProcessing(false), 1500);
 
@@ -1228,9 +1245,14 @@ function App() {
 
       {/* Close button - top right circle */}
       <button
-        onClick={() => {
-          setIsMinimized(true);
+        onClick={async () => {
           setShowEdgeGlow(false);
+          await closeContextMenuWindow().catch(() => undefined);
+          try {
+            await getCurrentWindow().hide();
+          } catch (err) {
+            console.error("Failed to hide main window:", err);
+          }
         }}
         onMouseDown={(e) => e.stopPropagation()}
         onMouseEnter={(e) => {
@@ -1261,7 +1283,7 @@ function App() {
           pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
           zIndex: 10,
         }}
-        title="Minimize to icon"
+        title="Hide window"
       >
         <span
           style={{
@@ -1358,6 +1380,7 @@ function App() {
                   setDownloadProgress(null);
                   downloadCancelledRef.current = true;
                   setDownloadCancelled(true);
+                  setDownloadErrorMessage("Download cancelled");
                   setIsProcessing(true);
                   setTimeout(() => {
                     setIsProcessing(false);
@@ -1415,12 +1438,36 @@ function App() {
             animate={{ scale: [1, 1.05, 1], opacity: 1 }}
             exit={{ scale: 0.8, opacity: 0 }}
             transition={{ duration: 0.3 }}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              maxWidth: 170,
+            }}
           >
             {downloadCancelled ? (
               <X size={48} style={{ color: colors.errorIcon }} strokeWidth={3} />
             ) : (
               <Check size={48} style={{ color: colors.successIcon }} strokeWidth={3} />
             )}
+            {downloadCancelled && downloadErrorMessage ? (
+              <span
+                title={downloadErrorMessage}
+                style={{
+                  fontSize: 9,
+                  lineHeight: 1.2,
+                  color: colors.textSecondary,
+                  textAlign: "center",
+                  userSelect: "text",
+                  pointerEvents: "none",
+                  padding: "0 8px",
+                }}
+              >
+                {downloadErrorMessage}
+              </span>
+            ) : null}
           </motion.div>
         ) : isMinimized ? (
           <motion.div
