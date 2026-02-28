@@ -61,13 +61,34 @@ jobs:
         shell: bash
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
+          BUILD_VERSION=$VERSION
+
+          if [[ "$VERSION" == *"-"* ]]; then
+            BASE_VERSION=${VERSION%%-*}
+            PRE_RELEASE=${VERSION#*-}
+            PRE_RELEASE_NUMBER=$(echo "$PRE_RELEASE" | grep -oE '[0-9]+' | tail -n 1)
+
+            if [[ -z "$PRE_RELEASE_NUMBER" ]]; then
+              PRE_RELEASE_NUMBER=1
+            fi
+
+            if (( PRE_RELEASE_NUMBER > 65535 )); then
+              echo "MSI pre-release identifier cannot exceed 65535: $PRE_RELEASE_NUMBER"
+              exit 1
+            fi
+
+            BUILD_VERSION="${BASE_VERSION}-${PRE_RELEASE_NUMBER}"
+          fi
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build_version=$BUILD_VERSION" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION"
+          echo "MSI-safe build version: $BUILD_VERSION"
 
       - name: Update version in config files
         shell: pwsh
         run: |
-          $version = "${{ steps.version.outputs.version }}"
+          $version = "${{ steps.version.outputs.build_version }}"
 
           # Update package.json
           $pkg = Get-Content "package.json" -Raw | ConvertFrom-Json
