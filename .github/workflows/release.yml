@@ -33,24 +33,20 @@ jobs:
       - name: Download yt-dlp
         shell: pwsh
         run: |
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
-          $asset = $release.assets | Where-Object { $_.name -eq "yt-dlp.exe" }
-          $downloadUrl = $asset.browser_download_url
+          $downloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 
           New-Item -ItemType Directory -Force -Path "src-tauri/binaries"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" -MaximumRetryCount 3 -RetryIntervalSec 5
 
           Write-Host "Downloaded yt-dlp from: $downloadUrl"
 
       - name: Download Deno
         shell: pwsh
         run: |
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/denoland/deno/releases/latest"
-          $asset = $release.assets | Where-Object { $_.name -eq "deno-x86_64-pc-windows-msvc.zip" }
-          $downloadUrl = $asset.browser_download_url
+          $downloadUrl = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
 
           # 下载 zip 文件
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "deno.zip"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "deno.zip" -MaximumRetryCount 3 -RetryIntervalSec 5
 
           # 解压到 binaries 目录 (保持文件名为 deno.exe)
           Expand-Archive -Path "deno.zip" -DestinationPath "src-tauri/binaries" -Force
@@ -205,53 +201,19 @@ jobs:
 
       - name: Download yt-dlp
         run: |
-          DOWNLOAD_URL=$(python3 - << 'PY'
-          import json, sys, urllib.request
-          asset_name = "${{ matrix.yt_dlp_asset }}"
-          req = urllib.request.Request(
-              "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
-              headers={"User-Agent": "flowselect-release-workflow"},
-          )
-          with urllib.request.urlopen(req) as resp:
-              release = json.load(resp)
-          for asset in release.get("assets", []):
-              if asset.get("name") == asset_name:
-                  print(asset.get("browser_download_url", ""))
-                  break
-          else:
-              print(f"Asset not found: {asset_name}", file=sys.stderr)
-              sys.exit(1)
-          PY
-          )
+          DOWNLOAD_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/${{ matrix.yt_dlp_asset }}"
 
           mkdir -p src-tauri/binaries
-          curl -L "$DOWNLOAD_URL" -o "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
+          curl -fL --retry 3 --retry-delay 5 "$DOWNLOAD_URL" -o "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
           chmod +x "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
 
           echo "Downloaded yt-dlp from: $DOWNLOAD_URL"
 
       - name: Download Deno
         run: |
-          DOWNLOAD_URL=$(python3 - << 'PY'
-          import json, sys, urllib.request
-          asset_name = "${{ matrix.deno_asset }}"
-          req = urllib.request.Request(
-              "https://api.github.com/repos/denoland/deno/releases/latest",
-              headers={"User-Agent": "flowselect-release-workflow"},
-          )
-          with urllib.request.urlopen(req) as resp:
-              release = json.load(resp)
-          for asset in release.get("assets", []):
-              if asset.get("name") == asset_name:
-                  print(asset.get("browser_download_url", ""))
-                  break
-          else:
-              print(f"Asset not found: {asset_name}", file=sys.stderr)
-              sys.exit(1)
-          PY
-          )
+          DOWNLOAD_URL="https://github.com/denoland/deno/releases/latest/download/${{ matrix.deno_asset }}"
 
-          curl -L "$DOWNLOAD_URL" -o deno.zip
+          curl -fL --retry 3 --retry-delay 5 "$DOWNLOAD_URL" -o deno.zip
           unzip deno.zip -d src-tauri/binaries
 
           # Keep simple name for resources (not sidecar)
