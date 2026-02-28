@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::net::SocketAddr;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -2745,11 +2747,56 @@ pub struct YtdlpVersionInfo {
     pub update_available: bool,
 }
 
-#[tauri::command]
-async fn check_ytdlp_version(app: AppHandle) -> Result<YtdlpVersionInfo, String> {
+fn ytdlp_sidecar_filename() -> Result<&'static str, String> {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Ok("yt-dlp-x86_64-pc-windows-msvc.exe")
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Ok("yt-dlp-aarch64-apple-darwin")
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Ok("yt-dlp-x86_64-apple-darwin")
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Ok("yt-dlp-x86_64-unknown-linux-gnu")
+    } else {
+        Err(format!(
+            "Unsupported platform for yt-dlp update: {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ))
+    }
+}
+
+fn ytdlp_download_url() -> Result<&'static str, String> {
+    if cfg!(target_os = "windows") {
+        Ok("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe")
+    } else if cfg!(target_os = "macos") {
+        Ok("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos")
+    } else if cfg!(target_os = "linux") {
+        Ok("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp")
+    } else {
+        Err(format!(
+            "Unsupported platform for yt-dlp download: {}",
+            std::env::consts::OS
+        ))
+    }
+}
+
+fn ytdlp_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let file_name = ytdlp_sidecar_filename()?;
+    if cfg!(debug_assertions) {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        Ok(manifest_dir.join("binaries").join(file_name))
+    } else {
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+        Ok(resource_dir.join("binaries").join(file_name))
+    }
+}
+
+async fn get_local_ytdlp_version(app: &AppHandle) -> Result<String, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
-    // 1. Get current version by running yt-dlp --version
     let shell = app.shell();
     let (mut rx, _child) = shell
         .sidecar("yt-dlp")
@@ -2772,6 +2819,14 @@ async fn check_ytdlp_version(app: AppHandle) -> Result<YtdlpVersionInfo, String>
     if current_version.is_empty() {
         return Err("Failed to get current yt-dlp version".to_string());
     }
+
+    Ok(current_version)
+}
+
+#[tauri::command]
+async fn check_ytdlp_version(app: AppHandle) -> Result<YtdlpVersionInfo, String> {
+    // 1. Get current version by running yt-dlp --version
+    let current_version = get_local_ytdlp_version(&app).await?;
 
     // 2. Get latest version from GitHub API
     let client = reqwest::Client::new();
@@ -2821,34 +2876,20 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
 
     println!(">>> [Rust] Starting yt-dlp update");
 
-    // Get sidecar path - different for dev vs release
-    let sidecar_path = if cfg!(debug_assertions) {
-        // Dev: use compile-time manifest directory
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        manifest_dir
-            .join("binaries")
-            .join("yt-dlp-x86_64-pc-windows-msvc.exe")
-    } else {
-        // Release: use resource directory
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-        resource_dir
-            .join("binaries")
-            .join("yt-dlp-x86_64-pc-windows-msvc.exe")
-    };
+    let sidecar_path = ytdlp_sidecar_path(&app)?;
+    let download_url = ytdlp_download_url()?;
     println!(
         ">>> [Rust] CARGO_MANIFEST_DIR: {}",
         env!("CARGO_MANIFEST_DIR")
     );
     println!(">>> [Rust] sidecar_path: {:?}", sidecar_path);
     println!(">>> [Rust] sidecar_path exists: {}", sidecar_path.exists());
+    println!(">>> [Rust] ytdlp download url: {}", download_url);
 
     // Download from GitHub
     let client = reqwest::Client::new();
     let response = client
-        .get("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe")
+        .get(download_url)
         .header("User-Agent", "FlowSelect-App")
         .send()
         .await
@@ -2862,7 +2903,7 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
     let mut downloaded: u64 = 0;
 
     // 使用系统临时目录
-    let temp_path = std::env::temp_dir().join("yt-dlp-update.exe.tmp");
+    let temp_path = std::env::temp_dir().join(format!("yt-dlp-update-{}.tmp", std::process::id()));
 
     // 确保目标目录存在
     if let Some(parent) = sidecar_path.parent() {
@@ -2907,24 +2948,47 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Flush error: {}", e))?;
     drop(file);
 
-    // Replace old file with new one (use copy + remove for cross-partition support)
-    if sidecar_path.exists() {
-        tokio::fs::remove_file(&sidecar_path)
-            .await
-            .map_err(|e| format!("Failed to remove old file: {}", e))?;
+    let mut last_copy_err: Option<std::io::Error> = None;
+    for attempt in 1..=3 {
+        match tokio::fs::copy(&temp_path, &sidecar_path).await {
+            Ok(_) => {
+                last_copy_err = None;
+                break;
+            }
+            Err(err) => {
+                println!(
+                    ">>> [Rust] sidecar replace attempt {} failed: {}",
+                    attempt, err
+                );
+                last_copy_err = Some(err);
+                if attempt < 3 {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
+            }
+        }
     }
 
-    tokio::fs::copy(&temp_path, &sidecar_path)
+    if let Some(err) = last_copy_err {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(format!(
+            "Failed to replace yt-dlp sidecar at {:?}: {}",
+            sidecar_path, err
+        ));
+    }
+
+    #[cfg(unix)]
+    tokio::fs::set_permissions(&sidecar_path, std::fs::Permissions::from_mode(0o755))
         .await
-        .map_err(|e| format!("Failed to copy temp file: {}", e))?;
+        .map_err(|e| format!("Failed to set executable permission: {}", e))?;
 
     let _ = tokio::fs::remove_file(&temp_path).await;
 
-    println!(">>> [Rust] yt-dlp updated successfully");
-
-    // Get new version
-    let version_info = check_ytdlp_version(app).await?;
-    Ok(version_info.current)
+    let current_version = get_local_ytdlp_version(&app).await?;
+    println!(
+        ">>> [Rust] yt-dlp updated successfully, current version: {}",
+        current_version
+    );
+    Ok(current_version)
 }
 
 fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
