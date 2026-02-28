@@ -11,7 +11,7 @@
     "build": "tsc && vite build",
     "lint": "eslint src vite.config.ts --ext .ts,.tsx",
     "type-check": "tsc --noEmit",
-    "typecheck": "pnpm run type-check",
+    "typecheck": "npm run type-check",
     "test": "vitest run --passWithNoTests",
     "preview": "vite preview",
     "tauri": "tauri",

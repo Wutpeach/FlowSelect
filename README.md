@@ -33,7 +33,7 @@
 
 - Node.js 18+
 - Rust 1.70+
-- pnpm 或 npm
+- npm
 
 #### 构建步骤
 
