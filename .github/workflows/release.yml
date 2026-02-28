@@ -173,7 +173,7 @@ jobs:
           - runner: macos-15-intel
             arch: x86_64
             target: x86_64-apple-darwin
-            yt_dlp_asset: yt-dlp_macos_legacy
+            yt_dlp_asset: yt-dlp_macos
             deno_asset: deno-x86_64-apple-darwin.zip
           - runner: macos-15
             arch: aarch64
@@ -205,8 +205,24 @@ jobs:
 
       - name: Download yt-dlp
         run: |
-          RELEASE_JSON=$(curl -s https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest)
-          DOWNLOAD_URL=$(echo "$RELEASE_JSON" | grep -o '"browser_download_url": "[^"]*${{ matrix.yt_dlp_asset }}"' | cut -d'"' -f4)
+          DOWNLOAD_URL=$(python3 - << 'PY'
+          import json, sys, urllib.request
+          asset_name = "${{ matrix.yt_dlp_asset }}"
+          req = urllib.request.Request(
+              "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
+              headers={"User-Agent": "flowselect-release-workflow"},
+          )
+          with urllib.request.urlopen(req) as resp:
+              release = json.load(resp)
+          for asset in release.get("assets", []):
+              if asset.get("name") == asset_name:
+                  print(asset.get("browser_download_url", ""))
+                  break
+          else:
+              print(f"Asset not found: {asset_name}", file=sys.stderr)
+              sys.exit(1)
+          PY
+          )
 
           mkdir -p src-tauri/binaries
           curl -L "$DOWNLOAD_URL" -o "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
@@ -216,8 +232,24 @@ jobs:
 
       - name: Download Deno
         run: |
-          RELEASE_JSON=$(curl -s https://api.github.com/repos/denoland/deno/releases/latest)
-          DOWNLOAD_URL=$(echo "$RELEASE_JSON" | grep -o '"browser_download_url": "[^"]*${{ matrix.deno_asset }}"' | cut -d'"' -f4)
+          DOWNLOAD_URL=$(python3 - << 'PY'
+          import json, sys, urllib.request
+          asset_name = "${{ matrix.deno_asset }}"
+          req = urllib.request.Request(
+              "https://api.github.com/repos/denoland/deno/releases/latest",
+              headers={"User-Agent": "flowselect-release-workflow"},
+          )
+          with urllib.request.urlopen(req) as resp:
+              release = json.load(resp)
+          for asset in release.get("assets", []):
+              if asset.get("name") == asset_name:
+                  print(asset.get("browser_download_url", ""))
+                  break
+          else:
+              print(f"Asset not found: {asset_name}", file=sys.stderr)
+              sys.exit(1)
+          PY
+          )
 
           curl -L "$DOWNLOAD_URL" -o deno.zip
           unzip deno.zip -d src-tauri/binaries
