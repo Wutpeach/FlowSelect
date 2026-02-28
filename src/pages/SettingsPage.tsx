@@ -11,6 +11,11 @@ import { useTheme } from "../contexts/ThemeContext";
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
 
 const DEFAULT_RENAME_RULE_PRESET: RenameRulePreset = "desc_number";
+const RENAME_RULE_PRESET_OPTIONS: Array<{ value: RenameRulePreset; label: string }> = [
+  { value: "desc_number", label: "Descending" },
+  { value: "asc_number", label: "Ascending" },
+  { value: "prefix_number", label: "Prefix + Sequence" },
+];
 const ILLEGAL_FILENAME_CHARS = /[/\\:*?"<>|]/g;
 const DEV_MODE_TAP_THRESHOLD = 5;
 const DEV_MODE_TAP_RESET_MS = 1500;
@@ -116,10 +121,13 @@ function SettingsPage() {
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
   const [versionTapHint, setVersionTapHint] = useState("");
+  const [renamePresetMenuOpen, setRenamePresetMenuOpen] = useState(false);
+  const [hoveredRenamePreset, setHoveredRenamePreset] = useState<RenameRulePreset | null>(null);
   const versionTapCountRef = useRef(0);
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const devModeToggleInFlightRef = useRef(false);
+  const renamePresetMenuRef = useRef<HTMLDivElement | null>(null);
   // Load config on mount
   useEffect(() => {
     const loadConfig = async () => {
@@ -226,6 +234,36 @@ function SettingsPage() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!renamePresetMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const menuEl = renamePresetMenuRef.current;
+      if (!menuEl) return;
+      if (menuEl.contains(event.target as Node)) return;
+      setRenamePresetMenuOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setRenamePresetMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [renamePresetMenuOpen]);
+
+  useEffect(() => {
+    if (!renamePresetMenuOpen) {
+      setHoveredRenamePreset(null);
+    }
+  }, [renamePresetMenuOpen]);
 
   const startRecording = () => {
     setRecordedKeys("");
@@ -452,6 +490,111 @@ function SettingsPage() {
   };
 
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
+  const renamePresetTriggerBorderColor = colors.borderStart;
+  const renamePresetPopupBorderColor = colors.borderStart;
+  const renamePresetLabel =
+    RENAME_RULE_PRESET_OPTIONS.find((option) => option.value === renameRulePreset)?.label ??
+    RENAME_RULE_PRESET_OPTIONS[0].label;
+
+  const renderRenamePresetField = () => (
+    <div
+      ref={renamePresetMenuRef}
+      style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative' }}
+    >
+      <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
+        Rename Preset
+      </label>
+      <button
+        type="button"
+        onClick={() =>
+          setRenamePresetMenuOpen((prev) => {
+            const nextOpen = !prev;
+            if (!nextOpen) setHoveredRenamePreset(null);
+            return nextOpen;
+          })
+        }
+        style={{
+          width: '100%',
+          height: 36,
+          boxSizing: 'border-box',
+          padding: '0 10px',
+          borderRadius: 8,
+          border: `1px solid ${renamePresetTriggerBorderColor}`,
+          background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+          color: colors.textPrimary,
+          fontSize: 12,
+          outline: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+        }}
+      >
+        <span>{renamePresetLabel}</span>
+        <span style={{ fontSize: 11, color: colors.textSecondary }}>
+          {renamePresetMenuOpen ? '▴' : '▾'}
+        </span>
+      </button>
+      {renamePresetMenuOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            borderRadius: 8,
+            border: `1px solid ${renamePresetPopupBorderColor}`,
+            backgroundColor: colors.bgSecondary,
+            overflow: 'hidden',
+            zIndex: 20,
+            boxShadow: theme === "black"
+              ? '0 8px 20px rgba(0,0,0,0.45)'
+              : '0 8px 20px rgba(0,0,0,0.18)',
+          }}
+        >
+          {RENAME_RULE_PRESET_OPTIONS.map((option, index) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                setRenamePresetMenuOpen(false);
+                setHoveredRenamePreset(null);
+                void handleRenameRulePresetChange(option.value);
+              }}
+              onMouseEnter={() => setHoveredRenamePreset(option.value)}
+              onMouseLeave={() => setHoveredRenamePreset((current) => (current === option.value ? null : current))}
+              style={{
+                width: '100%',
+                height: 34,
+                padding: '0 10px',
+                border: 'none',
+                borderBottom:
+                  index === RENAME_RULE_PRESET_OPTIONS.length - 1
+                    ? 'none'
+                    : `1px solid ${theme === "black" ? colors.borderEnd : colors.borderStart}`,
+                backgroundColor:
+                  renameRulePreset === option.value
+                    ? theme === "black"
+                      ? 'rgba(59,130,246,0.2)'
+                      : 'rgba(59,130,246,0.12)'
+                    : hoveredRenamePreset === option.value
+                      ? theme === "black"
+                        ? 'rgba(255,255,255,0.08)'
+                        : 'rgba(0,0,0,0.06)'
+                      : colors.bgSecondary,
+                color: colors.textPrimary,
+                fontSize: 12,
+                textAlign: 'left',
+                cursor: 'pointer',
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div style={{
@@ -615,58 +758,10 @@ function SettingsPage() {
                       }}
                     />
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
-                      Rename Preset
-                    </label>
-                    <select
-                      value={renameRulePreset}
-                      onChange={(e) => void handleRenameRulePresetChange(e.target.value as RenameRulePreset)}
-                      style={{
-                        width: '100%',
-                        height: 36,
-                        boxSizing: 'border-box',
-                        padding: '0 10px',
-                        borderRadius: 8,
-                        border: `1px solid ${colors.borderStart}`,
-                        background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                        color: colors.textPrimary,
-                        fontSize: 12,
-                        outline: 'none',
-                      }}
-                    >
-                      <option value="desc_number">Descending</option>
-                      <option value="asc_number">Ascending</option>
-                      <option value="prefix_number">Prefix + Sequence</option>
-                    </select>
-                  </div>
+                  {renderRenamePresetField()}
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
-                    Rename Preset
-                  </label>
-                  <select
-                    value={renameRulePreset}
-                    onChange={(e) => void handleRenameRulePresetChange(e.target.value as RenameRulePreset)}
-                    style={{
-                      width: '100%',
-                      height: 36,
-                      boxSizing: 'border-box',
-                      padding: '0 10px',
-                      borderRadius: 8,
-                      border: `1px solid ${colors.borderStart}`,
-                      background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                      color: colors.textPrimary,
-                      fontSize: 12,
-                      outline: 'none',
-                    }}
-                  >
-                    <option value="desc_number">Descending</option>
-                    <option value="asc_number">Ascending</option>
-                    <option value="prefix_number">Prefix + Sequence</option>
-                  </select>
-                </div>
+                renderRenamePresetField()
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
