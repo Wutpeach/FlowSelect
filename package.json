@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:all": "sh ./scripts/dev-all.sh",
+    "dev:all": "node ./scripts/dev-all.mjs",
+    "dev:all:unix": "sh ./scripts/dev-all.sh",
+    "dev:all:win": "cmd /c .\\scripts\\dev-all.cmd",
     "build": "tsc && vite build",
     "lint": "eslint src vite.config.ts --ext .ts,.tsx",
     "type-check": "tsc --noEmit",
