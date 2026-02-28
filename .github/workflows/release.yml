@@ -214,7 +214,7 @@ jobs:
           DOWNLOAD_URL="https://github.com/denoland/deno/releases/latest/download/${{ matrix.deno_asset }}"
 
           curl -fL --retry 3 --retry-delay 5 "$DOWNLOAD_URL" -o deno.zip
-          unzip deno.zip -d src-tauri/binaries
+          unzip -o deno.zip -d src-tauri/binaries
 
           # Keep simple name for resources (not sidecar)
           chmod +x src-tauri/binaries/deno
