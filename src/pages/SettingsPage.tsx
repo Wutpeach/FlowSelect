@@ -649,43 +649,6 @@ function SettingsPage() {
         scrollbarWidth: 'none',  // Firefox
         msOverflowStyle: 'none', // IE/Edge
       }} className="hide-scrollbar">
-        {/* Output Path */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-            Output Path
-          </label>
-          <button
-            onClick={selectOutputPath}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '10px 12px',
-              background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-              borderRadius: 8,
-              border: `1px solid ${colors.borderStart}`,
-              textAlign: 'left',
-              fontSize: 12,
-              color: colors.textSecondary,
-              cursor: 'pointer',
-            }}
-          >
-            <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {outputPath ? truncatePath(outputPath) : "Select folder..."}
-            </span>
-          </button>
-        </div>
-
-        {/* Launch at startup */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-            Launch at startup
-          </label>
-          <NeonToggle checked={autostart} onChange={toggleAutostart} />
-        </div>
-
         {/* Theme */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
@@ -723,6 +686,110 @@ function SettingsPage() {
               White
             </button>
           </div>
+        </div>
+
+        {/* Output Path */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+            Output Path
+          </label>
+          <button
+            onClick={selectOutputPath}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 12px',
+              background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+              borderRadius: 8,
+              border: `1px solid ${colors.borderStart}`,
+              textAlign: 'left',
+              fontSize: 12,
+              color: colors.textSecondary,
+              cursor: 'pointer',
+            }}
+          >
+            <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {outputPath ? truncatePath(outputPath) : "Select folder..."}
+            </span>
+          </button>
+        </div>
+
+        {/* Shortcut */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+            Global Shortcut
+          </label>
+          {isRecording ? (
+            <div>
+              <div style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 12px',
+                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                borderRadius: 8,
+                fontSize: 12,
+                color: colors.textPrimary,
+                border: '1px solid #3b82f6',
+              }}>
+                <Keyboard size={14} style={{ color: '#3b82f6', flexShrink: 0 }} />
+                <span>{formatShortcutForDisplay(recordedKeys, isMacOS) || "Press keys..."}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
+                <NeonButton
+                  variant="default"
+                  size="sm"
+                  onClick={confirmShortcut}
+                  disabled={!recordedKeys}
+                  className="flex-1"
+                >
+                  Confirm
+                </NeonButton>
+                <NeonButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={cancelRecording}
+                  className="flex-1"
+                >
+                  Cancel
+                </NeonButton>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={startRecording}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 12px',
+                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                borderRadius: 8,
+                border: `1px solid ${colors.borderStart}`,
+                textAlign: 'left',
+                fontSize: 12,
+                color: colors.textSecondary,
+                cursor: 'pointer',
+              }}
+            >
+              <Keyboard size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
+              <span>{formatShortcutForDisplay(shortcut, isMacOS) || "Click to set..."}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Launch at startup */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+            Launch at startup
+          </label>
+          <NeonToggle checked={autostart} onChange={toggleAutostart} />
         </div>
 
         {/* Media Rename */}
@@ -833,72 +900,6 @@ function SettingsPage() {
           )}
         </div>
 
-        {/* Shortcut */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-            Global Shortcut
-          </label>
-          {isRecording ? (
-            <div>
-              <div style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '10px 12px',
-                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                borderRadius: 8,
-                fontSize: 12,
-                color: colors.textPrimary,
-                border: '1px solid #3b82f6',
-              }}>
-                <Keyboard size={14} style={{ color: '#3b82f6', flexShrink: 0 }} />
-                <span>{formatShortcutForDisplay(recordedKeys, isMacOS) || "Press keys..."}</span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
-                <NeonButton
-                  variant="default"
-                  size="sm"
-                  onClick={confirmShortcut}
-                  disabled={!recordedKeys}
-                  className="flex-1"
-                >
-                  Confirm
-                </NeonButton>
-                <NeonButton
-                  variant="ghost"
-                  size="sm"
-                  onClick={cancelRecording}
-                  className="flex-1"
-                >
-                  Cancel
-                </NeonButton>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={startRecording}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '10px 12px',
-                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                borderRadius: 8,
-                border: `1px solid ${colors.borderStart}`,
-                textAlign: 'left',
-                fontSize: 12,
-                color: colors.textSecondary,
-                cursor: 'pointer',
-              }}
-            >
-              <Keyboard size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
-              <span>{formatShortcutForDisplay(shortcut, isMacOS) || "Click to set..."}</span>
-            </button>
-          )}
-        </div>
       </div>
 
       {/* Footer */}
