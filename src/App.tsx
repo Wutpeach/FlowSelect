@@ -429,17 +429,13 @@ function App() {
     };
   }, [isMacOS]);
 
-  // Listen for settings window close to reload config
+  // Listen for output path changes from settings window
   useEffect(() => {
-    const unlisten = listen("tauri://close-requested", async (event: any) => {
-      if (event.windowLabel === "settings") {
-        const configStr = await invoke<string>("get_config");
-        const config = JSON.parse(configStr) as Record<string, unknown>;
-        applyRuntimeConfig(config);
-      }
+    const unlisten = listen<{ path: string }>("output-path-changed", (event) => {
+      setOutputPath(event.payload.path);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [applyRuntimeConfig]);
+  }, []);
 
   // Listen for devMode changes from settings window
   useEffect(() => {

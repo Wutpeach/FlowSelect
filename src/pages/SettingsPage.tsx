@@ -293,22 +293,29 @@ function SettingsPage() {
     }
   };
 
-  // Save config when outputPath changes
-  useEffect(() => {
-    if (!outputPath) return;
+  const saveOutputPath = async (nextOutputPath: string) => {
+    try {
+      const configStr = await invoke<string>("get_config");
+      const config = JSON.parse(configStr) as Record<string, unknown>;
+      const previousOutputPath =
+        typeof config.outputPath === "string" ? config.outputPath : "";
 
-    const saveConfig = async () => {
-      try {
-        const configStr = await invoke<string>("get_config");
-        const config = JSON.parse(configStr);
-        config.outputPath = outputPath;
-        await invoke("save_config", { json: JSON.stringify(config) });
-      } catch (err) {
-        console.error("Failed to save config:", err);
+      if (previousOutputPath === nextOutputPath) {
+        return;
       }
-    };
-    saveConfig();
-  }, [outputPath]);
+
+      config.outputPath = nextOutputPath;
+      await invoke<void>("save_config", { json: JSON.stringify(config) });
+      await emit("output-path-changed", { path: nextOutputPath });
+      try {
+        await invoke<boolean>("reset_rename_counter");
+      } catch (err) {
+        console.error("Failed to reset rename counter after output path change:", err);
+      }
+    } catch (err) {
+      console.error("Failed to save output path:", err);
+    }
+  };
 
   const selectOutputPath = async () => {
     try {
@@ -317,8 +324,9 @@ function SettingsPage() {
         multiple: false,
         title: "Select Output Folder",
       });
-      if (selected) {
-        setOutputPath(selected as string);
+      if (typeof selected === "string") {
+        setOutputPath(selected);
+        await saveOutputPath(selected);
       }
     } catch (err) {
       console.error("Failed to select folder:", err);
