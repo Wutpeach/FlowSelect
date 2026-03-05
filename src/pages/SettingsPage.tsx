@@ -866,95 +866,6 @@ function SettingsPage() {
           <NeonToggle checked={autostart} onChange={toggleAutostart} />
         </div>
 
-        {/* yt-dlp Version */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
-            yt-dlp Version
-          </label>
-          <div
-            style={{
-              padding: '10px 12px',
-              borderRadius: 8,
-              border: `1px solid ${colors.borderStart}`,
-              background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-              display: 'grid',
-              gap: 8,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontSize: 12, color: colors.textPrimary }}>
-                Current: {ytdlpInfo?.current ?? "Unknown"}
-              </span>
-              {ytdlpInfo?.updateAvailable ? (
-                <span
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    backgroundColor: '#ef4444',
-                    boxShadow: '0 0 6px rgba(239, 68, 68, 0.6)',
-                    flexShrink: 0,
-                  }}
-                  title="Update available"
-                />
-              ) : null}
-            </div>
-            {ytdlpInfo?.updateAvailable ? (
-              <div style={{ fontSize: 11, color: '#ef4444' }}>
-                Update available: {ytdlpInfo.latest}
-              </div>
-            ) : (
-              <div style={{ fontSize: 11, color: colors.textSecondary }}>
-                Already up to date.
-              </div>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button
-                onClick={handleYtdlpUpdate}
-                disabled={isUpdatingYtdlp}
-                style={{
-                  minWidth: 96,
-                  height: 30,
-                  padding: '0 10px',
-                  borderRadius: 6,
-                  border: `1px solid ${colors.borderStart}`,
-                  backgroundColor: isUpdatingYtdlp ? 'rgba(59,130,246,0.08)' : 'transparent',
-                  color: isUpdatingYtdlp ? '#3b82f6' : colors.textSecondary,
-                  cursor: isUpdatingYtdlp ? 'wait' : 'pointer',
-                  fontSize: 11,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
-              >
-                {isUpdatingYtdlp ? (
-                  <span
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: '50%',
-                      border: '1.5px solid rgba(59, 130, 246, 0.22)',
-                      borderTopColor: '#3b82f6',
-                      animation: 'spin 0.75s linear infinite',
-                      transformOrigin: '50% 50%',
-                    }}
-                  />
-                ) : null}
-                {isUpdatingYtdlp ? "Updating..." : "Update yt-dlp"}
-              </button>
-              <span style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.85 }}>
-                You can also update from the red dot in main window.
-              </span>
-            </div>
-            {ytdlpHint ? (
-              <div style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.85 }}>
-                {ytdlpHint}
-              </div>
-            ) : null}
-          </div>
-        </div>
-
         {/* Media Rename */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
@@ -1061,6 +972,95 @@ function SettingsPage() {
               </span>
             </button>
           )}
+        </div>
+
+        {/* yt-dlp Version */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+            yt-dlp Version
+          </label>
+          <div
+            style={{
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: `1px solid ${colors.borderStart}`,
+              background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+              display: 'grid',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 12, color: colors.textPrimary }}>
+                Current: {ytdlpInfo?.current ?? "Unknown"}
+              </span>
+              {ytdlpInfo?.updateAvailable ? (
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: '#ef4444',
+                    boxShadow: '0 0 6px rgba(239, 68, 68, 0.6)',
+                    flexShrink: 0,
+                  }}
+                  title="Update available"
+                />
+              ) : null}
+            </div>
+            {ytdlpInfo?.updateAvailable ? (
+              <div style={{ fontSize: 11, color: '#ef4444' }}>
+                Update available: {ytdlpInfo.latest}
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: colors.textSecondary }}>
+                Already up to date.
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                onClick={handleYtdlpUpdate}
+                disabled={isUpdatingYtdlp}
+                style={{
+                  minWidth: 96,
+                  height: 30,
+                  padding: '0 10px',
+                  borderRadius: 6,
+                  border: `1px solid ${colors.borderStart}`,
+                  backgroundColor: isUpdatingYtdlp ? 'rgba(59,130,246,0.08)' : 'transparent',
+                  color: isUpdatingYtdlp ? '#3b82f6' : colors.textSecondary,
+                  cursor: isUpdatingYtdlp ? 'wait' : 'pointer',
+                  fontSize: 11,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                {isUpdatingYtdlp ? (
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: '50%',
+                      border: '1.5px solid rgba(59, 130, 246, 0.22)',
+                      borderTopColor: '#3b82f6',
+                      animation: 'spin 0.75s linear infinite',
+                      transformOrigin: '50% 50%',
+                    }}
+                  />
+                ) : null}
+                {isUpdatingYtdlp ? "Updating..." : "Update yt-dlp"}
+              </button>
+              <span style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.85 }}>
+                You can also update from the red dot in main window.
+              </span>
+            </div>
+            {ytdlpHint ? (
+              <div style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.85 }}>
+                {ytdlpHint}
+              </div>
+            ) : null}
+          </div>
         </div>
 
       </div>
