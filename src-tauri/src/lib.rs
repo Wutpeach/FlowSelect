@@ -114,6 +114,9 @@ static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCac
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
+const YTDLP_PROGRESS_WATCHDOG_SECS: u64 = 90;
+const YTDLP_ACTIVE_WATCHDOG_SECS: u64 = 15 * 60;
+const YTDLP_TEMP_DIR_NAME: &str = "flowselect-ytdlp-temp";
 const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
 const RENAME_RULE_PRESET_KEY: &str = "renameRulePreset";
 const RENAME_PREFIX_KEY: &str = "renamePrefix";
@@ -178,7 +181,10 @@ fn resolve_settings_window_position_near_main(app: &AppHandle) -> Option<(f64, f
         .outer_position()
         .ok()?
         .to_logical::<f64>(scale_factor);
-    let main_size = main_window.outer_size().ok()?.to_logical::<f64>(scale_factor);
+    let main_size = main_window
+        .outer_size()
+        .ok()?
+        .to_logical::<f64>(scale_factor);
     let monitor = main_window.current_monitor().ok().flatten()?;
     let monitor_position = monitor.position().to_logical::<f64>(scale_factor);
     let monitor_size = monitor.size().to_logical::<f64>(scale_factor);
@@ -246,19 +252,18 @@ fn resolve_main_window_position_near_cursor(
     let monitor_size = monitor.size();
     let main_width_px = MAIN_WINDOW_WIDTH * monitor_scale;
     let main_height_px = MAIN_WINDOW_HEIGHT * monitor_scale;
-    let axis_offset_px = (SHORTCUT_CURSOR_DIAGONAL_OFFSET * monitor_scale) / std::f64::consts::SQRT_2;
+    let axis_offset_px =
+        (SHORTCUT_CURSOR_DIAGONAL_OFFSET * monitor_scale) / std::f64::consts::SQRT_2;
 
     let preferred_x = cursor_position.x - main_width_px - axis_offset_px;
     let preferred_y = cursor_position.y - axis_offset_px;
 
     let min_x = f64::from(monitor_position.x) + WINDOW_EDGE_PADDING * monitor_scale;
     let min_y = f64::from(monitor_position.y) + WINDOW_EDGE_PADDING * monitor_scale;
-    let max_x = f64::from(monitor_position.x)
-        + f64::from(monitor_size.width)
+    let max_x = f64::from(monitor_position.x) + f64::from(monitor_size.width)
         - main_width_px
         - WINDOW_EDGE_PADDING * monitor_scale;
-    let max_y = f64::from(monitor_position.y)
-        + f64::from(monitor_size.height)
+    let max_y = f64::from(monitor_position.y) + f64::from(monitor_size.height)
         - main_height_px
         - WINDOW_EDGE_PADDING * monitor_scale;
 
@@ -1620,6 +1625,10 @@ async fn download_video_internal(
         output_dir.join("%(title)s.%(ext)s")
     };
 
+    let ytdlp_temp_dir = std::env::temp_dir().join(YTDLP_TEMP_DIR_NAME);
+    fs::create_dir_all(&ytdlp_temp_dir)
+        .map_err(|e| format!("Failed to create yt-dlp temp directory: {}", e))?;
+
     // Build args
     let mut args = vec![
         "-f".to_string(),
@@ -1642,6 +1651,8 @@ async fn download_video_internal(
         // Let yt-dlp fetch EJS solver assets for better YouTube compatibility.
         "--remote-components".to_string(),
         "ejs:github".to_string(),
+        "--paths".to_string(),
+        format!("temp:{}", ytdlp_temp_dir.to_string_lossy()),
         "-o".to_string(),
         output_template.to_string_lossy().to_string(),
     ];
@@ -1734,63 +1745,78 @@ async fn download_video_internal(
     let mut stdout_buffer = String::new();
     let mut stderr_buffer = String::new();
     let mut last_file_path: Option<String> = None;
+    let mut last_progress_signal_at = std::time::Instant::now();
+    let mut last_stage_label = "Preparing...".to_string();
+    let mut watchdog_timeout = std::time::Duration::from_secs(YTDLP_PROGRESS_WATCHDOG_SECS);
 
     // Process events from yt-dlp
-    while let Some(event) = rx.recv().await {
+    loop {
+        let event = match tokio::time::timeout(watchdog_timeout, rx.recv()).await {
+            Ok(Some(event)) => event,
+            Ok(None) => break,
+            Err(_) => {
+                kill_download_child_process();
+                cleanup_extension_cookies_file(&extension_cookies_path);
+                cleanup_part_files_for_output_root(&output_dir);
+                let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
+                let result = DownloadResult {
+                    success: false,
+                    file_path: None,
+                    error: Some(if was_cancelled {
+                        "Download cancelled".to_string()
+                    } else {
+                        format!(
+                            "Download stalled: no progress signal for {} seconds",
+                            watchdog_timeout.as_secs()
+                        )
+                    }),
+                };
+                let _ = app.emit("video-download-complete", result.clone());
+                return Ok(result);
+            }
+        };
+
         match event {
             CommandEvent::Stdout(line) => {
                 let line_str = String::from_utf8_lossy(&line);
                 println!(">>> [yt-dlp] {}", line_str);
                 stdout_buffer.push_str(&line_str);
                 stdout_buffer.push('\n');
-
-                // Parse progress line: [download] XX.X% of XXX at XXX ETA XXX
-                if line_str.contains("[download]") && line_str.contains("%") {
-                    if let Some(progress) = parse_progress(&line_str) {
-                        let _ = app.emit("video-download-progress", progress);
-                    }
-                }
-
-                // Capture file path - two formats:
-                // Format 1: [Merger] Merging formats into "D:\path\file.mp4" (quoted)
-                // Format 2: [download] Destination: D:\path\file.mp4 (unquoted)
-                if line_str.contains("[Merger]") {
-                    let re = Regex::new(r#""([A-Za-z]:\\[^"]+)""#).unwrap();
-                    if let Some(caps) = re.captures(&line_str) {
-                        last_file_path = Some(caps.get(1).unwrap().as_str().to_string());
-                    }
-                } else if line_str.contains("Destination:") {
-                    if let Some(idx) = line_str.find("Destination:") {
-                        let path = line_str[idx + 12..].trim();
-                        if path.len() > 2 && path.chars().nth(1) == Some(':') {
-                            last_file_path = Some(path.to_string());
-                        }
-                    }
-                }
+                process_ytdlp_output_line(
+                    &app,
+                    &line_str,
+                    &mut last_file_path,
+                    &mut last_progress_signal_at,
+                    &mut last_stage_label,
+                    &mut watchdog_timeout,
+                );
             }
             CommandEvent::Stderr(line) => {
                 let line_str = String::from_utf8_lossy(&line);
                 println!(">>> [yt-dlp stderr] {}", line_str);
                 stderr_buffer.push_str(&line_str);
                 stderr_buffer.push('\n');
+                process_ytdlp_output_line(
+                    &app,
+                    &line_str,
+                    &mut last_file_path,
+                    &mut last_progress_signal_at,
+                    &mut last_stage_label,
+                    &mut watchdog_timeout,
+                );
             }
             CommandEvent::Terminated(payload) => {
                 // Clear download PID
                 *DOWNLOAD_CHILD.lock().unwrap() = None;
 
                 // Cleanup extension cookies file
-                if let Some(ref cookies_path) = extension_cookies_path {
-                    if let Err(e) = fs::remove_file(cookies_path) {
-                        println!(
-                            ">>> [Rust] Warning: Failed to cleanup extension cookies: {}",
-                            e
-                        );
-                    } else {
-                        println!(">>> [Rust] Cleaned up extension cookies file");
-                    }
-                }
+                cleanup_extension_cookies_file(&extension_cookies_path);
 
                 let success = payload.code == Some(0);
+                if !success {
+                    cleanup_part_files_for_output_root(&output_dir);
+                }
+                let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
                 let result = DownloadResult {
                     success,
                     file_path: if success {
@@ -1802,6 +1828,10 @@ async fn download_video_internal(
                     },
                     error: if success {
                         None
+                    } else if was_cancelled {
+                        Some("Download cancelled".to_string())
+                    } else if stderr_buffer.trim().is_empty() {
+                        Some("yt-dlp exited unexpectedly".to_string())
                     } else {
                         Some(stderr_buffer.clone())
                     },
@@ -1848,17 +1878,101 @@ async fn download_video_internal(
             }
             _ => {}
         }
+
+        if last_progress_signal_at.elapsed() > watchdog_timeout {
+            kill_download_child_process();
+            cleanup_extension_cookies_file(&extension_cookies_path);
+            cleanup_part_files_for_output_root(&output_dir);
+            let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
+            let result = DownloadResult {
+                success: false,
+                file_path: None,
+                error: Some(if was_cancelled {
+                    "Download cancelled".to_string()
+                } else {
+                    format!(
+                        "Download stalled: no progress signal for {} seconds",
+                        watchdog_timeout.as_secs()
+                    )
+                }),
+            };
+            let _ = app.emit("video-download-complete", result.clone());
+            return Ok(result);
+        }
     }
 
     // Fallback if loop exits without Terminated event
+    cleanup_extension_cookies_file(&extension_cookies_path);
+    cleanup_part_files_for_output_root(&output_dir);
+    let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
     let result = DownloadResult {
         success: false,
         file_path: None,
-        error: Some("Process ended unexpectedly".to_string()),
+        error: Some(if was_cancelled {
+            "Download cancelled".to_string()
+        } else {
+            "Process ended unexpectedly".to_string()
+        }),
     };
     // Emit complete event with error to close progress bar
     let _ = app.emit("video-download-complete", result.clone());
     Ok(result)
+}
+
+fn kill_download_child_process() {
+    if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
+        println!(">>> [Rust] Killing yt-dlp process with PID: {}", pid);
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .output();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .output();
+        }
+    }
+}
+
+fn cleanup_extension_cookies_file(extension_cookies_path: &Option<PathBuf>) {
+    if let Some(cookies_path) = extension_cookies_path {
+        if let Err(err) = fs::remove_file(cookies_path) {
+            println!(
+                ">>> [Rust] Warning: Failed to cleanup extension cookies: {}",
+                err
+            );
+        } else {
+            println!(">>> [Rust] Cleaned up extension cookies file");
+        }
+    }
+}
+
+fn cleanup_part_files_in_dirs(dirs: &[PathBuf]) {
+    for output_dir in dirs {
+        if let Ok(entries) = fs::read_dir(output_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+
+                if ext == "part" {
+                    println!(">>> [Rust] Deleting temp file: {:?}", path);
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+    }
+}
+
+fn cleanup_part_files_for_output_root(output_root: &Path) {
+    let dirs_to_check = vec![output_root.to_path_buf(), output_root.join("Videos")];
+    cleanup_part_files_in_dirs(&dirs_to_check);
 }
 
 /// Public command for downloading video (used by frontend paste/drag)
@@ -1909,6 +2023,7 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
 
             // Always check base dir, and also check legacy Videos subdir for cleanup compatibility.
             let dirs_to_check = vec![base_output_dir.clone(), base_output_dir.join("Videos")];
+            cleanup_part_files_in_dirs(&dirs_to_check);
 
             let now = std::time::SystemTime::now();
             let video_extensions = ["mp4", "webm", "mkv", "flv", "avi", "mov"];
@@ -1922,13 +2037,6 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
                             .and_then(|e| e.to_str())
                             .unwrap_or("")
                             .to_lowercase();
-
-                        // Delete .part files (yt-dlp temp files)
-                        if ext == "part" {
-                            println!(">>> [Rust] Deleting temp file: {:?}", path);
-                            let _ = fs::remove_file(&path);
-                            continue;
-                        }
 
                         // Delete recently modified video files
                         if video_extensions.contains(&ext.as_str()) {
@@ -2814,20 +2922,138 @@ async fn download_xiaohongshu_direct(
 
 /// Parse yt-dlp progress line: [download] XX.X% of XXX at XXX ETA XXX
 fn parse_progress(line: &str) -> Option<DownloadProgress> {
-    // Extract percentage
-    let percent = line
-        .split('%')
-        .next()?
-        .split_whitespace()
-        .last()?
-        .parse::<f32>()
-        .ok()?;
+    static YTDLP_PERCENT_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\[download\]\s+([0-9]+(?:\.[0-9]+)?)%").expect("invalid yt-dlp percent regex")
+    });
+    static YTDLP_SPEED_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\sat\s+(.+?)(?:\s+ETA|\s*$)").expect("invalid yt-dlp speed regex")
+    });
+    static YTDLP_ETA_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\sETA\s+([0-9:]+)").expect("invalid yt-dlp eta regex"));
+
+    let percent = YTDLP_PERCENT_RE
+        .captures(line)
+        .and_then(|caps| caps.get(1))
+        .and_then(|value| value.as_str().parse::<f32>().ok())?;
+
+    let speed = YTDLP_SPEED_RE
+        .captures(line)
+        .and_then(|caps| caps.get(1))
+        .map(|value| value.as_str().trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "Downloading...".to_string());
+
+    let eta = YTDLP_ETA_RE
+        .captures(line)
+        .and_then(|caps| caps.get(1))
+        .map(|value| value.as_str().trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "N/A".to_string());
 
     Some(DownloadProgress {
         percent,
-        speed: "yt-dlp".to_string(),
-        eta: "N/A".to_string(),
+        speed,
+        eta,
     })
+}
+
+fn infer_ytdlp_stage_label(line: &str) -> Option<&'static str> {
+    let lower = line.to_ascii_lowercase();
+
+    if lower.contains("downloading webpage")
+        || lower.contains("downloading player")
+        || lower.contains("extracting")
+        || lower.contains("extractor")
+    {
+        return Some("Extracting...");
+    }
+
+    if lower.contains("[merger]") || lower.contains("merging formats") {
+        return Some("Merging...");
+    }
+
+    if lower.contains("[ffmpeg]") || lower.contains("post-process") {
+        return Some("Post-processing...");
+    }
+
+    if lower.contains("frame=") && lower.contains("time=") {
+        return Some("Post-processing...");
+    }
+
+    if lower.contains("[download] destination")
+        || (lower.contains("[download]") && !lower.contains('%'))
+    {
+        return Some("Downloading...");
+    }
+
+    None
+}
+
+fn capture_ytdlp_file_path(line: &str) -> Option<String> {
+    // Format 1: [Merger] Merging formats into "D:\path\file.mp4" (quoted)
+    // Format 2: [download] Destination: D:\path\file.mp4 (unquoted)
+    static YTDLP_MERGED_PATH_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#""([A-Za-z]:\\[^"]+)""#).expect("invalid merge path regex"));
+
+    if line.contains("[Merger]") {
+        return YTDLP_MERGED_PATH_RE
+            .captures(line)
+            .and_then(|caps| caps.get(1))
+            .map(|value| value.as_str().to_string());
+    }
+
+    if let Some(idx) = line.find("Destination:") {
+        let path = line[idx + "Destination:".len()..].trim();
+        if path.len() > 2 && path.chars().nth(1) == Some(':') {
+            return Some(path.to_string());
+        }
+    }
+
+    None
+}
+
+fn process_ytdlp_output_line(
+    app: &AppHandle,
+    line: &str,
+    last_file_path: &mut Option<String>,
+    last_progress_signal_at: &mut std::time::Instant,
+    last_stage_label: &mut String,
+    watchdog_timeout: &mut std::time::Duration,
+) {
+    if let Some(progress) = parse_progress(line) {
+        let _ = app.emit("video-download-progress", progress);
+        *last_progress_signal_at = std::time::Instant::now();
+        *last_stage_label = "Downloading...".to_string();
+        if watchdog_timeout.as_secs() < YTDLP_ACTIVE_WATCHDOG_SECS {
+            *watchdog_timeout = std::time::Duration::from_secs(YTDLP_ACTIVE_WATCHDOG_SECS);
+        }
+    } else if let Some(stage_label) = infer_ytdlp_stage_label(line) {
+        if last_stage_label != stage_label {
+            let _ = app.emit(
+                "video-download-progress",
+                DownloadProgress {
+                    percent: -1.0,
+                    speed: stage_label.to_string(),
+                    eta: "".to_string(),
+                },
+            );
+            *last_stage_label = stage_label.to_string();
+        }
+        *last_progress_signal_at = std::time::Instant::now();
+        if matches!(
+            stage_label,
+            "Downloading..." | "Merging..." | "Post-processing..."
+        ) && watchdog_timeout.as_secs() < YTDLP_ACTIVE_WATCHDOG_SECS
+        {
+            *watchdog_timeout = std::time::Duration::from_secs(YTDLP_ACTIVE_WATCHDOG_SECS);
+        }
+    } else if !line.trim().is_empty() {
+        *last_progress_signal_at = std::time::Instant::now();
+    }
+
+    if let Some(path) = capture_ytdlp_file_path(line) {
+        *last_file_path = Some(path);
+    }
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -3246,10 +3472,7 @@ fn register_shortcut_internal(app: &AppHandle, shortcut: &str) -> Result<(), Str
                 });
 
                 if let Err(err) = dispatch_result {
-                    println!(
-                        ">>> [Rust] shortcut main-thread dispatch failed: {}",
-                        err
-                    );
+                    println!(">>> [Rust] shortcut main-thread dispatch failed: {}", err);
                 }
             }
         })
@@ -3304,10 +3527,7 @@ fn set_window_size(app: AppHandle, width: u32, height: u32) -> Result<(), String
 fn set_window_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         #[cfg(target_os = "windows")]
-        println!(
-            ">>> [Rust] set_window_position physical=({}, {})",
-            x, y
-        );
+        println!(">>> [Rust] set_window_position physical=({}, {})", x, y);
         window
             .set_position(tauri::PhysicalPosition::new(x, y))
             .map_err(|e| format!("Failed to set window position: {}", e))
@@ -3359,8 +3579,7 @@ fn toggle_devtools(app: AppHandle, enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         return Err(
-            "Windows WebView2 limitation: programmatic close_devtools is unsupported"
-                .to_string(),
+            "Windows WebView2 limitation: programmatic close_devtools is unsupported".to_string(),
         );
     }
 
@@ -3652,8 +3871,13 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                         }
                     }
 
-                    match save_data_url(app.clone(), data_url.to_string(), target_dir, original_filename)
-                        .await
+                    match save_data_url(
+                        app.clone(),
+                        data_url.to_string(),
+                        target_dir,
+                        original_filename,
+                    )
+                    .await
                     {
                         Ok(path) => WsResponse {
                             success: true,
@@ -4049,7 +4273,9 @@ pub fn run() {
                 if let Ok(path) = get_config_path(&app.handle()) {
                     if path.exists() {
                         if let Ok(config_str) = fs::read_to_string(&path) {
-                            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
+                            if let Ok(config) =
+                                serde_json::from_str::<serde_json::Value>(&config_str)
+                            {
                                 if config
                                     .get("devMode")
                                     .and_then(|v| v.as_bool())

@@ -1378,7 +1378,7 @@ function App() {
                 {downloadProgress.percent < 0 ? '...' : `${Math.round(downloadProgress.percent)}%`}
               </span>
             </div>
-            {downloadProgress.speed !== 'yt-dlp' ? (
+            {downloadProgress.speed ? (
               <span style={{ fontSize: 10, color: colors.progressSpeedText, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>
                 {downloadProgress.speed}
               </span>
