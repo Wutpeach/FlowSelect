@@ -51,6 +51,56 @@ type YtdlpVersionInfo = {
   updateAvailable: boolean;
 };
 
+type DownloadStage = "preparing" | "downloading" | "merging" | "post_processing";
+
+type DownloadProgressPayload = {
+  percent: number;
+  stage: DownloadStage;
+  speed: string;
+  eta: string;
+};
+
+const DOWNLOAD_STAGE_LABEL: Record<DownloadStage, string> = {
+  preparing: "Preparing...",
+  downloading: "Downloading...",
+  merging: "Merging...",
+  post_processing: "Post-processing...",
+};
+
+const DOWNLOAD_STAGE_ORDER: Record<DownloadStage, number> = {
+  preparing: 0,
+  downloading: 1,
+  merging: 2,
+  post_processing: 3,
+};
+
+const advanceDownloadStage = (
+  previous: DownloadStage | null,
+  incoming: DownloadStage,
+  percent: number,
+): DownloadStage => {
+  if (!previous) return incoming;
+  if (incoming === previous) return previous;
+  if (percent >= 0 && incoming === "preparing") return previous;
+  return DOWNLOAD_STAGE_ORDER[incoming] >= DOWNLOAD_STAGE_ORDER[previous] ? incoming : previous;
+};
+
+const getDownloadStatusText = (
+  progress: DownloadProgressPayload,
+  stage: DownloadStage | null,
+): string => {
+  const effectiveStage = stage ?? progress.stage;
+  const stageLabel = DOWNLOAD_STAGE_LABEL[effectiveStage];
+  if (effectiveStage !== "downloading") {
+    return stageLabel;
+  }
+  const speedText = progress.speed.trim();
+  if (!speedText || speedText === stageLabel) {
+    return stageLabel;
+  }
+  return `${stageLabel} ${speedText}`;
+};
+
 // Cat icon for minimized state
 const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) => (
   <svg
@@ -90,11 +140,8 @@ function App() {
   const [outputPath, setOutputPath] = useState("");
   const [renameMediaOnDownload, setRenameMediaOnDownload] = useState(false);
   const [isPanelHovered, setIsPanelHovered] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<{
-    percent: number;
-    speed: string;
-    eta: string;
-  } | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgressPayload | null>(null);
+  const [downloadStage, setDownloadStage] = useState<DownloadStage | null>(null);
   const [ytdlpUpdate, setYtdlpUpdate] = useState<YtdlpVersionInfo | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [devMode, setDevMode] = useState(false);
@@ -371,9 +418,10 @@ function App() {
 
   // Listen for video download progress events
   useEffect(() => {
-    const unlistenProgress = listen<{ percent: number; speed: string; eta: string }>(
+    const unlistenProgress = listen<DownloadProgressPayload>(
       "video-download-progress",
       async (event) => {
+        const payload = event.payload;
         // 清除已有的 idle timer，防止下载中被最小化
         if (idleTimerRef.current) {
           clearTimeout(idleTimerRef.current);
@@ -381,7 +429,10 @@ function App() {
         }
         // Set progress immediately (sync) before async operations
         setIsMinimized(false);
-        setDownloadProgress(event.payload);
+        setDownloadProgress(payload);
+        setDownloadStage((currentStage) =>
+          advanceDownloadStage(currentStage, payload.stage, payload.percent)
+        );
         setDownloadErrorMessage(null);
         // 直接恢复窗口大小（避免闭包问题）
         if (!isMacOS) {
@@ -406,6 +457,7 @@ function App() {
       (event) => {
         console.log(">>> [Frontend] video-download-complete received:", event);
         setDownloadProgress(null);
+        setDownloadStage(null);
 
         const payload = event.payload;
         const cancelled = downloadCancelledRef.current || isCancelledDownloadError(payload?.error);
@@ -1158,6 +1210,9 @@ function App() {
     : isHovering
       ? `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)`
       : `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`;
+  const downloadStatusText = downloadProgress
+    ? getDownloadStatusText(downloadProgress, downloadStage)
+    : "";
 
   return (
     <motion.div
@@ -1378,9 +1433,9 @@ function App() {
                 {downloadProgress.percent < 0 ? '...' : `${Math.round(downloadProgress.percent)}%`}
               </span>
             </div>
-            {downloadProgress.speed ? (
+            {downloadStatusText ? (
               <span style={{ fontSize: 10, color: colors.progressSpeedText, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>
-                {downloadProgress.speed}
+                {downloadStatusText}
               </span>
             ) : null}
             {/* Cancel download button */}
@@ -1389,6 +1444,7 @@ function App() {
                 try {
                   await invoke("cancel_download");
                   setDownloadProgress(null);
+                  setDownloadStage(null);
                   downloadCancelledRef.current = true;
                   setDownloadCancelled(true);
                   setDownloadErrorMessage("Download cancelled");

@@ -114,8 +114,10 @@ static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCac
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
-const YTDLP_PROGRESS_WATCHDOG_SECS: u64 = 90;
-const YTDLP_ACTIVE_WATCHDOG_SECS: u64 = 15 * 60;
+const YTDLP_HARD_HEARTBEAT_TIMEOUT_SECS: u64 = 90;
+const YTDLP_SOFT_HEARTBEAT_GRACE_SECS: u64 = 20;
+const YTDLP_WATCHDOG_TICK_MILLIS: u64 = 1500;
+const YTDLP_TERMINATION_GRACE_MILLIS: u64 = 2500;
 const YTDLP_TEMP_DIR_NAME: &str = "flowselect-ytdlp-temp";
 const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
 const RENAME_RULE_PRESET_KEY: &str = "renameRulePreset";
@@ -1232,8 +1234,81 @@ pub struct DownloadResult {
 #[derive(serde::Serialize, Clone)]
 pub struct DownloadProgress {
     pub percent: f32,
+    pub stage: DownloadProgressStage,
     pub speed: String,
     pub eta: String,
+}
+
+#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadProgressStage {
+    Preparing,
+    Downloading,
+    Merging,
+    PostProcessing,
+}
+
+impl DownloadProgressStage {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Preparing => "Preparing...",
+            Self::Downloading => "Downloading...",
+            Self::Merging => "Merging...",
+            Self::PostProcessing => "Post-processing...",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClipDownloadMode {
+    Fast,
+    Precise,
+}
+
+impl ClipDownloadMode {
+    fn from_config(config: &serde_json::Value) -> Self {
+        match config
+            .get("clipDownloadMode")
+            .and_then(|value| value.as_str())
+        {
+            Some("precise") => Self::Precise,
+            _ => Self::Fast,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Precise => "precise",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum DownloadTerminalErrorCode {
+    Cancelled,
+    WatchdogHardStall,
+    YtdlpExitFailure,
+    YtdlpUnexpectedEnd,
+}
+
+impl DownloadTerminalErrorCode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Cancelled => "E_DOWNLOAD_CANCELLED",
+            Self::WatchdogHardStall => "E_WATCHDOG_HARD_STALL",
+            Self::YtdlpExitFailure => "E_YTDLP_EXIT_FAILURE",
+            Self::YtdlpUnexpectedEnd => "E_YTDLP_UNEXPECTED_END",
+        }
+    }
+}
+
+fn with_terminal_error_code(code: DownloadTerminalErrorCode, message: &str) -> String {
+    if message.trim().is_empty() {
+        format!("[{}]", code.as_str())
+    } else {
+        format!("[{}] {}", code.as_str(), message.trim())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1617,6 +1692,7 @@ async fn download_video_internal(
     }
 
     let rename_media_on_download = is_rename_media_enabled(&config);
+    let clip_download_mode = ClipDownloadMode::from_config(&config);
 
     let output_template = if rename_media_on_download {
         let rename_stem = get_next_rename_sequence_stem(&app, &mut config, &output_dir)?;
@@ -1679,9 +1755,18 @@ async fn download_video_internal(
     if let Some(range) = clip_range {
         let start = format_seconds_for_download_section(range.start_seconds);
         let end = format_seconds_for_download_section(range.end_seconds);
-        println!(">>> [Rust] Section download enabled: {} -> {}", start, end);
+        println!(
+            ">>> [Rust] Section download enabled: {} -> {}, mode={}",
+            start,
+            end,
+            clip_download_mode.as_str()
+        );
         args.push("--download-sections".to_string());
         args.push(format!("*{}-{}", start, end));
+        if clip_download_mode == ClipDownloadMode::Precise {
+            args.push("--force-keyframes-at-cuts".to_string());
+            println!(">>> [Rust] Slice mode precise: force keyframes at cut points");
+        }
     }
 
     args.push(url.clone());
@@ -1707,6 +1792,7 @@ async fn download_video_internal(
         "video-download-progress",
         DownloadProgress {
             percent: -1.0, // Negative value indicates indeterminate state
+            stage: DownloadProgressStage::Preparing,
             speed: "Preparing...".to_string(),
             eta: "".to_string(),
         },
@@ -1745,142 +1831,163 @@ async fn download_video_internal(
     let mut stdout_buffer = String::new();
     let mut stderr_buffer = String::new();
     let mut last_file_path: Option<String> = None;
-    let mut last_progress_signal_at = std::time::Instant::now();
-    let mut last_stage_label = "Preparing...".to_string();
-    let mut watchdog_timeout = std::time::Duration::from_secs(YTDLP_PROGRESS_WATCHDOG_SECS);
+    let mut last_stage = DownloadProgressStage::Preparing;
+    let mut heartbeat_state = YtdlpHeartbeatState::default();
+    let mut last_hard_heartbeat_at = std::time::Instant::now();
+    let mut last_soft_heartbeat_at = Some(std::time::Instant::now());
 
     // Process events from yt-dlp
     loop {
-        let event = match tokio::time::timeout(watchdog_timeout, rx.recv()).await {
-            Ok(Some(event)) => event,
-            Ok(None) => break,
-            Err(_) => {
-                kill_download_child_process();
-                cleanup_extension_cookies_file(&extension_cookies_path);
-                cleanup_part_files_for_output_root(&output_dir);
-                let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
-                let result = DownloadResult {
-                    success: false,
-                    file_path: None,
-                    error: Some(if was_cancelled {
-                        "Download cancelled".to_string()
-                    } else {
-                        format!(
-                            "Download stalled: no progress signal for {} seconds",
-                            watchdog_timeout.as_secs()
-                        )
-                    }),
-                };
-                let _ = app.emit("video-download-complete", result.clone());
-                return Ok(result);
-            }
-        };
-
-        match event {
-            CommandEvent::Stdout(line) => {
-                let line_str = String::from_utf8_lossy(&line);
-                println!(">>> [yt-dlp] {}", line_str);
-                stdout_buffer.push_str(&line_str);
-                stdout_buffer.push('\n');
-                process_ytdlp_output_line(
-                    &app,
-                    &line_str,
-                    &mut last_file_path,
-                    &mut last_progress_signal_at,
-                    &mut last_stage_label,
-                    &mut watchdog_timeout,
-                );
-            }
-            CommandEvent::Stderr(line) => {
-                let line_str = String::from_utf8_lossy(&line);
-                println!(">>> [yt-dlp stderr] {}", line_str);
-                stderr_buffer.push_str(&line_str);
-                stderr_buffer.push('\n');
-                process_ytdlp_output_line(
-                    &app,
-                    &line_str,
-                    &mut last_file_path,
-                    &mut last_progress_signal_at,
-                    &mut last_stage_label,
-                    &mut watchdog_timeout,
-                );
-            }
-            CommandEvent::Terminated(payload) => {
-                // Clear download PID
-                *DOWNLOAD_CHILD.lock().unwrap() = None;
-
-                // Cleanup extension cookies file
-                cleanup_extension_cookies_file(&extension_cookies_path);
-
-                let success = payload.code == Some(0);
-                if !success {
-                    cleanup_part_files_for_output_root(&output_dir);
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(YTDLP_WATCHDOG_TICK_MILLIS),
+            rx.recv(),
+        )
+        .await
+        {
+            Ok(Some(event)) => match event {
+                CommandEvent::Stdout(line) => {
+                    let line_str = String::from_utf8_lossy(&line);
+                    println!(">>> [yt-dlp] {}", line_str);
+                    stdout_buffer.push_str(&line_str);
+                    stdout_buffer.push('\n');
+                    let heartbeat_event = process_ytdlp_output_line(
+                        &app,
+                        &line_str,
+                        &mut last_file_path,
+                        &mut last_stage,
+                        &mut heartbeat_state,
+                    );
+                    let now = std::time::Instant::now();
+                    if heartbeat_event.hard_heartbeat {
+                        last_hard_heartbeat_at = now;
+                        last_soft_heartbeat_at = None;
+                    }
+                    if heartbeat_event.soft_heartbeat {
+                        last_soft_heartbeat_at = Some(now);
+                    }
                 }
-                let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
-                let result = DownloadResult {
-                    success,
-                    file_path: if success {
-                        last_file_path
-                            .clone()
-                            .or_else(|| Some(output_dir.to_string_lossy().to_string()))
-                    } else {
-                        None
-                    },
-                    error: if success {
-                        None
-                    } else if was_cancelled {
-                        Some("Download cancelled".to_string())
-                    } else if stderr_buffer.trim().is_empty() {
-                        Some("yt-dlp exited unexpectedly".to_string())
-                    } else {
-                        Some(stderr_buffer.clone())
-                    },
-                };
+                CommandEvent::Stderr(line) => {
+                    let line_str = String::from_utf8_lossy(&line);
+                    println!(">>> [yt-dlp stderr] {}", line_str);
+                    stderr_buffer.push_str(&line_str);
+                    stderr_buffer.push('\n');
+                    let heartbeat_event = process_ytdlp_output_line(
+                        &app,
+                        &line_str,
+                        &mut last_file_path,
+                        &mut last_stage,
+                        &mut heartbeat_state,
+                    );
+                    let now = std::time::Instant::now();
+                    if heartbeat_event.hard_heartbeat {
+                        last_hard_heartbeat_at = now;
+                        last_soft_heartbeat_at = None;
+                    }
+                    if heartbeat_event.soft_heartbeat {
+                        last_soft_heartbeat_at = Some(now);
+                    }
+                }
+                CommandEvent::Terminated(payload) => {
+                    // Clear download PID
+                    *DOWNLOAD_CHILD.lock().unwrap() = None;
 
-                // Emit completion event
-                let _ = app.emit("video-download-complete", result.clone());
+                    // Cleanup extension cookies file
+                    cleanup_extension_cookies_file(&extension_cookies_path);
 
-                // Cleanup .m4a residual files after successful download
-                if success {
-                    if let Some(ref final_path) = last_file_path {
-                        let final_path = std::path::Path::new(final_path);
-                        if let Some(parent) = final_path.parent() {
-                            if let Ok(entries) = std::fs::read_dir(parent) {
-                                for entry in entries.flatten() {
-                                    let path = entry.path();
-                                    if let Some(ext) = path.extension() {
-                                        if ext == "m4a" {
-                                            println!(
-                                                ">>> [Rust] Cleaning up residual file: {:?}",
-                                                path
-                                            );
-                                            let _ = std::fs::remove_file(&path);
+                    let success = payload.code == Some(0);
+                    if !success {
+                        cleanup_part_files_for_output_root(&output_dir);
+                    }
+                    let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
+                    let result = DownloadResult {
+                        success,
+                        file_path: if success {
+                            last_file_path
+                                .clone()
+                                .or_else(|| Some(output_dir.to_string_lossy().to_string()))
+                        } else {
+                            None
+                        },
+                        error: if success {
+                            None
+                        } else if was_cancelled {
+                            Some(with_terminal_error_code(
+                                DownloadTerminalErrorCode::Cancelled,
+                                "Download cancelled",
+                            ))
+                        } else if stderr_buffer.trim().is_empty() {
+                            Some(with_terminal_error_code(
+                                DownloadTerminalErrorCode::YtdlpExitFailure,
+                                "yt-dlp exited unexpectedly",
+                            ))
+                        } else {
+                            Some(with_terminal_error_code(
+                                DownloadTerminalErrorCode::YtdlpExitFailure,
+                                stderr_buffer.as_str(),
+                            ))
+                        },
+                    };
+
+                    // Emit completion event
+                    let _ = app.emit("video-download-complete", result.clone());
+
+                    // Cleanup .m4a residual files after successful download
+                    if success {
+                        if let Some(ref final_path) = last_file_path {
+                            let final_path = std::path::Path::new(final_path);
+                            if let Some(parent) = final_path.parent() {
+                                if let Ok(entries) = std::fs::read_dir(parent) {
+                                    for entry in entries.flatten() {
+                                        let path = entry.path();
+                                        if let Some(ext) = path.extension() {
+                                            if ext == "m4a" {
+                                                println!(
+                                                    ">>> [Rust] Cleaning up residual file: {:?}",
+                                                    path
+                                                );
+                                                let _ = std::fs::remove_file(&path);
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                // AE Portal
-                if success {
-                    if let Some(ref path) = last_file_path {
-                        let app_for_ae = app.clone();
-                        let path_for_ae = path.clone();
-                        tokio::spawn(async move {
-                            let _ = send_to_ae(app_for_ae, path_for_ae).await;
-                        });
+                    // AE Portal
+                    if success {
+                        if let Some(ref path) = last_file_path {
+                            let app_for_ae = app.clone();
+                            let path_for_ae = path.clone();
+                            tokio::spawn(async move {
+                                let _ = send_to_ae(app_for_ae, path_for_ae).await;
+                            });
+                        }
                     }
-                }
 
-                return Ok(result);
-            }
-            _ => {}
+                    return Ok(result);
+                }
+                _ => {}
+            },
+            Ok(None) => break,
+            Err(_) => {}
         }
 
-        if last_progress_signal_at.elapsed() > watchdog_timeout {
-            kill_download_child_process();
+        let now = std::time::Instant::now();
+        if mark_hard_heartbeat_from_output_growth(&last_file_path, &mut heartbeat_state) {
+            last_hard_heartbeat_at = now;
+            last_soft_heartbeat_at = None;
+        }
+
+        if is_watchdog_timeout_candidate(last_hard_heartbeat_at, last_soft_heartbeat_at, now) {
+            let hard_elapsed_secs = now.duration_since(last_hard_heartbeat_at).as_secs();
+            let soft_elapsed_secs =
+                last_soft_heartbeat_at.map(|soft_at| now.duration_since(soft_at).as_secs());
+            println!(
+                ">>> [Rust] Watchdog timeout candidate: hard_elapsed={}s, soft_elapsed={:?}",
+                hard_elapsed_secs, soft_elapsed_secs
+            );
+            terminate_download_child_process_with_grace().await;
             cleanup_extension_cookies_file(&extension_cookies_path);
             cleanup_part_files_for_output_root(&output_dir);
             let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
@@ -1888,11 +1995,18 @@ async fn download_video_internal(
                 success: false,
                 file_path: None,
                 error: Some(if was_cancelled {
-                    "Download cancelled".to_string()
+                    with_terminal_error_code(
+                        DownloadTerminalErrorCode::Cancelled,
+                        "Download cancelled",
+                    )
                 } else {
-                    format!(
-                        "Download stalled: no progress signal for {} seconds",
-                        watchdog_timeout.as_secs()
+                    let stall_message = format!(
+                        "Download stalled: no hard heartbeat for {} seconds",
+                        hard_elapsed_secs
+                    );
+                    with_terminal_error_code(
+                        DownloadTerminalErrorCode::WatchdogHardStall,
+                        stall_message.as_str(),
                     )
                 }),
             };
@@ -1909,9 +2023,12 @@ async fn download_video_internal(
         success: false,
         file_path: None,
         error: Some(if was_cancelled {
-            "Download cancelled".to_string()
+            with_terminal_error_code(DownloadTerminalErrorCode::Cancelled, "Download cancelled")
         } else {
-            "Process ended unexpectedly".to_string()
+            with_terminal_error_code(
+                DownloadTerminalErrorCode::YtdlpUnexpectedEnd,
+                "Process ended unexpectedly",
+            )
         }),
     };
     // Emit complete event with error to close progress bar
@@ -1921,18 +2038,88 @@ async fn download_video_internal(
 
 fn kill_download_child_process() {
     if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
-        println!(">>> [Rust] Killing yt-dlp process with PID: {}", pid);
-        #[cfg(windows)]
+        println!(">>> [Rust] Force killing yt-dlp process with PID: {}", pid);
+        force_kill_process(pid);
+    }
+}
+
+fn request_graceful_stop(pid: u32) {
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T"])
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .output();
+    }
+}
+
+fn force_kill_process(pid: u32) {
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .output();
+    }
+}
+
+fn is_process_alive(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        if let Ok(output) = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+            .output()
         {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .output();
+            let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+            return output.status.success()
+                && !stdout.contains("no tasks are running")
+                && stdout.contains(&pid.to_string());
         }
-        #[cfg(not(windows))]
-        {
-            let _ = std::process::Command::new("kill")
-                .args(["-TERM", &pid.to_string()])
-                .output();
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+}
+
+async fn terminate_download_child_process_with_grace() {
+    let pid = {
+        let mut guard = DOWNLOAD_CHILD.lock().unwrap();
+        guard.take()
+    };
+    if let Some(pid) = pid {
+        println!(
+            ">>> [Rust] Watchdog timeout: requesting graceful stop for PID {}",
+            pid
+        );
+        request_graceful_stop(pid);
+        tokio::time::sleep(tokio::time::Duration::from_millis(
+            YTDLP_TERMINATION_GRACE_MILLIS,
+        ))
+        .await;
+        if is_process_alive(pid) {
+            println!(
+                ">>> [Rust] Graceful stop timed out, force killing PID {}",
+                pid
+            );
+            force_kill_process(pid);
+        } else {
+            println!(">>> [Rust] Graceful stop completed for PID {}", pid);
         }
     }
 }
@@ -1989,21 +2176,7 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
     *DOWNLOAD_CANCELLED.lock().unwrap() = true;
 
     // 1. 终止下载进程 (for yt-dlp)
-    if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
-        println!(">>> [Rust] Killing yt-dlp process with PID: {}", pid);
-        #[cfg(windows)]
-        {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .output();
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = std::process::Command::new("kill")
-                .args(["-TERM", &pid.to_string()])
-                .output();
-        }
-    }
+    kill_download_child_process();
 
     // 2. 等待进程完全终止
     tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
@@ -2801,6 +2974,7 @@ async fn download_video_direct(
         "video-download-progress",
         DownloadProgress {
             percent: if total_size > 0 { 0.0 } else { -1.0 }, // -1 indicates indeterminate
+            stage: DownloadProgressStage::Preparing,
             speed: "Starting...".to_string(),
             eta: "N/A".to_string(),
         },
@@ -2838,6 +3012,7 @@ async fn download_video_direct(
                     "video-download-progress",
                     DownloadProgress {
                         percent,
+                        stage: DownloadProgressStage::Downloading,
                         speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
                         eta: "N/A".to_string(),
                     },
@@ -2848,6 +3023,7 @@ async fn download_video_direct(
                     "video-download-progress",
                     DownloadProgress {
                         percent: -1.0,
+                        stage: DownloadProgressStage::Downloading,
                         speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
                         eta: "N/A".to_string(),
                     },
@@ -2952,12 +3128,13 @@ fn parse_progress(line: &str) -> Option<DownloadProgress> {
 
     Some(DownloadProgress {
         percent,
+        stage: DownloadProgressStage::Downloading,
         speed,
         eta,
     })
 }
 
-fn infer_ytdlp_stage_label(line: &str) -> Option<&'static str> {
+fn infer_ytdlp_stage(line: &str) -> Option<DownloadProgressStage> {
     let lower = line.to_ascii_lowercase();
 
     if lower.contains("downloading webpage")
@@ -2965,25 +3142,25 @@ fn infer_ytdlp_stage_label(line: &str) -> Option<&'static str> {
         || lower.contains("extracting")
         || lower.contains("extractor")
     {
-        return Some("Extracting...");
+        return Some(DownloadProgressStage::Preparing);
     }
 
     if lower.contains("[merger]") || lower.contains("merging formats") {
-        return Some("Merging...");
+        return Some(DownloadProgressStage::Merging);
     }
 
     if lower.contains("[ffmpeg]") || lower.contains("post-process") {
-        return Some("Post-processing...");
+        return Some(DownloadProgressStage::PostProcessing);
     }
 
     if lower.contains("frame=") && lower.contains("time=") {
-        return Some("Post-processing...");
+        return Some(DownloadProgressStage::PostProcessing);
     }
 
     if lower.contains("[download] destination")
         || (lower.contains("[download]") && !lower.contains('%'))
     {
-        return Some("Downloading...");
+        return Some(DownloadProgressStage::Downloading);
     }
 
     None
@@ -3012,48 +3189,131 @@ fn capture_ytdlp_file_path(line: &str) -> Option<String> {
     None
 }
 
+#[derive(Default)]
+struct YtdlpHeartbeatState {
+    last_percent: Option<f32>,
+    last_ffmpeg_time_seconds: Option<f64>,
+    last_output_bytes: Option<u64>,
+}
+
+#[derive(Default)]
+struct YtdlpHeartbeatEvent {
+    hard_heartbeat: bool,
+    soft_heartbeat: bool,
+}
+
+fn parse_ffmpeg_time_seconds(line: &str) -> Option<f64> {
+    static FFMPEG_TIME_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"time=(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)").expect("invalid ffmpeg time regex")
+    });
+    let captures = FFMPEG_TIME_RE.captures(line)?;
+    let hours = captures.get(1)?.as_str().parse::<f64>().ok()?;
+    let minutes = captures.get(2)?.as_str().parse::<f64>().ok()?;
+    let seconds = captures.get(3)?.as_str().parse::<f64>().ok()?;
+    Some(hours * 3600.0 + minutes * 60.0 + seconds)
+}
+
+fn mark_hard_heartbeat_from_output_growth(
+    last_file_path: &Option<String>,
+    heartbeat_state: &mut YtdlpHeartbeatState,
+) -> bool {
+    let Some(path_str) = last_file_path else {
+        heartbeat_state.last_output_bytes = None;
+        return false;
+    };
+
+    let path = Path::new(path_str);
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    let current_size = metadata.len();
+
+    let hard_heartbeat = match heartbeat_state.last_output_bytes {
+        Some(last_size) => current_size > last_size,
+        None => false,
+    };
+    heartbeat_state.last_output_bytes = Some(current_size);
+    hard_heartbeat
+}
+
+fn is_watchdog_timeout_candidate(
+    last_hard_heartbeat_at: std::time::Instant,
+    last_soft_heartbeat_at: Option<std::time::Instant>,
+    now: std::time::Instant,
+) -> bool {
+    let hard_timeout = std::time::Duration::from_secs(YTDLP_HARD_HEARTBEAT_TIMEOUT_SECS);
+    let soft_grace = std::time::Duration::from_secs(YTDLP_SOFT_HEARTBEAT_GRACE_SECS);
+    let hard_elapsed = now.duration_since(last_hard_heartbeat_at);
+
+    if hard_elapsed <= hard_timeout {
+        return false;
+    }
+
+    if hard_elapsed > hard_timeout + soft_grace {
+        return true;
+    }
+
+    let soft_recent = last_soft_heartbeat_at
+        .map(|soft_at| now.duration_since(soft_at) <= soft_grace)
+        .unwrap_or(false);
+    !soft_recent
+}
+
 fn process_ytdlp_output_line(
     app: &AppHandle,
     line: &str,
     last_file_path: &mut Option<String>,
-    last_progress_signal_at: &mut std::time::Instant,
-    last_stage_label: &mut String,
-    watchdog_timeout: &mut std::time::Duration,
-) {
+    last_stage: &mut DownloadProgressStage,
+    heartbeat_state: &mut YtdlpHeartbeatState,
+) -> YtdlpHeartbeatEvent {
+    let mut heartbeat_event = YtdlpHeartbeatEvent::default();
+
     if let Some(progress) = parse_progress(line) {
-        let _ = app.emit("video-download-progress", progress);
-        *last_progress_signal_at = std::time::Instant::now();
-        *last_stage_label = "Downloading...".to_string();
-        if watchdog_timeout.as_secs() < YTDLP_ACTIVE_WATCHDOG_SECS {
-            *watchdog_timeout = std::time::Duration::from_secs(YTDLP_ACTIVE_WATCHDOG_SECS);
+        if heartbeat_state
+            .last_percent
+            .map(|last_percent| progress.percent > last_percent + f32::EPSILON)
+            .unwrap_or(true)
+        {
+            heartbeat_event.hard_heartbeat = true;
         }
-    } else if let Some(stage_label) = infer_ytdlp_stage_label(line) {
-        if last_stage_label != stage_label {
+        heartbeat_state.last_percent = Some(progress.percent);
+        let _ = app.emit("video-download-progress", progress);
+        *last_stage = DownloadProgressStage::Downloading;
+    } else if let Some(stage) = infer_ytdlp_stage(line) {
+        if *last_stage != stage {
             let _ = app.emit(
                 "video-download-progress",
                 DownloadProgress {
                     percent: -1.0,
-                    speed: stage_label.to_string(),
+                    stage,
+                    speed: stage.label().to_string(),
                     eta: "".to_string(),
                 },
             );
-            *last_stage_label = stage_label.to_string();
+            *last_stage = stage;
         }
-        *last_progress_signal_at = std::time::Instant::now();
-        if matches!(
-            stage_label,
-            "Downloading..." | "Merging..." | "Post-processing..."
-        ) && watchdog_timeout.as_secs() < YTDLP_ACTIVE_WATCHDOG_SECS
+        heartbeat_event.soft_heartbeat = true;
+    }
+
+    if let Some(ffmpeg_time_seconds) = parse_ffmpeg_time_seconds(line) {
+        if heartbeat_state
+            .last_ffmpeg_time_seconds
+            .map(|last_time| ffmpeg_time_seconds > last_time + 0.01)
+            .unwrap_or(true)
         {
-            *watchdog_timeout = std::time::Duration::from_secs(YTDLP_ACTIVE_WATCHDOG_SECS);
+            heartbeat_event.hard_heartbeat = true;
         }
-    } else if !line.trim().is_empty() {
-        *last_progress_signal_at = std::time::Instant::now();
+        heartbeat_state.last_ffmpeg_time_seconds = Some(ffmpeg_time_seconds);
     }
 
     if let Some(path) = capture_ytdlp_file_path(line) {
+        if last_file_path.as_deref() != Some(path.as_str()) {
+            heartbeat_state.last_output_bytes = None;
+        }
         *last_file_path = Some(path);
     }
+
+    heartbeat_event
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -3699,6 +3959,7 @@ async fn handle_ws_connection(
 
     let (mut write, mut read) = ws_stream.split();
     println!(">>> [WS] Client connected");
+    let mut disconnect_error: Option<String> = None;
 
     loop {
         tokio::select! {
@@ -3709,11 +3970,15 @@ async fn handle_ws_connection(
                         let response = process_ws_message(&text, &app).await;
                         let json = serde_json::to_string(&response).unwrap_or_default();
                         if write.send(Message::Text(json)).await.is_err() {
+                            disconnect_error = Some("response send failed".to_string());
                             break;
                         }
                     }
                     Some(Ok(Message::Close(_))) => break,
-                    Some(Err(_)) => break,
+                    Some(Err(err)) => {
+                        disconnect_error = Some(format!("read error: {}", err));
+                        break;
+                    }
                     None => break,
                     _ => {}
                 }
@@ -3723,15 +3988,21 @@ async fn handle_ws_connection(
                 match broadcast_msg {
                     Ok(msg) => {
                         if write.send(Message::Text(msg)).await.is_err() {
+                            disconnect_error = Some("broadcast send failed".to_string());
                             break;
                         }
                     }
-                    Err(_) => break,
+                    Err(err) => {
+                        disconnect_error = Some(format!("broadcast recv error: {}", err));
+                        break;
+                    }
                 }
             }
         }
     }
-    println!(">>> [WS] Client disconnected");
+    if let Some(err) = disconnect_error {
+        println!(">>> [WS] Client disconnected with error: {}", err);
+    }
 }
 
 async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
