@@ -468,16 +468,11 @@ function App() {
 
   // Listen for shortcut show event
   useEffect(() => {
-    const unlisten = listen("shortcut-show", async () => {
+    const unlisten = listen<void>("shortcut-show", async () => {
       // 如果窗口处于图标模式（已缩小），需要先恢复窗口大小
       if (windowResized && !isMacOS) {
         try {
-          const win = getCurrentWindow();
-          const pos = await win.outerPosition();
-          await Promise.all([
-            invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
-            invoke('set_window_position', { x: pos.x, y: pos.y }),
-          ]);
+          await invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE });
           setWindowResized(false);
         } catch (err) {
           console.error('Failed to restore window size:', err);

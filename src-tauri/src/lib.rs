@@ -248,8 +248,8 @@ fn resolve_main_window_position_near_cursor(
     let main_height_px = MAIN_WINDOW_HEIGHT * monitor_scale;
     let axis_offset_px = (SHORTCUT_CURSOR_DIAGONAL_OFFSET * monitor_scale) / std::f64::consts::SQRT_2;
 
-    let mut x = cursor_position.x - main_width_px - axis_offset_px;
-    let mut y = cursor_position.y - axis_offset_px;
+    let preferred_x = cursor_position.x - main_width_px - axis_offset_px;
+    let preferred_y = cursor_position.y - axis_offset_px;
 
     let min_x = f64::from(monitor_position.x) + WINDOW_EDGE_PADDING * monitor_scale;
     let min_y = f64::from(monitor_position.y) + WINDOW_EDGE_PADDING * monitor_scale;
@@ -262,10 +262,26 @@ fn resolve_main_window_position_near_cursor(
         - main_height_px
         - WINDOW_EDGE_PADDING * monitor_scale;
 
-    x = x.clamp(min_x, max_x.max(min_x));
-    y = y.clamp(min_y, max_y.max(min_y));
+    let clamped_x = preferred_x.clamp(min_x, max_x.max(min_x));
+    let clamped_y = preferred_y.clamp(min_y, max_y.max(min_y));
 
-    Some((x.round() as i32, y.round() as i32))
+    #[cfg(target_os = "windows")]
+    println!(
+        ">>> [Rust] shortcut-position cursor=({:.2}, {:.2}) monitor=({}, {} {}x{} @ {:.2}) preferred=({:.2}, {:.2}) clamped=({:.2}, {:.2})",
+        cursor_position.x,
+        cursor_position.y,
+        monitor_position.x,
+        monitor_position.y,
+        monitor_size.width,
+        monitor_size.height,
+        monitor_scale,
+        preferred_x,
+        preferred_y,
+        clamped_x,
+        clamped_y
+    );
+
+    Some((clamped_x.round() as i32, clamped_y.round() as i32))
 }
 
 fn is_cursor_inside_window(window: &tauri::WebviewWindow, cursor_x: f64, cursor_y: f64) -> bool {
@@ -1607,7 +1623,7 @@ async fn download_video_internal(
     // Build args
     let mut args = vec![
         "-f".to_string(),
-        "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best".to_string(),
+        "bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[vcodec^=avc1][ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best".to_string(),
         "--merge-output-format".to_string(),
         "mp4".to_string(),
         "--no-keep-video".to_string(),
@@ -3287,8 +3303,13 @@ fn set_window_size(app: AppHandle, width: u32, height: u32) -> Result<(), String
 #[tauri::command]
 fn set_window_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        println!(
+            ">>> [Rust] set_window_position physical=({}, {})",
+            x, y
+        );
         window
-            .set_position(tauri::LogicalPosition::new(x, y))
+            .set_position(tauri::PhysicalPosition::new(x, y))
             .map_err(|e| format!("Failed to set window position: {}", e))
     } else {
         Err("Window not found".to_string())
