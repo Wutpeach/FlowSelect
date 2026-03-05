@@ -1506,15 +1506,19 @@ function App() {
           title={isUpdating ? "Updating..." : `Update yt-dlp: ${ytdlpUpdate.current} → ${ytdlpUpdate.latest}`}
         >
           {isUpdating ? (
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              style={{ width: 10, height: 10 }}
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10">
-                <circle cx="5" cy="5" r="4" fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="12" strokeDashoffset="4" />
-              </svg>
-            </motion.div>
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                border: '1.5px solid rgba(59, 130, 246, 0.22)',
+                borderTopColor: '#3b82f6',
+                display: 'block',
+                animation: 'spin 0.75s linear infinite',
+                transformOrigin: '50% 50%',
+                boxShadow: '0 0 4px rgba(59, 130, 246, 0.35)',
+              }}
+            />
           ) : (
             <span
               style={{
