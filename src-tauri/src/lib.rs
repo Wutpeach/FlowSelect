@@ -112,6 +112,8 @@ static DOWNLOAD_CANCELLED: Mutex<bool> = Mutex::new(false);
 static DOWNLOAD_TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
 static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCacheEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static PRECISE_CLIP_HW_ENCODER_CACHE: LazyLock<Mutex<Option<Option<String>>>> =
+    LazyLock::new(|| Mutex::new(None));
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
 const YTDLP_HARD_HEARTBEAT_TIMEOUT_SECS: u64 = 90;
@@ -1284,6 +1286,79 @@ impl ClipDownloadMode {
     }
 }
 
+fn precise_clip_hw_encoder_candidates() -> &'static [&'static str] {
+    #[cfg(target_os = "windows")]
+    {
+        &["h264_nvenc", "h264_qsv", "h264_amf"]
+    }
+    #[cfg(target_os = "macos")]
+    {
+        &["h264_videotoolbox"]
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        &[]
+    }
+}
+
+fn detect_precise_clip_hw_encoder() -> Option<String> {
+    let candidates = precise_clip_hw_encoder_candidates();
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let output = match std::process::Command::new("ffmpeg")
+        .args(["-hide_banner", "-encoders"])
+        .output()
+    {
+        Ok(output) => output,
+        Err(err) => {
+            println!(">>> [Rust] Precise mode encoder probe skipped: {}", err);
+            return None;
+        }
+    };
+
+    if !output.status.success() {
+        println!(
+            ">>> [Rust] Precise mode encoder probe failed with status: {}",
+            output.status
+        );
+        return None;
+    }
+
+    let mut encoder_text = String::from_utf8_lossy(&output.stdout).to_string();
+    if encoder_text.trim().is_empty() {
+        encoder_text = String::from_utf8_lossy(&output.stderr).to_string();
+    }
+    let lower = encoder_text.to_ascii_lowercase();
+
+    for encoder in candidates {
+        if lower.contains(encoder) {
+            return Some((*encoder).to_string());
+        }
+    }
+    None
+}
+
+fn resolve_precise_clip_hw_encoder() -> Option<String> {
+    let mut cache_guard = PRECISE_CLIP_HW_ENCODER_CACHE.lock().unwrap();
+    if let Some(cached) = cache_guard.as_ref() {
+        return cached.clone();
+    }
+
+    let detected = detect_precise_clip_hw_encoder();
+    if let Some(encoder) = detected.as_ref() {
+        println!(
+            ">>> [Rust] Precise mode hardware encoder detected: {}",
+            encoder
+        );
+    } else {
+        println!(">>> [Rust] Precise mode hardware encoder unavailable, fallback to CPU");
+    }
+    *cache_guard = Some(detected.clone());
+    detected
+}
+
 #[derive(Clone, Copy)]
 enum DownloadTerminalErrorCode {
     Cancelled,
@@ -1765,7 +1840,16 @@ async fn download_video_internal(
         args.push(format!("*{}-{}", start, end));
         if clip_download_mode == ClipDownloadMode::Precise {
             args.push("--force-keyframes-at-cuts".to_string());
-            println!(">>> [Rust] Slice mode precise: force keyframes at cut points");
+            if let Some(encoder) = resolve_precise_clip_hw_encoder() {
+                args.push("--postprocessor-args".to_string());
+                args.push(format!("ffmpeg:-c:v {} -c:a copy", encoder));
+                println!(
+                    ">>> [Rust] Slice mode precise: force keyframes + hardware encoder {}",
+                    encoder
+                );
+            } else {
+                println!(">>> [Rust] Slice mode precise: force keyframes + CPU encoder fallback");
+            }
         }
     }
 

@@ -178,7 +178,7 @@ function SettingsPage() {
     const loadConfig = async () => {
       try {
         const configStr = await invoke<string>("get_config");
-        const config = JSON.parse(configStr) as Record<string, any>;
+        const config = JSON.parse(configStr) as Record<string, unknown>;
         if (typeof config.outputPath === "string") {
           setOutputPath(config.outputPath);
         }
@@ -200,13 +200,13 @@ function SettingsPage() {
         if (typeof config.renameSuffix === "string") {
           setRenameSuffix(config.renameSuffix);
         }
-        if (config.devMode !== undefined) {
+        if (typeof config.devMode === "boolean") {
           setDevMode(isWindows ? false : config.devMode);
         }
-        if (config.aePortalEnabled !== undefined) {
+        if (typeof config.aePortalEnabled === "boolean") {
           setAePortalEnabled(config.aePortalEnabled);
         }
-        if (config.aeExePath) {
+        if (typeof config.aeExePath === "string") {
           setAeExePath(config.aeExePath);
         }
       } catch (err) {
