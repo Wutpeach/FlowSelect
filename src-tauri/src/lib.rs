@@ -139,6 +139,7 @@ const YTDLP_SOFT_HEARTBEAT_GRACE_SECS: u64 = 20;
 const YTDLP_WATCHDOG_TICK_MILLIS: u64 = 1500;
 const YTDLP_TERMINATION_GRACE_MILLIS: u64 = 2500;
 const YTDLP_TEMP_DIR_NAME: &str = "flowselect-ytdlp-temp";
+const PRECISE_GPU_REQUIRED_ERROR_MARKER: &str = "Precise mode requires hardware encoder";
 const YTDLP_FORMAT_SELECTOR: &str =
     "bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[vcodec^=avc1][ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best";
 const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
@@ -829,6 +830,60 @@ fn build_source_name_file_path(
 
     let sequence = get_next_sequence_number(target_dir).ok()?;
     Some(target_dir.join(format!("{}_{}.{}", stem, sequence, ext)))
+}
+
+fn clip_seconds_to_millis(seconds: f64) -> u64 {
+    if !seconds.is_finite() {
+        return 0;
+    }
+    if seconds <= 0.0 {
+        return 0;
+    }
+    (seconds * 1000.0).round() as u64
+}
+
+fn build_clip_range_ms_prefix(clip_range: &ClipTimeRange) -> String {
+    let start_ms = clip_seconds_to_millis(clip_range.start_seconds);
+    let end_ms = clip_seconds_to_millis(clip_range.end_seconds);
+    format!("{}-{}", start_ms, end_ms)
+}
+
+fn build_clip_title_file_path(
+    target_dir: &Path,
+    clip_range: &ClipTimeRange,
+    title: Option<&str>,
+    ext: &str,
+) -> Result<PathBuf, String> {
+    let prefix = build_clip_range_ms_prefix(clip_range);
+    let safe_title = title
+        .map(sanitize_file_stem)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "video".to_string());
+    let base_stem = format!("{}_{}", prefix, safe_title);
+
+    let safe_ext = sanitize_file_extension(ext);
+    let final_ext = if safe_ext.is_empty() {
+        "bin".to_string()
+    } else {
+        safe_ext
+    };
+
+    let preferred = target_dir.join(format!("{}.{}", base_stem, final_ext));
+    if !preferred.exists() {
+        return Ok(preferred);
+    }
+
+    let mut suffix: u32 = 2;
+    loop {
+        let candidate_stem = format!("{}_{}", base_stem, suffix);
+        if !is_stem_in_use(target_dir, &candidate_stem)? {
+            return Ok(target_dir.join(format!("{}.{}", candidate_stem, final_ext)));
+        }
+        suffix = suffix.saturating_add(1);
+        if suffix == u32::MAX {
+            return Err("Failed to build unique clip filename".to_string());
+        }
+    }
 }
 
 fn extract_filename_from_content_disposition(content_disposition: &str) -> Option<String> {
@@ -1810,6 +1865,7 @@ async fn slice_cached_source_to_output(
     rename_media_on_download: bool,
     clip_range: &ClipTimeRange,
     clip_mode: ClipDownloadMode,
+    title_hint: Option<&str>,
 ) -> Result<String, String> {
     if slice_cache_file_size_if_valid(source_path).is_none() {
         return Err(format!("Slice cache source is invalid: {:?}", source_path));
@@ -1818,12 +1874,7 @@ async fn slice_cached_source_to_output(
     let output_path = if rename_media_on_download {
         build_rename_sequence_file_path(app, config, output_dir, "mp4")?
     } else {
-        let source_name = source_path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("slice-source.mp4");
-        build_source_name_file_path(output_dir, source_name, "mp4")
-            .unwrap_or(build_sequence_file_path(output_dir, "mp4")?)
+        build_clip_title_file_path(output_dir, clip_range, title_hint, "mp4")?
     };
 
     let _ = app.emit(
@@ -1867,23 +1918,14 @@ async fn slice_cached_source_to_output(
             "-to".to_string(),
             end,
         ]);
-        if let Some(encoder) = resolve_precise_clip_hw_encoder() {
-            ffmpeg_args.extend_from_slice(&[
-                "-c:v".to_string(),
-                encoder,
-                "-c:a".to_string(),
-                "copy".to_string(),
-            ]);
-        } else {
-            ffmpeg_args.extend_from_slice(&[
-                "-c:v".to_string(),
-                "libx264".to_string(),
-                "-preset".to_string(),
-                "veryfast".to_string(),
-                "-c:a".to_string(),
-                "copy".to_string(),
-            ]);
-        }
+        let encoder = resolve_precise_clip_hw_encoder()
+            .ok_or_else(|| format!("{} (mode=precise)", PRECISE_GPU_REQUIRED_ERROR_MARKER))?;
+        ffmpeg_args.extend_from_slice(&[
+            "-c:v".to_string(),
+            encoder,
+            "-c:a".to_string(),
+            "copy".to_string(),
+        ]);
     }
     ffmpeg_args.push(output_str.clone());
 
@@ -1926,6 +1968,7 @@ async fn try_slice_download_with_reuse(
     rename_media_on_download: bool,
     clip_range: &ClipTimeRange,
     clip_mode: ClipDownloadMode,
+    title_hint: Option<String>,
 ) -> Result<String, String> {
     let source_path =
         ensure_slice_source_cache(app, url, extension_cookies_path, cache_key).await?;
@@ -1937,12 +1980,16 @@ async fn try_slice_download_with_reuse(
         rename_media_on_download,
         clip_range,
         clip_mode,
+        title_hint.as_deref(),
     )
     .await
     {
         Ok(path) => Ok(path),
         Err(first_err) => {
             if is_cancelled_error(first_err.as_str()) {
+                return Err(first_err);
+            }
+            if is_precise_gpu_required_error(first_err.as_str()) {
                 return Err(first_err);
             }
             println!(
@@ -1960,6 +2007,7 @@ async fn try_slice_download_with_reuse(
                 rename_media_on_download,
                 clip_range,
                 clip_mode,
+                title_hint.as_deref(),
             )
             .await
             .map_err(|retry_err| {
@@ -1976,6 +2024,9 @@ async fn try_slice_download_with_reuse(
 enum DownloadTerminalErrorCode {
     Cancelled,
     WatchdogHardStall,
+    YtdlpSpawnFailure,
+    PreciseGpuRequired,
+    PreciseSliceFailed,
     YtdlpExitFailure,
     YtdlpUnexpectedEnd,
 }
@@ -1985,6 +2036,9 @@ impl DownloadTerminalErrorCode {
         match self {
             Self::Cancelled => "E_DOWNLOAD_CANCELLED",
             Self::WatchdogHardStall => "E_WATCHDOG_HARD_STALL",
+            Self::YtdlpSpawnFailure => "E_YTDLP_SPAWN_FAILURE",
+            Self::PreciseGpuRequired => "E_PRECISE_GPU_REQUIRED",
+            Self::PreciseSliceFailed => "E_PRECISE_SLICE_FAILED",
             Self::YtdlpExitFailure => "E_YTDLP_EXIT_FAILURE",
             Self::YtdlpUnexpectedEnd => "E_YTDLP_UNEXPECTED_END",
         }
@@ -1997,6 +2051,20 @@ fn with_terminal_error_code(code: DownloadTerminalErrorCode, message: &str) -> S
     } else {
         format!("[{}] {}", code.as_str(), message.trim())
     }
+}
+
+fn emit_download_terminal_failure(
+    app: &AppHandle,
+    code: DownloadTerminalErrorCode,
+    message: &str,
+) -> DownloadResult {
+    let result = DownloadResult {
+        success: false,
+        file_path: None,
+        error: Some(with_terminal_error_code(code, message)),
+    };
+    let _ = app.emit("video-download-complete", result.clone());
+    result
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2085,6 +2153,10 @@ fn next_download_trace_id() -> String {
 
 fn is_cancelled_error(err: &str) -> bool {
     err.to_ascii_lowercase().contains("cancelled")
+}
+
+fn is_precise_gpu_required_error(err: &str) -> bool {
+    err.contains(PRECISE_GPU_REQUIRED_ERROR_MARKER)
 }
 
 fn log_download_trace(trace_id: &str, stage: &str, payload: serde_json::Value) {
@@ -2347,6 +2419,7 @@ async fn download_video_internal(
     url: String,
     extension_cookies_path: Option<PathBuf>,
     clip_range: Option<ClipTimeRange>,
+    source_title: Option<String>,
 ) -> Result<DownloadResult, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
@@ -2384,7 +2457,13 @@ async fn download_video_internal(
 
     if let Some(clip_range_ref) = clip_range.as_ref() {
         let cache_key = build_slice_source_cache_key(&url);
-        if should_attempt_slice_source_reuse(cache_key.as_str(), now_timestamp_ms()) {
+        let force_precise_gpu_pipeline = clip_download_mode == ClipDownloadMode::Precise;
+        let should_use_slice_cache_pipeline = force_precise_gpu_pipeline
+            || should_attempt_slice_source_reuse(cache_key.as_str(), now_timestamp_ms());
+        if force_precise_gpu_pipeline {
+            println!(">>> [Rust] Slice mode precise: strict GPU path enabled (no CPU fallback)");
+        }
+        if should_use_slice_cache_pipeline {
             match try_slice_download_with_reuse(
                 &app,
                 &url,
@@ -2395,6 +2474,7 @@ async fn download_video_internal(
                 rename_media_on_download,
                 clip_range_ref,
                 clip_download_mode,
+                source_title.clone(),
             )
             .await
             {
@@ -2426,6 +2506,17 @@ async fn download_video_internal(
                         let _ = app.emit("video-download-complete", result.clone());
                         return Ok(result);
                     }
+                    if force_precise_gpu_pipeline {
+                        cleanup_extension_cookies_file(&extension_cookies_path);
+                        cleanup_part_files_for_output_root(&output_dir);
+                        let error_code = if is_precise_gpu_required_error(err.as_str()) {
+                            DownloadTerminalErrorCode::PreciseGpuRequired
+                        } else {
+                            DownloadTerminalErrorCode::PreciseSliceFailed
+                        };
+                        let result = emit_download_terminal_failure(&app, error_code, err.as_str());
+                        return Ok(result);
+                    }
                     println!(
                         ">>> [Rust] Slice cache reuse failed, fallback to incremental slicing: {}",
                         err
@@ -2438,6 +2529,9 @@ async fn download_video_internal(
     let output_template = if rename_media_on_download {
         let rename_stem = get_next_rename_sequence_stem(&app, &mut config, &output_dir)?;
         output_dir.join(format!("{}.%(ext)s", rename_stem))
+    } else if let Some(range) = clip_range.as_ref() {
+        let prefix = build_clip_range_ms_prefix(range);
+        output_dir.join(format!("{}_%(title)s.%(ext)s", prefix))
     } else {
         output_dir.join("%(title)s.%(ext)s")
     };
@@ -2556,22 +2650,47 @@ async fn download_video_internal(
     let (mut rx, child) = match sidecar_spawn {
         Ok(result) => result,
         Err(sidecar_err) => {
-            let ytdlp_path = ytdlp_sidecar_path(&app)?;
+            let ytdlp_path = match ytdlp_sidecar_path(&app) {
+                Ok(path) => path,
+                Err(resolve_err) => {
+                    cleanup_extension_cookies_file(&extension_cookies_path);
+                    cleanup_part_files_for_output_root(&output_dir);
+                    let result = emit_download_terminal_failure(
+                        &app,
+                        DownloadTerminalErrorCode::YtdlpSpawnFailure,
+                        &format!(
+                            "Failed to resolve yt-dlp fallback path after sidecar spawn error: {}; {}",
+                            sidecar_err, resolve_err
+                        ),
+                    );
+                    return Ok(result);
+                }
+            };
             println!(
                 ">>> [Rust] yt-dlp sidecar spawn failed, trying fallback path {:?}: {}",
                 ytdlp_path, sidecar_err
             );
-            shell
+            match shell
                 .command(ytdlp_path.to_string_lossy().to_string())
                 .args(&args)
                 .env("PATH", &env_path)
                 .spawn()
-                .map_err(|fallback_err| {
-                    format!(
-                        "Failed to spawn yt-dlp via sidecar ({}) and fallback path {:?} ({})",
-                        sidecar_err, ytdlp_path, fallback_err
-                    )
-                })?
+            {
+                Ok(result) => result,
+                Err(fallback_err) => {
+                    cleanup_extension_cookies_file(&extension_cookies_path);
+                    cleanup_part_files_for_output_root(&output_dir);
+                    let result = emit_download_terminal_failure(
+                        &app,
+                        DownloadTerminalErrorCode::YtdlpSpawnFailure,
+                        &format!(
+                            "Failed to spawn yt-dlp via sidecar ({}) and fallback path {:?} ({})",
+                            sidecar_err, ytdlp_path, fallback_err
+                        ),
+                    );
+                    return Ok(result);
+                }
+            }
         }
     };
 
@@ -2892,13 +3011,23 @@ fn cleanup_part_files_in_dirs(dirs: &[PathBuf]) {
         if let Ok(entries) = fs::read_dir(output_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
+                let file_name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.to_ascii_lowercase())
+                    .unwrap_or_default();
                 let ext = path
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_lowercase();
 
-                if ext == "part" {
+                let is_part_artifact = ext == "part"
+                    || ext == "ytdl"
+                    || ext.starts_with("part-frag")
+                    || file_name.contains(".part-frag");
+
+                if is_part_artifact {
                     println!(">>> [Rust] Deleting temp file: {:?}", path);
                     let _ = fs::remove_file(&path);
                 }
@@ -2908,14 +3037,18 @@ fn cleanup_part_files_in_dirs(dirs: &[PathBuf]) {
 }
 
 fn cleanup_part_files_for_output_root(output_root: &Path) {
-    let dirs_to_check = vec![output_root.to_path_buf(), output_root.join("Videos")];
+    let dirs_to_check = vec![
+        output_root.to_path_buf(),
+        output_root.join("Videos"),
+        std::env::temp_dir().join(YTDLP_TEMP_DIR_NAME),
+    ];
     cleanup_part_files_in_dirs(&dirs_to_check);
 }
 
 /// Public command for downloading video (used by frontend paste/drag)
 #[tauri::command]
 async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, String> {
-    download_video_internal(app, url, None, None).await
+    download_video_internal(app, url, None, None, None).await
 }
 
 #[tauri::command]
@@ -2944,9 +3077,9 @@ async fn cancel_download(app: AppHandle) -> Result<bool, String> {
                         .join("FlowSelect_Received")
                 });
 
-            // Always check base dir, and also check legacy Videos subdir for cleanup compatibility.
+            cleanup_part_files_for_output_root(&base_output_dir);
+
             let dirs_to_check = vec![base_output_dir.clone(), base_output_dir.join("Videos")];
-            cleanup_part_files_in_dirs(&dirs_to_check);
 
             let now = std::time::SystemTime::now();
             let video_extensions = ["mp4", "webm", "mkv", "flv", "avi", "mov"];
@@ -3515,6 +3648,7 @@ async fn download_video_smart(
         url.clone(),
         extension_cookies_path.clone(),
         clip_range.clone(),
+        title.clone(),
     )
     .await
     {
@@ -3944,6 +4078,7 @@ struct YtdlpHeartbeatState {
     last_percent: Option<f32>,
     last_ffmpeg_time_seconds: Option<f64>,
     last_output_bytes: Option<u64>,
+    last_stage_status: Option<String>,
 }
 
 #[derive(Default)]
@@ -3961,6 +4096,39 @@ fn parse_ffmpeg_time_seconds(line: &str) -> Option<f64> {
     let minutes = captures.get(2)?.as_str().parse::<f64>().ok()?;
     let seconds = captures.get(3)?.as_str().parse::<f64>().ok()?;
     Some(hours * 3600.0 + minutes * 60.0 + seconds)
+}
+
+fn strip_ansi_escape_sequences(raw: &str) -> String {
+    static ANSI_ESCAPE_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\x1B\[[0-?]*[ -/]*[@-~]").expect("invalid ansi escape regex")
+    });
+    ANSI_ESCAPE_RE.replace_all(raw, "").into_owned()
+}
+
+fn infer_ytdlp_stage_status(stage: DownloadProgressStage, line: &str) -> String {
+    let lower = line.to_ascii_lowercase();
+    match stage {
+        DownloadProgressStage::Preparing => {
+            if lower.contains("downloading webpage")
+                || lower.contains("downloading player")
+                || lower.contains("extracting")
+                || lower.contains("extractor")
+            {
+                "Extracting metadata...".to_string()
+            } else {
+                "Preparing download...".to_string()
+            }
+        }
+        DownloadProgressStage::Downloading => {
+            if lower.contains("[download] destination") {
+                "Starting media transfer...".to_string()
+            } else {
+                DownloadProgressStage::Downloading.label().to_string()
+            }
+        }
+        DownloadProgressStage::Merging => "Merging audio/video...".to_string(),
+        DownloadProgressStage::PostProcessing => "Finalizing output...".to_string(),
+    }
 }
 
 fn mark_hard_heartbeat_from_output_growth(
@@ -4018,49 +4186,66 @@ fn process_ytdlp_output_line(
 ) -> YtdlpHeartbeatEvent {
     let mut heartbeat_event = YtdlpHeartbeatEvent::default();
 
-    if let Some(progress) = parse_progress(line) {
-        if heartbeat_state
-            .last_percent
-            .map(|last_percent| progress.percent > last_percent + f32::EPSILON)
-            .unwrap_or(true)
-        {
-            heartbeat_event.hard_heartbeat = true;
+    for raw_segment in line.replace('\r', "\n").lines() {
+        let normalized_line = strip_ansi_escape_sequences(raw_segment);
+        let normalized_line = normalized_line.trim();
+        if normalized_line.is_empty() {
+            continue;
         }
-        heartbeat_state.last_percent = Some(progress.percent);
-        let _ = app.emit("video-download-progress", progress);
-        *last_stage = DownloadProgressStage::Downloading;
-    } else if let Some(stage) = infer_ytdlp_stage(line) {
-        if *last_stage != stage {
-            let _ = app.emit(
-                "video-download-progress",
-                DownloadProgress {
-                    percent: -1.0,
-                    stage,
-                    speed: stage.label().to_string(),
-                    eta: "".to_string(),
-                },
-            );
+
+        if let Some(progress) = parse_progress(normalized_line) {
+            if heartbeat_state
+                .last_percent
+                .map(|last_percent| progress.percent > last_percent + f32::EPSILON)
+                .unwrap_or(true)
+            {
+                heartbeat_event.hard_heartbeat = true;
+            }
+            heartbeat_state.last_percent = Some(progress.percent);
+            heartbeat_state.last_stage_status = None;
+            let _ = app.emit("video-download-progress", progress);
+            *last_stage = DownloadProgressStage::Downloading;
+        } else if let Some(stage) = infer_ytdlp_stage(normalized_line) {
+            let stage_status = infer_ytdlp_stage_status(stage, normalized_line);
+            let should_emit = *last_stage != stage
+                || heartbeat_state
+                    .last_stage_status
+                    .as_deref()
+                    .map(|last_status| last_status != stage_status.as_str())
+                    .unwrap_or(true);
+            if should_emit {
+                let _ = app.emit(
+                    "video-download-progress",
+                    DownloadProgress {
+                        percent: -1.0,
+                        stage,
+                        speed: stage_status.clone(),
+                        eta: "".to_string(),
+                    },
+                );
+            }
             *last_stage = stage;
+            heartbeat_state.last_stage_status = Some(stage_status);
+            heartbeat_event.soft_heartbeat = true;
         }
-        heartbeat_event.soft_heartbeat = true;
-    }
 
-    if let Some(ffmpeg_time_seconds) = parse_ffmpeg_time_seconds(line) {
-        if heartbeat_state
-            .last_ffmpeg_time_seconds
-            .map(|last_time| ffmpeg_time_seconds > last_time + 0.01)
-            .unwrap_or(true)
-        {
-            heartbeat_event.hard_heartbeat = true;
+        if let Some(ffmpeg_time_seconds) = parse_ffmpeg_time_seconds(normalized_line) {
+            if heartbeat_state
+                .last_ffmpeg_time_seconds
+                .map(|last_time| ffmpeg_time_seconds > last_time + 0.01)
+                .unwrap_or(true)
+            {
+                heartbeat_event.hard_heartbeat = true;
+            }
+            heartbeat_state.last_ffmpeg_time_seconds = Some(ffmpeg_time_seconds);
         }
-        heartbeat_state.last_ffmpeg_time_seconds = Some(ffmpeg_time_seconds);
-    }
 
-    if let Some(path) = capture_ytdlp_file_path(line) {
-        if last_file_path.as_deref() != Some(path.as_str()) {
-            heartbeat_state.last_output_bytes = None;
+        if let Some(path) = capture_ytdlp_file_path(normalized_line) {
+            if last_file_path.as_deref() != Some(path.as_str()) {
+                heartbeat_state.last_output_bytes = None;
+            }
+            *last_file_path = Some(path);
         }
-        *last_file_path = Some(path);
     }
 
     heartbeat_event

@@ -91,12 +91,26 @@ const getDownloadStatusText = (
 ): string => {
   const effectiveStage = stage ?? progress.stage;
   const stageLabel = DOWNLOAD_STAGE_LABEL[effectiveStage];
+  const speedText = progress.speed.trim();
+  const etaText = progress.eta.trim();
+  const hasEta = etaText.length > 0 && etaText !== "N/A";
+
   if (effectiveStage !== "downloading") {
+    if (speedText && speedText !== stageLabel) {
+      return speedText;
+    }
     return stageLabel;
   }
-  const speedText = progress.speed.trim();
+
   if (!speedText || speedText === stageLabel) {
+    if (hasEta) {
+      return `${stageLabel} ETA ${etaText}`;
+    }
     return stageLabel;
+  }
+
+  if (hasEta) {
+    return `${stageLabel} ${speedText} · ETA ${etaText}`;
   }
   return `${stageLabel} ${speedText}`;
 };
