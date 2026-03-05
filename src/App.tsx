@@ -1378,7 +1378,11 @@ function App() {
                 {downloadProgress.percent < 0 ? '...' : `${Math.round(downloadProgress.percent)}%`}
               </span>
             </div>
-            <span style={{ fontSize: 10, color: colors.progressSpeedText, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>{downloadProgress.speed}</span>
+            {downloadProgress.speed !== 'yt-dlp' ? (
+              <span style={{ fontSize: 10, color: colors.progressSpeedText, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>
+                {downloadProgress.speed}
+              </span>
+            ) : null}
             {/* Cancel download button */}
             <button
               onClick={async () => {
