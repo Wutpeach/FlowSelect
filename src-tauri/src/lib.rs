@@ -1,6 +1,7 @@
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::net::SocketAddr;
 #[cfg(unix)]
@@ -103,6 +104,13 @@ struct DirectCandidateCacheEntry {
     expires_at_ms: u128,
 }
 
+#[derive(Clone, Debug)]
+struct SliceSourceCacheEntry {
+    source_path: PathBuf,
+    size_bytes: u64,
+    last_used_at_ms: u128,
+}
+
 // Store current download process PID
 static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
 
@@ -112,15 +120,27 @@ static DOWNLOAD_CANCELLED: Mutex<bool> = Mutex::new(false);
 static DOWNLOAD_TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
 static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCacheEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static SLICE_SOURCE_CACHE: LazyLock<Mutex<HashMap<String, SliceSourceCacheEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static SLICE_REQUEST_HISTORY: LazyLock<Mutex<HashMap<String, u128>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 static PRECISE_CLIP_HW_ENCODER_CACHE: LazyLock<Mutex<Option<Option<String>>>> =
     LazyLock::new(|| Mutex::new(None));
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
+const SLICE_SOURCE_CACHE_TRIGGER_WINDOW_MS: u128 = 8 * 60 * 1000;
+const SLICE_SOURCE_CACHE_TTL_MS: u128 = 30 * 60 * 1000;
+const SLICE_SOURCE_CACHE_SIZE_CAP_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+const SLICE_SOURCE_CACHE_MAX_ENTRIES: usize = 12;
+const SLICE_SOURCE_CACHE_MIN_VALID_BYTES: u64 = 2 * 1024 * 1024;
+const SLICE_SOURCE_CACHE_DIR_NAME: &str = "flowselect-slice-cache";
 const YTDLP_HARD_HEARTBEAT_TIMEOUT_SECS: u64 = 90;
 const YTDLP_SOFT_HEARTBEAT_GRACE_SECS: u64 = 20;
 const YTDLP_WATCHDOG_TICK_MILLIS: u64 = 1500;
 const YTDLP_TERMINATION_GRACE_MILLIS: u64 = 2500;
 const YTDLP_TEMP_DIR_NAME: &str = "flowselect-ytdlp-temp";
+const YTDLP_FORMAT_SELECTOR: &str =
+    "bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[vcodec^=avc1][ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best";
 const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
 const RENAME_RULE_PRESET_KEY: &str = "renameRulePreset";
 const RENAME_PREFIX_KEY: &str = "renamePrefix";
@@ -462,6 +482,23 @@ fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
         .into_iter()
         .next()
         .ok_or_else(|| "Failed to resolve deno runtime path candidates".to_string())
+}
+
+fn build_env_path_with_deno(app: &AppHandle) -> String {
+    let mut env_path = std::env::var("PATH").unwrap_or_default();
+    if let Ok(deno_path) = get_deno_path(app) {
+        if let Some(deno_dir) = deno_path.parent() {
+            if deno_path.exists() {
+                #[cfg(target_os = "windows")]
+                let separator = ";";
+                #[cfg(not(target_os = "windows"))]
+                let separator = ":";
+                env_path = format!("{}{}{}", deno_dir.to_string_lossy(), separator, env_path);
+                println!(">>> [Rust] Added Deno to PATH: {:?}", deno_dir);
+            }
+        }
+    }
+    env_path
 }
 
 #[tauri::command]
@@ -1286,6 +1323,213 @@ impl ClipDownloadMode {
     }
 }
 
+fn normalize_slice_reuse_url_key(raw_url: &str) -> String {
+    if let Ok(parsed) = url::Url::parse(raw_url) {
+        let host = parsed
+            .host_str()
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_default();
+        let path = parsed.path().trim_end_matches('/').to_string();
+
+        if host.contains("youtube.com") {
+            let video_id = parsed
+                .query_pairs()
+                .find(|(key, _)| key == "v")
+                .map(|(_, value)| value.to_string())
+                .unwrap_or(path);
+            return format!("youtube::{}", video_id);
+        }
+
+        if host.contains("youtu.be") {
+            let video_id = parsed
+                .path_segments()
+                .and_then(|segments| segments.filter(|segment| !segment.is_empty()).next_back())
+                .unwrap_or_default()
+                .to_string();
+            return format!("youtube::{}", video_id);
+        }
+
+        if host.is_empty() {
+            return raw_url.trim().to_string();
+        }
+
+        return format!("{}::{}", host, path);
+    }
+
+    raw_url.trim().to_string()
+}
+
+fn build_slice_source_cache_key(url: &str) -> String {
+    format!(
+        "{}::{}",
+        normalize_slice_reuse_url_key(url),
+        YTDLP_FORMAT_SELECTOR
+    )
+}
+
+fn slice_source_cache_dir() -> PathBuf {
+    std::env::temp_dir().join(SLICE_SOURCE_CACHE_DIR_NAME)
+}
+
+fn slice_source_cache_path_for_key(cache_key: &str) -> PathBuf {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    cache_key.hash(&mut hasher);
+    let hash = hasher.finish();
+    slice_source_cache_dir().join(format!("src-{:016x}.mp4", hash))
+}
+
+fn slice_cache_file_size_if_valid(path: &Path) -> Option<u64> {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let size = metadata.len();
+    if size < SLICE_SOURCE_CACHE_MIN_VALID_BYTES {
+        return None;
+    }
+    Some(size)
+}
+
+fn prune_slice_source_cache(now_ms: u128) {
+    let mut cache = SLICE_SOURCE_CACHE.lock().unwrap();
+    let mut stale: Vec<(String, PathBuf)> = Vec::new();
+
+    for (key, entry) in cache.iter_mut() {
+        let expired = now_ms.saturating_sub(entry.last_used_at_ms) > SLICE_SOURCE_CACHE_TTL_MS;
+        if expired {
+            stale.push((key.clone(), entry.source_path.clone()));
+            continue;
+        }
+
+        if let Some(size) = slice_cache_file_size_if_valid(&entry.source_path) {
+            entry.size_bytes = size;
+        } else {
+            stale.push((key.clone(), entry.source_path.clone()));
+        }
+    }
+
+    for (key, path) in stale {
+        cache.remove(&key);
+        let _ = fs::remove_file(path);
+    }
+
+    let mut total_size = cache.values().map(|entry| entry.size_bytes).sum::<u64>();
+    let mut ordered: Vec<(String, u128, u64, PathBuf)> = cache
+        .iter()
+        .map(|(key, entry)| {
+            (
+                key.clone(),
+                entry.last_used_at_ms,
+                entry.size_bytes,
+                entry.source_path.clone(),
+            )
+        })
+        .collect();
+    ordered.sort_by_key(|(_, last_used, _, _)| *last_used);
+
+    for (key, _, size, path) in ordered {
+        let over_size = total_size > SLICE_SOURCE_CACHE_SIZE_CAP_BYTES;
+        let over_count = cache.len() > SLICE_SOURCE_CACHE_MAX_ENTRIES;
+        if !over_size && !over_count {
+            break;
+        }
+
+        if cache.remove(&key).is_some() {
+            total_size = total_size.saturating_sub(size);
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    drop(cache);
+
+    let mut history = SLICE_REQUEST_HISTORY.lock().unwrap();
+    history.retain(|_, last_seen| {
+        now_ms.saturating_sub(*last_seen) <= SLICE_SOURCE_CACHE_TRIGGER_WINDOW_MS
+    });
+}
+
+fn invalidate_slice_source_cache(cache_key: &str) {
+    let mut cache = SLICE_SOURCE_CACHE.lock().unwrap();
+    if let Some(entry) = cache.remove(cache_key) {
+        let _ = fs::remove_file(entry.source_path);
+    }
+}
+
+fn get_slice_source_cache_path(cache_key: &str, now_ms: u128) -> Option<PathBuf> {
+    let mut stale_path: Option<PathBuf> = None;
+    let mut cache = SLICE_SOURCE_CACHE.lock().unwrap();
+
+    let cache_hit = if let Some(entry) = cache.get_mut(cache_key) {
+        if let Some(size) = slice_cache_file_size_if_valid(&entry.source_path) {
+            entry.size_bytes = size;
+            entry.last_used_at_ms = now_ms;
+            Some(entry.source_path.clone())
+        } else {
+            stale_path = Some(entry.source_path.clone());
+            None
+        }
+    } else {
+        None
+    };
+
+    if cache_hit.is_none() && stale_path.is_some() {
+        cache.remove(cache_key);
+    }
+
+    drop(cache);
+    if let Some(path) = stale_path {
+        let _ = fs::remove_file(path);
+    }
+
+    cache_hit
+}
+
+fn should_attempt_slice_source_reuse(cache_key: &str, now_ms: u128) -> bool {
+    prune_slice_source_cache(now_ms);
+
+    if get_slice_source_cache_path(cache_key, now_ms).is_some() {
+        println!(
+            ">>> [Rust] Slice cache hit for key {}, reuse enabled immediately",
+            cache_key
+        );
+        return true;
+    }
+
+    let mut history = SLICE_REQUEST_HISTORY.lock().unwrap();
+    let should_reuse = history.get(cache_key).is_some_and(|last_seen| {
+        now_ms.saturating_sub(*last_seen) <= SLICE_SOURCE_CACHE_TRIGGER_WINDOW_MS
+    });
+    history.insert(cache_key.to_string(), now_ms);
+    if should_reuse {
+        println!(
+            ">>> [Rust] Slice cache reuse triggered for repeated key {}",
+            cache_key
+        );
+    }
+    should_reuse
+}
+
+fn upsert_slice_source_cache(
+    cache_key: &str,
+    source_path: PathBuf,
+    now_ms: u128,
+) -> Result<(), String> {
+    let size_bytes = slice_cache_file_size_if_valid(&source_path)
+        .ok_or_else(|| format!("Slice cache source invalid: {:?}", source_path))?;
+    let mut cache = SLICE_SOURCE_CACHE.lock().unwrap();
+    cache.insert(
+        cache_key.to_string(),
+        SliceSourceCacheEntry {
+            source_path,
+            size_bytes,
+            last_used_at_ms: now_ms,
+        },
+    );
+    drop(cache);
+    prune_slice_source_cache(now_ms);
+    Ok(())
+}
+
 fn precise_clip_hw_encoder_candidates() -> &'static [&'static str] {
     #[cfg(target_os = "windows")]
     {
@@ -1357,6 +1601,375 @@ fn resolve_precise_clip_hw_encoder() -> Option<String> {
     }
     *cache_guard = Some(detected.clone());
     detected
+}
+
+async fn download_full_source_to_slice_cache(
+    app: &AppHandle,
+    url: &str,
+    extension_cookies_path: &Option<PathBuf>,
+    cache_path: &Path,
+) -> Result<PathBuf, String> {
+    use tauri_plugin_shell::process::CommandEvent;
+
+    println!(">>> [Rust] Slice cache source download start: {}", url);
+    let ytdlp_temp_dir = std::env::temp_dir().join(YTDLP_TEMP_DIR_NAME);
+    fs::create_dir_all(&ytdlp_temp_dir)
+        .map_err(|e| format!("Failed to create yt-dlp temp directory: {}", e))?;
+    if let Some(parent) = cache_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create slice cache dir: {}", e))?;
+    }
+    if cache_path.exists() {
+        let _ = fs::remove_file(cache_path);
+    }
+
+    let mut args = vec![
+        "-f".to_string(),
+        YTDLP_FORMAT_SELECTOR.to_string(),
+        "--merge-output-format".to_string(),
+        "mp4".to_string(),
+        "--no-keep-video".to_string(),
+        "-S".to_string(),
+        "ext:mp4:m4a".to_string(),
+        "--newline".to_string(),
+        "--progress".to_string(),
+        "--extractor-args".to_string(),
+        "youtube:player_js_variant=tv".to_string(),
+        "--js-runtimes".to_string(),
+        "node".to_string(),
+        "--js-runtimes".to_string(),
+        "deno".to_string(),
+        "--remote-components".to_string(),
+        "ejs:github".to_string(),
+        "--paths".to_string(),
+        format!("temp:{}", ytdlp_temp_dir.to_string_lossy()),
+        "-o".to_string(),
+        cache_path.to_string_lossy().to_string(),
+    ];
+    if let Some(cookies_path) = extension_cookies_path {
+        if cookies_path.exists() {
+            args.push("--cookies".to_string());
+            args.push(cookies_path.to_string_lossy().to_string());
+        }
+    }
+    args.push(url.to_string());
+
+    let env_path = build_env_path_with_deno(app);
+    let shell = app.shell();
+    let sidecar_spawn = shell
+        .sidecar("yt-dlp")
+        .and_then(|command| command.args(&args).env("PATH", &env_path).spawn());
+    let (mut rx, child) = match sidecar_spawn {
+        Ok(result) => result,
+        Err(sidecar_err) => {
+            let ytdlp_path = ytdlp_sidecar_path(app)?;
+            println!(
+                ">>> [Rust] Slice cache sidecar spawn failed, trying fallback path {:?}: {}",
+                ytdlp_path, sidecar_err
+            );
+            shell
+                .command(ytdlp_path.to_string_lossy().to_string())
+                .args(&args)
+                .env("PATH", &env_path)
+                .spawn()
+                .map_err(|fallback_err| {
+                    format!(
+                        "Failed to spawn yt-dlp for slice cache via sidecar ({}) and fallback path {:?} ({})",
+                        sidecar_err, ytdlp_path, fallback_err
+                    )
+                })?
+        }
+    };
+    *DOWNLOAD_CHILD.lock().unwrap() = Some(child.pid());
+
+    let mut stderr_buffer = String::new();
+    let mut last_file_path = Some(cache_path.to_string_lossy().to_string());
+    let mut last_stage = DownloadProgressStage::Preparing;
+    let mut heartbeat_state = YtdlpHeartbeatState::default();
+    let mut last_hard_heartbeat_at = std::time::Instant::now();
+    let mut last_soft_heartbeat_at = Some(std::time::Instant::now());
+
+    loop {
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(YTDLP_WATCHDOG_TICK_MILLIS),
+            rx.recv(),
+        )
+        .await
+        {
+            Ok(Some(event)) => match event {
+                CommandEvent::Stdout(line) => {
+                    let line_str = String::from_utf8_lossy(&line);
+                    println!(">>> [yt-dlp cache] {}", line_str);
+                    let heartbeat_event = process_ytdlp_output_line(
+                        app,
+                        &line_str,
+                        &mut last_file_path,
+                        &mut last_stage,
+                        &mut heartbeat_state,
+                    );
+                    let now = std::time::Instant::now();
+                    if heartbeat_event.hard_heartbeat {
+                        last_hard_heartbeat_at = now;
+                        last_soft_heartbeat_at = None;
+                    }
+                    if heartbeat_event.soft_heartbeat {
+                        last_soft_heartbeat_at = Some(now);
+                    }
+                }
+                CommandEvent::Stderr(line) => {
+                    let line_str = String::from_utf8_lossy(&line);
+                    println!(">>> [yt-dlp cache stderr] {}", line_str);
+                    stderr_buffer.push_str(&line_str);
+                    stderr_buffer.push('\n');
+                    let heartbeat_event = process_ytdlp_output_line(
+                        app,
+                        &line_str,
+                        &mut last_file_path,
+                        &mut last_stage,
+                        &mut heartbeat_state,
+                    );
+                    let now = std::time::Instant::now();
+                    if heartbeat_event.hard_heartbeat {
+                        last_hard_heartbeat_at = now;
+                        last_soft_heartbeat_at = None;
+                    }
+                    if heartbeat_event.soft_heartbeat {
+                        last_soft_heartbeat_at = Some(now);
+                    }
+                }
+                CommandEvent::Terminated(payload) => {
+                    *DOWNLOAD_CHILD.lock().unwrap() = None;
+                    if payload.code == Some(0) {
+                        if slice_cache_file_size_if_valid(cache_path).is_some() {
+                            return Ok(cache_path.to_path_buf());
+                        }
+                        return Err(format!(
+                            "Slice cache source invalid after download: {:?}",
+                            cache_path
+                        ));
+                    }
+
+                    let message = stderr_buffer
+                        .lines()
+                        .map(str::trim)
+                        .find(|line| !line.is_empty())
+                        .map(|line| line.to_string())
+                        .unwrap_or_else(|| format!("yt-dlp exited with code {:?}", payload.code));
+                    return Err(format!("Slice cache source download failed: {}", message));
+                }
+                _ => {}
+            },
+            Ok(None) => break,
+            Err(_) => {}
+        }
+
+        if *DOWNLOAD_CANCELLED.lock().unwrap() {
+            kill_download_child_process();
+            return Err("Download cancelled".to_string());
+        }
+
+        let now = std::time::Instant::now();
+        if mark_hard_heartbeat_from_output_growth(&last_file_path, &mut heartbeat_state) {
+            last_hard_heartbeat_at = now;
+            last_soft_heartbeat_at = None;
+        }
+        if is_watchdog_timeout_candidate(last_hard_heartbeat_at, last_soft_heartbeat_at, now) {
+            terminate_download_child_process_with_grace().await;
+            return Err("Slice cache source download stalled".to_string());
+        }
+    }
+
+    *DOWNLOAD_CHILD.lock().unwrap() = None;
+    Err("Slice cache source download ended unexpectedly".to_string())
+}
+
+async fn ensure_slice_source_cache(
+    app: &AppHandle,
+    url: &str,
+    extension_cookies_path: &Option<PathBuf>,
+    cache_key: &str,
+) -> Result<PathBuf, String> {
+    let now_ms = now_timestamp_ms();
+    if let Some(path) = get_slice_source_cache_path(cache_key, now_ms) {
+        println!(">>> [Rust] Slice cache source reuse hit: {:?}", path);
+        return Ok(path);
+    }
+
+    let cache_path = slice_source_cache_path_for_key(cache_key);
+    let downloaded_path =
+        download_full_source_to_slice_cache(app, url, extension_cookies_path, &cache_path).await?;
+    upsert_slice_source_cache(cache_key, downloaded_path.clone(), now_timestamp_ms())?;
+    Ok(downloaded_path)
+}
+
+async fn slice_cached_source_to_output(
+    app: &AppHandle,
+    source_path: &Path,
+    output_dir: &Path,
+    config: &mut serde_json::Value,
+    rename_media_on_download: bool,
+    clip_range: &ClipTimeRange,
+    clip_mode: ClipDownloadMode,
+) -> Result<String, String> {
+    if slice_cache_file_size_if_valid(source_path).is_none() {
+        return Err(format!("Slice cache source is invalid: {:?}", source_path));
+    }
+
+    let output_path = if rename_media_on_download {
+        build_rename_sequence_file_path(app, config, output_dir, "mp4")?
+    } else {
+        let source_name = source_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("slice-source.mp4");
+        build_source_name_file_path(output_dir, source_name, "mp4")
+            .unwrap_or(build_sequence_file_path(output_dir, "mp4")?)
+    };
+
+    let _ = app.emit(
+        "video-download-progress",
+        DownloadProgress {
+            percent: -1.0,
+            stage: DownloadProgressStage::PostProcessing,
+            speed: "Slicing from local cache...".to_string(),
+            eta: "".to_string(),
+        },
+    );
+
+    let start = format_seconds_for_download_section(clip_range.start_seconds);
+    let end = format_seconds_for_download_section(clip_range.end_seconds);
+    let source_str = source_path.to_string_lossy().to_string();
+    let output_str = output_path.to_string_lossy().to_string();
+    let mut ffmpeg_args = vec![
+        "-y".to_string(),
+        "-hide_banner".to_string(),
+        "-loglevel".to_string(),
+        "error".to_string(),
+    ];
+
+    if clip_mode == ClipDownloadMode::Fast {
+        ffmpeg_args.extend_from_slice(&[
+            "-ss".to_string(),
+            start,
+            "-to".to_string(),
+            end,
+            "-i".to_string(),
+            source_str,
+            "-c".to_string(),
+            "copy".to_string(),
+        ]);
+    } else {
+        ffmpeg_args.extend_from_slice(&[
+            "-i".to_string(),
+            source_str,
+            "-ss".to_string(),
+            start,
+            "-to".to_string(),
+            end,
+        ]);
+        if let Some(encoder) = resolve_precise_clip_hw_encoder() {
+            ffmpeg_args.extend_from_slice(&[
+                "-c:v".to_string(),
+                encoder,
+                "-c:a".to_string(),
+                "copy".to_string(),
+            ]);
+        } else {
+            ffmpeg_args.extend_from_slice(&[
+                "-c:v".to_string(),
+                "libx264".to_string(),
+                "-preset".to_string(),
+                "veryfast".to_string(),
+                "-c:a".to_string(),
+                "copy".to_string(),
+            ]);
+        }
+    }
+    ffmpeg_args.push(output_str.clone());
+
+    let ffmpeg_output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("ffmpeg")
+            .args(ffmpeg_args)
+            .output()
+    })
+    .await
+    .map_err(|e| format!("Failed to await ffmpeg slicing task: {}", e))?
+    .map_err(|e| format!("Failed to spawn ffmpeg for cached slicing: {}", e))?;
+
+    if !ffmpeg_output.status.success() {
+        let stderr_message = String::from_utf8_lossy(&ffmpeg_output.stderr)
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(|line| line.to_string())
+            .unwrap_or_else(|| format!("ffmpeg exited with status {}", ffmpeg_output.status));
+        return Err(format!("Cached slicing failed: {}", stderr_message));
+    }
+
+    if slice_cache_file_size_if_valid(&output_path).is_none() {
+        return Err(format!(
+            "Cached slicing produced invalid output: {:?}",
+            output_path
+        ));
+    }
+
+    Ok(output_str)
+}
+
+async fn try_slice_download_with_reuse(
+    app: &AppHandle,
+    url: &str,
+    extension_cookies_path: &Option<PathBuf>,
+    cache_key: &str,
+    output_dir: &Path,
+    config: &mut serde_json::Value,
+    rename_media_on_download: bool,
+    clip_range: &ClipTimeRange,
+    clip_mode: ClipDownloadMode,
+) -> Result<String, String> {
+    let source_path =
+        ensure_slice_source_cache(app, url, extension_cookies_path, cache_key).await?;
+    match slice_cached_source_to_output(
+        app,
+        &source_path,
+        output_dir,
+        config,
+        rename_media_on_download,
+        clip_range,
+        clip_mode,
+    )
+    .await
+    {
+        Ok(path) => Ok(path),
+        Err(first_err) => {
+            if is_cancelled_error(first_err.as_str()) {
+                return Err(first_err);
+            }
+            println!(
+                ">>> [Rust] Slice cache output failed, refreshing cache source once: {}",
+                first_err
+            );
+            invalidate_slice_source_cache(cache_key);
+            let refreshed_source =
+                ensure_slice_source_cache(app, url, extension_cookies_path, cache_key).await?;
+            slice_cached_source_to_output(
+                app,
+                &refreshed_source,
+                output_dir,
+                config,
+                rename_media_on_download,
+                clip_range,
+                clip_mode,
+            )
+            .await
+            .map_err(|retry_err| {
+                format!(
+                    "Slice cache retry failed (first: {}; retry: {})",
+                    first_err, retry_err
+                )
+            })
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1769,6 +2382,59 @@ async fn download_video_internal(
     let rename_media_on_download = is_rename_media_enabled(&config);
     let clip_download_mode = ClipDownloadMode::from_config(&config);
 
+    if let Some(clip_range_ref) = clip_range.as_ref() {
+        let cache_key = build_slice_source_cache_key(&url);
+        if should_attempt_slice_source_reuse(cache_key.as_str(), now_timestamp_ms()) {
+            match try_slice_download_with_reuse(
+                &app,
+                &url,
+                &extension_cookies_path,
+                cache_key.as_str(),
+                &output_dir,
+                &mut config,
+                rename_media_on_download,
+                clip_range_ref,
+                clip_download_mode,
+            )
+            .await
+            {
+                Ok(file_path) => {
+                    cleanup_extension_cookies_file(&extension_cookies_path);
+                    let result = DownloadResult {
+                        success: true,
+                        file_path: Some(file_path.clone()),
+                        error: None,
+                    };
+                    let _ = app.emit("video-download-complete", result.clone());
+                    let app_for_ae = app.clone();
+                    tokio::spawn(async move {
+                        let _ = send_to_ae(app_for_ae, file_path).await;
+                    });
+                    return Ok(result);
+                }
+                Err(err) => {
+                    if is_cancelled_error(err.as_str()) {
+                        cleanup_extension_cookies_file(&extension_cookies_path);
+                        let result = DownloadResult {
+                            success: false,
+                            file_path: None,
+                            error: Some(with_terminal_error_code(
+                                DownloadTerminalErrorCode::Cancelled,
+                                "Download cancelled",
+                            )),
+                        };
+                        let _ = app.emit("video-download-complete", result.clone());
+                        return Ok(result);
+                    }
+                    println!(
+                        ">>> [Rust] Slice cache reuse failed, fallback to incremental slicing: {}",
+                        err
+                    );
+                }
+            }
+        }
+    }
+
     let output_template = if rename_media_on_download {
         let rename_stem = get_next_rename_sequence_stem(&app, &mut config, &output_dir)?;
         output_dir.join(format!("{}.%(ext)s", rename_stem))
@@ -1783,7 +2449,7 @@ async fn download_video_internal(
     // Build args
     let mut args = vec![
         "-f".to_string(),
-        "bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[vcodec^=avc1][ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best".to_string(),
+        YTDLP_FORMAT_SELECTOR.to_string(),
         "--merge-output-format".to_string(),
         "mp4".to_string(),
         "--no-keep-video".to_string(),
