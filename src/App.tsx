@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
@@ -43,6 +43,12 @@ const resolveRenameMediaEnabled = (config: Record<string, unknown>): boolean => 
     return !config.videoKeepOriginalName;
   }
   return false;
+};
+
+type YtdlpVersionInfo = {
+  current: string;
+  latest: string;
+  updateAvailable: boolean;
 };
 
 // Cat icon for minimized state
@@ -89,11 +95,7 @@ function App() {
     speed: string;
     eta: string;
   } | null>(null);
-  const [ytdlpUpdate, setYtdlpUpdate] = useState<{
-    current: string;
-    latest: string;
-    updateAvailable: boolean;
-  } | null>(null);
+  const [ytdlpUpdate, setYtdlpUpdate] = useState<YtdlpVersionInfo | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -264,6 +266,17 @@ function App() {
       setOutputPath(config.outputPath);
     }
     setRenameMediaOnDownload(resolveRenameMediaEnabled(config));
+  }, []);
+
+  const refreshYtdlpVersion = useCallback(async () => {
+    try {
+      console.log(">>> Checking yt-dlp version...");
+      const result = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
+      console.log(">>> yt-dlp version check result:", result);
+      setYtdlpUpdate(result.updateAvailable ? result : null);
+    } catch (err) {
+      console.error(">>> yt-dlp version check failed:", err);
+    }
   }, []);
 
   // Load config on mount
@@ -498,18 +511,19 @@ function App() {
 
   // Check yt-dlp version on startup
   useEffect(() => {
-    console.log(">>> Checking yt-dlp version...");
-    invoke<{ current: string; latest: string; updateAvailable: boolean }>("check_ytdlp_version")
-      .then((result) => {
-        console.log(">>> yt-dlp version check result:", result);
-        if (result.updateAvailable) {
-          setYtdlpUpdate(result);
-        }
-      })
-      .catch((err) => {
-        console.error(">>> yt-dlp version check failed:", err);
-      });
-  }, []);
+    void refreshYtdlpVersion();
+  }, [refreshYtdlpVersion]);
+
+  // Sync yt-dlp version status with settings window updates
+  useEffect(() => {
+    const unlisten = listen<{ source: "main" | "settings" }>("ytdlp-version-refresh", (event) => {
+      if (event.payload.source === "main") {
+        return;
+      }
+      void refreshYtdlpVersion();
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, [refreshYtdlpVersion]);
 
   // Block F12 if devMode is disabled
   useEffect(() => {
@@ -1068,12 +1082,14 @@ function App() {
   const handleYtdlpUpdate = async () => {
     setIsUpdating(true);
     try {
-      await invoke("update_ytdlp");
-      setYtdlpUpdate(null);
+      await invoke<string>("update_ytdlp");
+      await emit("ytdlp-version-refresh", { source: "main" });
+      await refreshYtdlpVersion();
     } catch (err) {
       console.error("Failed to update yt-dlp:", err);
+    } finally {
+      setIsUpdating(false);
     }
-    setIsUpdating(false);
   };
 
   // 右键菜单

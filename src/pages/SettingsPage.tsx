@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
@@ -9,6 +9,11 @@ import { NeonButton } from "../components/ui/neon-button";
 import { useTheme } from "../contexts/ThemeContext";
 
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
+type YtdlpVersionInfo = {
+  current: string;
+  latest: string;
+  updateAvailable: boolean;
+};
 
 const DEFAULT_RENAME_RULE_PRESET: RenameRulePreset = "desc_number";
 const RENAME_RULE_PRESET_OPTIONS: Array<{ value: RenameRulePreset; label: string }> = [
@@ -121,13 +126,39 @@ function SettingsPage() {
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
   const [versionTapHint, setVersionTapHint] = useState("");
+  const [ytdlpInfo, setYtdlpInfo] = useState<YtdlpVersionInfo | null>(null);
+  const [isUpdatingYtdlp, setIsUpdatingYtdlp] = useState(false);
+  const [ytdlpHint, setYtdlpHint] = useState("");
   const [renamePresetMenuOpen, setRenamePresetMenuOpen] = useState(false);
   const [hoveredRenamePreset, setHoveredRenamePreset] = useState<RenameRulePreset | null>(null);
   const versionTapCountRef = useRef(0);
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ytdlpHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const devModeToggleInFlightRef = useRef(false);
   const renamePresetMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const showYtdlpHint = useCallback((message: string) => {
+    setYtdlpHint(message);
+    if (ytdlpHintTimerRef.current) {
+      clearTimeout(ytdlpHintTimerRef.current);
+    }
+    ytdlpHintTimerRef.current = setTimeout(() => {
+      setYtdlpHint("");
+      ytdlpHintTimerRef.current = null;
+    }, 2000);
+  }, []);
+
+  const refreshYtdlpVersion = useCallback(async () => {
+    try {
+      const versionInfo = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
+      setYtdlpInfo(versionInfo);
+    } catch (err) {
+      console.error("Failed to check yt-dlp version:", err);
+      setYtdlpInfo(null);
+    }
+  }, []);
+
   // Load config on mount
   useEffect(() => {
     const loadConfig = async () => {
@@ -179,6 +210,7 @@ function SettingsPage() {
 
     loadConfig();
     loadAutostart();
+    void refreshYtdlpVersion();
 
     const loadShortcut = async () => {
       try {
@@ -189,7 +221,7 @@ function SettingsPage() {
       }
     };
     loadShortcut();
-  }, [isWindows]);
+  }, [isWindows, refreshYtdlpVersion]);
 
   // Keyboard event listener for shortcut recording
   useEffect(() => {
@@ -232,6 +264,10 @@ function SettingsPage() {
         clearTimeout(versionTapHintTimerRef.current);
         versionTapHintTimerRef.current = null;
       }
+      if (ytdlpHintTimerRef.current) {
+        clearTimeout(ytdlpHintTimerRef.current);
+        ytdlpHintTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -264,6 +300,21 @@ function SettingsPage() {
       setHoveredRenamePreset(null);
     }
   }, [renamePresetMenuOpen]);
+
+  useEffect(() => {
+    const unlisten = listen<{ source: "main" | "settings" }>("ytdlp-version-refresh", (event) => {
+      if (event.payload.source === "settings") {
+        return;
+      }
+      void refreshYtdlpVersion();
+      if (event.payload.source === "main") {
+        showYtdlpHint("yt-dlp updated from main window");
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [refreshYtdlpVersion, showYtdlpHint]);
 
   const startRecording = () => {
     setRecordedKeys("");
@@ -330,6 +381,21 @@ function SettingsPage() {
       }
     } catch (err) {
       console.error("Failed to select folder:", err);
+    }
+  };
+
+  const handleYtdlpUpdate = async () => {
+    setIsUpdatingYtdlp(true);
+    try {
+      const latestVersion = await invoke<string>("update_ytdlp");
+      await emit("ytdlp-version-refresh", { source: "settings" });
+      await refreshYtdlpVersion();
+      showYtdlpHint(`yt-dlp updated to ${latestVersion}`);
+    } catch (err) {
+      console.error("Failed to update yt-dlp:", err);
+      showYtdlpHint("Failed to update yt-dlp");
+    } finally {
+      setIsUpdatingYtdlp(false);
     }
   };
 
@@ -798,6 +864,95 @@ function SettingsPage() {
             Launch at startup
           </label>
           <NeonToggle checked={autostart} onChange={toggleAutostart} />
+        </div>
+
+        {/* yt-dlp Version */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+            yt-dlp Version
+          </label>
+          <div
+            style={{
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: `1px solid ${colors.borderStart}`,
+              background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+              display: 'grid',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 12, color: colors.textPrimary }}>
+                Current: {ytdlpInfo?.current ?? "Unknown"}
+              </span>
+              {ytdlpInfo?.updateAvailable ? (
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: '#ef4444',
+                    boxShadow: '0 0 6px rgba(239, 68, 68, 0.6)',
+                    flexShrink: 0,
+                  }}
+                  title="Update available"
+                />
+              ) : null}
+            </div>
+            {ytdlpInfo?.updateAvailable ? (
+              <div style={{ fontSize: 11, color: '#ef4444' }}>
+                Update available: {ytdlpInfo.latest}
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: colors.textSecondary }}>
+                Already up to date.
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                onClick={handleYtdlpUpdate}
+                disabled={isUpdatingYtdlp}
+                style={{
+                  minWidth: 96,
+                  height: 30,
+                  padding: '0 10px',
+                  borderRadius: 6,
+                  border: `1px solid ${colors.borderStart}`,
+                  backgroundColor: isUpdatingYtdlp ? 'rgba(59,130,246,0.08)' : 'transparent',
+                  color: isUpdatingYtdlp ? '#3b82f6' : colors.textSecondary,
+                  cursor: isUpdatingYtdlp ? 'wait' : 'pointer',
+                  fontSize: 11,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                {isUpdatingYtdlp ? (
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: '50%',
+                      border: '1.5px solid rgba(59, 130, 246, 0.22)',
+                      borderTopColor: '#3b82f6',
+                      animation: 'spin 0.75s linear infinite',
+                      transformOrigin: '50% 50%',
+                    }}
+                  />
+                ) : null}
+                {isUpdatingYtdlp ? "Updating..." : "Update yt-dlp"}
+              </button>
+              <span style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.85 }}>
+                You can also update from the red dot in main window.
+              </span>
+            </div>
+            {ytdlpHint ? (
+              <div style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.85 }}>
+                {ytdlpHint}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {/* Media Rename */}
