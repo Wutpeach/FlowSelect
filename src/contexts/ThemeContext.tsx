@@ -28,8 +28,11 @@ interface ThemeColors {
   progressCancelHoverBg: string;
   progressCancelHoverIcon: string;
   queueBadgeBg: string;
+  queueBadgeGlow: string;
   queueBadgeText: string;
   queueBadgeBorder: string;
+  queueBadgeDot: string;
+  queueBadgeShadow: string;
   queueStatusBg: string;
   queueStatusBorder: string;
   // Status icons
@@ -56,11 +59,14 @@ const themes: Record<Theme, ThemeColors> = {
     progressCancelIcon: '#606060',
     progressCancelHoverBg: 'rgba(239,68,68,0.2)',
     progressCancelHoverIcon: '#f87171',
-    queueBadgeBg: '#f97316',
-    queueBadgeText: '#fff7ed',
-    queueBadgeBorder: 'rgba(254,215,170,0.9)',
-    queueStatusBg: 'rgba(249,115,22,0.16)',
-    queueStatusBorder: 'rgba(253,186,116,0.45)',
+    queueBadgeBg: 'rgba(16,185,129,0.86)',
+    queueBadgeGlow: 'rgba(5,150,105,0.98)',
+    queueBadgeText: '#ecfdf5',
+    queueBadgeBorder: 'rgba(167,243,208,0.5)',
+    queueBadgeDot: '#86efac',
+    queueBadgeShadow: 'rgba(5,150,105,0.28)',
+    queueStatusBg: 'rgba(16,185,129,0.12)',
+    queueStatusBorder: 'rgba(110,231,183,0.28)',
     successIcon: '#707070',
     errorIcon: '#f87171',
   },
@@ -82,11 +88,14 @@ const themes: Record<Theme, ThemeColors> = {
     progressCancelIcon: '#9ca3af',
     progressCancelHoverBg: 'rgba(239,68,68,0.15)',
     progressCancelHoverIcon: '#ef4444',
-    queueBadgeBg: '#ea580c',
-    queueBadgeText: '#fff7ed',
-    queueBadgeBorder: '#fdba74',
-    queueStatusBg: 'rgba(234,88,12,0.14)',
-    queueStatusBorder: 'rgba(234,88,12,0.28)',
+    queueBadgeBg: 'rgba(5,150,105,0.9)',
+    queueBadgeGlow: 'rgba(16,185,129,0.98)',
+    queueBadgeText: '#f0fdf4',
+    queueBadgeBorder: 'rgba(16,185,129,0.34)',
+    queueBadgeDot: '#34d399',
+    queueBadgeShadow: 'rgba(5,150,105,0.22)',
+    queueStatusBg: 'rgba(5,150,105,0.1)',
+    queueStatusBorder: 'rgba(5,150,105,0.22)',
     successIcon: '#666666',
     errorIcon: '#ef4444',
   },

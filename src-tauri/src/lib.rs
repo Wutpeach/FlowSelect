@@ -138,17 +138,30 @@ enum QueuedVideoTask {
     },
 }
 
+impl QueuedVideoTask {
+    fn trace_id(&self) -> &str {
+        match self {
+            Self::Douyin { trace_id, .. }
+            | Self::Xiaohongshu { trace_id, .. }
+            | Self::Smart { trace_id, .. } => trace_id,
+        }
+    }
+}
+
 #[derive(Default)]
 struct VideoTaskQueueState {
     pending: VecDeque<QueuedVideoTask>,
-    active: bool,
+    active_trace_ids: HashSet<String>,
+    pump_scheduled: bool,
 }
 
-// Store current download process PID
-static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
+// Store active yt-dlp child PIDs by trace id.
+static DOWNLOAD_CHILDREN: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
-// Global cancel flag for all downloads
-static DOWNLOAD_CANCELLED: Mutex<bool> = Mutex::new(false);
+// Cancellation markers for active downloads keyed by trace id.
+static DOWNLOAD_CANCELLED: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 // Incremental sequence for download trace ids.
 static DOWNLOAD_TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
 static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCacheEntry>>> =
@@ -161,6 +174,7 @@ static SLICE_REQUEST_HISTORY: LazyLock<Mutex<HashMap<String, u128>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static PRECISE_CLIP_HW_ENCODER_CACHE: LazyLock<Mutex<Option<Option<String>>>> =
     LazyLock::new(|| Mutex::new(None));
+const MAX_CONCURRENT_VIDEO_DOWNLOADS: usize = 3;
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
 const SLICE_SOURCE_CACHE_TRIGGER_WINDOW_MS: u128 = 8 * 60 * 1000;
@@ -1355,6 +1369,8 @@ async fn send_to_ae(app: AppHandle, file_path: String) -> Result<(), String> {
 
 #[derive(serde::Serialize, Clone)]
 pub struct DownloadResult {
+    #[serde(rename = "traceId")]
+    pub trace_id: String,
     pub success: bool,
     pub file_path: Option<String>,
     pub error: Option<String>,
@@ -1362,10 +1378,31 @@ pub struct DownloadResult {
 
 #[derive(serde::Serialize, Clone)]
 pub struct DownloadProgress {
+    #[serde(rename = "traceId")]
+    pub trace_id: String,
     pub percent: f32,
     pub stage: DownloadProgressStage,
     pub speed: String,
     pub eta: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct VideoQueueCountPayload {
+    #[serde(rename = "activeCount")]
+    active_count: usize,
+    #[serde(rename = "pendingCount")]
+    pending_count: usize,
+    #[serde(rename = "totalCount")]
+    total_count: usize,
+    #[serde(rename = "maxConcurrent")]
+    max_concurrent: usize,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct QueuedVideoDownloadAck {
+    accepted: bool,
+    #[serde(rename = "traceId")]
+    trace_id: String,
 }
 
 #[derive(serde::Serialize, Clone, Copy, PartialEq, Eq)]
@@ -1698,6 +1735,7 @@ async fn download_full_source_to_slice_cache(
     url: &str,
     extension_cookies_path: &Option<PathBuf>,
     cache_path: &Path,
+    trace_id: &str,
 ) -> Result<PathBuf, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
@@ -1770,7 +1808,7 @@ async fn download_full_source_to_slice_cache(
                 })?
         }
     };
-    *DOWNLOAD_CHILD.lock().unwrap() = Some(child.pid());
+    register_download_child(trace_id, child.pid());
 
     let mut stderr_buffer = String::new();
     let mut last_file_path = Some(cache_path.to_string_lossy().to_string());
@@ -1796,6 +1834,7 @@ async fn download_full_source_to_slice_cache(
                         &mut last_file_path,
                         &mut last_stage,
                         &mut heartbeat_state,
+                        trace_id,
                     );
                     let now = std::time::Instant::now();
                     if heartbeat_event.hard_heartbeat {
@@ -1817,6 +1856,7 @@ async fn download_full_source_to_slice_cache(
                         &mut last_file_path,
                         &mut last_stage,
                         &mut heartbeat_state,
+                        trace_id,
                     );
                     let now = std::time::Instant::now();
                     if heartbeat_event.hard_heartbeat {
@@ -1828,7 +1868,7 @@ async fn download_full_source_to_slice_cache(
                     }
                 }
                 CommandEvent::Terminated(payload) => {
-                    *DOWNLOAD_CHILD.lock().unwrap() = None;
+                    clear_download_child(trace_id);
                     if payload.code == Some(0) {
                         if slice_cache_file_size_if_valid(cache_path).is_some() {
                             return Ok(cache_path.to_path_buf());
@@ -1853,8 +1893,8 @@ async fn download_full_source_to_slice_cache(
             Err(_) => {}
         }
 
-        if *DOWNLOAD_CANCELLED.lock().unwrap() {
-            kill_download_child_process();
+        if is_download_cancelled(trace_id) {
+            kill_download_child_process(trace_id);
             return Err("Download cancelled".to_string());
         }
 
@@ -1864,12 +1904,12 @@ async fn download_full_source_to_slice_cache(
             last_soft_heartbeat_at = None;
         }
         if is_watchdog_timeout_candidate(last_hard_heartbeat_at, last_soft_heartbeat_at, now) {
-            terminate_download_child_process_with_grace().await;
+            terminate_download_child_process_with_grace(trace_id).await;
             return Err("Slice cache source download stalled".to_string());
         }
     }
 
-    *DOWNLOAD_CHILD.lock().unwrap() = None;
+    clear_download_child(trace_id);
     Err("Slice cache source download ended unexpectedly".to_string())
 }
 
@@ -1878,6 +1918,7 @@ async fn ensure_slice_source_cache(
     url: &str,
     extension_cookies_path: &Option<PathBuf>,
     cache_key: &str,
+    trace_id: &str,
 ) -> Result<PathBuf, String> {
     let now_ms = now_timestamp_ms();
     if let Some(path) = get_slice_source_cache_path(cache_key, now_ms) {
@@ -1886,8 +1927,14 @@ async fn ensure_slice_source_cache(
     }
 
     let cache_path = slice_source_cache_path_for_key(cache_key);
-    let downloaded_path =
-        download_full_source_to_slice_cache(app, url, extension_cookies_path, &cache_path).await?;
+    let downloaded_path = download_full_source_to_slice_cache(
+        app,
+        url,
+        extension_cookies_path,
+        &cache_path,
+        trace_id,
+    )
+    .await?;
     upsert_slice_source_cache(cache_key, downloaded_path.clone(), now_timestamp_ms())?;
     Ok(downloaded_path)
 }
@@ -1901,6 +1948,7 @@ async fn slice_cached_source_to_output(
     clip_range: &ClipTimeRange,
     clip_mode: ClipDownloadMode,
     title_hint: Option<&str>,
+    trace_id: &str,
 ) -> Result<String, String> {
     if slice_cache_file_size_if_valid(source_path).is_none() {
         return Err(format!("Slice cache source is invalid: {:?}", source_path));
@@ -1915,6 +1963,7 @@ async fn slice_cached_source_to_output(
     let _ = app.emit(
         "video-download-progress",
         DownloadProgress {
+            trace_id: trace_id.to_string(),
             percent: -1.0,
             stage: DownloadProgressStage::PostProcessing,
             speed: "Slicing from local cache...".to_string(),
@@ -2004,9 +2053,10 @@ async fn try_slice_download_with_reuse(
     clip_range: &ClipTimeRange,
     clip_mode: ClipDownloadMode,
     title_hint: Option<String>,
+    trace_id: &str,
 ) -> Result<String, String> {
     let source_path =
-        ensure_slice_source_cache(app, url, extension_cookies_path, cache_key).await?;
+        ensure_slice_source_cache(app, url, extension_cookies_path, cache_key, trace_id).await?;
     match slice_cached_source_to_output(
         app,
         &source_path,
@@ -2016,6 +2066,7 @@ async fn try_slice_download_with_reuse(
         clip_range,
         clip_mode,
         title_hint.as_deref(),
+        trace_id,
     )
     .await
     {
@@ -2033,7 +2084,8 @@ async fn try_slice_download_with_reuse(
             );
             invalidate_slice_source_cache(cache_key);
             let refreshed_source =
-                ensure_slice_source_cache(app, url, extension_cookies_path, cache_key).await?;
+                ensure_slice_source_cache(app, url, extension_cookies_path, cache_key, trace_id)
+                    .await?;
             slice_cached_source_to_output(
                 app,
                 &refreshed_source,
@@ -2043,6 +2095,7 @@ async fn try_slice_download_with_reuse(
                 clip_range,
                 clip_mode,
                 title_hint.as_deref(),
+                trace_id,
             )
             .await
             .map_err(|retry_err| {
@@ -2090,10 +2143,12 @@ fn with_terminal_error_code(code: DownloadTerminalErrorCode, message: &str) -> S
 
 fn emit_download_terminal_failure(
     app: &AppHandle,
+    trace_id: &str,
     code: DownloadTerminalErrorCode,
     message: &str,
 ) -> DownloadResult {
     let result = DownloadResult {
+        trace_id: trace_id.to_string(),
         success: false,
         file_path: None,
         error: Some(with_terminal_error_code(code, message)),
@@ -2187,39 +2242,112 @@ fn next_download_trace_id() -> String {
 }
 
 fn video_task_total_count(state: &VideoTaskQueueState) -> usize {
-    state.pending.len() + usize::from(state.active)
+    state.pending.len() + state.active_trace_ids.len()
 }
 
-fn emit_video_queue_count(app: &AppHandle, count: usize) {
-    println!(">>> [Rust] Video queue count updated: {}", count);
-    let _ = app.emit("video-queue-count", serde_json::json!({ "count": count }));
+fn build_video_queue_count_payload(state: &VideoTaskQueueState) -> VideoQueueCountPayload {
+    VideoQueueCountPayload {
+        active_count: state.active_trace_ids.len(),
+        pending_count: state.pending.len(),
+        total_count: video_task_total_count(state),
+        max_concurrent: MAX_CONCURRENT_VIDEO_DOWNLOADS,
+    }
 }
 
-fn enqueue_video_task(app: &AppHandle, task: QueuedVideoTask) -> bool {
-    let (count, should_start_runner) = {
+fn emit_video_queue_count(app: &AppHandle, payload: VideoQueueCountPayload) {
+    println!(
+        ">>> [Rust] Video queue count updated: active={}, pending={}, total={}, max={}",
+        payload.active_count, payload.pending_count, payload.total_count, payload.max_concurrent
+    );
+    let _ = app.emit("video-queue-count", payload);
+}
+
+fn mark_video_task_active(app: &AppHandle, trace_id: &str) {
+    let payload = {
+        let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
+        state.active_trace_ids.insert(trace_id.to_string());
+        build_video_queue_count_payload(&state)
+    };
+    emit_video_queue_count(app, payload);
+}
+
+fn mark_video_task_complete(app: &AppHandle, trace_id: &str) {
+    let payload = {
+        let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
+        state.active_trace_ids.remove(trace_id);
+        build_video_queue_count_payload(&state)
+    };
+    emit_video_queue_count(app, payload);
+}
+
+fn enqueue_video_task(app: &AppHandle, task: QueuedVideoTask) {
+    let payload = {
         let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
         state.pending.push_back(task);
-        let should_start_runner = !state.active;
-        if should_start_runner {
-            state.active = true;
-        }
-        (video_task_total_count(&state), should_start_runner)
+        build_video_queue_count_payload(&state)
     };
-    emit_video_queue_count(app, count);
-    should_start_runner
+    emit_video_queue_count(app, payload);
 }
 
-fn take_next_video_task(app: &AppHandle) -> Option<QueuedVideoTask> {
-    let (task, count) = {
+fn schedule_video_task_queue_pump(app: AppHandle) {
+    let should_spawn = {
         let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
-        let task = state.pending.pop_front();
-        if task.is_none() {
-            state.active = false;
+        if state.pump_scheduled {
+            false
+        } else {
+            state.pump_scheduled = true;
+            true
         }
-        (task, video_task_total_count(&state))
     };
-    emit_video_queue_count(app, count);
-    task
+
+    if should_spawn {
+        tokio::spawn(async move {
+            process_video_task_queue(app).await;
+        });
+    }
+}
+
+fn try_start_next_video_task(app: &AppHandle) -> Option<QueuedVideoTask> {
+    let queued = {
+        let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
+        if state.pending.is_empty()
+            || state.active_trace_ids.len() >= MAX_CONCURRENT_VIDEO_DOWNLOADS
+        {
+            state.pump_scheduled = false;
+            None
+        } else {
+            let task = state.pending.pop_front()?;
+            state.active_trace_ids.insert(task.trace_id().to_string());
+            Some((task, build_video_queue_count_payload(&state)))
+        }
+    };
+
+    if let Some((task, payload)) = queued {
+        emit_video_queue_count(app, payload);
+        Some(task)
+    } else {
+        None
+    }
+}
+
+fn register_download_child(trace_id: &str, pid: u32) {
+    DOWNLOAD_CHILDREN
+        .lock()
+        .unwrap()
+        .insert(trace_id.to_string(), pid);
+}
+
+fn clear_download_child(trace_id: &str) {
+    DOWNLOAD_CHILDREN.lock().unwrap().remove(trace_id);
+}
+
+fn is_download_cancelled(trace_id: &str) -> bool {
+    DOWNLOAD_CANCELLED.lock().unwrap().contains(trace_id)
+}
+
+fn clear_download_runtime(trace_id: &str) {
+    clear_download_child(trace_id);
+    DOWNLOAD_CANCELLED.lock().unwrap().remove(trace_id);
 }
 
 async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
@@ -2240,12 +2368,13 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 cookies_header,
                 cookies_path,
                 direct_candidates,
-                trace_id,
+                trace_id.clone(),
             )
             .await
             {
                 println!(">>> [Rust] Douyin direct pipeline error: {}", err);
                 let result = DownloadResult {
+                    trace_id: trace_id.clone(),
                     success: false,
                     file_path: None,
                     error: Some(err),
@@ -2269,12 +2398,13 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 cookies_header,
                 cookies_path,
                 direct_candidates,
-                trace_id,
+                trace_id.clone(),
             )
             .await
             {
                 println!(">>> [Rust] Xiaohongshu direct pipeline error: {}", err);
                 let result = DownloadResult {
+                    trace_id: trace_id.clone(),
                     success: false,
                     file_path: None,
                     error: Some(err),
@@ -2295,13 +2425,14 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 title,
                 cookies_path,
                 clip_range,
-                Some(trace_id),
+                Some(trace_id.clone()),
                 None,
             )
             .await
             {
                 println!(">>> [Rust] Smart download error: {}", err);
                 let result = DownloadResult {
+                    trace_id: trace_id.clone(),
                     success: false,
                     file_path: None,
                     error: Some(err),
@@ -2313,8 +2444,15 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
 }
 
 async fn process_video_task_queue(app: AppHandle) {
-    while let Some(task) = take_next_video_task(&app) {
-        execute_queued_video_task(app.clone(), task).await;
+    while let Some(task) = try_start_next_video_task(&app) {
+        let runner_app = app.clone();
+        tokio::spawn(async move {
+            let trace_id = task.trace_id().to_string();
+            execute_queued_video_task(runner_app.clone(), task).await;
+            clear_download_runtime(trace_id.as_str());
+            mark_video_task_complete(&runner_app, trace_id.as_str());
+            schedule_video_task_queue_pump(runner_app);
+        });
     }
 }
 
@@ -2364,13 +2502,14 @@ async fn download_direct_for_platform(
     video_url: String,
     cookies_header: Option<String>,
     title: Option<String>,
+    trace_id: String,
 ) -> Result<DownloadResult, String> {
     match platform {
         DirectPlatform::Douyin => {
-            download_douyin_direct(app, video_url, cookies_header, title).await
+            download_douyin_direct(app, video_url, cookies_header, title, trace_id).await
         }
         DirectPlatform::Xiaohongshu => {
-            download_xiaohongshu_direct(app, video_url, cookies_header, title).await
+            download_xiaohongshu_direct(app, video_url, cookies_header, title, trace_id).await
         }
     }
 }
@@ -2463,6 +2602,7 @@ async fn download_platform_direct_with_retry(
             selected.url.clone(),
             cookies_header.clone(),
             title.clone(),
+            trace_id.clone(),
         )
         .await
         {
@@ -2587,13 +2727,11 @@ async fn download_video_internal(
     extension_cookies_path: Option<PathBuf>,
     clip_range: Option<ClipTimeRange>,
     source_title: Option<String>,
+    trace_id: String,
 ) -> Result<DownloadResult, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
     println!(">>> [Rust] Starting video download: {}", url);
-
-    // Reset cancel flag at start of new download
-    *DOWNLOAD_CANCELLED.lock().unwrap() = false;
 
     // Get config
     let config_str = get_config(app.clone())?;
@@ -2642,12 +2780,14 @@ async fn download_video_internal(
                 clip_range_ref,
                 clip_download_mode,
                 source_title.clone(),
+                trace_id.as_str(),
             )
             .await
             {
                 Ok(file_path) => {
                     cleanup_extension_cookies_file(&extension_cookies_path);
                     let result = DownloadResult {
+                        trace_id: trace_id.clone(),
                         success: true,
                         file_path: Some(file_path.clone()),
                         error: None,
@@ -2663,6 +2803,7 @@ async fn download_video_internal(
                     if is_cancelled_error(err.as_str()) {
                         cleanup_extension_cookies_file(&extension_cookies_path);
                         let result = DownloadResult {
+                            trace_id: trace_id.clone(),
                             success: false,
                             file_path: None,
                             error: Some(with_terminal_error_code(
@@ -2681,7 +2822,12 @@ async fn download_video_internal(
                         } else {
                             DownloadTerminalErrorCode::PreciseSliceFailed
                         };
-                        let result = emit_download_terminal_failure(&app, error_code, err.as_str());
+                        let result = emit_download_terminal_failure(
+                            &app,
+                            trace_id.as_str(),
+                            error_code,
+                            err.as_str(),
+                        );
                         return Ok(result);
                     }
                     println!(
@@ -2802,6 +2948,7 @@ async fn download_video_internal(
     let _ = app.emit(
         "video-download-progress",
         DownloadProgress {
+            trace_id: trace_id.clone(),
             percent: -1.0, // Negative value indicates indeterminate state
             stage: DownloadProgressStage::Preparing,
             speed: "Preparing...".to_string(),
@@ -2824,6 +2971,7 @@ async fn download_video_internal(
                     cleanup_part_files_for_output_root(&output_dir);
                     let result = emit_download_terminal_failure(
                         &app,
+                        trace_id.as_str(),
                         DownloadTerminalErrorCode::YtdlpSpawnFailure,
                         &format!(
                             "Failed to resolve yt-dlp fallback path after sidecar spawn error: {}; {}",
@@ -2849,6 +2997,7 @@ async fn download_video_internal(
                     cleanup_part_files_for_output_root(&output_dir);
                     let result = emit_download_terminal_failure(
                         &app,
+                        trace_id.as_str(),
                         DownloadTerminalErrorCode::YtdlpSpawnFailure,
                         &format!(
                             "Failed to spawn yt-dlp via sidecar ({}) and fallback path {:?} ({})",
@@ -2862,7 +3011,7 @@ async fn download_video_internal(
     };
 
     // Store child process PID for cancellation
-    *DOWNLOAD_CHILD.lock().unwrap() = Some(child.pid());
+    register_download_child(trace_id.as_str(), child.pid());
 
     let mut stdout_buffer = String::new();
     let mut stderr_buffer = String::new();
@@ -2892,6 +3041,7 @@ async fn download_video_internal(
                         &mut last_file_path,
                         &mut last_stage,
                         &mut heartbeat_state,
+                        trace_id.as_str(),
                     );
                     let now = std::time::Instant::now();
                     if heartbeat_event.hard_heartbeat {
@@ -2913,6 +3063,7 @@ async fn download_video_internal(
                         &mut last_file_path,
                         &mut last_stage,
                         &mut heartbeat_state,
+                        trace_id.as_str(),
                     );
                     let now = std::time::Instant::now();
                     if heartbeat_event.hard_heartbeat {
@@ -2925,12 +3076,12 @@ async fn download_video_internal(
                 }
                 CommandEvent::Terminated(payload) => {
                     // Clear download PID
-                    *DOWNLOAD_CHILD.lock().unwrap() = None;
+                    clear_download_child(trace_id.as_str());
 
                     // Cleanup extension cookies file
                     cleanup_extension_cookies_file(&extension_cookies_path);
 
-                    let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
+                    let was_cancelled = is_download_cancelled(trace_id.as_str());
                     let success = payload.code == Some(0) && !was_cancelled;
                     if !success {
                         cleanup_part_files_for_output_root(&output_dir);
@@ -2941,6 +3092,7 @@ async fn download_video_internal(
                         }
                     }
                     let result = DownloadResult {
+                        trace_id: trace_id.clone(),
                         success,
                         file_path: if success {
                             last_file_path
@@ -3028,11 +3180,12 @@ async fn download_video_internal(
                 ">>> [Rust] Watchdog timeout candidate: hard_elapsed={}s, soft_elapsed={:?}",
                 hard_elapsed_secs, soft_elapsed_secs
             );
-            terminate_download_child_process_with_grace().await;
+            terminate_download_child_process_with_grace(trace_id.as_str()).await;
             cleanup_extension_cookies_file(&extension_cookies_path);
             cleanup_part_files_for_output_root(&output_dir);
-            let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
+            let was_cancelled = is_download_cancelled(trace_id.as_str());
             let result = DownloadResult {
+                trace_id: trace_id.clone(),
                 success: false,
                 file_path: None,
                 error: Some(if was_cancelled {
@@ -3059,8 +3212,10 @@ async fn download_video_internal(
     // Fallback if loop exits without Terminated event
     cleanup_extension_cookies_file(&extension_cookies_path);
     cleanup_part_files_for_output_root(&output_dir);
-    let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
+    clear_download_child(trace_id.as_str());
+    let was_cancelled = is_download_cancelled(trace_id.as_str());
     let result = DownloadResult {
+        trace_id,
         success: false,
         file_path: None,
         error: Some(if was_cancelled {
@@ -3077,8 +3232,8 @@ async fn download_video_internal(
     Ok(result)
 }
 
-fn kill_download_child_process() {
-    if let Some(pid) = DOWNLOAD_CHILD.lock().unwrap().take() {
+fn kill_download_child_process(trace_id: &str) {
+    if let Some(pid) = DOWNLOAD_CHILDREN.lock().unwrap().remove(trace_id) {
         println!(">>> [Rust] Force killing yt-dlp process with PID: {}", pid);
         force_kill_process(pid);
     }
@@ -3138,11 +3293,8 @@ fn is_process_alive(pid: u32) -> bool {
     }
 }
 
-async fn terminate_download_child_process_with_grace() {
-    let pid = {
-        let mut guard = DOWNLOAD_CHILD.lock().unwrap();
-        guard.take()
-    };
+async fn terminate_download_child_process_with_grace(trace_id: &str) {
+    let pid = DOWNLOAD_CHILDREN.lock().unwrap().remove(trace_id);
     if let Some(pid) = pid {
         println!(
             ">>> [Rust] Watchdog timeout: requesting graceful stop for PID {}",
@@ -3220,18 +3372,64 @@ fn cleanup_part_files_for_output_root(output_root: &Path) {
 /// Public command for downloading video (used by frontend paste/drag)
 #[tauri::command]
 async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, String> {
-    download_video_internal(app, url, None, None, None).await
+    let trace_id = next_download_trace_id();
+    mark_video_task_active(&app, trace_id.as_str());
+    let result =
+        download_video_internal(app.clone(), url, None, None, None, trace_id.clone()).await;
+    clear_download_runtime(trace_id.as_str());
+    mark_video_task_complete(&app, trace_id.as_str());
+    result
+}
+
+#[tauri::command]
+async fn queue_video_download(
+    app: AppHandle,
+    url: String,
+) -> Result<QueuedVideoDownloadAck, String> {
+    let trace_id = next_download_trace_id();
+    let queued_task = QueuedVideoTask::Smart {
+        url,
+        title: None,
+        cookies_path: None,
+        clip_range: None,
+        trace_id: trace_id.clone(),
+    };
+    enqueue_video_task(&app, queued_task);
+    schedule_video_task_queue_pump(app);
+    Ok(QueuedVideoDownloadAck {
+        accepted: true,
+        trace_id,
+    })
 }
 
 #[tauri::command]
 async fn cancel_download(app: AppHandle) -> Result<bool, String> {
     println!(">>> [Rust] cancel_download called");
 
-    // Set global cancel flag
-    *DOWNLOAD_CANCELLED.lock().unwrap() = true;
+    let (active_trace_ids, payload) = {
+        let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
+        state.pending.clear();
+        (
+            state.active_trace_ids.iter().cloned().collect::<Vec<_>>(),
+            build_video_queue_count_payload(&state),
+        )
+    };
+    emit_video_queue_count(&app, payload);
+    if active_trace_ids.is_empty() {
+        return Ok(false);
+    }
+
+    {
+        let mut cancelled = DOWNLOAD_CANCELLED.lock().unwrap();
+        for trace_id in &active_trace_ids {
+            cancelled.insert(trace_id.clone());
+        }
+    }
 
     // 1. 终止下载进程 (for yt-dlp)
-    kill_download_child_process();
+    for trace_id in &active_trace_ids {
+        kill_download_child_process(trace_id);
+    }
 
     // 2. 等待进程完全终止
     tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
@@ -3697,7 +3895,7 @@ async fn download_video_smart(
             }),
         );
 
-        let result = download_douyin_direct(app, url, cookie_header, title).await;
+        let result = download_douyin_direct(app, url, cookie_header, title, trace_id.clone()).await;
         match &result {
             Ok(download_result) if download_result.success => {
                 log_terminal_outcome(
@@ -3754,7 +3952,8 @@ async fn download_video_smart(
             }),
         );
 
-        let result = download_xiaohongshu_direct(app, url, cookie_header, title).await;
+        let result =
+            download_xiaohongshu_direct(app, url, cookie_header, title, trace_id.clone()).await;
         match &result {
             Ok(download_result) if download_result.success => {
                 log_terminal_outcome(
@@ -3821,6 +4020,7 @@ async fn download_video_smart(
         extension_cookies_path.clone(),
         clip_range.clone(),
         title.clone(),
+        trace_id.clone(),
     )
     .await
     {
@@ -3837,7 +4037,7 @@ async fn download_video_smart(
         }
         Err(e) => {
             // Check if cancelled.
-            if *DOWNLOAD_CANCELLED.lock().unwrap() {
+            if is_download_cancelled(trace_id.as_str()) {
                 println!(">>> [Smart] Download cancelled, not falling back");
                 log_terminal_outcome(
                     &trace_id,
@@ -3885,6 +4085,7 @@ async fn download_video_direct(
     title_suffix_to_strip: Option<&str>,
     platform: &str,
     default_prefix: &str,
+    trace_id: String,
 ) -> Result<DownloadResult, String> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
@@ -3893,9 +4094,6 @@ async fn download_video_direct(
         ">>> [Rust] Starting {} direct download: {}",
         platform, video_url
     );
-    // Reset cancel flag for a fresh direct download.
-    *DOWNLOAD_CANCELLED.lock().unwrap() = false;
-
     // Build HTTP client with headers
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
@@ -4029,6 +4227,7 @@ async fn download_video_direct(
     let _ = app.emit(
         "video-download-progress",
         DownloadProgress {
+            trace_id: trace_id.clone(),
             percent: if total_size > 0 { 0.0 } else { -1.0 }, // -1 indicates indeterminate
             stage: DownloadProgressStage::Preparing,
             speed: "Starting...".to_string(),
@@ -4044,7 +4243,7 @@ async fn download_video_direct(
     let mut last_emit = std::time::Instant::now();
 
     while let Some(chunk) = stream.next().await {
-        if *DOWNLOAD_CANCELLED.lock().unwrap() {
+        if is_download_cancelled(trace_id.as_str()) {
             println!(">>> [Rust] {} direct download cancelled by user", platform);
             let _ = file.flush().await;
             drop(file);
@@ -4067,6 +4266,7 @@ async fn download_video_direct(
                 let _ = app.emit(
                     "video-download-progress",
                     DownloadProgress {
+                        trace_id: trace_id.clone(),
                         percent,
                         stage: DownloadProgressStage::Downloading,
                         speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
@@ -4078,6 +4278,7 @@ async fn download_video_direct(
                 let _ = app.emit(
                     "video-download-progress",
                     DownloadProgress {
+                        trace_id: trace_id.clone(),
                         percent: -1.0,
                         stage: DownloadProgressStage::Downloading,
                         speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
@@ -4088,7 +4289,7 @@ async fn download_video_direct(
         }
     }
 
-    if *DOWNLOAD_CANCELLED.lock().unwrap() {
+    if is_download_cancelled(trace_id.as_str()) {
         println!(
             ">>> [Rust] {} direct download cancellation detected after stream drain",
             platform
@@ -4107,6 +4308,7 @@ async fn download_video_direct(
     println!(">>> [Rust] {} video saved: {}", platform, file_path);
 
     let result = DownloadResult {
+        trace_id,
         success: true,
         file_path: Some(file_path.clone()),
         error: None,
@@ -4129,6 +4331,7 @@ async fn download_douyin_direct(
     video_url: String,
     cookies: Option<String>,
     title: Option<String>,
+    trace_id: String,
 ) -> Result<DownloadResult, String> {
     download_video_direct(
         app,
@@ -4139,6 +4342,7 @@ async fn download_douyin_direct(
         Some(" - 抖音"),
         "Douyin",
         "douyin",
+        trace_id,
     )
     .await
 }
@@ -4149,6 +4353,7 @@ async fn download_xiaohongshu_direct(
     video_url: String,
     cookies: Option<String>,
     title: Option<String>,
+    trace_id: String,
 ) -> Result<DownloadResult, String> {
     download_video_direct(
         app,
@@ -4159,6 +4364,7 @@ async fn download_xiaohongshu_direct(
         Some(" - 小红书"),
         "Xiaohongshu",
         "xiaohongshu",
+        trace_id,
     )
     .await
 }
@@ -4194,6 +4400,7 @@ fn parse_progress(line: &str) -> Option<DownloadProgress> {
         .unwrap_or_else(|| "N/A".to_string());
 
     Some(DownloadProgress {
+        trace_id: String::new(),
         percent,
         stage: DownloadProgressStage::Downloading,
         speed,
@@ -4366,6 +4573,7 @@ fn process_ytdlp_output_line(
     last_file_path: &mut Option<String>,
     last_stage: &mut DownloadProgressStage,
     heartbeat_state: &mut YtdlpHeartbeatState,
+    trace_id: &str,
 ) -> YtdlpHeartbeatEvent {
     let mut heartbeat_event = YtdlpHeartbeatEvent::default();
 
@@ -4386,7 +4594,13 @@ fn process_ytdlp_output_line(
             }
             heartbeat_state.last_percent = Some(progress.percent);
             heartbeat_state.last_stage_status = None;
-            let _ = app.emit("video-download-progress", progress);
+            let _ = app.emit(
+                "video-download-progress",
+                DownloadProgress {
+                    trace_id: trace_id.to_string(),
+                    ..progress
+                },
+            );
             *last_stage = DownloadProgressStage::Downloading;
         } else if let Some(stage) = infer_ytdlp_stage(normalized_line) {
             let stage_status = infer_ytdlp_stage_status(stage, normalized_line);
@@ -4400,6 +4614,7 @@ fn process_ytdlp_output_line(
                 let _ = app.emit(
                     "video-download-progress",
                     DownloadProgress {
+                        trace_id: trace_id.to_string(),
                         percent: -1.0,
                         stage,
                         speed: stage_status.clone(),
@@ -5302,10 +5517,12 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     let video_url = data.get("videoUrl").and_then(|v| v.as_str());
                     let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
                     let title = data.get("title").and_then(|v| v.as_str());
+                    let trace_id = next_download_trace_id();
                     let clip_range = match parse_clip_time_range(&data) {
                         Ok(value) => value,
                         Err(err) => {
                             let result = DownloadResult {
+                                trace_id: trace_id.clone(),
                                 success: false,
                                 file_path: None,
                                 error: Some(err.clone()),
@@ -5331,8 +5548,6 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                         video_url,
                         &video_candidates,
                     );
-                    let trace_id = next_download_trace_id();
-
                     let app_clone = app.clone();
                     log_download_trace(
                         &trace_id,
@@ -5388,13 +5603,8 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                         }
                     };
 
-                    let should_start_runner = enqueue_video_task(&app_clone, queued_task);
-                    if should_start_runner {
-                        let runner_app = app_clone.clone();
-                        tokio::spawn(async move {
-                            process_video_task_queue(runner_app).await;
-                        });
-                    }
+                    enqueue_video_task(&app_clone, queued_task);
+                    schedule_video_task_queue_pump(app_clone.clone());
 
                     WsResponse {
                         success: true,
@@ -5502,6 +5712,7 @@ pub fn run() {
             download_image,
             save_data_url,
             download_video,
+            queue_video_download,
             cancel_download,
             send_to_ae,
             check_ytdlp_version,

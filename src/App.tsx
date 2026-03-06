@@ -54,6 +54,7 @@ type YtdlpVersionInfo = {
 type DownloadStage = "preparing" | "downloading" | "merging" | "post_processing";
 
 type DownloadProgressPayload = {
+  traceId: string;
   percent: number;
   stage: DownloadStage;
   speed: string;
@@ -61,14 +62,22 @@ type DownloadProgressPayload = {
 };
 
 type DownloadResult = {
+  traceId: string;
   success: boolean;
   file_path?: string;
   error?: string;
 };
 
-type VideoQueueItem = {
-  id: number;
-  url: string;
+type VideoQueueStatePayload = {
+  activeCount: number;
+  pendingCount: number;
+  totalCount: number;
+  maxConcurrent: number;
+};
+
+type QueuedVideoDownloadAck = {
+  accepted: boolean;
+  traceId: string;
 };
 
 const DOWNLOAD_STAGE_LABEL: Record<DownloadStage, string> = {
@@ -126,6 +135,34 @@ const getDownloadStatusText = (
   return `${stageLabel} ${speedText}`;
 };
 
+const EMPTY_VIDEO_QUEUE_STATE: VideoQueueStatePayload = {
+  activeCount: 0,
+  pendingCount: 0,
+  totalCount: 0,
+  maxConcurrent: 1,
+};
+
+const normalizeVideoQueueState = (
+  payload: Partial<VideoQueueStatePayload> | null | undefined,
+): VideoQueueStatePayload => {
+  const safeActiveCount = Number.isFinite(payload?.activeCount)
+    ? Math.max(0, Math.floor(payload?.activeCount ?? 0))
+    : 0;
+  const safePendingCount = Number.isFinite(payload?.pendingCount)
+    ? Math.max(0, Math.floor(payload?.pendingCount ?? 0))
+    : 0;
+  const safeMaxConcurrent = Number.isFinite(payload?.maxConcurrent)
+    ? Math.max(1, Math.floor(payload?.maxConcurrent ?? 1))
+    : 1;
+
+  return {
+    activeCount: safeActiveCount,
+    pendingCount: safePendingCount,
+    totalCount: safeActiveCount + safePendingCount,
+    maxConcurrent: safeMaxConcurrent,
+  };
+};
+
 // Cat icon for minimized state
 const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) => (
   <svg
@@ -165,13 +202,8 @@ function App() {
   const [outputPath, setOutputPath] = useState("");
   const [renameMediaOnDownload, setRenameMediaOnDownload] = useState(false);
   const [isPanelHovered, setIsPanelHovered] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgressPayload | null>(null);
-  const [downloadStage, setDownloadStage] = useState<DownloadStage | null>(null);
-  const [, setPendingVideoTasks] = useState<VideoQueueItem[]>([]);
-  const [, setActiveVideoTask] = useState<VideoQueueItem | null>(null);
-  const [videoTaskCount, setVideoTaskCount] = useState(0);
-  const [queuedVideoTaskCount, setQueuedVideoTaskCount] = useState(0);
-  const [backendVideoTaskCount, setBackendVideoTaskCount] = useState(0);
+  const [downloadProgressByTrace, setDownloadProgressByTrace] = useState<Record<string, DownloadProgressPayload>>({});
+  const [videoQueueState, setVideoQueueState] = useState<VideoQueueStatePayload>(EMPTY_VIDEO_QUEUE_STATE);
   const [isCancellingDownload, setIsCancellingDownload] = useState(false);
   const [ytdlpUpdate, setYtdlpUpdate] = useState<YtdlpVersionInfo | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -192,10 +224,6 @@ function App() {
   const downloadCancelledRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanelHoveredRef = useRef(false);
-  const pendingVideoTasksRef = useRef<VideoQueueItem[]>([]);
-  const activeVideoTaskRef = useRef<VideoQueueItem | null>(null);
-  const videoQueueRunnerRef = useRef(false);
-  const videoQueueSeqRef = useRef(1);
 
   // Window size constants
   const FULL_SIZE = 200;
@@ -210,6 +238,23 @@ function App() {
   const SETTINGS_WINDOW_WIDTH = 320;
   const SETTINGS_WINDOW_HEIGHT = 400;
   const SETTINGS_WINDOW_GAP = 16;
+  const hasActiveDownloads = videoQueueState.activeCount > 0;
+  const activeDownloadProgressEntries = Object.values(downloadProgressByTrace);
+  const hasMultiActiveDownloads = videoQueueState.activeCount > 1;
+  const singleActiveDownloadProgress =
+    videoQueueState.activeCount === 1 ? activeDownloadProgressEntries[0] ?? null : null;
+  const downloadProgress = singleActiveDownloadProgress ?? (
+    hasActiveDownloads
+      ? {
+          traceId: "__aggregate__",
+          percent: -1,
+          stage: "downloading" as DownloadStage,
+          speed: `${videoQueueState.activeCount} active`,
+          eta: "",
+        }
+      : null
+  );
+  const downloadStage = singleActiveDownloadProgress?.stage ?? (hasActiveDownloads ? "downloading" : null);
 
   const clearContextMenuMonitor = useCallback(() => {
     if (contextMenuMonitorRef.current !== null) {
@@ -361,68 +406,18 @@ function App() {
     }
   }, []);
 
-  const syncVideoQueueCounts = useCallback((
-    activeTask: VideoQueueItem | null = activeVideoTaskRef.current,
-    pendingTasks: VideoQueueItem[] = pendingVideoTasksRef.current,
-  ) => {
-    setQueuedVideoTaskCount(pendingTasks.length);
-    setVideoTaskCount(pendingTasks.length + (activeTask ? 1 : 0));
-  }, []);
-
-  const updatePendingVideoTasks = useCallback((tasks: VideoQueueItem[]) => {
-    pendingVideoTasksRef.current = tasks;
-    setPendingVideoTasks(tasks);
-    syncVideoQueueCounts(activeVideoTaskRef.current, tasks);
-  }, [syncVideoQueueCounts]);
-
-  const processVideoQueue = useCallback(async () => {
-    if (videoQueueRunnerRef.current) {
-      return;
-    }
-
-    videoQueueRunnerRef.current = true;
-    try {
-      while (pendingVideoTasksRef.current.length > 0) {
-        const [task, ...restTasks] = pendingVideoTasksRef.current;
-        updatePendingVideoTasks(restTasks);
-
-        activeVideoTaskRef.current = task;
-        setActiveVideoTask(task);
-        syncVideoQueueCounts(task, restTasks);
-
-        downloadCancelledRef.current = false;
-        setDownloadCancelled(false);
-        setIsCancellingDownload(false);
-
-        try {
-          const result = await invoke<DownloadResult>("download_video", { url: task.url });
-          if (!result.success) {
-            console.error("Video download failed:", result.error);
-            checkSequenceOverflow(result.error);
-          }
-        } catch (err) {
-          console.error("Failed to download video:", err);
-          checkSequenceOverflow(err);
-        } finally {
-          activeVideoTaskRef.current = null;
-          setActiveVideoTask(null);
-          syncVideoQueueCounts(null, pendingVideoTasksRef.current);
-        }
-      }
-    } finally {
-      videoQueueRunnerRef.current = false;
-    }
-  }, [syncVideoQueueCounts, updatePendingVideoTasks]);
-
   const enqueueVideoDownload = useCallback((url: string) => {
-    const task: VideoQueueItem = {
-      id: videoQueueSeqRef.current++,
-      url,
-    };
-    const nextTasks = [...pendingVideoTasksRef.current, task];
-    updatePendingVideoTasks(nextTasks);
-    void processVideoQueue();
-  }, [processVideoQueue, updatePendingVideoTasks]);
+    downloadCancelledRef.current = false;
+    setDownloadCancelled(false);
+    setDownloadErrorMessage(null);
+    setIsCancellingDownload(false);
+    void invoke<QueuedVideoDownloadAck>("queue_video_download", { url }).catch((err) => {
+      console.error("Failed to queue video download:", err);
+      checkSequenceOverflow(err);
+      setDownloadCancelled(true);
+      setDownloadErrorMessage(summarizeDownloadError(String(err)));
+    });
+  }, []);
 
   // Load config on mount
   useEffect(() => {
@@ -527,10 +522,17 @@ function App() {
         }
         // Set progress immediately (sync) before async operations
         setIsMinimized(false);
-        setDownloadProgress(payload);
-        setDownloadStage((currentStage) =>
-          advanceDownloadStage(currentStage, payload.stage, payload.percent)
-        );
+        setDownloadProgressByTrace((current) => {
+          const previous = current[payload.traceId];
+          const nextStage = advanceDownloadStage(previous?.stage ?? null, payload.stage, payload.percent);
+          return {
+            ...current,
+            [payload.traceId]: {
+              ...payload,
+              stage: nextStage,
+            },
+          };
+        });
         setDownloadErrorMessage(null);
         // 直接恢复窗口大小（避免闭包问题）
         if (!isMacOS) {
@@ -550,12 +552,18 @@ function App() {
         }
       }
     );
-    const unlistenComplete = listen<{ success: boolean; file_path?: string | null; error?: string | null }>(
+    const unlistenComplete = listen<DownloadResult>(
       "video-download-complete",
       (event) => {
         console.log(">>> [Frontend] video-download-complete received:", event);
-        setDownloadProgress(null);
-        setDownloadStage(null);
+        setDownloadProgressByTrace((current) => {
+          if (!current[event.payload.traceId]) {
+            return current;
+          }
+          const next = { ...current };
+          delete next[event.payload.traceId];
+          return next;
+        });
         setIsCancellingDownload(false);
 
         const payload = event.payload;
@@ -638,7 +646,7 @@ function App() {
       if (idleTimerRef.current) {
         clearTimeout(idleTimerRef.current);
       }
-      if (!downloadProgress && !isDraggingRef.current && !isPanelHoveredRef.current) {
+      if (!hasActiveDownloads && !isDraggingRef.current && !isPanelHoveredRef.current) {
         idleTimerRef.current = window.setTimeout(() => {
           if (isDraggingRef.current || isPanelHoveredRef.current) return;
           setIsMinimized(true);
@@ -653,7 +661,7 @@ function App() {
       }, 100);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [windowResized, downloadProgress, isMacOS]);
+  }, [windowResized, hasActiveDownloads, isMacOS]);
 
   // Check yt-dlp version on startup
   useEffect(() => {
@@ -672,9 +680,13 @@ function App() {
   }, [refreshYtdlpVersion]);
 
   useEffect(() => {
-    const unlisten = listen<{ count: number }>("video-queue-count", (event) => {
-      const nextCount = Number.isFinite(event.payload.count) ? Math.max(0, Math.floor(event.payload.count)) : 0;
-      setBackendVideoTaskCount(nextCount);
+    const unlisten = listen<VideoQueueStatePayload>("video-queue-count", (event) => {
+      const normalized = normalizeVideoQueueState(event.payload);
+      setVideoQueueState(normalized);
+      if (normalized.activeCount === 0) {
+        setDownloadProgressByTrace((current) => (Object.keys(current).length === 0 ? current : {}));
+        setIsCancellingDownload(false);
+      }
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
@@ -711,7 +723,7 @@ function App() {
     }
 
     // 下载进行中、拖拽中或鼠标仍停留在面板内时不启动 idle timer
-    if (downloadProgress || activeVideoTaskRef.current || isDraggingRef.current || isPanelHoveredRef.current) return;
+    if (hasActiveDownloads || isDraggingRef.current || isPanelHoveredRef.current) return;
 
     idleTimerRef.current = window.setTimeout(() => {
       if (isDraggingRef.current || isPanelHoveredRef.current) return;
@@ -1292,17 +1304,18 @@ function App() {
       ? `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)`
       : `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`;
   const downloadStatusText = downloadProgress
-    ? getDownloadStatusText(downloadProgress, downloadStage)
+    ? hasMultiActiveDownloads
+      ? `${videoQueueState.activeCount} tasks running`
+      : getDownloadStatusText(downloadProgress, downloadStage)
     : "";
-  const combinedVideoTaskCount = videoTaskCount + backendVideoTaskCount;
-  const combinedQueuedVideoTaskCount =
-    queuedVideoTaskCount + Math.max(backendVideoTaskCount - 1, 0);
   const queueStatusText = isCancellingDownload
-    ? "Cancelling current task..."
-    : combinedQueuedVideoTaskCount > 0
-      ? `${combinedQueuedVideoTaskCount} queued`
+    ? videoQueueState.totalCount > 1
+      ? "Cancelling all tasks..."
+      : "Cancelling current task..."
+    : videoQueueState.pendingCount > 0
+      ? `${videoQueueState.pendingCount} waiting`
       : "";
-  const showVideoTaskBadge = combinedVideoTaskCount > 1;
+  const showVideoTaskBadge = videoQueueState.activeCount > 1;
 
   return (
     <motion.div
@@ -1401,27 +1414,39 @@ function App() {
             position: 'absolute',
             top: 10,
             left: 10,
-            minWidth: 28,
-            height: 28,
-            borderRadius: 14,
-            padding: '0 8px',
+            minWidth: 42,
+            height: 30,
+            borderRadius: 15,
+            padding: '0 10px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: colors.queueBadgeBg,
+            gap: 6,
+            background: `linear-gradient(135deg, ${colors.queueBadgeBg} 0%, ${colors.queueBadgeGlow} 100%)`,
             color: colors.queueBadgeText,
             border: `1px solid ${colors.queueBadgeBorder}`,
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: 800,
             lineHeight: 1,
             userSelect: 'none',
             pointerEvents: 'none',
             zIndex: 30,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.28)',
+            boxShadow: `0 10px 18px ${colors.queueBadgeShadow}`,
+            backdropFilter: 'blur(12px)',
           }}
-          aria-label={`Video tasks: ${combinedVideoTaskCount}`}
+          aria-label={`Active video tasks: ${videoQueueState.activeCount}`}
         >
-          {combinedVideoTaskCount}
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              backgroundColor: colors.queueBadgeDot,
+              boxShadow: `0 0 10px ${colors.queueBadgeDot}`,
+              flexShrink: 0,
+            }}
+          />
+          <span>{videoQueueState.activeCount}</span>
         </div>
       ) : null}
 
@@ -1550,7 +1575,11 @@ function App() {
                 userSelect: 'none',
                 pointerEvents: 'none',
               }}>
-                {downloadProgress.percent < 0 ? '...' : `${Math.round(downloadProgress.percent)}%`}
+                {hasMultiActiveDownloads
+                  ? `${videoQueueState.activeCount}`
+                  : downloadProgress.percent < 0
+                    ? '...'
+                    : `${Math.round(downloadProgress.percent)}%`}
               </span>
             </div>
             {downloadStatusText ? (
@@ -1584,7 +1613,9 @@ function App() {
                 try {
                   downloadCancelledRef.current = true;
                   setDownloadCancelled(true);
-                  setDownloadErrorMessage("Cancelling download...");
+                  setDownloadErrorMessage(
+                    videoQueueState.totalCount > 1 ? "Cancelling all downloads..." : "Cancelling download..."
+                  );
                   setIsCancellingDownload(true);
                   await invoke<boolean>("cancel_download");
                 } catch (err) {
@@ -1618,7 +1649,7 @@ function App() {
                 transition: 'background-color 0.2s',
                 opacity: isCancellingDownload ? 0.6 : 1,
               }}
-              title="Cancel download"
+              title={videoQueueState.totalCount > 1 ? "Cancel all downloads" : "Cancel download"}
             >
               <svg
                 width="10"
