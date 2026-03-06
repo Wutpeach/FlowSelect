@@ -98,6 +98,40 @@ struct ClipTimeRange {
     end_seconds: f64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum YtdlpQualityPreference {
+    #[default]
+    Best,
+    Balanced,
+    DataSaver,
+}
+
+impl YtdlpQualityPreference {
+    fn from_extension_value(value: Option<&str>) -> Self {
+        match value {
+            Some("balanced") | Some("high") => Self::Balanced,
+            Some("data_saver") | Some("standard") => Self::DataSaver,
+            _ => Self::Best,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Best => "best",
+            Self::Balanced => "balanced",
+            Self::DataSaver => "data_saver",
+        }
+    }
+
+    fn format_selector(self) -> &'static str {
+        match self {
+            Self::Best => YTDLP_FORMAT_SELECTOR_BEST,
+            Self::Balanced => YTDLP_FORMAT_SELECTOR_BALANCED,
+            Self::DataSaver => YTDLP_FORMAT_SELECTOR_DATA_SAVER,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct DirectCandidateCacheEntry {
     url: String,
@@ -119,6 +153,7 @@ enum QueuedVideoTask {
         cookies_header: Option<String>,
         cookies_path: Option<PathBuf>,
         direct_candidates: Vec<SelectedDirectCandidate>,
+        ytdlp_quality: YtdlpQualityPreference,
         trace_id: String,
     },
     Xiaohongshu {
@@ -127,6 +162,7 @@ enum QueuedVideoTask {
         cookies_header: Option<String>,
         cookies_path: Option<PathBuf>,
         direct_candidates: Vec<SelectedDirectCandidate>,
+        ytdlp_quality: YtdlpQualityPreference,
         trace_id: String,
     },
     Smart {
@@ -134,6 +170,7 @@ enum QueuedVideoTask {
         title: Option<String>,
         cookies_path: Option<PathBuf>,
         clip_range: Option<ClipTimeRange>,
+        ytdlp_quality: YtdlpQualityPreference,
         trace_id: String,
     },
 }
@@ -215,8 +252,12 @@ const YTDLP_WATCHDOG_TICK_MILLIS: u64 = 1500;
 const YTDLP_TERMINATION_GRACE_MILLIS: u64 = 2500;
 const YTDLP_TEMP_DIR_NAME: &str = "flowselect-ytdlp-temp";
 const PRECISE_GPU_REQUIRED_ERROR_MARKER: &str = "Precise mode requires hardware encoder";
-const YTDLP_FORMAT_SELECTOR: &str =
+const YTDLP_FORMAT_SELECTOR_BEST: &str =
     "bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[vcodec^=avc1][ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best";
+const YTDLP_FORMAT_SELECTOR_BALANCED: &str =
+    "bv*[height=1080][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[height=1080][vcodec^=avc1][ext=mp4]/bv*[height=1080][ext=mp4]+ba[ext=m4a]/bv*[height=1080]+ba/b[height=1080]/best[height=1080]/bv*[height<=1080][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[height<=1080][vcodec^=avc1][ext=mp4]/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/best[height<=1080]/bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[vcodec^=avc1][ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best";
+const YTDLP_FORMAT_SELECTOR_DATA_SAVER: &str =
+    "bv*[height=360][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[height=360][vcodec^=avc1][ext=mp4]/bv*[height=360][ext=mp4]+ba[ext=m4a]/bv*[height=360]+ba/b[height=360]/best[height=360]/worstvideo[height<360]+worstaudio/worst[height<360]/worstvideo+worstaudio/worst";
 const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
 const RENAME_RULE_PRESET_KEY: &str = "renameRulePreset";
 const RENAME_PREFIX_KEY: &str = "renamePrefix";
@@ -1532,11 +1573,11 @@ fn normalize_slice_reuse_url_key(raw_url: &str) -> String {
     raw_url.trim().to_string()
 }
 
-fn build_slice_source_cache_key(url: &str) -> String {
+fn build_slice_source_cache_key(url: &str, ytdlp_quality: YtdlpQualityPreference) -> String {
     format!(
         "{}::{}",
         normalize_slice_reuse_url_key(url),
-        YTDLP_FORMAT_SELECTOR
+        ytdlp_quality.as_str()
     )
 }
 
@@ -1780,6 +1821,7 @@ async fn download_full_source_to_slice_cache(
     app: &AppHandle,
     url: &str,
     extension_cookies_path: &Option<PathBuf>,
+    ytdlp_quality: YtdlpQualityPreference,
     cache_path: &Path,
     trace_id: &str,
 ) -> Result<PathBuf, String> {
@@ -1799,7 +1841,7 @@ async fn download_full_source_to_slice_cache(
 
     let mut args = vec![
         "-f".to_string(),
-        YTDLP_FORMAT_SELECTOR.to_string(),
+        ytdlp_quality.format_selector().to_string(),
         "--merge-output-format".to_string(),
         "mp4".to_string(),
         "--no-keep-video".to_string(),
@@ -1963,6 +2005,7 @@ async fn ensure_slice_source_cache(
     app: &AppHandle,
     url: &str,
     extension_cookies_path: &Option<PathBuf>,
+    ytdlp_quality: YtdlpQualityPreference,
     cache_key: &str,
     trace_id: &str,
 ) -> Result<PathBuf, String> {
@@ -1977,6 +2020,7 @@ async fn ensure_slice_source_cache(
         app,
         url,
         extension_cookies_path,
+        ytdlp_quality,
         &cache_path,
         trace_id,
     )
@@ -2092,6 +2136,7 @@ async fn try_slice_download_with_reuse(
     app: &AppHandle,
     url: &str,
     extension_cookies_path: &Option<PathBuf>,
+    ytdlp_quality: YtdlpQualityPreference,
     cache_key: &str,
     output_dir: &Path,
     config: &mut serde_json::Value,
@@ -2101,8 +2146,15 @@ async fn try_slice_download_with_reuse(
     title_hint: Option<String>,
     trace_id: &str,
 ) -> Result<String, String> {
-    let source_path =
-        ensure_slice_source_cache(app, url, extension_cookies_path, cache_key, trace_id).await?;
+    let source_path = ensure_slice_source_cache(
+        app,
+        url,
+        extension_cookies_path,
+        ytdlp_quality,
+        cache_key,
+        trace_id,
+    )
+    .await?;
     match slice_cached_source_to_output(
         app,
         &source_path,
@@ -2129,9 +2181,15 @@ async fn try_slice_download_with_reuse(
                 first_err
             );
             invalidate_slice_source_cache(cache_key);
-            let refreshed_source =
-                ensure_slice_source_cache(app, url, extension_cookies_path, cache_key, trace_id)
-                    .await?;
+            let refreshed_source = ensure_slice_source_cache(
+                app,
+                url,
+                extension_cookies_path,
+                ytdlp_quality,
+                cache_key,
+                trace_id,
+            )
+            .await?;
             slice_cached_source_to_output(
                 app,
                 &refreshed_source,
@@ -2471,6 +2529,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
             cookies_header,
             cookies_path,
             direct_candidates,
+            ytdlp_quality,
             trace_id,
         } => {
             if let Err(err) = download_platform_direct_with_retry(
@@ -2481,6 +2540,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 cookies_header,
                 cookies_path,
                 direct_candidates,
+                ytdlp_quality,
                 trace_id.clone(),
             )
             .await
@@ -2501,6 +2561,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
             cookies_header,
             cookies_path,
             direct_candidates,
+            ytdlp_quality,
             trace_id,
         } => {
             if let Err(err) = download_platform_direct_with_retry(
@@ -2511,6 +2572,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 cookies_header,
                 cookies_path,
                 direct_candidates,
+                ytdlp_quality,
                 trace_id.clone(),
             )
             .await
@@ -2530,6 +2592,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
             title,
             cookies_path,
             clip_range,
+            ytdlp_quality,
             trace_id,
         } => {
             if let Err(err) = download_video_smart(
@@ -2538,6 +2601,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 title,
                 cookies_path,
                 clip_range,
+                ytdlp_quality,
                 Some(trace_id.clone()),
                 None,
             )
@@ -2635,6 +2699,7 @@ async fn download_platform_direct_with_retry(
     cookies_header: Option<String>,
     extension_cookies_path: Option<PathBuf>,
     direct_candidates: Vec<SelectedDirectCandidate>,
+    ytdlp_quality: YtdlpQualityPreference,
     trace_id: String,
 ) -> Result<DownloadResult, String> {
     let direct_route = direct_route_for_platform(platform);
@@ -2674,6 +2739,7 @@ async fn download_platform_direct_with_retry(
             title,
             extension_cookies_path,
             None,
+            ytdlp_quality,
             Some(trace_id),
             None,
         )
@@ -2826,6 +2892,7 @@ async fn download_platform_direct_with_retry(
         title,
         extension_cookies_path,
         None,
+        ytdlp_quality,
         Some(trace_id),
         Some(vec![direct_route]),
     )
@@ -2840,11 +2907,16 @@ async fn download_video_internal(
     extension_cookies_path: Option<PathBuf>,
     clip_range: Option<ClipTimeRange>,
     source_title: Option<String>,
+    ytdlp_quality: YtdlpQualityPreference,
     trace_id: String,
 ) -> Result<DownloadResult, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
     println!(">>> [Rust] Starting video download: {}", url);
+    println!(
+        ">>> [Rust] yt-dlp quality preference: {}",
+        ytdlp_quality.as_str()
+    );
 
     // Get config
     let config_str = get_config(app.clone())?;
@@ -2874,7 +2946,7 @@ async fn download_video_internal(
     let clip_download_mode = ClipDownloadMode::from_config(&config);
 
     if let Some(clip_range_ref) = clip_range.as_ref() {
-        let cache_key = build_slice_source_cache_key(&url);
+        let cache_key = build_slice_source_cache_key(&url, ytdlp_quality);
         let force_precise_gpu_pipeline = clip_download_mode == ClipDownloadMode::Precise;
         let should_use_slice_cache_pipeline = force_precise_gpu_pipeline
             || should_attempt_slice_source_reuse(cache_key.as_str(), now_timestamp_ms());
@@ -2886,6 +2958,7 @@ async fn download_video_internal(
                 &app,
                 &url,
                 &extension_cookies_path,
+                ytdlp_quality,
                 cache_key.as_str(),
                 &output_dir,
                 &mut config,
@@ -2969,7 +3042,7 @@ async fn download_video_internal(
     // Build args
     let mut args = vec![
         "-f".to_string(),
-        YTDLP_FORMAT_SELECTOR.to_string(),
+        ytdlp_quality.format_selector().to_string(),
         "--merge-output-format".to_string(),
         "mp4".to_string(),
         "--no-keep-video".to_string(),
@@ -3491,11 +3564,20 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         title: None,
         cookies_path: None,
         clip_range: None,
+        ytdlp_quality: YtdlpQualityPreference::Best,
         trace_id: trace_id.clone(),
     };
     mark_video_task_active(&app, task);
-    let result =
-        download_video_internal(app.clone(), url, None, None, None, trace_id.clone()).await;
+    let result = download_video_internal(
+        app.clone(),
+        url,
+        None,
+        None,
+        None,
+        YtdlpQualityPreference::Best,
+        trace_id.clone(),
+    )
+    .await;
     clear_download_runtime(trace_id.as_str());
     mark_video_task_complete(&app, trace_id.as_str());
     result
@@ -3512,6 +3594,7 @@ async fn queue_video_download(
         title: None,
         cookies_path: None,
         clip_range: None,
+        ytdlp_quality: YtdlpQualityPreference::Best,
         trace_id: trace_id.clone(),
     };
     enqueue_video_task(&app, queued_task);
@@ -3710,6 +3793,13 @@ fn parse_clip_time_range(data: &serde_json::Value) -> Result<Option<ClipTimeRang
             }))
         }
     }
+}
+
+fn parse_ytdlp_quality_preference(data: &serde_json::Value) -> YtdlpQualityPreference {
+    let raw = data
+        .get("ytdlpQualityPreference")
+        .and_then(|value| value.as_str());
+    YtdlpQualityPreference::from_extension_value(raw)
 }
 
 fn format_seconds_for_download_section(seconds: f64) -> String {
@@ -3942,6 +4032,7 @@ async fn download_video_smart(
     title: Option<String>,
     extension_cookies_path: Option<PathBuf>,
     clip_range: Option<ClipTimeRange>,
+    ytdlp_quality: YtdlpQualityPreference,
     trace_id: Option<String>,
     initial_route_chain: Option<Vec<DownloadRoute>>,
 ) -> Result<DownloadResult, String> {
@@ -3957,6 +4048,7 @@ async fn download_video_smart(
             "hasTitle": title.is_some(),
             "hasExtensionCookies": extension_cookies_path.as_ref().is_some_and(|path| path.exists()),
             "hasClipRange": clip_range.is_some(),
+            "ytdlpQuality": ytdlp_quality.as_str(),
         }),
     );
 
@@ -4102,6 +4194,7 @@ async fn download_video_smart(
         extension_cookies_path.clone(),
         clip_range.clone(),
         title.clone(),
+        ytdlp_quality,
         trace_id.clone(),
     )
     .await
@@ -5600,6 +5693,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
                     let title = data.get("title").and_then(|v| v.as_str());
                     let trace_id = next_download_trace_id();
+                    let ytdlp_quality = parse_ytdlp_quality_preference(&data);
                     let clip_range = match parse_clip_time_range(&data) {
                         Ok(value) => value,
                         Err(err) => {
@@ -5648,6 +5742,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             "hasClipRange": clip_range.is_some(),
                             "clipStartSec": clip_range.as_ref().map(|range| range.start_seconds),
                             "clipEndSec": clip_range.as_ref().map(|range| range.end_seconds),
+                            "ytdlpQuality": ytdlp_quality.as_str(),
                         }),
                     );
 
@@ -5660,6 +5755,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                 .filter(|value| !value.is_empty())
                                 .and_then(|value| save_extension_cookies(value).ok()),
                             direct_candidates: douyin_direct_candidates,
+                            ytdlp_quality,
                             trace_id: trace_id.clone(),
                         }
                     } else if is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url) {
@@ -5671,6 +5767,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                 .filter(|value| !value.is_empty())
                                 .and_then(|value| save_extension_cookies(value).ok()),
                             direct_candidates: xiaohongshu_direct_candidates,
+                            ytdlp_quality,
                             trace_id: trace_id.clone(),
                         }
                     } else {
@@ -5681,6 +5778,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                 .filter(|value| !value.is_empty())
                                 .and_then(|value| save_extension_cookies(value).ok()),
                             clip_range: clip_range.clone(),
+                            ytdlp_quality,
                             trace_id: trace_id.clone(),
                         }
                     };

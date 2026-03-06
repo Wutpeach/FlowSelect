@@ -350,9 +350,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       getCookiesForUrl(pageUrl),
       directDownloadQuality.getQualityPreference(),
     ]).then(([cookies, qualityPreference]) => {
-      const prioritizedCandidates = directDownloadQuality.prioritizeCandidatesForPreference(
+      const prioritizedCandidates = directDownloadQuality.prioritizeCandidatesForHighestQuality(
         videoCandidates,
-        qualityPreference,
         platform
       );
       const preferredVideoUrl = directDownloadQuality.selectPreferredVideoUrl(
@@ -370,6 +369,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           videoCandidates: prioritizedCandidates,
           clipStartSec: clipStartSec,
           clipEndSec: clipEndSec,
+          ytdlpQualityPreference: qualityPreference,
           cookies: cookies
         }
       });

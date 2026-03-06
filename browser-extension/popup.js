@@ -45,7 +45,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       button.innerHTML = `
         <span class="quality-value">${option.label}</span>
-        <span class="quality-meta">${option.badge || option.value.toUpperCase()}</span>
       `;
       button.title = option.description;
       button.addEventListener('click', async () => {

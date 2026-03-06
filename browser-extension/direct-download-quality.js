@@ -1,26 +1,24 @@
 (function initFlowSelectDirectDownloadQuality(root) {
   "use strict";
 
-  const STORAGE_KEY = "defaultDirectDownloadQuality";
+  const STORAGE_KEY = "defaultVideoDownloadQuality";
+  const LEGACY_STORAGE_KEY = "defaultDirectDownloadQuality";
   const DEFAULT_QUALITY_PREFERENCE = "best";
   const QUALITY_PREFERENCE_OPTIONS = Object.freeze([
     {
       value: "best",
-      label: "Best",
-      badge: "AUTO",
+      label: "Auto",
       description: "Keep the current best-available behavior.",
     },
     {
-      value: "high",
-      label: "HD",
-      badge: "HQ",
-      description: "Prefer higher-quality direct links when hints exist.",
+      value: "balanced",
+      label: "1080p",
+      description: "Ask yt-dlp for 1080p when available, then fall back gracefully.",
     },
     {
-      value: "standard",
-      label: "SD",
-      badge: "LQ",
-      description: "Prefer smaller direct links when hints exist.",
+      value: "data_saver",
+      label: "360p",
+      description: "Ask yt-dlp for 360p, otherwise fall back to the lowest available tier.",
     },
   ]);
 
@@ -38,6 +36,8 @@
   ];
 
   function normalizeQualityPreference(value) {
+    if (value === "high") return "balanced";
+    if (value === "standard") return "data_saver";
     if (QUALITY_PREFERENCE_OPTIONS.some((option) => option.value === value)) {
       return value;
     }
@@ -121,10 +121,9 @@
     return false;
   }
 
-  function prioritizeCandidatesForPreference(candidates, preference, platform) {
-    const normalizedPreference = normalizeQualityPreference(preference);
+  function prioritizeCandidatesForHighestQuality(candidates, platform) {
     if (!Array.isArray(candidates) || candidates.length === 0) return [];
-    if (!platform || normalizedPreference === DEFAULT_QUALITY_PREFERENCE) {
+    if (!platform) {
       return candidates.slice();
     }
 
@@ -150,19 +149,10 @@
     directEntries.sort((left, right) => {
       const leftScore = left.qualityScore;
       const rightScore = right.qualityScore;
-
-      if (normalizedPreference === "high") {
-        if (leftScore == null && rightScore == null) return left.index - right.index;
-        if (leftScore == null) return 1;
-        if (rightScore == null) return -1;
-        if (rightScore !== leftScore) return rightScore - leftScore;
-        return left.index - right.index;
-      }
-
       if (leftScore == null && rightScore == null) return left.index - right.index;
       if (leftScore == null) return 1;
       if (rightScore == null) return -1;
-      if (leftScore !== rightScore) return leftScore - rightScore;
+      if (rightScore !== leftScore) return rightScore - leftScore;
       return left.index - right.index;
     });
 
@@ -219,8 +209,8 @@
     }
 
     try {
-      const result = await storageGet(STORAGE_KEY);
-      return normalizeQualityPreference(result?.[STORAGE_KEY]);
+      const result = await storageGet([STORAGE_KEY, LEGACY_STORAGE_KEY]);
+      return normalizeQualityPreference(result?.[STORAGE_KEY] ?? result?.[LEGACY_STORAGE_KEY]);
     } catch (error) {
       console.error("[FlowSelect] Failed to load quality preference:", error);
       return DEFAULT_QUALITY_PREFERENCE;
@@ -239,13 +229,14 @@
 
   root.FlowSelectDirectDownloadQuality = {
     STORAGE_KEY,
+    LEGACY_STORAGE_KEY,
     DEFAULT_QUALITY_PREFERENCE,
     QUALITY_PREFERENCE_OPTIONS,
     getDirectPlatform,
     getQualityPreference,
     inferQualityScoreFromUrl,
     normalizeQualityPreference,
-    prioritizeCandidatesForPreference,
+    prioritizeCandidatesForHighestQuality,
     selectPreferredVideoUrl,
     setQualityPreference,
   };
