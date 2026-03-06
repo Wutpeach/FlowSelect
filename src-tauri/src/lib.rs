@@ -132,6 +132,27 @@ impl YtdlpQualityPreference {
             Self::DataSaver => YTDLP_FORMAT_SELECTOR_DATA_SAVER,
         }
     }
+
+    fn merge_output_format(self) -> &'static str {
+        match self {
+            Self::Best => "mkv",
+            Self::Balanced | Self::DataSaver => "mp4",
+        }
+    }
+
+    fn format_sort(self) -> Option<&'static str> {
+        match self {
+            Self::Best => None,
+            Self::Balanced | Self::DataSaver => Some("ext:mp4:m4a"),
+        }
+    }
+
+    fn slice_cache_extension(self) -> &'static str {
+        match self {
+            Self::Best => "mkv",
+            Self::Balanced | Self::DataSaver => "mp4",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -254,12 +275,41 @@ const YTDLP_WATCHDOG_TICK_MILLIS: u64 = 1500;
 const YTDLP_TERMINATION_GRACE_MILLIS: u64 = 2500;
 const YTDLP_TEMP_DIR_NAME: &str = "flowselect-ytdlp-temp";
 const PRECISE_GPU_REQUIRED_ERROR_MARKER: &str = "Precise mode requires hardware encoder";
-const YTDLP_FORMAT_SELECTOR_BEST: &str =
-    "bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[vcodec^=avc1][ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best";
-const YTDLP_FORMAT_SELECTOR_BALANCED: &str =
-    "bv*[height=1080][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[height=1080][vcodec^=avc1][ext=mp4]/bv*[height=1080][ext=mp4]+ba[ext=m4a]/bv*[height=1080]+ba/b[height=1080]/best[height=1080]/bv*[height<=1080][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[height<=1080][vcodec^=avc1][ext=mp4]/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/best[height<=1080]/bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[vcodec^=avc1][ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b/best[ext=mp4]/best";
-const YTDLP_FORMAT_SELECTOR_DATA_SAVER: &str =
-    "bv*[height=360][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/b[height=360][vcodec^=avc1][ext=mp4]/bv*[height=360][ext=mp4]+ba[ext=m4a]/bv*[height=360]+ba/b[height=360]/best[height=360]/worstvideo[height<360]+worstaudio/worst[height<360]/worstvideo+worstaudio/worst";
+// `best` should follow the highest tier available to the current account, even when
+// that requires mixed containers/codecs. We merge to mkv in that tier so yt-dlp can
+// keep 1440p/2160p streams instead of collapsing to MP4-compatible 1080p.
+const YTDLP_FORMAT_SELECTOR_BEST: &str = "bestvideo*+bestaudio/best";
+const YTDLP_FORMAT_SELECTOR_BALANCED: &str = concat!(
+    "bv*[height=1080][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/",
+    "bv*[height=1080][ext=mp4]+ba[ext=m4a]/",
+    "b[height=1080][vcodec^=avc1][ext=mp4]/",
+    "b[height=1080][ext=mp4]/",
+    "best[height=1080][ext=mp4]/",
+    "bv*[height<=1080][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/",
+    "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/",
+    "b[height<=1080][vcodec^=avc1][ext=mp4]/",
+    "b[height<=1080][ext=mp4]/",
+    "best[height<=1080][ext=mp4]/",
+    "bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/",
+    "bv*[ext=mp4]+ba[ext=m4a]/",
+    "b[vcodec^=avc1][ext=mp4]/",
+    "b[ext=mp4]/",
+    "best[ext=mp4]/",
+    "best"
+);
+const YTDLP_FORMAT_SELECTOR_DATA_SAVER: &str = concat!(
+    "bv*[height=360][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/",
+    "bv*[height=360][ext=mp4]+ba[ext=m4a]/",
+    "b[height=360][vcodec^=avc1][ext=mp4]/",
+    "b[height=360][ext=mp4]/",
+    "best[height=360][ext=mp4]/",
+    "bv*[height<360][ext=mp4]+ba[ext=m4a]/",
+    "b[height<360][ext=mp4]/",
+    "best[height<360][ext=mp4]/",
+    "worstvideo[ext=mp4]+ba[ext=m4a]/",
+    "worst[ext=mp4]/",
+    "worst"
+);
 const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
 const RENAME_RULE_PRESET_KEY: &str = "renameRulePreset";
 const RENAME_PREFIX_KEY: &str = "renamePrefix";
@@ -1587,11 +1637,11 @@ fn slice_source_cache_dir() -> PathBuf {
     std::env::temp_dir().join(SLICE_SOURCE_CACHE_DIR_NAME)
 }
 
-fn slice_source_cache_path_for_key(cache_key: &str) -> PathBuf {
+fn slice_source_cache_path_for_key(cache_key: &str, extension: &str) -> PathBuf {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     cache_key.hash(&mut hasher);
     let hash = hasher.finish();
-    slice_source_cache_dir().join(format!("src-{:016x}.mp4", hash))
+    slice_source_cache_dir().join(format!("src-{:016x}.{}", hash, extension))
 }
 
 fn slice_cache_file_size_if_valid(path: &Path) -> Option<u64> {
@@ -1845,10 +1895,8 @@ async fn download_full_source_to_slice_cache(
         "-f".to_string(),
         ytdlp_quality.format_selector().to_string(),
         "--merge-output-format".to_string(),
-        "mp4".to_string(),
+        ytdlp_quality.merge_output_format().to_string(),
         "--no-keep-video".to_string(),
-        "-S".to_string(),
-        "ext:mp4:m4a".to_string(),
         "--newline".to_string(),
         "--progress".to_string(),
         "--extractor-args".to_string(),
@@ -1864,6 +1912,10 @@ async fn download_full_source_to_slice_cache(
         "-o".to_string(),
         cache_path.to_string_lossy().to_string(),
     ];
+    if let Some(format_sort) = ytdlp_quality.format_sort() {
+        args.push("-S".to_string());
+        args.push(format_sort.to_string());
+    }
     if let Some(cookies_path) = extension_cookies_path {
         if cookies_path.exists() {
             args.push("--cookies".to_string());
@@ -2017,7 +2069,8 @@ async fn ensure_slice_source_cache(
         return Ok(path);
     }
 
-    let cache_path = slice_source_cache_path_for_key(cache_key);
+    let cache_path =
+        slice_source_cache_path_for_key(cache_key, ytdlp_quality.slice_cache_extension());
     let downloaded_path = download_full_source_to_slice_cache(
         app,
         url,
@@ -3046,10 +3099,8 @@ async fn download_video_internal(
         "-f".to_string(),
         ytdlp_quality.format_selector().to_string(),
         "--merge-output-format".to_string(),
-        "mp4".to_string(),
+        ytdlp_quality.merge_output_format().to_string(),
         "--no-keep-video".to_string(),
-        "-S".to_string(),
-        "ext:mp4:m4a".to_string(),
         "--newline".to_string(),
         "--progress".to_string(),
         // 使用 tv 变体解决 YouTube player 签名问题
@@ -3068,6 +3119,10 @@ async fn download_video_internal(
         "-o".to_string(),
         output_template.to_string_lossy().to_string(),
     ];
+    if let Some(format_sort) = ytdlp_quality.format_sort() {
+        args.push("-S".to_string());
+        args.push(format_sort.to_string());
+    }
 
     // Use extension-provided cookies (from browser extension).
     if let Some(ref cookies_path) = extension_cookies_path {
@@ -5110,7 +5165,9 @@ fn migrate_legacy_config_if_needed(
         .map_err(|e| format!("Failed to get base config dir: {}", e))?;
 
     for legacy_identifier in LEGACY_APP_IDENTIFIERS {
-        let legacy_config_path = base_config_dir.join(legacy_identifier).join("settings.json");
+        let legacy_config_path = base_config_dir
+            .join(legacy_identifier)
+            .join("settings.json");
         if !legacy_config_path.exists() {
             continue;
         }
