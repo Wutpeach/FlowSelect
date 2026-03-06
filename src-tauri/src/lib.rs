@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
@@ -111,6 +111,39 @@ struct SliceSourceCacheEntry {
     last_used_at_ms: u128,
 }
 
+#[derive(Clone, Debug)]
+enum QueuedVideoTask {
+    Douyin {
+        page_url: String,
+        title: Option<String>,
+        cookies_header: Option<String>,
+        cookies_path: Option<PathBuf>,
+        direct_candidates: Vec<SelectedDirectCandidate>,
+        trace_id: String,
+    },
+    Xiaohongshu {
+        page_url: String,
+        title: Option<String>,
+        cookies_header: Option<String>,
+        cookies_path: Option<PathBuf>,
+        direct_candidates: Vec<SelectedDirectCandidate>,
+        trace_id: String,
+    },
+    Smart {
+        url: String,
+        title: Option<String>,
+        cookies_path: Option<PathBuf>,
+        clip_range: Option<ClipTimeRange>,
+        trace_id: String,
+    },
+}
+
+#[derive(Default)]
+struct VideoTaskQueueState {
+    pending: VecDeque<QueuedVideoTask>,
+    active: bool,
+}
+
 // Store current download process PID
 static DOWNLOAD_CHILD: Mutex<Option<u32>> = Mutex::new(None);
 
@@ -120,6 +153,8 @@ static DOWNLOAD_CANCELLED: Mutex<bool> = Mutex::new(false);
 static DOWNLOAD_TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
 static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCacheEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static VIDEO_TASK_QUEUE_STATE: LazyLock<Mutex<VideoTaskQueueState>> =
+    LazyLock::new(|| Mutex::new(VideoTaskQueueState::default()));
 static SLICE_SOURCE_CACHE: LazyLock<Mutex<HashMap<String, SliceSourceCacheEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static SLICE_REQUEST_HISTORY: LazyLock<Mutex<HashMap<String, u128>>> =
@@ -2151,6 +2186,138 @@ fn next_download_trace_id() -> String {
     format!("dl-{}-{}", now_timestamp_ms(), seq)
 }
 
+fn video_task_total_count(state: &VideoTaskQueueState) -> usize {
+    state.pending.len() + usize::from(state.active)
+}
+
+fn emit_video_queue_count(app: &AppHandle, count: usize) {
+    println!(">>> [Rust] Video queue count updated: {}", count);
+    let _ = app.emit("video-queue-count", serde_json::json!({ "count": count }));
+}
+
+fn enqueue_video_task(app: &AppHandle, task: QueuedVideoTask) -> bool {
+    let (count, should_start_runner) = {
+        let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
+        state.pending.push_back(task);
+        let should_start_runner = !state.active;
+        if should_start_runner {
+            state.active = true;
+        }
+        (video_task_total_count(&state), should_start_runner)
+    };
+    emit_video_queue_count(app, count);
+    should_start_runner
+}
+
+fn take_next_video_task(app: &AppHandle) -> Option<QueuedVideoTask> {
+    let (task, count) = {
+        let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
+        let task = state.pending.pop_front();
+        if task.is_none() {
+            state.active = false;
+        }
+        (task, video_task_total_count(&state))
+    };
+    emit_video_queue_count(app, count);
+    task
+}
+
+async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
+    match task {
+        QueuedVideoTask::Douyin {
+            page_url,
+            title,
+            cookies_header,
+            cookies_path,
+            direct_candidates,
+            trace_id,
+        } => {
+            if let Err(err) = download_platform_direct_with_retry(
+                app.clone(),
+                DirectPlatform::Douyin,
+                page_url,
+                title,
+                cookies_header,
+                cookies_path,
+                direct_candidates,
+                trace_id,
+            )
+            .await
+            {
+                println!(">>> [Rust] Douyin direct pipeline error: {}", err);
+                let result = DownloadResult {
+                    success: false,
+                    file_path: None,
+                    error: Some(err),
+                };
+                let _ = app.emit("video-download-complete", result);
+            }
+        }
+        QueuedVideoTask::Xiaohongshu {
+            page_url,
+            title,
+            cookies_header,
+            cookies_path,
+            direct_candidates,
+            trace_id,
+        } => {
+            if let Err(err) = download_platform_direct_with_retry(
+                app.clone(),
+                DirectPlatform::Xiaohongshu,
+                page_url,
+                title,
+                cookies_header,
+                cookies_path,
+                direct_candidates,
+                trace_id,
+            )
+            .await
+            {
+                println!(">>> [Rust] Xiaohongshu direct pipeline error: {}", err);
+                let result = DownloadResult {
+                    success: false,
+                    file_path: None,
+                    error: Some(err),
+                };
+                let _ = app.emit("video-download-complete", result);
+            }
+        }
+        QueuedVideoTask::Smart {
+            url,
+            title,
+            cookies_path,
+            clip_range,
+            trace_id,
+        } => {
+            if let Err(err) = download_video_smart(
+                app.clone(),
+                url,
+                title,
+                cookies_path,
+                clip_range,
+                Some(trace_id),
+                None,
+            )
+            .await
+            {
+                println!(">>> [Rust] Smart download error: {}", err);
+                let result = DownloadResult {
+                    success: false,
+                    file_path: None,
+                    error: Some(err),
+                };
+                let _ = app.emit("video-download-complete", result);
+            }
+        }
+    }
+}
+
+async fn process_video_task_queue(app: AppHandle) {
+    while let Some(task) = take_next_video_task(&app) {
+        execute_queued_video_task(app.clone(), task).await;
+    }
+}
+
 fn is_cancelled_error(err: &str) -> bool {
     err.to_ascii_lowercase().contains("cancelled")
 }
@@ -2763,11 +2930,16 @@ async fn download_video_internal(
                     // Cleanup extension cookies file
                     cleanup_extension_cookies_file(&extension_cookies_path);
 
-                    let success = payload.code == Some(0);
+                    let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
+                    let success = payload.code == Some(0) && !was_cancelled;
                     if !success {
                         cleanup_part_files_for_output_root(&output_dir);
                     }
-                    let was_cancelled = *DOWNLOAD_CANCELLED.lock().unwrap();
+                    if was_cancelled {
+                        if let Some(ref final_path) = last_file_path {
+                            let _ = std::fs::remove_file(final_path);
+                        }
+                    }
                     let result = DownloadResult {
                         success,
                         file_path: if success {
@@ -3914,6 +4086,17 @@ async fn download_video_direct(
                 );
             }
         }
+    }
+
+    if *DOWNLOAD_CANCELLED.lock().unwrap() {
+        println!(
+            ">>> [Rust] {} direct download cancellation detected after stream drain",
+            platform
+        );
+        let _ = file.flush().await;
+        drop(file);
+        let _ = tokio::fs::remove_file(&output_path).await;
+        return Err("Download cancelled".to_string());
     }
 
     file.flush()
@@ -5171,102 +5354,51 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                         }),
                     );
 
-                    if is_douyin_url(page_url) || is_douyin_url(url) {
-                        let page_url_owned = page_url.to_string();
-                        let title_owned = title.map(|value| value.to_string());
-                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
-                        let cookies_path = cookies
-                            .filter(|value| !value.is_empty())
-                            .and_then(|value| save_extension_cookies(value).ok());
-                        let trace_id_for_task = trace_id.clone();
-                        tokio::spawn(async move {
-                            if let Err(err) = download_platform_direct_with_retry(
-                                app_clone.clone(),
-                                DirectPlatform::Douyin,
-                                page_url_owned,
-                                title_owned,
-                                cookies_header,
-                                cookies_path,
-                                douyin_direct_candidates,
-                                trace_id_for_task.clone(),
-                            )
-                            .await
-                            {
-                                println!(">>> [Rust] Douyin direct pipeline error: {}", err);
-                                let result = DownloadResult {
-                                    success: false,
-                                    file_path: None,
-                                    error: Some(err),
-                                };
-                                let _ = app_clone.emit("video-download-complete", result);
-                            }
-                        });
+                    let queued_task = if is_douyin_url(page_url) || is_douyin_url(url) {
+                        QueuedVideoTask::Douyin {
+                            page_url: page_url.to_string(),
+                            title: title.map(|value| value.to_string()),
+                            cookies_header: cookies.and_then(netscape_cookies_to_header),
+                            cookies_path: cookies
+                                .filter(|value| !value.is_empty())
+                                .and_then(|value| save_extension_cookies(value).ok()),
+                            direct_candidates: douyin_direct_candidates,
+                            trace_id: trace_id.clone(),
+                        }
                     } else if is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url) {
-                        let page_url_owned = page_url.to_string();
-                        let title_owned = title.map(|value| value.to_string());
-                        let cookies_header = cookies.and_then(netscape_cookies_to_header);
-                        let cookies_path = cookies
-                            .filter(|value| !value.is_empty())
-                            .and_then(|value| save_extension_cookies(value).ok());
-                        let trace_id_for_task = trace_id.clone();
-                        tokio::spawn(async move {
-                            if let Err(err) = download_platform_direct_with_retry(
-                                app_clone.clone(),
-                                DirectPlatform::Xiaohongshu,
-                                page_url_owned,
-                                title_owned,
-                                cookies_header,
-                                cookies_path,
-                                xiaohongshu_direct_candidates,
-                                trace_id_for_task.clone(),
-                            )
-                            .await
-                            {
-                                println!(">>> [Rust] Xiaohongshu direct pipeline error: {}", err);
-                                let result = DownloadResult {
-                                    success: false,
-                                    file_path: None,
-                                    error: Some(err),
-                                };
-                                let _ = app_clone.emit("video-download-complete", result);
-                            }
-                        });
+                        QueuedVideoTask::Xiaohongshu {
+                            page_url: page_url.to_string(),
+                            title: title.map(|value| value.to_string()),
+                            cookies_header: cookies.and_then(netscape_cookies_to_header),
+                            cookies_path: cookies
+                                .filter(|value| !value.is_empty())
+                                .and_then(|value| save_extension_cookies(value).ok()),
+                            direct_candidates: xiaohongshu_direct_candidates,
+                            trace_id: trace_id.clone(),
+                        }
                     } else {
-                        // Use smart download dispatcher
-                        let url_owned = url.to_string();
-                        let title_owned = title.map(|value| value.to_string());
-                        let cookies_path = cookies
-                            .filter(|value| !value.is_empty())
-                            .and_then(|value| save_extension_cookies(value).ok());
-                        let trace_id_for_task = trace_id.clone();
-                        let clip_range_for_task = clip_range.clone();
+                        QueuedVideoTask::Smart {
+                            url: url.to_string(),
+                            title: title.map(|value| value.to_string()),
+                            cookies_path: cookies
+                                .filter(|value| !value.is_empty())
+                                .and_then(|value| save_extension_cookies(value).ok()),
+                            clip_range: clip_range.clone(),
+                            trace_id: trace_id.clone(),
+                        }
+                    };
+
+                    let should_start_runner = enqueue_video_task(&app_clone, queued_task);
+                    if should_start_runner {
+                        let runner_app = app_clone.clone();
                         tokio::spawn(async move {
-                            if let Err(err) = download_video_smart(
-                                app_clone.clone(),
-                                url_owned,
-                                title_owned,
-                                cookies_path,
-                                clip_range_for_task,
-                                Some(trace_id_for_task.clone()),
-                                None,
-                            )
-                            .await
-                            {
-                                println!(">>> [Rust] Smart download error: {}", err);
-                                // Emit complete event with error to close progress bar
-                                let result = DownloadResult {
-                                    success: false,
-                                    file_path: None,
-                                    error: Some(err),
-                                };
-                                let _ = app_clone.emit("video-download-complete", result);
-                            }
+                            process_video_task_queue(runner_app).await;
                         });
                     }
 
                     WsResponse {
                         success: true,
-                        message: Some("Download started".to_string()),
+                        message: Some("Download queued".to_string()),
                         data: None,
                     }
                 } else {

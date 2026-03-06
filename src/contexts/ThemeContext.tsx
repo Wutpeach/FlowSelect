@@ -27,6 +27,11 @@ interface ThemeColors {
   progressCancelIcon: string;
   progressCancelHoverBg: string;
   progressCancelHoverIcon: string;
+  queueBadgeBg: string;
+  queueBadgeText: string;
+  queueBadgeBorder: string;
+  queueStatusBg: string;
+  queueStatusBorder: string;
   // Status icons
   successIcon: string;
   errorIcon: string;
@@ -51,6 +56,11 @@ const themes: Record<Theme, ThemeColors> = {
     progressCancelIcon: '#606060',
     progressCancelHoverBg: 'rgba(239,68,68,0.2)',
     progressCancelHoverIcon: '#f87171',
+    queueBadgeBg: '#f97316',
+    queueBadgeText: '#fff7ed',
+    queueBadgeBorder: 'rgba(254,215,170,0.9)',
+    queueStatusBg: 'rgba(249,115,22,0.16)',
+    queueStatusBorder: 'rgba(253,186,116,0.45)',
     successIcon: '#707070',
     errorIcon: '#f87171',
   },
@@ -72,6 +82,11 @@ const themes: Record<Theme, ThemeColors> = {
     progressCancelIcon: '#9ca3af',
     progressCancelHoverBg: 'rgba(239,68,68,0.15)',
     progressCancelHoverIcon: '#ef4444',
+    queueBadgeBg: '#ea580c',
+    queueBadgeText: '#fff7ed',
+    queueBadgeBorder: '#fdba74',
+    queueStatusBg: 'rgba(234,88,12,0.14)',
+    queueStatusBorder: 'rgba(234,88,12,0.28)',
     successIcon: '#666666',
     errorIcon: '#ef4444',
   },
