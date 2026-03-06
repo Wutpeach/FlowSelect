@@ -14,7 +14,6 @@ function applyTheme(theme) {
 document.addEventListener('DOMContentLoaded', () => {
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
-  const refreshBtn = document.getElementById('refreshBtn');
   const qualityGrid = document.getElementById('qualityGrid');
   let statusTimer = null;
 
@@ -78,17 +77,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (message.type === 'connection_update') {
       updateStatus(Boolean(message.connected));
     }
-  });
-
-  // Refresh button - reconnect and update status
-  refreshBtn.addEventListener('click', () => {
-    refreshBtn.textContent = 'Connecting...';
-    chrome.runtime.sendMessage({ type: 'connect' }, () => {
-      setTimeout(() => {
-        checkStatus();
-        refreshBtn.textContent = 'Reconnect';
-      }, 500);
-    });
   });
 
   statusTimer = window.setInterval(checkStatus, 1200);
