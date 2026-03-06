@@ -1,5 +1,7 @@
 // FlowSelect Browser Extension - Popup Script
 
+const directDownloadQuality = window.FlowSelectDirectDownloadQuality;
+
 // Apply theme to popup
 function applyTheme(theme) {
   if (theme === 'white') {
@@ -13,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
   const refreshBtn = document.getElementById('refreshBtn');
+  const qualityGrid = document.getElementById('qualityGrid');
   let statusTimer = null;
 
   function updateStatus(connected) {
@@ -31,9 +34,37 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function renderQualityOptions(selectedValue) {
+    qualityGrid.innerHTML = '';
+
+    directDownloadQuality.QUALITY_PREFERENCE_OPTIONS.forEach((option) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'quality-btn';
+      if (option.value === selectedValue) {
+        button.classList.add('active');
+      }
+      button.innerHTML = `
+        <span class="quality-value">${option.label}</span>
+        <span class="quality-meta">${option.badge || option.value.toUpperCase()}</span>
+      `;
+      button.title = option.description;
+      button.addEventListener('click', async () => {
+        try {
+          const savedValue = await directDownloadQuality.setQualityPreference(option.value);
+          renderQualityOptions(savedValue);
+        } catch (error) {
+          console.error('[FlowSelect] Failed to save quality preference:', error);
+        }
+      });
+      qualityGrid.appendChild(button);
+    });
+  }
+
   // Initial connection attempt and status check
   chrome.runtime.sendMessage({ type: 'connect' });
   checkStatus();
+  directDownloadQuality.getQualityPreference().then(renderQualityOptions);
 
   // Query current theme from background
   chrome.runtime.sendMessage({ type: 'get_theme' }, (response) => {

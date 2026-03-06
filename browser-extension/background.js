@@ -1,6 +1,8 @@
 // FlowSelect Browser Extension - Background Service Worker
 // WebSocket client for communication with FlowSelect desktop app
 
+importScripts("direct-download-quality.js");
+
 let ws = null;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
@@ -12,6 +14,7 @@ let requestCounter = 0;
 
 // Store current theme from desktop app
 let currentTheme = 'black';
+const directDownloadQuality = self.FlowSelectDirectDownloadQuality;
 
 function isConnected() {
   return ws && ws.readyState === WebSocket.OPEN;
@@ -334,18 +337,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'video_selected') {
     // Get cookies and send to app
     const pageUrl = sender.tab?.url || message.url;
+    const platform = directDownloadQuality.getDirectPlatform([
+      pageUrl,
+      message.pageUrl,
+      message.videoUrl,
+      message.url,
+    ]);
     const videoCandidates = normalizeVideoCandidates(message.videoCandidates);
     const clipStartSec = normalizeClipTimeSeconds(message.clipStartSec);
     const clipEndSec = normalizeClipTimeSeconds(message.clipEndSec);
-    getCookiesForUrl(pageUrl).then(cookies => {
+    Promise.all([
+      getCookiesForUrl(pageUrl),
+      directDownloadQuality.getQualityPreference(),
+    ]).then(([cookies, qualityPreference]) => {
+      const prioritizedCandidates = directDownloadQuality.prioritizeCandidatesForPreference(
+        videoCandidates,
+        qualityPreference,
+        platform
+      );
+      const preferredVideoUrl = directDownloadQuality.selectPreferredVideoUrl(
+        prioritizedCandidates,
+        platform,
+        message.videoUrl
+      );
       const sent = sendToApp({
         action: 'video_selected',
         data: {
-          url: message.url,
+          url: preferredVideoUrl || message.url,
           pageUrl: pageUrl,
           title: message.title,
-          videoUrl: message.videoUrl,
-          videoCandidates: videoCandidates,
+          videoUrl: preferredVideoUrl,
+          videoCandidates: prioritizedCandidates,
           clipStartSec: clipStartSec,
           clipEndSec: clipEndSec,
           cookies: cookies

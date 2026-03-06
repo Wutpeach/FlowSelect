@@ -31,7 +31,7 @@
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      width: 200px;
+      width: 220px;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: var(--bg-primary);
@@ -85,6 +85,64 @@
       box-shadow: 0 0 8px #4ade80;
     }
     .status-text { font-size: 13px; color: var(--text-secondary); }
+    .section-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      text-align: left;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .section-hint {
+      margin-top: 4px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--text-secondary);
+    }
+    .quality-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .quality-btn {
+      padding: 8px 6px;
+      border: 1px solid var(--border-btn);
+      border-radius: 8px;
+      background: var(--bg-btn);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1), var(--shadow-outer);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .quality-btn:hover {
+      background: var(--bg-btn-hover);
+      border-color: var(--border-btn-hover);
+      color: var(--text-primary);
+    }
+    .quality-btn.active {
+      color: var(--text-primary);
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 1px rgba(96,165,250,0.3), 0 4px 10px rgba(59,130,246,0.18);
+    }
+    .quality-value {
+      display: block;
+      line-height: 1.1;
+    }
+    .quality-meta {
+      display: block;
+      margin-top: 3px;
+      font-size: 10px;
+      font-weight: 500;
+      opacity: 0.8;
+    }
     .refresh-btn {
       width: 100%;
       padding: 8px;
@@ -113,8 +171,14 @@
         <span class="status-dot" id="statusDot"></span>
         <span class="status-text" id="statusText">Disconnected</span>
       </div></div>
+    <div class="section-card">
+      <div class="section-title">Direct Download Quality</div>
+      <div class="section-hint">Applies to Douyin and Xiaohongshu direct links.</div>
+      <div class="quality-grid" id="qualityGrid"></div>
+    </div>
     <button class="refresh-btn" id="refreshBtn">Reconnect</button>
   </div>
+  <script src="direct-download-quality.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
