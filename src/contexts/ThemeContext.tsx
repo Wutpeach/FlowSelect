@@ -33,6 +33,10 @@ interface ThemeColors {
   queueBadgeBorder: string;
   queueBadgeDot: string;
   queueBadgeShadow: string;
+  queueCloseBg: string;
+  queueCloseGlow: string;
+  queueCloseBorder: string;
+  queueCloseIcon: string;
   queueStatusBg: string;
   queueStatusBorder: string;
   // Status icons
@@ -65,6 +69,10 @@ const themes: Record<Theme, ThemeColors> = {
     queueBadgeBorder: 'rgba(167,243,208,0.5)',
     queueBadgeDot: '#86efac',
     queueBadgeShadow: 'rgba(5,150,105,0.28)',
+    queueCloseBg: 'rgba(220,38,38,0.88)',
+    queueCloseGlow: 'rgba(239,68,68,0.96)',
+    queueCloseBorder: 'rgba(252,165,165,0.44)',
+    queueCloseIcon: '#fef2f2',
     queueStatusBg: 'rgba(16,185,129,0.12)',
     queueStatusBorder: 'rgba(110,231,183,0.28)',
     successIcon: '#707070',
@@ -94,6 +102,10 @@ const themes: Record<Theme, ThemeColors> = {
     queueBadgeBorder: 'rgba(16,185,129,0.34)',
     queueBadgeDot: '#34d399',
     queueBadgeShadow: 'rgba(5,150,105,0.22)',
+    queueCloseBg: 'rgba(239,68,68,0.9)',
+    queueCloseGlow: 'rgba(248,113,113,0.96)',
+    queueCloseBorder: 'rgba(239,68,68,0.3)',
+    queueCloseIcon: '#fff1f2',
     queueStatusBg: 'rgba(5,150,105,0.1)',
     queueStatusBorder: 'rgba(5,150,105,0.22)',
     successIcon: '#666666',

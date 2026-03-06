@@ -260,7 +260,6 @@ function App() {
   const cancellingTraceIdsRef = useRef<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanelHoveredRef = useRef(false);
-  const queuePopoverRef = useRef<HTMLDivElement>(null);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
 
   // Window size constants
@@ -810,28 +809,6 @@ function App() {
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
-
-  useEffect(() => {
-    if (!isQueuePopoverOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (target && queuePopoverRef.current?.contains(target)) {
-        return;
-      }
-      if (target && queueBadgeButtonRef.current?.contains(target)) {
-        return;
-      }
-      setIsQueuePopoverOpen(false);
-    };
-
-    window.addEventListener("mousedown", handlePointerDown);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-    };
-  }, [isQueuePopoverOpen]);
 
   // Block F12 if devMode is disabled
   useEffect(() => {
@@ -1481,6 +1458,7 @@ function App() {
         ? `${videoQueueState.pendingCount} waiting`
         : "";
   const showVideoTaskBadge = videoQueueState.totalCount > 1;
+  const queueViewTitle = `${videoQueueState.totalCount} download task${videoQueueState.totalCount === 1 ? "" : "s"}`;
 
   return (
     <motion.div
@@ -1591,157 +1569,242 @@ function App() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
-              background: `linear-gradient(135deg, ${colors.queueBadgeBg} 0%, ${colors.queueBadgeGlow} 100%)`,
-              color: colors.queueBadgeText,
-              border: `1px solid ${colors.queueBadgeBorder}`,
+              background: isQueuePopoverOpen
+                ? `linear-gradient(135deg, ${colors.queueCloseBg} 0%, ${colors.queueCloseGlow} 100%)`
+                : `linear-gradient(135deg, ${colors.queueBadgeBg} 0%, ${colors.queueBadgeGlow} 100%)`,
+              color: isQueuePopoverOpen ? colors.queueCloseIcon : colors.queueBadgeText,
+              border: isQueuePopoverOpen
+                ? `1px solid ${colors.queueCloseBorder}`
+                : `1px solid ${colors.queueBadgeBorder}`,
               fontSize: 12,
               fontWeight: 800,
               lineHeight: 1,
               userSelect: 'none',
               zIndex: 30,
-              boxShadow: `0 10px 18px ${colors.queueBadgeShadow}`,
+              boxShadow: isQueuePopoverOpen
+                ? `0 10px 18px ${colors.progressCancelHoverBg}`
+                : `0 10px 18px ${colors.queueBadgeShadow}`,
               backdropFilter: 'blur(12px)',
               cursor: 'pointer',
+              transition: 'background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
             }}
             aria-label={`Current video tasks: ${videoQueueState.totalCount}`}
-            title="Show current video tasks"
+            title={isQueuePopoverOpen ? "Close download list" : "Show current video tasks"}
           >
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: '50%',
-                backgroundColor: colors.queueBadgeDot,
-                boxShadow: `0 0 10px ${colors.queueBadgeDot}`,
-                flexShrink: 0,
-                pointerEvents: 'none',
-              }}
-            />
-            <span style={{ pointerEvents: 'none' }}>{videoQueueState.totalCount}</span>
+            {isQueuePopoverOpen ? (
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 10 10"
+                style={{ color: colors.queueCloseIcon, pointerEvents: 'none' }}
+              >
+                <path
+                  d="M2 2L8 8M8 2L2 8"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : (
+              <>
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    backgroundColor: colors.queueBadgeDot,
+                    boxShadow: `0 0 10px ${colors.queueBadgeDot}`,
+                    flexShrink: 0,
+                    pointerEvents: 'none',
+                  }}
+                />
+                <span style={{ pointerEvents: 'none' }}>{videoQueueState.totalCount}</span>
+              </>
+            )}
           </button>
 
           <AnimatePresence>
             {isQueuePopoverOpen ? (
               <motion.div
-                ref={queuePopoverRef}
-                initial={{ opacity: 0, y: -6, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                transition={{ duration: 0.18 }}
+                initial={{ opacity: 0, y: -8, scale: 0.98, filter: 'blur(2px)' }}
+                animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: 8, scale: 0.98, filter: 'blur(2px)' }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                 style={{
                   position: 'absolute',
-                  top: 46,
-                  left: 10,
-                  width: 176,
-                  maxHeight: 132,
-                  padding: 8,
-                  borderRadius: 14,
+                  inset: 0,
+                  padding: '48px 10px 10px',
+                  borderRadius: isMinimized ? 100 : 16,
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 6,
                   background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                  border: `1px solid ${colors.queueBadgeBorder}`,
-                  boxShadow: `0 12px 24px ${colors.queueBadgeShadow}`,
+                  boxShadow: `inset 0 0 0 1px ${colors.queueBadgeBorder}, inset 0 0 18px ${colors.queueStatusBg}`,
                   backdropFilter: 'blur(16px)',
-                  zIndex: 35,
-                  overflowY: 'auto',
+                  zIndex: 25,
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                {queueTasks.map((task) => {
-                  const isTaskCancelling = cancellingTraceIds.includes(task.traceId);
-                  return (
-                    <div
-                      key={task.traceId}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 8,
-                        padding: '7px 8px',
-                        borderRadius: 10,
-                        backgroundColor: colors.bgPrimary,
-                        border: `1px solid ${colors.queueStatusBorder}`,
-                      }}
-                    >
-                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                        <span
-                          title={task.label}
-                          style={{
-                            fontSize: 10,
-                            lineHeight: 1.2,
-                            color: colors.textPrimary,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {task.label}
-                        </span>
-                        <div
-                          style={{
-                            width: '100%',
-                            height: 4,
-                            borderRadius: 999,
-                            backgroundColor: colors.queueStatusBg,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: `${getQueueTaskProgressPercent(task)}%`,
-                              height: '100%',
-                              borderRadius: 999,
-                              backgroundColor: task.status === 'pending'
-                                ? colors.queueBadgeDot
-                                : colors.progressFgStroke,
-                              transition: 'width 0.2s ease',
-                            }}
-                          />
-                        </div>
-                        <span style={{ fontSize: 9, lineHeight: 1.1, color: colors.textSecondary }}>
-                          {getQueueTaskProgressText(task)}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          void cancelVideoTask(task.traceId);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        disabled={isTaskCancelling}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 3,
+                    padding: '0 4px 2px',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: colors.textPrimary,
+                      lineHeight: 1,
+                      userSelect: 'none',
+                    }}
+                  >
+                    {queueViewTitle}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 9,
+                      color: colors.textSecondary,
+                      lineHeight: 1.2,
+                      userSelect: 'none',
+                    }}
+                  >
+                    {videoQueueState.activeCount} running, {videoQueueState.pendingCount} waiting
+                  </span>
+                </div>
+
+                <div
+                  className="hide-scrollbar"
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    paddingRight: 2,
+                  }}
+                >
+                  {queueTasks.map((task) => {
+                    const isTaskCancelling = cancellingTraceIds.includes(task.traceId);
+                    return (
+                      <div
+                        key={task.traceId}
                         style={{
-                          width: 20,
-                          height: 20,
-                          borderRadius: '50%',
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'center',
-                          border: 'none',
-                          backgroundColor: isTaskCancelling
-                            ? colors.queueStatusBg
-                            : 'transparent',
-                          cursor: isTaskCancelling ? 'default' : 'pointer',
-                          opacity: isTaskCancelling ? 0.6 : 1,
-                          flexShrink: 0,
+                          gap: 8,
+                          padding: '8px 9px',
+                          borderRadius: 8,
+                          background: `linear-gradient(180deg, ${colors.bgPrimary} 0%, ${colors.bgSecondary} 100%)`,
+                          border: `1px solid ${colors.borderStart}`,
+                          boxShadow: `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`,
                         }}
-                        title={isTaskCancelling ? 'Cancelling task' : 'Cancel task'}
                       >
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 10 10"
-                          style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
+                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                flexShrink: 0,
+                                backgroundColor: task.status === 'pending'
+                                  ? colors.queueBadgeDot
+                                  : colors.progressFgStroke,
+                                boxShadow: task.status === 'pending'
+                                  ? `0 0 8px ${colors.queueBadgeDot}`
+                                  : `0 0 10px ${colors.progressFgStroke}`,
+                              }}
+                            />
+                            <span
+                              title={task.label}
+                              style={{
+                                fontSize: 10,
+                                lineHeight: 1.2,
+                                color: colors.textPrimary,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {task.label}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              width: '100%',
+                              height: 6,
+                              borderRadius: 999,
+                              background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                              overflow: 'hidden',
+                              boxShadow: `inset 0 0 0 1px ${colors.borderStart}`,
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${getQueueTaskProgressPercent(task)}%`,
+                                height: '100%',
+                                borderRadius: 999,
+                                background: task.status === 'pending'
+                                  ? `linear-gradient(90deg, ${colors.queueBadgeDot} 0%, ${colors.queueBadgeGlow} 100%)`
+                                  : `linear-gradient(90deg, ${colors.progressFgStroke} 0%, ${colors.progressText} 100%)`,
+                                boxShadow: task.status === 'pending'
+                                  ? `0 0 12px ${colors.queueBadgeShadow}`
+                                  : `0 0 12px ${colors.progressFgStroke}`,
+                                transition: 'width 0.2s ease',
+                              }}
+                            />
+                          </div>
+                          <span style={{ fontSize: 9, lineHeight: 1.1, color: colors.textSecondary }}>
+                            {getQueueTaskProgressText(task)}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            void cancelVideoTask(task.traceId);
+                          }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          disabled={isTaskCancelling}
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            border: 'none',
+                            backgroundColor: isTaskCancelling
+                              ? colors.queueStatusBg
+                              : 'transparent',
+                            cursor: isTaskCancelling ? 'default' : 'pointer',
+                            opacity: isTaskCancelling ? 0.6 : 1,
+                            flexShrink: 0,
+                            transition: 'background-color 0.2s ease',
+                          }}
+                          title={isTaskCancelling ? 'Cancelling task' : 'Cancel task'}
                         >
-                          <path
-                            d="M2 2L8 8M8 2L2 8"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  );
-                })}
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 10 10"
+                            style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
+                          >
+                            <path
+                              d="M2 2L8 8M8 2L2 8"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </motion.div>
             ) : null}
           </AnimatePresence>

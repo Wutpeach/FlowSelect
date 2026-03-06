@@ -29,6 +29,31 @@ html, body, #root {
   display: none;
 }
 
+.themed-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(96, 165, 250, 0.72) rgba(15, 23, 42, 0.34);
+}
+
+.themed-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.themed-scrollbar::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.34) 0%, rgba(30, 41, 59, 0.18) 100%);
+  border-radius: 999px;
+}
+
+.themed-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.9) 0%, rgba(59, 130, 246, 0.78) 100%);
+  border-radius: 999px;
+  border: 1px solid rgba(147, 197, 253, 0.28);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.28);
+}
+
+.themed-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.95) 0%, rgba(59, 130, 246, 0.88) 100%);
+}
+
 /* Spin animation for indeterminate progress */
 @keyframes spin {
   from { transform: rotate(0deg); }
