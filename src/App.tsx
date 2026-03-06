@@ -75,6 +75,18 @@ type VideoQueueStatePayload = {
   maxConcurrent: number;
 };
 
+type VideoQueueTaskStatus = "active" | "pending";
+
+type VideoQueueTaskPayload = {
+  traceId: string;
+  label: string;
+  status: VideoQueueTaskStatus;
+};
+
+type VideoQueueDetailPayload = {
+  tasks: VideoQueueTaskPayload[];
+};
+
 type QueuedVideoDownloadAck = {
   accepted: boolean;
   traceId: string;
@@ -142,6 +154,10 @@ const EMPTY_VIDEO_QUEUE_STATE: VideoQueueStatePayload = {
   maxConcurrent: 1,
 };
 
+const EMPTY_VIDEO_QUEUE_DETAIL: VideoQueueDetailPayload = {
+  tasks: [],
+};
+
 const normalizeVideoQueueState = (
   payload: Partial<VideoQueueStatePayload> | null | undefined,
 ): VideoQueueStatePayload => {
@@ -162,6 +178,24 @@ const normalizeVideoQueueState = (
     maxConcurrent: safeMaxConcurrent,
   };
 };
+
+const normalizeVideoQueueDetail = (
+  payload: Partial<VideoQueueDetailPayload> | null | undefined,
+): VideoQueueDetailPayload => ({
+  tasks: Array.isArray(payload?.tasks)
+    ? payload.tasks.flatMap((task) => {
+        if (!task || typeof task.traceId !== "string" || typeof task.label !== "string") {
+          return [];
+        }
+        const status: VideoQueueTaskStatus = task.status === "pending" ? "pending" : "active";
+        return [{
+          traceId: task.traceId,
+          label: task.label.trim() || task.traceId,
+          status,
+        }];
+      })
+    : [],
+});
 
 // Cat icon for minimized state
 const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) => (
@@ -204,7 +238,9 @@ function App() {
   const [isPanelHovered, setIsPanelHovered] = useState(false);
   const [downloadProgressByTrace, setDownloadProgressByTrace] = useState<Record<string, DownloadProgressPayload>>({});
   const [videoQueueState, setVideoQueueState] = useState<VideoQueueStatePayload>(EMPTY_VIDEO_QUEUE_STATE);
-  const [isCancellingDownload, setIsCancellingDownload] = useState(false);
+  const [videoQueueDetail, setVideoQueueDetail] = useState<VideoQueueDetailPayload>(EMPTY_VIDEO_QUEUE_DETAIL);
+  const [cancellingTraceIds, setCancellingTraceIds] = useState<string[]>([]);
+  const [isQueuePopoverOpen, setIsQueuePopoverOpen] = useState(false);
   const [ytdlpUpdate, setYtdlpUpdate] = useState<YtdlpVersionInfo | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [devMode, setDevMode] = useState(false);
@@ -221,9 +257,11 @@ function App() {
   const contextMenuMonitorBusyRef = useRef(false);
   const contextMenuMonitorMissesRef = useRef(0);
   const isDraggingRef = useRef(false);
-  const downloadCancelledRef = useRef(false);
+  const cancellingTraceIdsRef = useRef<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanelHoveredRef = useRef(false);
+  const queuePopoverRef = useRef<HTMLDivElement>(null);
+  const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
 
   // Window size constants
   const FULL_SIZE = 200;
@@ -239,22 +277,54 @@ function App() {
   const SETTINGS_WINDOW_HEIGHT = 400;
   const SETTINGS_WINDOW_GAP = 16;
   const hasActiveDownloads = videoQueueState.activeCount > 0;
-  const activeDownloadProgressEntries = Object.values(downloadProgressByTrace);
-  const hasMultiActiveDownloads = videoQueueState.activeCount > 1;
-  const singleActiveDownloadProgress =
-    videoQueueState.activeCount === 1 ? activeDownloadProgressEntries[0] ?? null : null;
-  const downloadProgress = singleActiveDownloadProgress ?? (
-    hasActiveDownloads
-      ? {
-          traceId: "__aggregate__",
-          percent: -1,
-          stage: "downloading" as DownloadStage,
-          speed: `${videoQueueState.activeCount} active`,
-          eta: "",
-        }
-      : null
-  );
-  const downloadStage = singleActiveDownloadProgress?.stage ?? (hasActiveDownloads ? "downloading" : null);
+  const queueTasks = videoQueueDetail.tasks;
+  const activeQueueTasks = queueTasks.filter((task) => task.status === "active");
+  const primaryQueueTask = activeQueueTasks[0] ?? null;
+  const primaryDownloadProgress = primaryQueueTask
+    ? downloadProgressByTrace[primaryQueueTask.traceId] ?? null
+    : null;
+  const downloadProgress = primaryQueueTask
+    ? primaryDownloadProgress ?? {
+        traceId: primaryQueueTask.traceId,
+        percent: -1,
+        stage: "preparing" as DownloadStage,
+        speed: "Preparing...",
+        eta: "",
+      }
+    : null;
+  const downloadStage = primaryDownloadProgress?.stage ?? (primaryQueueTask ? "preparing" : null);
+
+  const resetDownloadOutcome = useCallback(() => {
+    setDownloadCancelled(false);
+    setDownloadErrorMessage(null);
+  }, []);
+
+  const addCancellingTraceId = useCallback((traceId: string) => {
+    setCancellingTraceIds((current) => {
+      if (current.includes(traceId)) {
+        return current;
+      }
+      const next = [...current, traceId];
+      cancellingTraceIdsRef.current = new Set(next);
+      return next;
+    });
+  }, []);
+
+  const removeCancellingTraceId = useCallback((traceId: string) => {
+    setCancellingTraceIds((current) => {
+      if (!current.includes(traceId)) {
+        return current;
+      }
+      const next = current.filter((item) => item !== traceId);
+      cancellingTraceIdsRef.current = new Set(next);
+      return next;
+    });
+  }, []);
+
+  const clearCancellingTraceIds = useCallback(() => {
+    cancellingTraceIdsRef.current = new Set();
+    setCancellingTraceIds([]);
+  }, []);
 
   const clearContextMenuMonitor = useCallback(() => {
     if (contextMenuMonitorRef.current !== null) {
@@ -407,17 +477,43 @@ function App() {
   }, []);
 
   const enqueueVideoDownload = useCallback((url: string) => {
-    downloadCancelledRef.current = false;
-    setDownloadCancelled(false);
-    setDownloadErrorMessage(null);
-    setIsCancellingDownload(false);
+    resetDownloadOutcome();
     void invoke<QueuedVideoDownloadAck>("queue_video_download", { url }).catch((err) => {
       console.error("Failed to queue video download:", err);
       checkSequenceOverflow(err);
       setDownloadCancelled(true);
       setDownloadErrorMessage(summarizeDownloadError(String(err)));
     });
-  }, []);
+  }, [resetDownloadOutcome]);
+
+  const cancelVideoTask = useCallback(async (
+    traceId: string,
+    options?: { showCurrentTaskFeedback?: boolean },
+  ) => {
+    if (!traceId || cancellingTraceIdsRef.current.has(traceId)) {
+      return;
+    }
+
+    addCancellingTraceId(traceId);
+    if (options?.showCurrentTaskFeedback) {
+      setDownloadCancelled(true);
+      setDownloadErrorMessage("Cancelling current task...");
+    }
+
+    try {
+      const cancelled = await invoke<boolean>("cancel_download", { traceId });
+      if (!cancelled) {
+        removeCancellingTraceId(traceId);
+      }
+    } catch (err) {
+      removeCancellingTraceId(traceId);
+      if (options?.showCurrentTaskFeedback) {
+        setDownloadCancelled(false);
+        setDownloadErrorMessage(null);
+      }
+      console.error("Failed to cancel download:", err);
+    }
+  }, [addCancellingTraceId, removeCancellingTraceId]);
 
   // Load config on mount
   useEffect(() => {
@@ -556,22 +652,21 @@ function App() {
       "video-download-complete",
       (event) => {
         console.log(">>> [Frontend] video-download-complete received:", event);
+        const payload = event.payload;
         setDownloadProgressByTrace((current) => {
-          if (!current[event.payload.traceId]) {
+          if (!current[payload.traceId]) {
             return current;
           }
           const next = { ...current };
-          delete next[event.payload.traceId];
+          delete next[payload.traceId];
           return next;
         });
-        setIsCancellingDownload(false);
-
-        const payload = event.payload;
-        const cancelled = downloadCancelledRef.current || isCancelledDownloadError(payload?.error);
+        const cancelled = cancellingTraceIdsRef.current.has(payload.traceId)
+          || isCancelledDownloadError(payload?.error);
+        removeCancellingTraceId(payload.traceId);
         const success = Boolean(payload?.success) && !cancelled;
         const errorSummary = summarizeDownloadError(payload?.error);
 
-        downloadCancelledRef.current = false;
         setDownloadCancelled(!success);
         setDownloadErrorMessage(success ? null : errorSummary);
         if (!success) {
@@ -599,7 +694,7 @@ function App() {
       unlistenProgress.then(fn => fn());
       unlistenComplete.then(fn => fn());
     };
-  }, [isMacOS]);
+  }, [isMacOS, removeCancellingTraceId]);
 
   // Listen for output path changes from settings window
   useEffect(() => {
@@ -685,11 +780,58 @@ function App() {
       setVideoQueueState(normalized);
       if (normalized.activeCount === 0) {
         setDownloadProgressByTrace((current) => (Object.keys(current).length === 0 ? current : {}));
-        setIsCancellingDownload(false);
+      }
+      if (normalized.totalCount === 0) {
+        clearCancellingTraceIds();
+      }
+      if (normalized.totalCount <= 1) {
+        setIsQueuePopoverOpen(false);
       }
     });
     return () => { unlisten.then(fn => fn()); };
+  }, [clearCancellingTraceIds]);
+
+  useEffect(() => {
+    const unlisten = listen<VideoQueueDetailPayload>("video-queue-detail", (event) => {
+      const normalized = normalizeVideoQueueDetail(event.payload);
+      setVideoQueueDetail(normalized);
+      if (normalized.tasks.length <= 1) {
+        setIsQueuePopoverOpen(false);
+      }
+      const liveTraceIds = new Set(normalized.tasks.map((task) => task.traceId));
+      setCancellingTraceIds((current) => {
+        const next = current.filter((traceId) => liveTraceIds.has(traceId));
+        if (next.length === current.length) {
+          return current;
+        }
+        cancellingTraceIdsRef.current = new Set(next);
+        return next;
+      });
+    });
+    return () => { unlisten.then(fn => fn()); };
   }, []);
+
+  useEffect(() => {
+    if (!isQueuePopoverOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && queuePopoverRef.current?.contains(target)) {
+        return;
+      }
+      if (target && queueBadgeButtonRef.current?.contains(target)) {
+        return;
+      }
+      setIsQueuePopoverOpen(false);
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [isQueuePopoverOpen]);
 
   // Block F12 if devMode is disabled
   useEffect(() => {
@@ -783,9 +925,7 @@ function App() {
     // 1. Check if clipboard text is a video URL (highest priority)
     if (text && isVideoUrl(text)) {
       console.log("Pasted video URL:", text);
-      downloadCancelledRef.current = false;
-      setDownloadCancelled(false);
-      setDownloadErrorMessage(null);
+      resetDownloadOutcome();
       enqueueVideoDownload(text);
       return;
     }
@@ -793,7 +933,7 @@ function App() {
     // 2. Check if clipboard text is an image URL
     if (text && isImageUrl(text)) {
       console.log("Pasted image URL:", text);
-      downloadCancelledRef.current = false; setDownloadCancelled(false);
+      resetDownloadOutcome();
       setIsProcessing(true);
       try {
         // Distinguish between Data URL and HTTP URL
@@ -824,7 +964,7 @@ function App() {
 
       if (paths && paths.length > 0) {
         console.log("Clipboard files from backend:", paths);
-        downloadCancelledRef.current = false; setDownloadCancelled(false);
+        resetDownloadOutcome();
         setIsProcessing(true);
 
         try {
@@ -895,7 +1035,7 @@ function App() {
           if (selected && typeof selected === "string") {
             console.log("用户选择的路径:", selected);
             setOutputPath(selected);
-            downloadCancelledRef.current = false; setDownloadCancelled(false);
+            resetDownloadOutcome();
             setIsProcessing(true);
             setTimeout(() => setIsProcessing(false), 1000);
           }
@@ -925,7 +1065,7 @@ function App() {
     if (url && url.startsWith("file://")) {
       const localPath = decodeURIComponent(url.replace("file:///", ""));
       console.log("Detected local file URL:", localPath);
-      downloadCancelledRef.current = false; setDownloadCancelled(false);
+      resetDownloadOutcome();
       setIsProcessing(true);
 
       try {
@@ -961,7 +1101,7 @@ function App() {
 
         if (imageUrl) {
           console.log("Extracted Pinterest image URL:", imageUrl);
-          downloadCancelledRef.current = false; setDownloadCancelled(false);
+          resetDownloadOutcome();
           setIsProcessing(true);
           try {
             await invoke<string>("download_image", {
@@ -983,9 +1123,7 @@ function App() {
     // Check if it's a video URL (highest priority)
     if (url && isVideoUrl(url)) {
       console.log("Detected video URL:", url);
-      downloadCancelledRef.current = false;
-      setDownloadCancelled(false);
-      setDownloadErrorMessage(null);
+      resetDownloadOutcome();
       enqueueVideoDownload(url);
       return;
     }
@@ -993,7 +1131,7 @@ function App() {
     // Check if it's an image URL
     if (url && isImageUrl(url)) {
       console.log("Detected image URL:", url);
-      downloadCancelledRef.current = false; setDownloadCancelled(false);
+      resetDownloadOutcome();
       setIsProcessing(true);
 
       try {
@@ -1061,7 +1199,7 @@ function App() {
     // If URL not recognized but files exist, try reading from dataTransfer.files
     if (e.dataTransfer.files.length > 0) {
       console.log("URL not recognized, trying dataTransfer.files...");
-      downloadCancelledRef.current = false; setDownloadCancelled(false);
+      resetDownloadOutcome();
       setIsProcessing(true);
 
       // 收集所有文件路径
@@ -1303,19 +1441,46 @@ function App() {
     : isHovering
       ? `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)`
       : `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`;
+  const isPrimaryTaskCancelling = primaryQueueTask
+    ? cancellingTraceIds.includes(primaryQueueTask.traceId)
+    : false;
+  const getQueueTaskProgressText = (task: VideoQueueTaskPayload): string => {
+    if (cancellingTraceIds.includes(task.traceId)) {
+      return "Cancelling...";
+    }
+    if (task.status === "pending") {
+      return "Waiting...";
+    }
+    const progress = downloadProgressByTrace[task.traceId];
+    if (!progress) {
+      return "Preparing...";
+    }
+    const statusText = getDownloadStatusText(progress, progress.stage);
+    return progress.percent < 0
+      ? statusText
+      : `${Math.round(progress.percent)}% · ${statusText}`;
+  };
+  const getQueueTaskProgressPercent = (task: VideoQueueTaskPayload): number => {
+    if (task.status !== "active") {
+      return 8;
+    }
+    const progress = downloadProgressByTrace[task.traceId];
+    if (!progress || progress.percent < 0) {
+      return 18;
+    }
+    return Math.max(8, Math.min(100, progress.percent));
+  };
   const downloadStatusText = downloadProgress
-    ? hasMultiActiveDownloads
-      ? `${videoQueueState.activeCount} tasks running`
-      : getDownloadStatusText(downloadProgress, downloadStage)
+    ? getDownloadStatusText(downloadProgress, downloadStage)
     : "";
-  const queueStatusText = isCancellingDownload
-    ? videoQueueState.totalCount > 1
-      ? "Cancelling all tasks..."
-      : "Cancelling current task..."
-    : videoQueueState.pendingCount > 0
-      ? `${videoQueueState.pendingCount} waiting`
-      : "";
-  const showVideoTaskBadge = videoQueueState.activeCount > 1;
+  const queueStatusText = isPrimaryTaskCancelling
+    ? "Cancelling current task..."
+    : videoQueueState.totalCount > 1
+      ? `${videoQueueState.totalCount - 1} more task${videoQueueState.totalCount - 1 === 1 ? "" : "s"}`
+      : videoQueueState.pendingCount > 0
+        ? `${videoQueueState.pendingCount} waiting`
+        : "";
+  const showVideoTaskBadge = videoQueueState.totalCount > 1;
 
   return (
     <motion.div
@@ -1409,45 +1574,178 @@ function App() {
       </AnimatePresence>
 
       {showVideoTaskBadge ? (
-        <div
-          style={{
-            position: 'absolute',
-            top: 10,
-            left: 10,
-            minWidth: 42,
-            height: 30,
-            borderRadius: 15,
-            padding: '0 10px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            background: `linear-gradient(135deg, ${colors.queueBadgeBg} 0%, ${colors.queueBadgeGlow} 100%)`,
-            color: colors.queueBadgeText,
-            border: `1px solid ${colors.queueBadgeBorder}`,
-            fontSize: 12,
-            fontWeight: 800,
-            lineHeight: 1,
-            userSelect: 'none',
-            pointerEvents: 'none',
-            zIndex: 30,
-            boxShadow: `0 10px 18px ${colors.queueBadgeShadow}`,
-            backdropFilter: 'blur(12px)',
-          }}
-          aria-label={`Active video tasks: ${videoQueueState.activeCount}`}
-        >
-          <span
+        <>
+          <button
+            ref={queueBadgeButtonRef}
+            onClick={() => setIsQueuePopoverOpen((current) => !current)}
+            onMouseDown={(e) => e.stopPropagation()}
             style={{
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              backgroundColor: colors.queueBadgeDot,
-              boxShadow: `0 0 10px ${colors.queueBadgeDot}`,
-              flexShrink: 0,
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              minWidth: 42,
+              height: 30,
+              borderRadius: 15,
+              padding: '0 10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              background: `linear-gradient(135deg, ${colors.queueBadgeBg} 0%, ${colors.queueBadgeGlow} 100%)`,
+              color: colors.queueBadgeText,
+              border: `1px solid ${colors.queueBadgeBorder}`,
+              fontSize: 12,
+              fontWeight: 800,
+              lineHeight: 1,
+              userSelect: 'none',
+              zIndex: 30,
+              boxShadow: `0 10px 18px ${colors.queueBadgeShadow}`,
+              backdropFilter: 'blur(12px)',
+              cursor: 'pointer',
             }}
-          />
-          <span>{videoQueueState.activeCount}</span>
-        </div>
+            aria-label={`Current video tasks: ${videoQueueState.totalCount}`}
+            title="Show current video tasks"
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                backgroundColor: colors.queueBadgeDot,
+                boxShadow: `0 0 10px ${colors.queueBadgeDot}`,
+                flexShrink: 0,
+                pointerEvents: 'none',
+              }}
+            />
+            <span style={{ pointerEvents: 'none' }}>{videoQueueState.totalCount}</span>
+          </button>
+
+          <AnimatePresence>
+            {isQueuePopoverOpen ? (
+              <motion.div
+                ref={queuePopoverRef}
+                initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                transition={{ duration: 0.18 }}
+                style={{
+                  position: 'absolute',
+                  top: 46,
+                  left: 10,
+                  width: 176,
+                  maxHeight: 132,
+                  padding: 8,
+                  borderRadius: 14,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                  border: `1px solid ${colors.queueBadgeBorder}`,
+                  boxShadow: `0 12px 24px ${colors.queueBadgeShadow}`,
+                  backdropFilter: 'blur(16px)',
+                  zIndex: 35,
+                  overflowY: 'auto',
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {queueTasks.map((task) => {
+                  const isTaskCancelling = cancellingTraceIds.includes(task.traceId);
+                  return (
+                    <div
+                      key={task.traceId}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 8,
+                        padding: '7px 8px',
+                        borderRadius: 10,
+                        backgroundColor: colors.bgPrimary,
+                        border: `1px solid ${colors.queueStatusBorder}`,
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        <span
+                          title={task.label}
+                          style={{
+                            fontSize: 10,
+                            lineHeight: 1.2,
+                            color: colors.textPrimary,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {task.label}
+                        </span>
+                        <div
+                          style={{
+                            width: '100%',
+                            height: 4,
+                            borderRadius: 999,
+                            backgroundColor: colors.queueStatusBg,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${getQueueTaskProgressPercent(task)}%`,
+                              height: '100%',
+                              borderRadius: 999,
+                              backgroundColor: task.status === 'pending'
+                                ? colors.queueBadgeDot
+                                : colors.progressFgStroke,
+                              transition: 'width 0.2s ease',
+                            }}
+                          />
+                        </div>
+                        <span style={{ fontSize: 9, lineHeight: 1.1, color: colors.textSecondary }}>
+                          {getQueueTaskProgressText(task)}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          void cancelVideoTask(task.traceId);
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        disabled={isTaskCancelling}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: 'none',
+                          backgroundColor: isTaskCancelling
+                            ? colors.queueStatusBg
+                            : 'transparent',
+                          cursor: isTaskCancelling ? 'default' : 'pointer',
+                          opacity: isTaskCancelling ? 0.6 : 1,
+                          flexShrink: 0,
+                        }}
+                        title={isTaskCancelling ? 'Cancelling task' : 'Cancel task'}
+                      >
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 10 10"
+                          style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
+                        >
+                          <path
+                            d="M2 2L8 8M8 2L2 8"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                })}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </>
       ) : null}
 
       {/* Close button - top right circle */}
@@ -1575,11 +1873,9 @@ function App() {
                 userSelect: 'none',
                 pointerEvents: 'none',
               }}>
-                {hasMultiActiveDownloads
-                  ? `${videoQueueState.activeCount}`
-                  : downloadProgress.percent < 0
-                    ? '...'
-                    : `${Math.round(downloadProgress.percent)}%`}
+                {downloadProgress.percent < 0
+                  ? '...'
+                  : `${Math.round(downloadProgress.percent)}%`}
               </span>
             </div>
             {downloadStatusText ? (
@@ -1607,21 +1903,10 @@ function App() {
             {/* Cancel download button */}
             <button
               onClick={async () => {
-                if (isCancellingDownload) {
+                if (!primaryQueueTask || isPrimaryTaskCancelling) {
                   return;
                 }
-                try {
-                  downloadCancelledRef.current = true;
-                  setDownloadCancelled(true);
-                  setDownloadErrorMessage(
-                    videoQueueState.totalCount > 1 ? "Cancelling all downloads..." : "Cancelling download..."
-                  );
-                  setIsCancellingDownload(true);
-                  await invoke<boolean>("cancel_download");
-                } catch (err) {
-                  setIsCancellingDownload(false);
-                  console.error("Failed to cancel download:", err);
-                }
+                void cancelVideoTask(primaryQueueTask.traceId, { showCurrentTaskFeedback: true });
               }}
               onMouseDown={(e) => e.stopPropagation()}
               onMouseEnter={(e) => {
@@ -1645,11 +1930,11 @@ function App() {
                 justifyContent: 'center',
                 backgroundColor: 'transparent',
                 border: 'none',
-                cursor: 'pointer',
+                cursor: !primaryQueueTask || isPrimaryTaskCancelling ? 'default' : 'pointer',
                 transition: 'background-color 0.2s',
-                opacity: isCancellingDownload ? 0.6 : 1,
+                opacity: !primaryQueueTask || isPrimaryTaskCancelling ? 0.6 : 1,
               }}
-              title={videoQueueState.totalCount > 1 ? "Cancel all downloads" : "Cancel download"}
+              title="Cancel current task"
             >
               <svg
                 width="10"

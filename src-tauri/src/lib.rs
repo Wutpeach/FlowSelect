@@ -146,11 +146,37 @@ impl QueuedVideoTask {
             | Self::Smart { trace_id, .. } => trace_id,
         }
     }
+
+    fn label(&self) -> String {
+        let raw = match self {
+            Self::Douyin {
+                title, page_url, ..
+            }
+            | Self::Xiaohongshu {
+                title, page_url, ..
+            } => title
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(page_url.as_str()),
+            Self::Smart { title, url, .. } => title
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(url.as_str()),
+        };
+
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            self.trace_id().to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
 }
 
 #[derive(Default)]
 struct VideoTaskQueueState {
     pending: VecDeque<QueuedVideoTask>,
+    active: VecDeque<QueuedVideoTask>,
     active_trace_ids: HashSet<String>,
     pump_scheduled: bool,
 }
@@ -1398,6 +1424,26 @@ struct VideoQueueCountPayload {
     max_concurrent: usize,
 }
 
+#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum VideoQueueTaskStatus {
+    Active,
+    Pending,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct VideoQueueTaskPayload {
+    #[serde(rename = "traceId")]
+    trace_id: String,
+    label: String,
+    status: VideoQueueTaskStatus,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct VideoQueueDetailPayload {
+    tasks: Vec<VideoQueueTaskPayload>,
+}
+
 #[derive(serde::Serialize, Clone)]
 struct QueuedVideoDownloadAck {
     accepted: bool,
@@ -2254,39 +2300,78 @@ fn build_video_queue_count_payload(state: &VideoTaskQueueState) -> VideoQueueCou
     }
 }
 
-fn emit_video_queue_count(app: &AppHandle, payload: VideoQueueCountPayload) {
-    println!(
-        ">>> [Rust] Video queue count updated: active={}, pending={}, total={}, max={}",
-        payload.active_count, payload.pending_count, payload.total_count, payload.max_concurrent
-    );
-    let _ = app.emit("video-queue-count", payload);
+fn build_video_queue_detail_payload(state: &VideoTaskQueueState) -> VideoQueueDetailPayload {
+    let mut tasks = Vec::with_capacity(video_task_total_count(state));
+
+    tasks.extend(state.active.iter().map(|task| VideoQueueTaskPayload {
+        trace_id: task.trace_id().to_string(),
+        label: task.label(),
+        status: VideoQueueTaskStatus::Active,
+    }));
+
+    tasks.extend(state.pending.iter().map(|task| VideoQueueTaskPayload {
+        trace_id: task.trace_id().to_string(),
+        label: task.label(),
+        status: VideoQueueTaskStatus::Pending,
+    }));
+
+    VideoQueueDetailPayload { tasks }
 }
 
-fn mark_video_task_active(app: &AppHandle, trace_id: &str) {
-    let payload = {
+fn emit_video_queue_state(
+    app: &AppHandle,
+    count_payload: VideoQueueCountPayload,
+    detail_payload: VideoQueueDetailPayload,
+) {
+    println!(
+        ">>> [Rust] Video queue count updated: active={}, pending={}, total={}, max={}",
+        count_payload.active_count,
+        count_payload.pending_count,
+        count_payload.total_count,
+        count_payload.max_concurrent
+    );
+    let _ = app.emit("video-queue-count", count_payload);
+    let _ = app.emit("video-queue-detail", detail_payload);
+}
+
+fn mark_video_task_active(app: &AppHandle, task: QueuedVideoTask) {
+    let (count_payload, detail_payload) = {
         let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
-        state.active_trace_ids.insert(trace_id.to_string());
-        build_video_queue_count_payload(&state)
+        let trace_id = task.trace_id().to_string();
+        if state.active_trace_ids.insert(trace_id) {
+            state.active.push_back(task);
+        }
+        (
+            build_video_queue_count_payload(&state),
+            build_video_queue_detail_payload(&state),
+        )
     };
-    emit_video_queue_count(app, payload);
+    emit_video_queue_state(app, count_payload, detail_payload);
 }
 
 fn mark_video_task_complete(app: &AppHandle, trace_id: &str) {
-    let payload = {
+    let (count_payload, detail_payload) = {
         let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
         state.active_trace_ids.remove(trace_id);
-        build_video_queue_count_payload(&state)
+        state.active.retain(|task| task.trace_id() != trace_id);
+        (
+            build_video_queue_count_payload(&state),
+            build_video_queue_detail_payload(&state),
+        )
     };
-    emit_video_queue_count(app, payload);
+    emit_video_queue_state(app, count_payload, detail_payload);
 }
 
 fn enqueue_video_task(app: &AppHandle, task: QueuedVideoTask) {
-    let payload = {
+    let (count_payload, detail_payload) = {
         let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
         state.pending.push_back(task);
-        build_video_queue_count_payload(&state)
+        (
+            build_video_queue_count_payload(&state),
+            build_video_queue_detail_payload(&state),
+        )
     };
-    emit_video_queue_count(app, payload);
+    emit_video_queue_state(app, count_payload, detail_payload);
 }
 
 fn schedule_video_task_queue_pump(app: AppHandle) {
@@ -2318,12 +2403,17 @@ fn try_start_next_video_task(app: &AppHandle) -> Option<QueuedVideoTask> {
         } else {
             let task = state.pending.pop_front()?;
             state.active_trace_ids.insert(task.trace_id().to_string());
-            Some((task, build_video_queue_count_payload(&state)))
+            state.active.push_back(task.clone());
+            Some((
+                task,
+                build_video_queue_count_payload(&state),
+                build_video_queue_detail_payload(&state),
+            ))
         }
     };
 
-    if let Some((task, payload)) = queued {
-        emit_video_queue_count(app, payload);
+    if let Some((task, count_payload, detail_payload)) = queued {
+        emit_video_queue_state(app, count_payload, detail_payload);
         Some(task)
     } else {
         None
@@ -2348,6 +2438,29 @@ fn is_download_cancelled(trace_id: &str) -> bool {
 fn clear_download_runtime(trace_id: &str) {
     clear_download_child(trace_id);
     DOWNLOAD_CANCELLED.lock().unwrap().remove(trace_id);
+}
+
+fn remove_pending_video_task(app: &AppHandle, trace_id: &str) -> bool {
+    let payloads = {
+        let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
+        let original_len = state.pending.len();
+        state.pending.retain(|task| task.trace_id() != trace_id);
+        if state.pending.len() == original_len {
+            None
+        } else {
+            Some((
+                build_video_queue_count_payload(&state),
+                build_video_queue_detail_payload(&state),
+            ))
+        }
+    };
+
+    if let Some((count_payload, detail_payload)) = payloads {
+        emit_video_queue_state(app, count_payload, detail_payload);
+        true
+    } else {
+        false
+    }
 }
 
 async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
@@ -3373,7 +3486,14 @@ fn cleanup_part_files_for_output_root(output_root: &Path) {
 #[tauri::command]
 async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, String> {
     let trace_id = next_download_trace_id();
-    mark_video_task_active(&app, trace_id.as_str());
+    let task = QueuedVideoTask::Smart {
+        url: url.clone(),
+        title: None,
+        cookies_path: None,
+        clip_range: None,
+        trace_id: trace_id.clone(),
+    };
+    mark_video_task_active(&app, task);
     let result =
         download_video_internal(app.clone(), url, None, None, None, trace_id.clone()).await;
     clear_download_runtime(trace_id.as_str());
@@ -3403,90 +3523,52 @@ async fn queue_video_download(
 }
 
 #[tauri::command]
-async fn cancel_download(app: AppHandle) -> Result<bool, String> {
-    println!(">>> [Rust] cancel_download called");
+async fn cancel_download(app: AppHandle, trace_id: String) -> Result<bool, String> {
+    println!(
+        ">>> [Rust] cancel_download called for trace_id={}",
+        trace_id
+    );
 
-    let (active_trace_ids, payload) = {
-        let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
-        state.pending.clear();
-        (
-            state.active_trace_ids.iter().cloned().collect::<Vec<_>>(),
-            build_video_queue_count_payload(&state),
-        )
+    let target_trace_id = trace_id.trim();
+    if target_trace_id.is_empty() {
+        return Ok(false);
+    }
+
+    if remove_pending_video_task(&app, target_trace_id) {
+        let result = DownloadResult {
+            trace_id: target_trace_id.to_string(),
+            success: false,
+            file_path: None,
+            error: Some(with_terminal_error_code(
+                DownloadTerminalErrorCode::Cancelled,
+                "Download cancelled",
+            )),
+        };
+        let _ = app.emit("video-download-complete", result);
+        return Ok(true);
+    }
+
+    let is_active = {
+        let state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
+        state.active_trace_ids.contains(target_trace_id)
     };
-    emit_video_queue_count(&app, payload);
-    if active_trace_ids.is_empty() {
+
+    if !is_active {
         return Ok(false);
     }
 
     {
         let mut cancelled = DOWNLOAD_CANCELLED.lock().unwrap();
-        for trace_id in &active_trace_ids {
-            cancelled.insert(trace_id.clone());
-        }
+        cancelled.insert(target_trace_id.to_string());
     }
 
     // 1. 终止下载进程 (for yt-dlp)
-    for trace_id in &active_trace_ids {
-        kill_download_child_process(trace_id);
-    }
+    kill_download_child_process(target_trace_id);
 
     // 2. 等待进程完全终止
     tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
 
     // 3. 清理临时文件
-    if let Ok(config_str) = get_config(app) {
-        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
-            let base_output_dir = config
-                .get("outputPath")
-                .and_then(|v| v.as_str())
-                .map(|s| std::path::PathBuf::from(s))
-                .unwrap_or_else(|| {
-                    desktop_dir()
-                        .unwrap_or_else(|| std::path::PathBuf::from("."))
-                        .join("FlowSelect_Received")
-                });
-
-            cleanup_part_files_for_output_root(&base_output_dir);
-
-            let dirs_to_check = vec![base_output_dir.clone(), base_output_dir.join("Videos")];
-
-            let now = std::time::SystemTime::now();
-            let video_extensions = ["mp4", "webm", "mkv", "flv", "avi", "mov"];
-
-            for output_dir in dirs_to_check {
-                if let Ok(entries) = fs::read_dir(&output_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        let ext = path
-                            .extension()
-                            .and_then(|e| e.to_str())
-                            .unwrap_or("")
-                            .to_lowercase();
-
-                        // Delete recently modified video files
-                        if video_extensions.contains(&ext.as_str()) {
-                            if let Ok(metadata) = entry.metadata() {
-                                if let Ok(modified) = metadata.modified() {
-                                    // Delete if modified within last 30 seconds
-                                    if let Ok(duration) = now.duration_since(modified) {
-                                        if duration.as_secs() < 30 {
-                                            println!(
-                                                ">>> [Rust] Deleting recent video file: {:?}",
-                                                path
-                                            );
-                                            let _ = fs::remove_file(&path);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     Ok(true)
 }
 
