@@ -31,9 +31,9 @@ const CLIP_DOWNLOAD_MODE_OPTIONS: Array<{
   { value: "precise", label: "Precise", description: "Accurate cut points, usually slower." },
 ];
 const ILLEGAL_FILENAME_CHARS = /[/\\:*?"<>|]/g;
-const DEV_MODE_TAP_THRESHOLD = 5;
-const DEV_MODE_TAP_RESET_MS = 1500;
-const DEV_MODE_HINT_DURATION_MS = 1200;
+const VERSION_TAP_THRESHOLD = 5;
+const VERSION_TAP_RESET_MS = 1500;
+const VERSION_TAP_HINT_DURATION_MS = 2200;
 const SHORTCUT_KEY_ALIASES: Record<string, string> = {
   CONTROL: "Ctrl",
   CTRL: "Ctrl",
@@ -125,7 +125,6 @@ const buildRenamePreview = (
 function SettingsPage() {
   const { theme, colors, setTheme } = useTheme();
   const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
-  const isWindows = navigator.userAgent.toLowerCase().includes("windows");
   const [outputPath, setOutputPath] = useState("");
   const [autostart, setAutostart] = useState(false);
   const [shortcut, setShortcut] = useState("");
@@ -136,7 +135,6 @@ function SettingsPage() {
   const [renameRulePreset, setRenameRulePreset] = useState<RenameRulePreset>(DEFAULT_RENAME_RULE_PRESET);
   const [renamePrefix, setRenamePrefix] = useState("");
   const [renameSuffix, setRenameSuffix] = useState("");
-  const [devMode, setDevMode] = useState(false);
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
   const [versionTapHint, setVersionTapHint] = useState("");
@@ -149,7 +147,7 @@ function SettingsPage() {
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ytdlpHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const devModeToggleInFlightRef = useRef(false);
+  const supportLogExportInFlightRef = useRef(false);
   const renamePresetMenuRef = useRef<HTMLDivElement | null>(null);
 
   const showYtdlpHint = useCallback((message: string) => {
@@ -200,9 +198,6 @@ function SettingsPage() {
         if (typeof config.renameSuffix === "string") {
           setRenameSuffix(config.renameSuffix);
         }
-        if (typeof config.devMode === "boolean") {
-          setDevMode(isWindows ? false : config.devMode);
-        }
         if (typeof config.aePortalEnabled === "boolean") {
           setAePortalEnabled(config.aePortalEnabled);
         }
@@ -236,7 +231,7 @@ function SettingsPage() {
       }
     };
     loadShortcut();
-  }, [isWindows, refreshYtdlpVersion]);
+  }, [refreshYtdlpVersion]);
 
   // Keyboard event listener for shortcut recording
   useEffect(() => {
@@ -502,41 +497,27 @@ function SettingsPage() {
     versionTapHintTimerRef.current = setTimeout(() => {
       setVersionTapHint("");
       versionTapHintTimerRef.current = null;
-    }, DEV_MODE_HINT_DURATION_MS);
+    }, VERSION_TAP_HINT_DURATION_MS);
   };
 
-  const persistDevModeConfig = async (enabled: boolean) => {
-    const configStr = await invoke<string>("get_config");
-    const config = JSON.parse(configStr);
-    config.devMode = enabled;
-    await invoke<void>("save_config", { json: JSON.stringify(config) });
-  };
-
-  const toggleDevModeByVersionTap = async () => {
-    if (devModeToggleInFlightRef.current) return;
-    devModeToggleInFlightRef.current = true;
-    const previousValue = devMode;
-    const nextValue = isWindows ? true : !previousValue;
-    setDevMode(nextValue);
+  const exportSupportLogByVersionTap = async () => {
+    if (supportLogExportInFlightRef.current) return;
+    supportLogExportInFlightRef.current = true;
     try {
-      await Promise.all([
-        emit("devmode-changed", { enabled: nextValue }),
-        invoke<void>("toggle_devtools", { enabled: nextValue }),
-      ]);
-      await persistDevModeConfig(isWindows ? false : nextValue);
-      showVersionTapHint(nextValue ? "开发模式已开启" : "开发模式已关闭");
+      const logPath = await invoke<string>("export_support_log");
+      const fileName = logPath.split(/[/\\]/).pop() ?? logPath;
+      showVersionTapHint(`诊断日志已生成：${fileName}`);
     } catch (err) {
-      setDevMode(previousValue);
-      showVersionTapHint("切换开发模式失败");
-      console.error("Failed to toggle dev mode from version tap:", err);
+      showVersionTapHint("生成诊断日志失败");
+      console.error("Failed to export support log from version tap:", err);
     } finally {
-      devModeToggleInFlightRef.current = false;
+      supportLogExportInFlightRef.current = false;
     }
   };
 
   const handleVersionClick = () => {
     versionTapCountRef.current += 1;
-    const remaining = DEV_MODE_TAP_THRESHOLD - versionTapCountRef.current;
+    const remaining = VERSION_TAP_THRESHOLD - versionTapCountRef.current;
 
     if (versionTapTimerRef.current) {
       clearTimeout(versionTapTimerRef.current);
@@ -545,19 +526,19 @@ function SettingsPage() {
       versionTapCountRef.current = 0;
       versionTapTimerRef.current = null;
       setVersionTapHint("");
-    }, DEV_MODE_TAP_RESET_MS);
+    }, VERSION_TAP_RESET_MS);
 
     if (remaining === 1) {
-      showVersionTapHint("再点一下切换开发模式");
+      showVersionTapHint("再点一下生成诊断日志");
     }
 
-    if (versionTapCountRef.current >= DEV_MODE_TAP_THRESHOLD) {
+    if (versionTapCountRef.current >= VERSION_TAP_THRESHOLD) {
       versionTapCountRef.current = 0;
       if (versionTapTimerRef.current) {
         clearTimeout(versionTapTimerRef.current);
         versionTapTimerRef.current = null;
       }
-      void toggleDevModeByVersionTap();
+      void exportSupportLogByVersionTap();
     }
   };
 

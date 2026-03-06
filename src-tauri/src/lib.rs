@@ -5203,6 +5203,15 @@ fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String>
     Ok(config_path)
 }
 
+fn format_support_log_config(config_raw: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(config_raw) {
+        Ok(value) => {
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| config_raw.to_string())
+        }
+        Err(err) => format!("Invalid config JSON: {}\n\n{}", err, config_raw),
+    }
+}
+
 #[tauri::command]
 fn get_config(app: tauri::AppHandle) -> Result<String, String> {
     let config_path = get_config_path(&app)?;
@@ -5219,6 +5228,71 @@ fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     let config_path = get_config_path(&app)?;
 
     fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))
+}
+
+#[tauri::command]
+async fn export_support_log(app: AppHandle) -> Result<String, String> {
+    let config_path = get_config_path(&app)?;
+    let config_dir = config_path
+        .parent()
+        .ok_or_else(|| "Failed to resolve config directory".to_string())?;
+    let log_dir = config_dir.join("logs");
+
+    fs::create_dir_all(&log_dir).map_err(|e| format!("Failed to create log dir: {}", e))?;
+
+    let generated_unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("Failed to get current time: {}", e))?
+        .as_millis();
+    let log_path = log_dir.join(format!("flowselect-support-{}.log", generated_unix_ms));
+
+    let config_raw = get_config(app.clone())?;
+    let config_snapshot = format_support_log_config(&config_raw);
+    let current_exe = std::env::current_exe()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|err| format!("unavailable ({})", err));
+    let ytdlp_path = ytdlp_sidecar_path(&app)
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|err| format!("unavailable ({})", err));
+    let ytdlp_version = match get_local_ytdlp_version(&app).await {
+        Ok(version) => version,
+        Err(err) => format!("unavailable ({})", err),
+    };
+
+    let log_contents = format!(
+        concat!(
+            "FlowSelect Support Log\n",
+            "======================\n",
+            "app_version={}\n",
+            "generated_unix_ms={}\n",
+            "os={}\n",
+            "arch={}\n",
+            "current_exe={}\n",
+            "config_path={}\n",
+            "log_path={}\n",
+            "ytdlp_path={}\n",
+            "ytdlp_version={}\n",
+            "\n",
+            "[config]\n",
+            "{}\n"
+        ),
+        env!("CARGO_PKG_VERSION"),
+        generated_unix_ms,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        current_exe,
+        config_path.display(),
+        log_path.display(),
+        ytdlp_path,
+        ytdlp_version,
+        config_snapshot
+    );
+
+    fs::write(&log_path, log_contents)
+        .map_err(|e| format!("Failed to write support log: {}", e))?;
+    println!(">>> [Rust] Support log exported to {:?}", log_path);
+
+    Ok(log_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -5979,6 +6053,7 @@ pub fn run() {
             get_clipboard_files,
             get_config,
             save_config,
+            export_support_log,
             reset_rename_counter,
             get_autostart,
             set_autostart,
