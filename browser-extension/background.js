@@ -11,6 +11,7 @@ const REQUEST_TIMEOUT_MS = 7000;
 const CONNECTING_WAIT_TIMEOUT_MS = 500;
 const pendingRequests = new Map();
 let requestCounter = 0;
+let lastConnectionIssue = 'Desktop app not running';
 
 // Store current theme from desktop app
 let currentTheme = 'black';
@@ -24,8 +25,23 @@ function isConnecting() {
   return ws && ws.readyState === WebSocket.CONNECTING;
 }
 
+function connectionStatusText() {
+  if (isConnected()) {
+    return 'Connected';
+  }
+  if (isConnecting() || reconnectTimer !== null) {
+    return lastConnectionIssue || 'Connecting to desktop app...';
+  }
+  return lastConnectionIssue || 'Desktop app not running';
+}
+
 function notifyConnectionStatus() {
-  chrome.runtime.sendMessage({ type: 'connection_update', connected: isConnected() }).catch(() => {});
+  chrome.runtime.sendMessage({
+    type: 'connection_update',
+    connected: isConnected(),
+    connecting: Boolean(isConnecting() || reconnectTimer !== null),
+    statusText: connectionStatusText(),
+  }).catch(() => {});
 }
 
 function clearReconnectTimer() {
@@ -39,12 +55,15 @@ function connect() {
   if (isConnected() || isConnecting()) return;
 
   clearReconnectTimer();
+  lastConnectionIssue = 'Connecting to desktop app...';
+  notifyConnectionStatus();
 
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
     console.log('[FlowSelect] Connected to desktop app');
     reconnectAttempts = 0;
+    lastConnectionIssue = '';
     notifyConnectionStatus();
     // Query current theme after connection
     ws.send(JSON.stringify({ action: 'get_theme' }));
@@ -66,12 +85,19 @@ function connect() {
     console.log('[FlowSelect] Disconnected');
     rejectPendingRequests('ws_closed');
     ws = null;
+    lastConnectionIssue = `Desktop app unavailable at ${WS_URL}. Open FlowSelect to connect.`;
     notifyConnectionStatus();
     scheduleReconnect();
   };
 
-  ws.onerror = (error) => {
-    console.error('[FlowSelect] WebSocket error:', error);
+  ws.onerror = () => {
+    if (!isConnected()) {
+      lastConnectionIssue = `Desktop app unavailable at ${WS_URL}. Open FlowSelect to connect.`;
+      console.warn('[FlowSelect] WebSocket unavailable. Open the FlowSelect desktop app to enable browser-extension features.');
+      notifyConnectionStatus();
+      return;
+    }
+    console.error('[FlowSelect] WebSocket error while connected.');
   };
 }
 
@@ -423,6 +449,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({
       connected: isConnected(),
       connecting: isConnecting() || reconnectTimer !== null,
+      statusText: connectionStatusText(),
     });
   } else if (message.type === 'get_theme') {
     sendResponse({ theme: currentTheme });

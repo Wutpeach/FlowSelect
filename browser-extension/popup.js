@@ -17,19 +17,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const qualityGrid = document.getElementById('qualityGrid');
   let statusTimer = null;
 
-  function updateStatus(connected) {
+  function updateStatus(connected, nextStatusText) {
     if (connected) {
       statusDot.classList.add('connected');
       statusText.textContent = 'Connected';
     } else {
       statusDot.classList.remove('connected');
-      statusText.textContent = 'Disconnected';
+      statusText.textContent = nextStatusText || 'Desktop app not running';
     }
   }
 
   function checkStatus() {
     chrome.runtime.sendMessage({ type: 'get_status' }, (response) => {
-      updateStatus(response?.connected);
+      updateStatus(Boolean(response?.connected), response?.statusText);
     });
   }
 
@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (message.type === 'theme_update') {
       applyTheme(message.theme);
     } else if (message.type === 'connection_update') {
-      updateStatus(Boolean(message.connected));
+      updateStatus(Boolean(message.connected), message.statusText);
     }
   });
 
