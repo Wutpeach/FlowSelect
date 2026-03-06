@@ -782,8 +782,6 @@ function App() {
       }
       if (normalized.totalCount === 0) {
         clearCancellingTraceIds();
-      }
-      if (normalized.totalCount <= 1) {
         setIsQueuePopoverOpen(false);
       }
     });
@@ -794,7 +792,7 @@ function App() {
     const unlisten = listen<VideoQueueDetailPayload>("video-queue-detail", (event) => {
       const normalized = normalizeVideoQueueDetail(event.payload);
       setVideoQueueDetail(normalized);
-      if (normalized.tasks.length <= 1) {
+      if (normalized.tasks.length === 0) {
         setIsQueuePopoverOpen(false);
       }
       const liveTraceIds = new Set(normalized.tasks.map((task) => task.traceId));
@@ -1457,7 +1455,7 @@ function App() {
       : videoQueueState.pendingCount > 0
         ? `${videoQueueState.pendingCount} waiting`
         : "";
-  const showVideoTaskBadge = videoQueueState.totalCount > 1;
+  const showVideoTaskBadge = videoQueueState.totalCount > 1 || isQueuePopoverOpen;
   const queueViewTitle = `${videoQueueState.totalCount} download task${videoQueueState.totalCount === 1 ? "" : "s"}`;
 
   return (
