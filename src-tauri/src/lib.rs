@@ -1907,8 +1907,6 @@ async fn download_full_source_to_slice_cache(
         "deno".to_string(),
         "--remote-components".to_string(),
         "ejs:github".to_string(),
-        "--paths".to_string(),
-        format!("temp:{}", ytdlp_temp_dir.to_string_lossy()),
         "-o".to_string(),
         cache_path.to_string_lossy().to_string(),
     ];
@@ -3114,8 +3112,6 @@ async fn download_video_internal(
         // Let yt-dlp fetch EJS solver assets for better YouTube compatibility.
         "--remote-components".to_string(),
         "ejs:github".to_string(),
-        "--paths".to_string(),
-        format!("temp:{}", ytdlp_temp_dir.to_string_lossy()),
         "-o".to_string(),
         output_template.to_string_lossy().to_string(),
     ];
