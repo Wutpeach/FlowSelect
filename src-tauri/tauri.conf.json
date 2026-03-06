@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FlowSelect",
-  "version": "0.1.8",
-  "identifier": "com.flowselect.app",
+  "version": "0.1.9",
+  "identifier": "com.flowselect.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

@@ -32,6 +32,8 @@ use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
 
+const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.flowselect.app"];
+
 // Store current registered shortcut
 struct RegisteredShortcut {
     current: Mutex<Option<Shortcut>>,
@@ -5093,18 +5095,59 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
     Ok(current_version)
 }
 
+fn migrate_legacy_config_if_needed(
+    app: &tauri::AppHandle,
+    config_dir: &Path,
+    config_path: &Path,
+) -> Result<(), String> {
+    if config_path.exists() {
+        return Ok(());
+    }
+
+    let base_config_dir = app
+        .path()
+        .config_dir()
+        .map_err(|e| format!("Failed to get base config dir: {}", e))?;
+
+    for legacy_identifier in LEGACY_APP_IDENTIFIERS {
+        let legacy_config_path = base_config_dir.join(legacy_identifier).join("settings.json");
+        if !legacy_config_path.exists() {
+            continue;
+        }
+
+        fs::create_dir_all(config_dir)
+            .map_err(|e| format!("Failed to create config dir: {}", e))?;
+        fs::copy(&legacy_config_path, config_path).map_err(|e| {
+            format!(
+                "Failed to migrate config from {:?} to {:?}: {}",
+                legacy_config_path, config_path, e
+            )
+        })?;
+        println!(
+            ">>> [Rust] Migrated config from {:?} to {:?}",
+            legacy_config_path, config_path
+        );
+        break;
+    }
+
+    Ok(())
+}
+
 fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let config_dir = app
         .path()
         .app_config_dir()
         .map_err(|e| format!("Failed to get config dir: {}", e))?;
+    let config_path = config_dir.join("settings.json");
+
+    migrate_legacy_config_if_needed(app, &config_dir, &config_path)?;
 
     if !config_dir.exists() {
         fs::create_dir_all(&config_dir)
             .map_err(|e| format!("Failed to create config dir: {}", e))?;
     }
 
-    Ok(config_dir.join("settings.json"))
+    Ok(config_path)
 }
 
 #[tauri::command]

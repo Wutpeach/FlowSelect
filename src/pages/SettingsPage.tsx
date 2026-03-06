@@ -1148,7 +1148,7 @@ function SettingsPage() {
             WebkitUserSelect: 'none',
           }}
         >
-          v0.1.8
+          v0.1.9
         </span>
         <div style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.65, minHeight: 14, marginTop: 2 }}>
           {versionTapHint}
