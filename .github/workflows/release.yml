@@ -89,39 +89,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.build_version }}"
-
-          # Update package.json
-          $pkg = Get-Content "package.json" -Raw | ConvertFrom-Json
-          $pkg.version = $version
-          $pkg | ConvertTo-Json -Depth 10 | Set-Content "package.json"
-
-          # Update tauri.conf.json
-          $tauri = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
-          $tauri.version = $version
-          $tauri | ConvertTo-Json -Depth 10 | Set-Content "src-tauri/tauri.conf.json"
-
-          # Update Cargo.toml - only replace version in [package] section
-          $cargoPath = "src-tauri/Cargo.toml"
-          $lines = Get-Content $cargoPath
-          $inPackage = $false
-          $updated = $false
-          $newLines = @()
-          foreach ($line in $lines) {
-            if ($line -match '^\[package\]') {
-              $inPackage = $true
-            } elseif ($line -match '^\[') {
-              $inPackage = $false
-            }
-            if ($inPackage -and !$updated -and $line -match '^version\s*=') {
-              $newLines += "version = `"$version`""
-              $updated = $true
-            } else {
-              $newLines += $line
-            }
-          }
-          $newLines | Set-Content $cargoPath
-
-          Write-Host "Updated all config files to version: $version"
+          node ./scripts/update-version.mjs $version
 
       - name: Install frontend dependencies
         run: npm ci
@@ -255,28 +223,7 @@ jobs:
       - name: Update version in config files
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-
-          # Update package.json using Node.js
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            pkg.version = '$VERSION';
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-          "
-
-          # Update tauri.conf.json using Node.js
-          node -e "
-            const fs = require('fs');
-            const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-            conf.version = '$VERSION';
-            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2));
-          "
-
-          # Update Cargo.toml using sed
-          sed -i.bak '0,/^version = /s/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
-          rm -f src-tauri/Cargo.toml.bak
-
-          echo "Updated all config files to version: $VERSION"
+          node ./scripts/update-version.mjs "$VERSION"
 
       - name: Install frontend dependencies
         run: npm ci

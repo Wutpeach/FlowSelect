@@ -8,6 +8,7 @@ import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
 import { useTheme } from "../contexts/ThemeContext";
 import { saveOutputPath } from "../utils/outputPath";
+import { APP_VERSION } from "../constants/appVersion";
 
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
 type ClipDownloadMode = "fast" | "precise";
@@ -1143,7 +1144,7 @@ function SettingsPage() {
             WebkitUserSelect: 'none',
           }}
         >
-          v0.1.9
+          {`v${APP_VERSION}`}
         </span>
         <div style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.65, minHeight: 14, marginTop: 2 }}>
           {versionTapHint}
