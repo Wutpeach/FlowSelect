@@ -241,6 +241,13 @@ struct VideoTaskQueueState {
     pump_scheduled: bool,
 }
 
+#[derive(Default)]
+struct RuntimeProgressLogState {
+    last_stage: Option<&'static str>,
+    last_percent_bucket: Option<i32>,
+    last_logged_at_ms: u128,
+}
+
 // Store active yt-dlp child PIDs by trace id.
 static DOWNLOAD_CHILDREN: LazyLock<Mutex<HashMap<String, u32>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -260,6 +267,10 @@ static SLICE_REQUEST_HISTORY: LazyLock<Mutex<HashMap<String, u128>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static PRECISE_CLIP_HW_ENCODER_CACHE: LazyLock<Mutex<Option<Option<String>>>> =
     LazyLock::new(|| Mutex::new(None));
+static RUNTIME_LOG_DIR: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
+static RUNTIME_LOG_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static RUNTIME_LOG_PROGRESS_STATE: LazyLock<Mutex<HashMap<String, RuntimeProgressLogState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 const MAX_CONCURRENT_VIDEO_DOWNLOADS: usize = 3;
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
@@ -274,6 +285,12 @@ const YTDLP_SOFT_HEARTBEAT_GRACE_SECS: u64 = 20;
 const YTDLP_WATCHDOG_TICK_MILLIS: u64 = 1500;
 const YTDLP_TERMINATION_GRACE_MILLIS: u64 = 2500;
 const YTDLP_TEMP_DIR_NAME: &str = "flowselect-ytdlp-temp";
+const RUNTIME_LOG_FILE_NAME: &str = "runtime.log";
+const RUNTIME_LOG_ROTATED_FILE_NAME: &str = "runtime.log.1";
+const RUNTIME_LOG_MAX_BYTES: u64 = 512 * 1024;
+const RUNTIME_LOG_TAIL_LINE_LIMIT: usize = 180;
+const RUNTIME_LOG_PROGRESS_BUCKET_PERCENT: f32 = 5.0;
+const RUNTIME_LOG_PROGRESS_MIN_INTERVAL_MS: u128 = 1500;
 const PRECISE_GPU_REQUIRED_ERROR_MARKER: &str = "Precise mode requires hardware encoder";
 // `best` should follow the highest tier available to the current account, even when
 // that requires mixed containers/codecs. We merge to mkv in that tier so yt-dlp can
@@ -1554,6 +1571,15 @@ pub enum DownloadProgressStage {
 }
 
 impl DownloadProgressStage {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Preparing => "preparing",
+            Self::Downloading => "downloading",
+            Self::Merging => "merging",
+            Self::PostProcessing => "post_processing",
+        }
+    }
+
     fn label(self) -> &'static str {
         match self {
             Self::Preparing => "Preparing...",
@@ -2311,6 +2337,17 @@ fn emit_download_terminal_failure(
         error: Some(with_terminal_error_code(code, message)),
     };
     let _ = app.emit("video-download-complete", result.clone());
+    append_runtime_log_event(
+        "download",
+        "complete",
+        Some(trace_id),
+        serde_json::json!({
+            "mode": "yt-dlp",
+            "success": false,
+            "error": result.error.clone(),
+        }),
+    );
+    clear_runtime_progress_log_state(trace_id);
     result
 }
 
@@ -2391,6 +2428,213 @@ fn now_timestamp_ms() -> u128 {
         Ok(duration) => duration.as_millis(),
         Err(_) => 0,
     }
+}
+
+fn set_runtime_log_dir(app: &AppHandle) {
+    match get_logs_dir(app) {
+        Ok(log_dir) => {
+            *RUNTIME_LOG_DIR.lock().unwrap() = Some(log_dir);
+        }
+        Err(err) => {
+            println!(">>> [Rust] Runtime log dir init failed: {}", err);
+        }
+    }
+}
+
+fn runtime_log_path(log_dir: &Path) -> PathBuf {
+    log_dir.join(RUNTIME_LOG_FILE_NAME)
+}
+
+fn runtime_log_rotated_path(log_dir: &Path) -> PathBuf {
+    log_dir.join(RUNTIME_LOG_ROTATED_FILE_NAME)
+}
+
+fn sanitize_runtime_text(value: &str) -> String {
+    value
+        .replace(['\r', '\n'], " | ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn summarize_url_for_log(raw: &str) -> String {
+    if let Ok(parsed) = url::Url::parse(raw) {
+        let mut summary = parsed.host_str().unwrap_or("unknown-host").to_string();
+        let trimmed_path = parsed.path().trim_matches('/');
+        if !trimmed_path.is_empty() {
+            let path_preview = trimmed_path
+                .split('/')
+                .take(2)
+                .collect::<Vec<_>>()
+                .join("/");
+            summary.push('/');
+            summary.push_str(path_preview.as_str());
+        }
+        return summary;
+    }
+
+    let sanitized = sanitize_runtime_text(raw);
+    sanitized.chars().take(120).collect()
+}
+
+fn rotate_runtime_log_if_needed(log_dir: &Path) -> Result<(), String> {
+    let log_path = runtime_log_path(log_dir);
+    let metadata = match fs::metadata(&log_path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(format!("Failed to stat runtime log: {}", err)),
+    };
+
+    if metadata.len() < RUNTIME_LOG_MAX_BYTES {
+        return Ok(());
+    }
+
+    let rotated_path = runtime_log_rotated_path(log_dir);
+    if rotated_path.exists() {
+        fs::remove_file(&rotated_path)
+            .map_err(|err| format!("Failed to remove rotated runtime log: {}", err))?;
+    }
+    fs::rename(&log_path, &rotated_path)
+        .map_err(|err| format!("Failed to rotate runtime log: {}", err))?;
+    Ok(())
+}
+
+fn append_runtime_log_line(line: &str) {
+    let Some(log_dir) = RUNTIME_LOG_DIR.lock().unwrap().clone() else {
+        return;
+    };
+
+    let _lock = RUNTIME_LOG_WRITE_LOCK.lock().unwrap();
+    if let Err(err) = fs::create_dir_all(&log_dir) {
+        println!(">>> [Rust] Runtime log mkdir failed: {}", err);
+        return;
+    }
+    if let Err(err) = rotate_runtime_log_if_needed(&log_dir) {
+        println!(">>> [Rust] Runtime log rotation failed: {}", err);
+        return;
+    }
+
+    let log_path = runtime_log_path(&log_dir);
+    match fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        Ok(mut file) => {
+            if let Err(err) = writeln!(file, "{}", line) {
+                println!(">>> [Rust] Runtime log append failed: {}", err);
+            }
+        }
+        Err(err) => {
+            println!(">>> [Rust] Runtime log open failed: {}", err);
+        }
+    }
+}
+
+fn append_runtime_log_event(
+    scope: &str,
+    event: &str,
+    trace_id: Option<&str>,
+    payload: serde_json::Value,
+) {
+    let mut object = serde_json::Map::new();
+    object.insert("tsMs".to_string(), serde_json::json!(now_timestamp_ms()));
+    object.insert("scope".to_string(), serde_json::json!(scope));
+    object.insert("event".to_string(), serde_json::json!(event));
+    if let Some(trace_id) = trace_id {
+        object.insert("traceId".to_string(), serde_json::json!(trace_id));
+    }
+    object.insert("payload".to_string(), payload);
+
+    match serde_json::to_string(&serde_json::Value::Object(object)) {
+        Ok(line) => append_runtime_log_line(line.as_str()),
+        Err(err) => println!(">>> [Rust] Runtime log serialize failed: {}", err),
+    }
+}
+
+fn clear_runtime_progress_log_state(trace_id: &str) {
+    RUNTIME_LOG_PROGRESS_STATE.lock().unwrap().remove(trace_id);
+}
+
+fn maybe_log_runtime_progress(
+    trace_id: &str,
+    stage: DownloadProgressStage,
+    percent: f32,
+    speed: &str,
+    eta: &str,
+) {
+    let stage_name = stage.as_str();
+    let now_ms = now_timestamp_ms();
+    let percent_bucket = if percent >= 0.0 {
+        Some((percent / RUNTIME_LOG_PROGRESS_BUCKET_PERCENT).floor() as i32)
+    } else {
+        None
+    };
+
+    let should_log = {
+        let mut state_map = RUNTIME_LOG_PROGRESS_STATE.lock().unwrap();
+        let state = state_map.entry(trace_id.to_string()).or_default();
+        let stage_changed = state.last_stage != Some(stage_name);
+        let bucket_changed = percent_bucket != state.last_percent_bucket;
+        let interval_elapsed =
+            now_ms.saturating_sub(state.last_logged_at_ms) >= RUNTIME_LOG_PROGRESS_MIN_INTERVAL_MS;
+        let should_log = stage_changed || bucket_changed || interval_elapsed;
+
+        if should_log {
+            state.last_stage = Some(stage_name);
+            state.last_percent_bucket = percent_bucket;
+            state.last_logged_at_ms = now_ms;
+        }
+
+        should_log
+    };
+
+    if should_log {
+        append_runtime_log_event(
+            "download",
+            "progress",
+            Some(trace_id),
+            serde_json::json!({
+                "stage": stage_name,
+                "percent": if percent >= 0.0 {
+                    Some(((percent * 10.0).round()) / 10.0)
+                } else {
+                    None::<f32>
+                },
+                "speed": sanitize_runtime_text(speed),
+                "eta": sanitize_runtime_text(eta),
+            }),
+        );
+    }
+}
+
+fn excerpt_runtime_lines(raw: &str, max_lines: usize) -> Vec<String> {
+    let mut lines = raw
+        .lines()
+        .map(sanitize_runtime_text)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if lines.len() > max_lines {
+        lines.drain(..lines.len() - max_lines);
+    }
+    lines
+}
+
+fn read_recent_runtime_log_excerpt(log_dir: &Path) -> String {
+    let mut lines = Vec::new();
+
+    for path in [runtime_log_rotated_path(log_dir), runtime_log_path(log_dir)] {
+        if let Ok(content) = fs::read_to_string(path) {
+            lines.extend(content.lines().map(|line| line.to_string()));
+        }
+    }
+
+    if lines.is_empty() {
+        return "unavailable (runtime log not found)".to_string();
+    }
+
+    let start = lines.len().saturating_sub(RUNTIME_LOG_TAIL_LINE_LIMIT);
+    lines[start..].join("\n")
 }
 
 fn next_download_trace_id() -> String {
@@ -2702,6 +2946,7 @@ fn log_download_trace(trace_id: &str, stage: &str, payload: serde_json::Value) {
         "payload": payload,
     });
     println!(">>> [DownloadTrace] {}", event);
+    append_runtime_log_event("download_trace", stage, Some(trace_id), event);
 }
 
 fn log_terminal_outcome(
@@ -2998,6 +3243,21 @@ async fn download_video_internal(
     let rename_media_on_download = is_rename_media_enabled(&config);
     let clip_download_mode = ClipDownloadMode::from_config(&config);
 
+    append_runtime_log_event(
+        "download",
+        "start",
+        Some(trace_id.as_str()),
+        serde_json::json!({
+            "mode": "yt-dlp",
+            "url": summarize_url_for_log(&url),
+            "quality": ytdlp_quality.as_str(),
+            "clipMode": clip_download_mode.as_str(),
+            "hasClipRange": clip_range.is_some(),
+            "renameEnabled": rename_media_on_download,
+            "outputDir": output_dir.to_string_lossy().to_string(),
+        }),
+    );
+
     if let Some(clip_range_ref) = clip_range.as_ref() {
         let cache_key = build_slice_source_cache_key(&url, ytdlp_quality);
         let force_precise_gpu_pipeline = clip_download_mode == ClipDownloadMode::Precise;
@@ -3194,6 +3454,13 @@ async fn download_video_internal(
             eta: "".to_string(),
         },
     );
+    maybe_log_runtime_progress(
+        trace_id.as_str(),
+        DownloadProgressStage::Preparing,
+        -1.0,
+        "Preparing...",
+        "",
+    );
 
     // Spawn yt-dlp process
     let shell = app.shell();
@@ -3362,6 +3629,30 @@ async fn download_video_internal(
 
                     // Emit completion event
                     let _ = app.emit("video-download-complete", result.clone());
+                    append_runtime_log_event(
+                        "download",
+                        "complete",
+                        Some(trace_id.as_str()),
+                        serde_json::json!({
+                            "mode": "yt-dlp",
+                            "success": success,
+                            "wasCancelled": was_cancelled,
+                            "filePath": result.file_path.clone(),
+                            "error": result.error.clone(),
+                        }),
+                    );
+                    if !success {
+                        append_runtime_log_event(
+                            "download",
+                            "terminal_excerpt",
+                            Some(trace_id.as_str()),
+                            serde_json::json!({
+                                "stdoutTail": excerpt_runtime_lines(&stdout_buffer, 8),
+                                "stderrTail": excerpt_runtime_lines(&stderr_buffer, 12),
+                            }),
+                        );
+                    }
+                    clear_runtime_progress_log_state(trace_id.as_str());
 
                     // Cleanup .m4a residual files after successful download
                     if success {
@@ -3444,6 +3735,27 @@ async fn download_video_internal(
                 }),
             };
             let _ = app.emit("video-download-complete", result.clone());
+            append_runtime_log_event(
+                "download",
+                "complete",
+                Some(trace_id.as_str()),
+                serde_json::json!({
+                    "mode": "yt-dlp",
+                    "success": false,
+                    "error": result.error.clone(),
+                    "watchdogHardElapsedSec": hard_elapsed_secs,
+                }),
+            );
+            append_runtime_log_event(
+                "download",
+                "terminal_excerpt",
+                Some(trace_id.as_str()),
+                serde_json::json!({
+                    "stdoutTail": excerpt_runtime_lines(&stdout_buffer, 8),
+                    "stderrTail": excerpt_runtime_lines(&stderr_buffer, 12),
+                }),
+            );
+            clear_runtime_progress_log_state(trace_id.as_str());
             return Ok(result);
         }
     }
@@ -3468,6 +3780,26 @@ async fn download_video_internal(
     };
     // Emit complete event with error to close progress bar
     let _ = app.emit("video-download-complete", result.clone());
+    append_runtime_log_event(
+        "download",
+        "complete",
+        Some(result.trace_id.as_str()),
+        serde_json::json!({
+            "mode": "yt-dlp",
+            "success": false,
+            "error": result.error.clone(),
+        }),
+    );
+    append_runtime_log_event(
+        "download",
+        "terminal_excerpt",
+        Some(result.trace_id.as_str()),
+        serde_json::json!({
+            "stdoutTail": excerpt_runtime_lines(&stdout_buffer, 8),
+            "stderrTail": excerpt_runtime_lines(&stderr_buffer, 12),
+        }),
+    );
+    clear_runtime_progress_log_state(result.trace_id.as_str());
     Ok(result)
 }
 
@@ -4451,6 +4783,20 @@ async fn download_video_direct(
     }
     let mut downloaded: u64 = 0;
 
+    append_runtime_log_event(
+        "download",
+        "start",
+        Some(trace_id.as_str()),
+        serde_json::json!({
+            "mode": "direct",
+            "platform": platform,
+            "url": summarize_url_for_log(&video_url),
+            "totalBytes": if total_size > 0 { Some(total_size) } else { None::<u64> },
+            "renameEnabled": rename_media_on_download,
+            "outputPath": output_path.to_string_lossy().to_string(),
+        }),
+    );
+
     // Send initial progress event to show download started
     let _ = app.emit(
         "video-download-progress",
@@ -4461,6 +4807,13 @@ async fn download_video_direct(
             speed: "Starting...".to_string(),
             eta: "N/A".to_string(),
         },
+    );
+    maybe_log_runtime_progress(
+        trace_id.as_str(),
+        DownloadProgressStage::Preparing,
+        if total_size > 0 { 0.0 } else { -1.0 },
+        "Starting...",
+        "N/A",
     );
 
     let mut file = tokio::fs::File::create(&output_path)
@@ -4476,6 +4829,18 @@ async fn download_video_direct(
             let _ = file.flush().await;
             drop(file);
             let _ = tokio::fs::remove_file(&output_path).await;
+            append_runtime_log_event(
+                "download",
+                "complete",
+                Some(trace_id.as_str()),
+                serde_json::json!({
+                    "mode": "direct",
+                    "platform": platform,
+                    "success": false,
+                    "error": "Download cancelled",
+                }),
+            );
+            clear_runtime_progress_log_state(trace_id.as_str());
             return Err("Download cancelled".to_string());
         }
 
@@ -4491,27 +4856,43 @@ async fn download_video_direct(
             last_emit = std::time::Instant::now();
             if total_size > 0 {
                 let percent = (downloaded as f32 / total_size as f32) * 100.0;
+                let speed = format!("{:.1} MB", downloaded as f64 / 1_000_000.0);
                 let _ = app.emit(
                     "video-download-progress",
                     DownloadProgress {
                         trace_id: trace_id.clone(),
                         percent,
                         stage: DownloadProgressStage::Downloading,
-                        speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
+                        speed: speed.clone(),
                         eta: "N/A".to_string(),
                     },
                 );
+                maybe_log_runtime_progress(
+                    trace_id.as_str(),
+                    DownloadProgressStage::Downloading,
+                    percent,
+                    speed.as_str(),
+                    "N/A",
+                );
             } else {
                 // Indeterminate progress - show downloaded size
+                let speed = format!("{:.1} MB", downloaded as f64 / 1_000_000.0);
                 let _ = app.emit(
                     "video-download-progress",
                     DownloadProgress {
                         trace_id: trace_id.clone(),
                         percent: -1.0,
                         stage: DownloadProgressStage::Downloading,
-                        speed: format!("{:.1} MB", downloaded as f64 / 1_000_000.0),
+                        speed: speed.clone(),
                         eta: "N/A".to_string(),
                     },
+                );
+                maybe_log_runtime_progress(
+                    trace_id.as_str(),
+                    DownloadProgressStage::Downloading,
+                    -1.0,
+                    speed.as_str(),
+                    "N/A",
                 );
             }
         }
@@ -4525,6 +4906,18 @@ async fn download_video_direct(
         let _ = file.flush().await;
         drop(file);
         let _ = tokio::fs::remove_file(&output_path).await;
+        append_runtime_log_event(
+            "download",
+            "complete",
+            Some(trace_id.as_str()),
+            serde_json::json!({
+                "mode": "direct",
+                "platform": platform,
+                "success": false,
+                "error": "Download cancelled",
+            }),
+        );
+        clear_runtime_progress_log_state(trace_id.as_str());
         return Err("Download cancelled".to_string());
     }
 
@@ -4543,6 +4936,18 @@ async fn download_video_direct(
     };
 
     let _ = app.emit("video-download-complete", result.clone());
+    append_runtime_log_event(
+        "download",
+        "complete",
+        Some(result.trace_id.as_str()),
+        serde_json::json!({
+            "mode": "direct",
+            "platform": platform,
+            "success": true,
+            "filePath": result.file_path.clone(),
+        }),
+    );
+    clear_runtime_progress_log_state(result.trace_id.as_str());
 
     // AE Portal
     let app_for_ae = app.clone();
@@ -4813,6 +5218,9 @@ fn process_ytdlp_output_line(
         }
 
         if let Some(progress) = parse_progress(normalized_line) {
+            let progress_percent = progress.percent;
+            let progress_speed = progress.speed.clone();
+            let progress_eta = progress.eta.clone();
             if heartbeat_state
                 .last_percent
                 .map(|last_percent| progress.percent > last_percent + f32::EPSILON)
@@ -4828,6 +5236,13 @@ fn process_ytdlp_output_line(
                     trace_id: trace_id.to_string(),
                     ..progress
                 },
+            );
+            maybe_log_runtime_progress(
+                trace_id,
+                DownloadProgressStage::Downloading,
+                progress_percent,
+                progress_speed.as_str(),
+                progress_eta.as_str(),
             );
             *last_stage = DownloadProgressStage::Downloading;
         } else if let Some(stage) = infer_ytdlp_stage(normalized_line) {
@@ -4850,6 +5265,7 @@ fn process_ytdlp_output_line(
                     },
                 );
             }
+            maybe_log_runtime_progress(trace_id, stage, -1.0, stage_status.as_str(), "");
             *last_stage = stage;
             heartbeat_state.last_stage_status = Some(stage_status);
             heartbeat_event.soft_heartbeat = true;
@@ -5203,6 +5619,16 @@ fn get_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String>
     Ok(config_path)
 }
 
+fn get_logs_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let config_path = get_config_path(app)?;
+    let config_dir = config_path
+        .parent()
+        .ok_or_else(|| "Failed to resolve config directory".to_string())?;
+    let log_dir = config_dir.join("logs");
+    fs::create_dir_all(&log_dir).map_err(|e| format!("Failed to create log dir: {}", e))?;
+    Ok(log_dir)
+}
+
 fn format_support_log_config(config_raw: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(config_raw) {
         Ok(value) => {
@@ -5233,18 +5659,15 @@ fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
 #[tauri::command]
 async fn export_support_log(app: AppHandle) -> Result<String, String> {
     let config_path = get_config_path(&app)?;
-    let config_dir = config_path
-        .parent()
-        .ok_or_else(|| "Failed to resolve config directory".to_string())?;
-    let log_dir = config_dir.join("logs");
-
-    fs::create_dir_all(&log_dir).map_err(|e| format!("Failed to create log dir: {}", e))?;
+    let log_dir = get_logs_dir(&app)?;
 
     let generated_unix_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| format!("Failed to get current time: {}", e))?
         .as_millis();
     let log_path = log_dir.join(format!("flowselect-support-{}.log", generated_unix_ms));
+    let runtime_log_path = runtime_log_path(&log_dir);
+    let runtime_log_tail = read_recent_runtime_log_excerpt(&log_dir);
 
     let config_raw = get_config(app.clone())?;
     let config_snapshot = format_support_log_config(&config_raw);
@@ -5270,10 +5693,14 @@ async fn export_support_log(app: AppHandle) -> Result<String, String> {
             "current_exe={}\n",
             "config_path={}\n",
             "log_path={}\n",
+            "runtime_log_path={}\n",
             "ytdlp_path={}\n",
             "ytdlp_version={}\n",
             "\n",
             "[config]\n",
+            "{}\n",
+            "\n",
+            "[runtime_log_tail]\n",
             "{}\n"
         ),
         env!("CARGO_PKG_VERSION"),
@@ -5283,9 +5710,11 @@ async fn export_support_log(app: AppHandle) -> Result<String, String> {
         current_exe,
         config_path.display(),
         log_path.display(),
+        runtime_log_path.display(),
         ytdlp_path,
         ytdlp_version,
-        config_snapshot
+        config_snapshot,
+        runtime_log_tail
     );
 
     fs::write(&log_path, log_contents)
@@ -6086,6 +6515,18 @@ pub fn run() {
                     .set_activation_policy(ActivationPolicy::Accessory);
                 let _ = app.handle().set_dock_visibility(false);
             }
+
+            set_runtime_log_dir(&app.handle());
+            append_runtime_log_event(
+                "app",
+                "startup",
+                None,
+                serde_json::json!({
+                    "os": std::env::consts::OS,
+                    "arch": std::env::consts::ARCH,
+                    "version": env!("CARGO_PKG_VERSION"),
+                }),
+            );
 
             // Create Tray Menu
             let quit_i = MenuItem::with_id(app, "quit", "Quit FlowSelect", true, None::<&str>)?;

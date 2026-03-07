@@ -97,6 +97,21 @@ const sanitizeRenameAffix = (raw: string): string => {
     .replace(/^[.\s]+|[.\s]+$/g, "");
 };
 
+const getParentDirectory = (filePath: string): string => {
+  const normalized = filePath.trim().replace(/[\\/]+$/, "");
+  if (!normalized) return "";
+
+  const separatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  if (separatorIndex <= 0) return "";
+
+  // Preserve Windows drive roots like `C:\`.
+  if (/^[A-Za-z]:$/.test(normalized.slice(0, separatorIndex))) {
+    return `${normalized.slice(0, separatorIndex)}\\`;
+  }
+
+  return normalized.slice(0, separatorIndex);
+};
+
 const resolveClipDownloadMode = (config: Record<string, unknown>): ClipDownloadMode => {
   return config.clipDownloadMode === "precise" ? "precise" : "fast";
 };
@@ -506,7 +521,19 @@ function SettingsPage() {
     try {
       const logPath = await invoke<string>("export_support_log");
       const fileName = logPath.split(/[/\\]/).pop() ?? logPath;
-      showVersionTapHint(`诊断日志已生成：${fileName}`);
+      const logDir = getParentDirectory(logPath);
+
+      if (logDir) {
+        try {
+          await invoke<void>("open_folder", { path: logDir });
+          showVersionTapHint(`诊断日志已生成并打开目录：${fileName}`);
+        } catch (openErr) {
+          showVersionTapHint(`诊断日志已生成：${fileName}`);
+          console.error("Failed to open support log folder:", openErr);
+        }
+      } else {
+        showVersionTapHint(`诊断日志已生成：${fileName}`);
+      }
     } catch (err) {
       showVersionTapHint("生成诊断日志失败");
       console.error("Failed to export support log from version tap:", err);
