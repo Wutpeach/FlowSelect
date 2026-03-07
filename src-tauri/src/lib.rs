@@ -168,6 +168,89 @@ struct SliceSourceCacheEntry {
     last_used_at_ms: u128,
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+struct MediaProbeStream {
+    #[serde(default)]
+    codec_type: String,
+    codec_name: Option<String>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct MediaProbeFormat {
+    format_name: Option<String>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct MediaProbeResult {
+    #[serde(default)]
+    streams: Vec<MediaProbeStream>,
+    format: Option<MediaProbeFormat>,
+}
+
+#[derive(Clone, Debug)]
+struct MediaProbeSummary {
+    container_names: Vec<String>,
+    has_video_stream: bool,
+    has_audio_stream: bool,
+    video_codec: Option<String>,
+    audio_codec: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AeSafeNormalizationPlan {
+    Skip,
+    RemuxOnly,
+    AudioTranscode,
+    FullTranscode,
+}
+
+impl AeSafeNormalizationPlan {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Skip => "skip",
+            Self::RemuxOnly => "remux_only",
+            Self::AudioTranscode => "audio_transcode",
+            Self::FullTranscode => "full_transcode",
+        }
+    }
+
+    fn status_text(self) -> &'static str {
+        match self {
+            Self::Skip => "Final output already AE-safe",
+            Self::RemuxOnly => "Finalizing AE-safe MP4...",
+            Self::AudioTranscode => "Converting audio for After Effects...",
+            Self::FullTranscode => "Optimizing video for After Effects...",
+        }
+    }
+}
+
+impl MediaProbeSummary {
+    fn is_mp4_container(&self) -> bool {
+        self.container_names.iter().any(|name| name == "mp4")
+    }
+
+    fn is_ae_safe(&self) -> bool {
+        self.is_mp4_container()
+            && self.video_codec.as_deref() == Some("h264")
+            && (!self.has_audio_stream || self.audio_codec.as_deref() == Some("aac"))
+    }
+
+    fn normalization_plan(&self) -> AeSafeNormalizationPlan {
+        if self.is_ae_safe() {
+            return AeSafeNormalizationPlan::Skip;
+        }
+
+        if self.video_codec.as_deref() == Some("h264") {
+            if !self.has_audio_stream || self.audio_codec.as_deref() == Some("aac") {
+                return AeSafeNormalizationPlan::RemuxOnly;
+            }
+            return AeSafeNormalizationPlan::AudioTranscode;
+        }
+
+        AeSafeNormalizationPlan::FullTranscode
+    }
+}
+
 #[derive(Clone, Debug)]
 enum QueuedVideoTask {
     Douyin {
@@ -1895,6 +1978,529 @@ fn resolve_precise_clip_hw_encoder() -> Option<String> {
     detected
 }
 
+fn extract_process_failure_message(stderr: &[u8], status: std::process::ExitStatus) -> String {
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .unwrap_or_else(|| format!("process exited with status {}", status))
+}
+
+fn emit_post_processing_status(app: &AppHandle, trace_id: &str, status: &str) {
+    let _ = app.emit(
+        "video-download-progress",
+        DownloadProgress {
+            trace_id: trace_id.to_string(),
+            percent: -1.0,
+            stage: DownloadProgressStage::PostProcessing,
+            speed: status.to_string(),
+            eta: "".to_string(),
+        },
+    );
+    maybe_log_runtime_progress(
+        trace_id,
+        DownloadProgressStage::PostProcessing,
+        -1.0,
+        status,
+        "",
+    );
+}
+
+async fn probe_media_summary(path: &Path) -> Result<MediaProbeSummary, String> {
+    let target_path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let output = std::process::Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_entries",
+                "format=format_name:stream=codec_type,codec_name",
+            ])
+            .arg(&target_path)
+            .output()
+            .map_err(|e| format!("Failed to spawn ffprobe: {}", e))?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "ffprobe failed for {:?}: {}",
+                target_path,
+                extract_process_failure_message(&output.stderr, output.status)
+            ));
+        }
+
+        let probe: MediaProbeResult = serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("Failed to parse ffprobe JSON: {}", e))?;
+        let container_names = probe
+            .format
+            .and_then(|format| format.format_name)
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(|item| item.trim().to_ascii_lowercase())
+                    .filter(|item| !item.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let mut has_video_stream = false;
+        let mut has_audio_stream = false;
+        let mut video_codec = None;
+        let mut audio_codec = None;
+
+        for stream in probe.streams {
+            match stream.codec_type.to_ascii_lowercase().as_str() {
+                "video" => {
+                    has_video_stream = true;
+                    if video_codec.is_none() {
+                        video_codec = stream.codec_name.map(|value| value.to_ascii_lowercase());
+                    }
+                }
+                "audio" => {
+                    has_audio_stream = true;
+                    if audio_codec.is_none() {
+                        audio_codec = stream.codec_name.map(|value| value.to_ascii_lowercase());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(MediaProbeSummary {
+            container_names,
+            has_video_stream,
+            has_audio_stream,
+            video_codec,
+            audio_codec,
+        })
+    })
+    .await
+    .map_err(|e| format!("Failed to await ffprobe task: {}", e))?
+}
+
+fn sibling_path_with_suffix(path: &Path, suffix: &str, extension: &str) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("video");
+    parent.join(format!("{}_{}.{}", stem, suffix, extension))
+}
+
+fn build_ae_safe_visible_output_path(source_path: &Path) -> PathBuf {
+    let source_ext = source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+    if source_ext.as_deref() == Some("mp4") {
+        return source_path.to_path_buf();
+    }
+
+    let parent = source_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = source_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("video");
+    let preferred = parent.join(format!("{}.mp4", stem));
+    if !preferred.exists() {
+        return preferred;
+    }
+
+    let first_fallback = parent.join(format!("{}_ae.mp4", stem));
+    if !first_fallback.exists() {
+        return first_fallback;
+    }
+
+    let mut counter = 2;
+    loop {
+        let candidate = parent.join(format!("{}_ae_{}.mp4", stem, counter));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+fn build_ae_safe_temp_output_path(target_path: &Path) -> PathBuf {
+    let first = sibling_path_with_suffix(target_path, "flowselect_tmp", "mp4");
+    if !first.exists() {
+        return first;
+    }
+
+    let mut counter = 2;
+    loop {
+        let candidate =
+            sibling_path_with_suffix(target_path, &format!("flowselect_tmp_{}", counter), "mp4");
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+fn replace_file_preserving_backup(temp_path: &Path, target_path: &Path) -> Result<(), String> {
+    if !target_path.exists() {
+        return fs::rename(temp_path, target_path).map_err(|e| {
+            format!(
+                "Failed to move normalized output from {:?} to {:?}: {}",
+                temp_path, target_path, e
+            )
+        });
+    }
+
+    let backup_path = sibling_path_with_suffix(target_path, "flowselect_backup", "bak");
+    if backup_path.exists() {
+        let _ = fs::remove_file(&backup_path);
+    }
+    fs::rename(target_path, &backup_path).map_err(|e| {
+        format!(
+            "Failed to stage original output {:?} for replacement: {}",
+            target_path, e
+        )
+    })?;
+
+    match fs::rename(temp_path, target_path) {
+        Ok(_) => {
+            if let Err(err) = fs::remove_file(&backup_path) {
+                println!(
+                    ">>> [Rust] Warning: Failed to cleanup normalization backup {:?}: {}",
+                    backup_path, err
+                );
+            }
+            Ok(())
+        }
+        Err(err) => {
+            let _ = fs::rename(&backup_path, target_path);
+            Err(format!(
+                "Failed to replace original output {:?} with normalized file {:?}: {}",
+                target_path, temp_path, err
+            ))
+        }
+    }
+}
+
+async fn run_ffmpeg_with_args(args: Vec<String>) -> Result<(), String> {
+    let output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("ffmpeg").args(args).output()
+    })
+    .await
+    .map_err(|e| format!("Failed to await ffmpeg task: {}", e))?
+    .map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
+
+    if !output.status.success() {
+        return Err(extract_process_failure_message(
+            &output.stderr,
+            output.status,
+        ));
+    }
+
+    Ok(())
+}
+
+async fn normalize_video_output_for_ae(
+    app: &AppHandle,
+    source_path: &Path,
+    trace_id: &str,
+) -> Result<String, String> {
+    if !source_path.exists() {
+        return Err(format!(
+            "Downloaded file disappeared before normalization: {:?}",
+            source_path
+        ));
+    }
+
+    let probe_summary = match probe_media_summary(source_path).await {
+        Ok(summary) => Some(summary),
+        Err(err) => {
+            println!(
+                ">>> [Rust] AE-safe probe failed for {:?}, falling back to full transcode: {}",
+                source_path, err
+            );
+            append_runtime_log_event(
+                "download",
+                "ae_safe_probe_warning",
+                Some(trace_id),
+                serde_json::json!({
+                    "path": source_path.to_string_lossy().to_string(),
+                    "error": err,
+                }),
+            );
+            None
+        }
+    };
+
+    let plan = probe_summary
+        .as_ref()
+        .map(MediaProbeSummary::normalization_plan)
+        .unwrap_or(AeSafeNormalizationPlan::FullTranscode);
+
+    if let Some(summary) = probe_summary.as_ref() {
+        println!(
+            ">>> [Rust] AE-safe probe summary: path={:?}, containers={:?}, hasVideo={}, hasAudio={}, video={:?}, audio={:?}, plan={}",
+            source_path,
+            summary.container_names,
+            summary.has_video_stream,
+            summary.has_audio_stream,
+            summary.video_codec,
+            summary.audio_codec,
+            plan.as_str()
+        );
+    } else {
+        println!(
+            ">>> [Rust] AE-safe probe summary unavailable, forcing plan={}",
+            plan.as_str()
+        );
+    }
+
+    if plan == AeSafeNormalizationPlan::Skip {
+        return Ok(source_path.to_string_lossy().to_string());
+    }
+
+    emit_post_processing_status(app, trace_id, plan.status_text());
+    append_runtime_log_event(
+        "download",
+        "ae_safe_normalize_start",
+        Some(trace_id),
+        serde_json::json!({
+            "path": source_path.to_string_lossy().to_string(),
+            "plan": plan.as_str(),
+        }),
+    );
+
+    let visible_output_path = build_ae_safe_visible_output_path(source_path);
+    let temp_output_path = build_ae_safe_temp_output_path(&visible_output_path);
+    if temp_output_path.exists() {
+        let _ = fs::remove_file(&temp_output_path);
+    }
+
+    let normalization_result: Result<(), String> = match plan {
+        AeSafeNormalizationPlan::Skip => Ok(()),
+        AeSafeNormalizationPlan::RemuxOnly => {
+            let ffmpeg_args = vec![
+                "-y".to_string(),
+                "-hide_banner".to_string(),
+                "-loglevel".to_string(),
+                "error".to_string(),
+                "-i".to_string(),
+                source_path.to_string_lossy().to_string(),
+                "-map".to_string(),
+                "0:v:0".to_string(),
+                "-map".to_string(),
+                "0:a?".to_string(),
+                "-c".to_string(),
+                "copy".to_string(),
+                "-movflags".to_string(),
+                "+faststart".to_string(),
+                temp_output_path.to_string_lossy().to_string(),
+            ];
+            run_ffmpeg_with_args(ffmpeg_args)
+                .await
+                .map_err(|e| format!("AE-safe remux failed: {}", e))
+        }
+        AeSafeNormalizationPlan::AudioTranscode => {
+            let ffmpeg_args = vec![
+                "-y".to_string(),
+                "-hide_banner".to_string(),
+                "-loglevel".to_string(),
+                "error".to_string(),
+                "-i".to_string(),
+                source_path.to_string_lossy().to_string(),
+                "-map".to_string(),
+                "0:v:0".to_string(),
+                "-map".to_string(),
+                "0:a?".to_string(),
+                "-c:v".to_string(),
+                "copy".to_string(),
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                "320k".to_string(),
+                "-movflags".to_string(),
+                "+faststart".to_string(),
+                temp_output_path.to_string_lossy().to_string(),
+            ];
+            run_ffmpeg_with_args(ffmpeg_args)
+                .await
+                .map_err(|e| format!("AE-safe audio transcode failed: {}", e))
+        }
+        AeSafeNormalizationPlan::FullTranscode => {
+            let build_args = |video_encoder: &str| {
+                vec![
+                    "-y".to_string(),
+                    "-hide_banner".to_string(),
+                    "-loglevel".to_string(),
+                    "error".to_string(),
+                    "-i".to_string(),
+                    source_path.to_string_lossy().to_string(),
+                    "-map".to_string(),
+                    "0:v:0".to_string(),
+                    "-map".to_string(),
+                    "0:a?".to_string(),
+                    "-c:v".to_string(),
+                    video_encoder.to_string(),
+                    "-pix_fmt".to_string(),
+                    "yuv420p".to_string(),
+                    "-c:a".to_string(),
+                    "aac".to_string(),
+                    "-b:a".to_string(),
+                    "320k".to_string(),
+                    "-movflags".to_string(),
+                    "+faststart".to_string(),
+                    temp_output_path.to_string_lossy().to_string(),
+                ]
+            };
+
+            if let Some(gpu_encoder) = resolve_precise_clip_hw_encoder() {
+                match run_ffmpeg_with_args(build_args(gpu_encoder.as_str())).await {
+                    Ok(_) => Ok(()),
+                    Err(err) => {
+                        println!(
+                            ">>> [Rust] AE-safe GPU transcode failed with {}: {}. Falling back to CPU.",
+                            gpu_encoder, err
+                        );
+                        append_runtime_log_event(
+                            "download",
+                            "ae_safe_gpu_fallback",
+                            Some(trace_id),
+                            serde_json::json!({
+                                "path": source_path.to_string_lossy().to_string(),
+                                "gpuEncoder": gpu_encoder,
+                                "error": err,
+                            }),
+                        );
+                        if temp_output_path.exists() {
+                            let _ = fs::remove_file(&temp_output_path);
+                        }
+                        run_ffmpeg_with_args(build_args("libx264"))
+                            .await
+                            .map_err(|cpu_err| {
+                                format!(
+                                    "AE-safe full transcode failed after GPU fallback: {}",
+                                    cpu_err
+                                )
+                            })
+                    }
+                }
+            } else {
+                println!(">>> [Rust] AE-safe full transcode using CPU encoder libx264");
+                run_ffmpeg_with_args(build_args("libx264"))
+                    .await
+                    .map_err(|e| format!("AE-safe full transcode failed: {}", e))
+            }
+        }
+    };
+    if let Err(err) = normalization_result {
+        let _ = fs::remove_file(&temp_output_path);
+        return Err(err);
+    }
+
+    replace_file_preserving_backup(&temp_output_path, &visible_output_path)?;
+    if visible_output_path != source_path {
+        if let Err(err) = fs::remove_file(source_path) {
+            println!(
+                ">>> [Rust] Warning: Failed to remove intermediate source {:?}: {}",
+                source_path, err
+            );
+        }
+    }
+
+    append_runtime_log_event(
+        "download",
+        "ae_safe_normalize_complete",
+        Some(trace_id),
+        serde_json::json!({
+            "path": visible_output_path.to_string_lossy().to_string(),
+            "plan": plan.as_str(),
+        }),
+    );
+    Ok(visible_output_path.to_string_lossy().to_string())
+}
+
+fn cleanup_residual_audio_artifacts(final_path: &str) {
+    let final_path = Path::new(final_path);
+    let Some(parent) = final_path.parent() else {
+        return;
+    };
+    let target_stem = final_path.file_stem().and_then(|value| value.to_str());
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == final_path {
+            continue;
+        }
+        if let Some(ext) = path.extension() {
+            let same_stem = path.file_stem().and_then(|value| value.to_str()) == target_stem;
+            if ext == "m4a" && same_stem {
+                println!(">>> [Rust] Cleaning up residual file: {:?}", path);
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+}
+
+async fn finalize_ytdlp_success(
+    app: &AppHandle,
+    trace_id: &str,
+    final_path: String,
+) -> DownloadResult {
+    let normalized_path =
+        match normalize_video_output_for_ae(app, Path::new(&final_path), trace_id).await {
+            Ok(path) => path,
+            Err(err) => {
+                return emit_download_terminal_failure(
+                    app,
+                    trace_id,
+                    DownloadTerminalErrorCode::OutputNormalizationFailed,
+                    err.as_str(),
+                );
+            }
+        };
+
+    cleanup_residual_audio_artifacts(&normalized_path);
+
+    let result = DownloadResult {
+        trace_id: trace_id.to_string(),
+        success: true,
+        file_path: Some(normalized_path.clone()),
+        error: None,
+    };
+    let _ = app.emit("video-download-complete", result.clone());
+    append_runtime_log_event(
+        "download",
+        "complete",
+        Some(trace_id),
+        serde_json::json!({
+            "mode": "yt-dlp",
+            "success": true,
+            "filePath": result.file_path.clone(),
+        }),
+    );
+    clear_runtime_progress_log_state(trace_id);
+
+    let app_for_ae = app.clone();
+    tokio::spawn(async move {
+        let _ = send_to_ae(app_for_ae, normalized_path).await;
+    });
+
+    result
+}
+
+fn should_retry_youtube_without_cookies(error_text: &str) -> bool {
+    let lower = error_text.to_ascii_lowercase();
+    lower.contains("n challenge solving failed")
+        || lower.contains("js challenge provider")
+        || lower.contains("only images are available for download")
+        || lower.contains("requested format is not available")
+        || lower.contains("sign in to confirm")
+        || lower.contains("not a bot")
+}
+
 async fn download_full_source_to_slice_cache(
     app: &AppHandle,
     url: &str,
@@ -2300,6 +2906,7 @@ enum DownloadTerminalErrorCode {
     PreciseSliceFailed,
     YtdlpExitFailure,
     YtdlpUnexpectedEnd,
+    OutputNormalizationFailed,
 }
 
 impl DownloadTerminalErrorCode {
@@ -2312,6 +2919,7 @@ impl DownloadTerminalErrorCode {
             Self::PreciseSliceFailed => "E_PRECISE_SLICE_FAILED",
             Self::YtdlpExitFailure => "E_YTDLP_EXIT_FAILURE",
             Self::YtdlpUnexpectedEnd => "E_YTDLP_UNEXPECTED_END",
+            Self::OutputNormalizationFailed => "E_OUTPUT_NORMALIZATION_FAILED",
         }
     }
 }
@@ -3207,6 +3815,7 @@ async fn download_video_internal(
     source_title: Option<String>,
     ytdlp_quality: YtdlpQualityPreference,
     trace_id: String,
+    allow_youtube_cookie_retry: bool,
 ) -> Result<DownloadResult, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
@@ -3285,17 +3894,7 @@ async fn download_video_internal(
             {
                 Ok(file_path) => {
                     cleanup_extension_cookies_file(&extension_cookies_path);
-                    let result = DownloadResult {
-                        trace_id: trace_id.clone(),
-                        success: true,
-                        file_path: Some(file_path.clone()),
-                        error: None,
-                    };
-                    let _ = app.emit("video-download-complete", result.clone());
-                    let app_for_ae = app.clone();
-                    tokio::spawn(async move {
-                        let _ = send_to_ae(app_for_ae, file_path).await;
-                    });
+                    let result = finalize_ytdlp_success(&app, trace_id.as_str(), file_path).await;
                     return Ok(result);
                 }
                 Err(err) => {
@@ -3399,7 +3998,7 @@ async fn download_video_internal(
         }
     }
 
-    if let Some(range) = clip_range {
+    if let Some(range) = clip_range.as_ref() {
         let start = format_seconds_for_download_section(range.start_seconds);
         let end = format_seconds_for_download_section(range.end_seconds);
         println!(
@@ -3597,6 +4196,38 @@ async fn download_video_internal(
                             let _ = std::fs::remove_file(final_path);
                         }
                     }
+                    if !success
+                        && allow_youtube_cookie_retry
+                        && is_youtube_url(&url)
+                        && extension_cookies_path.is_some()
+                        && should_retry_youtube_without_cookies(&stderr_buffer)
+                    {
+                        println!(
+                            ">>> [Rust] YouTube cookies-backed yt-dlp attempt failed with challenge/no-format symptoms, retrying without cookies"
+                        );
+                        append_runtime_log_event(
+                            "download",
+                            "youtube_cookie_retry",
+                            Some(trace_id.as_str()),
+                            serde_json::json!({
+                                "reason": "challenge_or_format_failure",
+                            }),
+                        );
+                        if let Some(ref final_path) = last_file_path {
+                            let _ = std::fs::remove_file(final_path);
+                        }
+                        return Box::pin(download_video_internal(
+                            app.clone(),
+                            url.clone(),
+                            None,
+                            clip_range.clone(),
+                            source_title.clone(),
+                            ytdlp_quality,
+                            trace_id.clone(),
+                            false,
+                        ))
+                        .await;
+                    }
                     let result = DownloadResult {
                         trace_id: trace_id.clone(),
                         success,
@@ -3626,8 +4257,41 @@ async fn download_video_internal(
                             ))
                         },
                     };
+                    if success {
+                        let Some(ref path) = last_file_path else {
+                            let result = emit_download_terminal_failure(
+                                &app,
+                                trace_id.as_str(),
+                                DownloadTerminalErrorCode::OutputNormalizationFailed,
+                                "yt-dlp completed without a final output path",
+                            );
+                            append_runtime_log_event(
+                                "download",
+                                "terminal_excerpt",
+                                Some(trace_id.as_str()),
+                                serde_json::json!({
+                                    "stdoutTail": excerpt_runtime_lines(&stdout_buffer, 8),
+                                    "stderrTail": excerpt_runtime_lines(&stderr_buffer, 12),
+                                }),
+                            );
+                            return Ok(result);
+                        };
+                        let result =
+                            finalize_ytdlp_success(&app, trace_id.as_str(), path.clone()).await;
+                        if !result.success {
+                            append_runtime_log_event(
+                                "download",
+                                "terminal_excerpt",
+                                Some(trace_id.as_str()),
+                                serde_json::json!({
+                                    "stdoutTail": excerpt_runtime_lines(&stdout_buffer, 8),
+                                    "stderrTail": excerpt_runtime_lines(&stderr_buffer, 12),
+                                }),
+                            );
+                        }
+                        return Ok(result);
+                    }
 
-                    // Emit completion event
                     let _ = app.emit("video-download-complete", result.clone());
                     append_runtime_log_event(
                         "download",
@@ -3635,59 +4299,22 @@ async fn download_video_internal(
                         Some(trace_id.as_str()),
                         serde_json::json!({
                             "mode": "yt-dlp",
-                            "success": success,
+                            "success": false,
                             "wasCancelled": was_cancelled,
                             "filePath": result.file_path.clone(),
                             "error": result.error.clone(),
                         }),
                     );
-                    if !success {
-                        append_runtime_log_event(
-                            "download",
-                            "terminal_excerpt",
-                            Some(trace_id.as_str()),
-                            serde_json::json!({
-                                "stdoutTail": excerpt_runtime_lines(&stdout_buffer, 8),
-                                "stderrTail": excerpt_runtime_lines(&stderr_buffer, 12),
-                            }),
-                        );
-                    }
+                    append_runtime_log_event(
+                        "download",
+                        "terminal_excerpt",
+                        Some(trace_id.as_str()),
+                        serde_json::json!({
+                            "stdoutTail": excerpt_runtime_lines(&stdout_buffer, 8),
+                            "stderrTail": excerpt_runtime_lines(&stderr_buffer, 12),
+                        }),
+                    );
                     clear_runtime_progress_log_state(trace_id.as_str());
-
-                    // Cleanup .m4a residual files after successful download
-                    if success {
-                        if let Some(ref final_path) = last_file_path {
-                            let final_path = std::path::Path::new(final_path);
-                            if let Some(parent) = final_path.parent() {
-                                if let Ok(entries) = std::fs::read_dir(parent) {
-                                    for entry in entries.flatten() {
-                                        let path = entry.path();
-                                        if let Some(ext) = path.extension() {
-                                            if ext == "m4a" {
-                                                println!(
-                                                    ">>> [Rust] Cleaning up residual file: {:?}",
-                                                    path
-                                                );
-                                                let _ = std::fs::remove_file(&path);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // AE Portal
-                    if success {
-                        if let Some(ref path) = last_file_path {
-                            let app_for_ae = app.clone();
-                            let path_for_ae = path.clone();
-                            tokio::spawn(async move {
-                                let _ = send_to_ae(app_for_ae, path_for_ae).await;
-                            });
-                        }
-                    }
-
                     return Ok(result);
                 }
                 _ => {}
@@ -3961,6 +4588,7 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         None,
         YtdlpQualityPreference::Best,
         trace_id.clone(),
+        false,
     )
     .await;
     clear_download_runtime(trace_id.as_str());
@@ -4581,6 +5209,7 @@ async fn download_video_smart(
         title.clone(),
         ytdlp_quality,
         trace_id.clone(),
+        true,
     )
     .await
     {
@@ -5074,21 +5703,21 @@ fn infer_ytdlp_stage(line: &str) -> Option<DownloadProgressStage> {
 }
 
 fn capture_ytdlp_file_path(line: &str) -> Option<String> {
-    // Format 1: [Merger] Merging formats into "D:\path\file.mp4" (quoted)
-    // Format 2: [download] Destination: D:\path\file.mp4 (unquoted)
-    static YTDLP_MERGED_PATH_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r#""([A-Za-z]:\\[^"]+)""#).expect("invalid merge path regex"));
+    // Format 1: [Merger] Merging formats into "/path/file.mkv" or "D:\path\file.mp4"
+    // Format 2: [download] Destination: /path/file.mkv or D:\path\file.mp4
+    static YTDLP_QUOTED_PATH_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#""([^"]+)""#).expect("invalid merge path regex"));
 
     if line.contains("[Merger]") {
-        return YTDLP_MERGED_PATH_RE
+        return YTDLP_QUOTED_PATH_RE
             .captures(line)
             .and_then(|caps| caps.get(1))
             .map(|value| value.as_str().to_string());
     }
 
     if let Some(idx) = line.find("Destination:") {
-        let path = line[idx + "Destination:".len()..].trim();
-        if path.len() > 2 && path.chars().nth(1) == Some(':') {
+        let path = line[idx + "Destination:".len()..].trim().trim_matches('"');
+        if !path.is_empty() {
             return Some(path.to_string());
         }
     }
