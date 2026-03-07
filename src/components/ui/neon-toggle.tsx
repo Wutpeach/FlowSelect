@@ -7,35 +7,41 @@ interface NeonToggleProps {
 }
 
 export function NeonToggle({ checked, onChange, disabled = false }: NeonToggleProps) {
-  const { theme } = useTheme();
-  const uncheckedBg = theme === 'black' ? '#3a3a3a' : '#CCCCCC';
+  const { colors } = useTheme();
 
   return (
     <button
       onClick={onChange}
       disabled={disabled}
+      type="button"
+      role="switch"
+      aria-checked={checked}
       style={{
         position: 'relative',
-        width: 44,
-        height: 24,
-        borderRadius: 12,
-        border: 'none',
+        width: 46,
+        height: 26,
+        borderRadius: 999,
+        border: `1px solid ${checked ? colors.accentBorder : colors.fieldBorder}`,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
-        backgroundColor: checked ? '#3b82f6' : uncheckedBg,
-        boxShadow: checked ? '0 0 12px rgba(59,130,246,0.5)' : 'none',
-        transition: 'all 0.3s ease',
+        backgroundColor: checked ? colors.accentSolid : colors.fieldBg,
+        boxShadow: checked
+          ? `inset 0 0 0 1px ${colors.accentBorder}, 0 0 12px ${colors.accentGlow}`
+          : `inset 0 1px 0 ${colors.fieldInset}`,
+        transition: 'background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
       }}
     >
       <span style={{
         position: 'absolute',
-        top: 4,
-        left: checked ? 24 : 4,
-        width: 16,
-        height: 16,
+        top: 3,
+        left: 3,
+        width: 18,
+        height: 18,
         borderRadius: '50%',
-        backgroundColor: 'white',
-        transition: 'left 0.2s ease',
+        backgroundColor: colors.knobBg,
+        boxShadow: '0 1px 2px rgba(0,0,0,0.18)',
+        transform: checked ? 'translateX(20px)' : 'translateX(0)',
+        transition: 'transform 0.18s ease',
       }} />
     </button>
   );

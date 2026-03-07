@@ -10,15 +10,39 @@ interface ThemeColors {
   bgSecondary: string;
   bgGradientStart: string;
   bgGradientEnd: string;
+  fieldBg: string;
+  fieldHoverBg: string;
+  fieldInset: string;
   // 边框
   borderStart: string;
   borderEnd: string;
+  fieldBorder: string;
+  fieldBorderStrong: string;
   // 文字
   textPrimary: string;
   textSecondary: string;
+  accentText: string;
+  dangerText: string;
   // 阴影
   shadowColor: string;
   shadowSpread: string;
+  panelShadow: string;
+  panelShadowStrong: string;
+  accentGlow: string;
+  dangerGlow: string;
+  // 交互
+  accentSolid: string;
+  accentSurface: string;
+  accentSurfaceStrong: string;
+  accentBorder: string;
+  dangerSolid: string;
+  dangerSurface: string;
+  dangerBorder: string;
+  controlMuted: string;
+  controlMutedHover: string;
+  controlStroke: string;
+  controlStrokeHover: string;
+  knobBg: string;
   // 进度环
   progressBgStroke: string;
   progressFgStroke: string;
@@ -50,12 +74,35 @@ const themes: Record<Theme, ThemeColors> = {
     bgSecondary: '#323137',
     bgGradientStart: '#201E25',
     bgGradientEnd: '#323137',
+    fieldBg: '#2B2A31',
+    fieldHoverBg: 'rgba(255,255,255,0.06)',
+    fieldInset: 'rgba(255,255,255,0.05)',
     borderStart: '#4B4951',
     borderEnd: '#313036',
+    fieldBorder: '#4B4951',
+    fieldBorderStrong: 'rgba(96,165,250,0.48)',
     textPrimary: '#EEEEEE',
     textSecondary: '#AAAAAA',
+    accentText: '#60a5fa',
+    dangerText: '#fca5a5',
     shadowColor: 'rgba(0,0,0,0.1)',
     shadowSpread: '#0D0D0D',
+    panelShadow: '0 10px 28px rgba(0,0,0,0.34)',
+    panelShadowStrong: '0 16px 32px rgba(0,0,0,0.46)',
+    accentGlow: 'rgba(59,130,246,0.38)',
+    dangerGlow: 'rgba(239,68,68,0.32)',
+    accentSolid: '#3b82f6',
+    accentSurface: 'rgba(59,130,246,0.1)',
+    accentSurfaceStrong: 'rgba(59,130,246,0.18)',
+    accentBorder: 'rgba(96,165,250,0.42)',
+    dangerSolid: '#ef4444',
+    dangerSurface: 'rgba(239,68,68,0.14)',
+    dangerBorder: 'rgba(248,113,113,0.34)',
+    controlMuted: '#56555c',
+    controlMutedHover: '#9a98a3',
+    controlStroke: '#4c4b52',
+    controlStrokeHover: '#8b8993',
+    knobBg: '#f7f7f7',
     progressBgStroke: '#3a3a3a',
     progressFgStroke: '#3b82f6',
     progressText: '#60a5fa',
@@ -83,12 +130,35 @@ const themes: Record<Theme, ThemeColors> = {
     bgSecondary: '#F5F5F5',
     bgGradientStart: '#E3E3E3',
     bgGradientEnd: '#EFEFEF',
+    fieldBg: '#F7F7F8',
+    fieldHoverBg: 'rgba(0,0,0,0.04)',
+    fieldInset: 'rgba(255,255,255,0.74)',
     borderStart: '#FDFDFD',
     borderEnd: '#F1F1F1',
+    fieldBorder: '#D8D8DA',
+    fieldBorderStrong: 'rgba(37,99,235,0.28)',
     textPrimary: '#333333',
     textSecondary: '#666666',
+    accentText: '#2563eb',
+    dangerText: '#dc2626',
     shadowColor: 'rgba(0,0,0,0.1)',
     shadowSpread: 'rgba(0,0,0,0.16)',
+    panelShadow: '0 8px 22px rgba(34,34,34,0.12)',
+    panelShadowStrong: '0 12px 28px rgba(34,34,34,0.16)',
+    accentGlow: 'rgba(37,99,235,0.22)',
+    dangerGlow: 'rgba(239,68,68,0.24)',
+    accentSolid: '#2563eb',
+    accentSurface: 'rgba(37,99,235,0.08)',
+    accentSurfaceStrong: 'rgba(37,99,235,0.14)',
+    accentBorder: 'rgba(37,99,235,0.26)',
+    dangerSolid: '#ef4444',
+    dangerSurface: 'rgba(239,68,68,0.1)',
+    dangerBorder: 'rgba(239,68,68,0.24)',
+    controlMuted: '#767676',
+    controlMutedHover: '#404040',
+    controlStroke: '#787878',
+    controlStrokeHover: '#404040',
+    knobBg: '#FFFFFF',
     progressBgStroke: '#d1d5db',
     progressFgStroke: '#2563eb',
     progressText: '#1d4ed8',

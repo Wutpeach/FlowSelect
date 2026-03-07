@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -156,6 +156,7 @@ function SettingsPage() {
   const [ytdlpHint, setYtdlpHint] = useState("");
   const [renamePresetMenuOpen, setRenamePresetMenuOpen] = useState(false);
   const [hoveredRenamePreset, setHoveredRenamePreset] = useState<RenameRulePreset | null>(null);
+  const [isCloseHovered, setIsCloseHovered] = useState(false);
   const versionTapCountRef = useRef(0);
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -195,7 +196,7 @@ function SettingsPage() {
 
     if (ytdlpInfo.updateAvailable === true && ytdlpInfo.latest) {
       return {
-        color: "#ef4444",
+        color: colors.dangerText,
         message: `Update available: ${ytdlpInfo.latest}`,
       };
     }
@@ -615,18 +616,113 @@ function SettingsPage() {
   };
 
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
-  const renamePresetTriggerBorderColor = colors.borderStart;
-  const renamePresetPopupBorderColor = colors.borderStart;
+  const renamePresetTriggerBorderColor = renamePresetMenuOpen ? colors.fieldBorderStrong : colors.fieldBorder;
+  const renamePresetPopupBorderColor = colors.fieldBorder;
   const renamePresetLabel =
     RENAME_RULE_PRESET_OPTIONS.find((option) => option.value === renameRulePreset)?.label ??
     RENAME_RULE_PRESET_OPTIONS[0].label;
+  const sectionStyle: CSSProperties = { marginBottom: 20 };
+  const sectionLabelStyle: CSSProperties = {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginBottom: 8,
+    display: 'block',
+    letterSpacing: 0.18,
+  };
+  const nestedLabelStyle: CSSProperties = {
+    fontSize: 11,
+    color: colors.textSecondary,
+    display: 'block',
+    minHeight: 14,
+    lineHeight: '14px',
+    letterSpacing: 0.18,
+  };
+  const fieldSurfaceStyle: CSSProperties = {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '10px 12px',
+    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+    borderRadius: 8,
+    border: `1px solid ${colors.fieldBorder}`,
+    boxShadow: `inset 0 1px 0 ${colors.fieldInset}`,
+    textAlign: 'left',
+    fontSize: 12,
+    color: colors.textSecondary,
+    cursor: 'pointer',
+    transition: 'border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, color 0.18s ease',
+  };
+  const compactFieldStyle: CSSProperties = {
+    width: '100%',
+    height: 36,
+    boxSizing: 'border-box',
+    padding: '0 10px',
+    borderRadius: 8,
+    border: `1px solid ${colors.fieldBorder}`,
+    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+    color: colors.textPrimary,
+    fontSize: 12,
+    outline: 'none',
+    boxShadow: `inset 0 1px 0 ${colors.fieldInset}`,
+    transition: 'border-color 0.18s ease, box-shadow 0.18s ease',
+  };
+  const panelStyle: CSSProperties = {
+    width: '100%',
+    height: '100%',
+    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+    borderRadius: 12,
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+    border: 'none',
+    boxShadow: `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
+  };
+  const panelCardStyle: CSSProperties = {
+    padding: '10px 12px',
+    borderRadius: 8,
+    border: `1px solid ${colors.fieldBorder}`,
+    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+    boxShadow: `inset 0 1px 0 ${colors.fieldInset}`,
+  };
+  const subtleHintStyle: CSSProperties = {
+    fontSize: 10,
+    color: colors.textSecondary,
+    opacity: 0.82,
+  };
+  const getSelectableOptionStyle = (active: boolean): CSSProperties => ({
+    borderRadius: 8,
+    border: active ? `1px solid ${colors.accentBorder}` : `1px solid ${colors.fieldBorder}`,
+    backgroundColor: active ? colors.accentSurface : 'transparent',
+    boxShadow: active ? `inset 0 0 0 1px ${colors.accentBorder}` : `inset 0 1px 0 ${colors.fieldInset}`,
+    color: active ? colors.accentText : colors.textSecondary,
+    cursor: 'pointer',
+    transition: 'border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease',
+  });
+  const spinnerStyle: CSSProperties = {
+    width: 10,
+    height: 10,
+    borderRadius: '50%',
+    border: `1.5px solid ${colors.accentBorder}`,
+    borderTopColor: colors.accentSolid,
+    animation: 'spin 0.75s linear infinite',
+    transformOrigin: '50% 50%',
+  };
+  const statusDotStyle: CSSProperties = {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    backgroundColor: colors.dangerSolid,
+    boxShadow: `0 0 6px ${colors.dangerGlow}`,
+    flexShrink: 0,
+  };
 
   const renderRenamePresetField = () => (
     <div
       ref={renamePresetMenuRef}
       style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative' }}
     >
-      <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
+      <label style={nestedLabelStyle}>
         Rename Preset
       </label>
       <button
@@ -639,20 +735,15 @@ function SettingsPage() {
           })
         }
         style={{
-          width: '100%',
-          height: 36,
-          boxSizing: 'border-box',
-          padding: '0 10px',
-          borderRadius: 8,
+          ...compactFieldStyle,
           border: `1px solid ${renamePresetTriggerBorderColor}`,
-          background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-          color: colors.textPrimary,
-          fontSize: 12,
-          outline: 'none',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           cursor: 'pointer',
+          boxShadow: renamePresetMenuOpen
+            ? `inset 0 0 0 1px ${colors.fieldBorderStrong}, ${colors.panelShadow}`
+            : compactFieldStyle.boxShadow,
         }}
       >
         <span>{renamePresetLabel}</span>
@@ -672,9 +763,7 @@ function SettingsPage() {
             backgroundColor: colors.bgSecondary,
             overflow: 'hidden',
             zIndex: 20,
-            boxShadow: theme === "black"
-              ? '0 8px 20px rgba(0,0,0,0.45)'
-              : '0 8px 20px rgba(0,0,0,0.18)',
+            boxShadow: colors.panelShadowStrong,
           }}
         >
           {RENAME_RULE_PRESET_OPTIONS.map((option, index) => (
@@ -696,16 +785,12 @@ function SettingsPage() {
                 borderBottom:
                   index === RENAME_RULE_PRESET_OPTIONS.length - 1
                     ? 'none'
-                    : `1px solid ${theme === "black" ? colors.borderEnd : colors.borderStart}`,
+                    : `1px solid ${colors.borderEnd}`,
                 backgroundColor:
                   renameRulePreset === option.value
-                    ? theme === "black"
-                      ? 'rgba(59,130,246,0.2)'
-                      : 'rgba(59,130,246,0.12)'
+                    ? colors.accentSurfaceStrong
                     : hoveredRenamePreset === option.value
-                      ? theme === "black"
-                        ? 'rgba(255,255,255,0.08)'
-                        : 'rgba(0,0,0,0.06)'
+                      ? colors.fieldHoverBg
                       : colors.bgSecondary,
                 color: colors.textPrimary,
                 fontSize: 12,
@@ -722,17 +807,7 @@ function SettingsPage() {
   );
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-      borderRadius: 12,
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
-      border: 'none',
-      boxShadow: `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`,
-    }}>
+    <div style={panelStyle}>
       {/* Draggable Header */}
       <div
         data-tauri-drag-region
@@ -748,9 +823,11 @@ function SettingsPage() {
         <h2 style={{ fontSize: 14, fontWeight: 500, color: colors.textPrimary, margin: 0 }}>Settings</h2>
         <button
           onClick={closeWindow}
+          onMouseEnter={() => setIsCloseHovered(true)}
+          onMouseLeave={() => setIsCloseHovered(false)}
           style={{
             padding: 4,
-            color: '#606060',
+            color: isCloseHovered ? colors.controlMutedHover : colors.controlMuted,
             backgroundColor: 'transparent',
             border: 'none',
             cursor: 'pointer',
@@ -758,9 +835,8 @@ function SettingsPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            transition: 'color 0.18s ease',
           }}
-          onMouseEnter={(e) => e.currentTarget.style.color = '#a0a0a0'}
-          onMouseLeave={(e) => e.currentTarget.style.color = '#606060'}
         >
           <X size={16} />
         </button>
@@ -775,8 +851,8 @@ function SettingsPage() {
         msOverflowStyle: 'none', // IE/Edge
       }} className="hide-scrollbar">
         {/* Theme */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+        <div style={sectionStyle}>
+          <label style={sectionLabelStyle}>
             Theme
           </label>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -785,12 +861,8 @@ function SettingsPage() {
               style={{
                 flex: 1,
                 padding: '8px 12px',
-                borderRadius: 8,
-                border: theme === 'black' ? '1px solid #3b82f6' : `1px solid ${colors.borderStart}`,
-                backgroundColor: theme === 'black' ? 'rgba(59,130,246,0.1)' : 'transparent',
-                color: theme === 'black' ? '#3b82f6' : colors.textSecondary,
+                ...getSelectableOptionStyle(theme === 'black'),
                 fontSize: 12,
-                cursor: 'pointer',
               }}
             >
               Black
@@ -800,12 +872,8 @@ function SettingsPage() {
               style={{
                 flex: 1,
                 padding: '8px 12px',
-                borderRadius: 8,
-                border: theme === 'white' ? '1px solid #3b82f6' : `1px solid ${colors.borderStart}`,
-                backgroundColor: theme === 'white' ? 'rgba(59,130,246,0.1)' : 'transparent',
-                color: theme === 'white' ? '#3b82f6' : colors.textSecondary,
+                ...getSelectableOptionStyle(theme === 'white'),
                 fontSize: 12,
-                cursor: 'pointer',
               }}
             >
               White
@@ -814,25 +882,14 @@ function SettingsPage() {
         </div>
 
         {/* Output Path */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+        <div style={sectionStyle}>
+          <label style={sectionLabelStyle}>
             Output Path
           </label>
           <button
             onClick={selectOutputPath}
             style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '10px 12px',
-              background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-              borderRadius: 8,
-              border: `1px solid ${colors.borderStart}`,
-              textAlign: 'left',
-              fontSize: 12,
-              color: colors.textSecondary,
-              cursor: 'pointer',
+              ...fieldSurfaceStyle,
             }}
           >
             <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
@@ -843,26 +900,21 @@ function SettingsPage() {
         </div>
 
         {/* Shortcut */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+        <div style={sectionStyle}>
+          <label style={sectionLabelStyle}>
             Global Shortcut
           </label>
           {isRecording ? (
             <div>
               <div style={{
-                width: '100%',
+                ...fieldSurfaceStyle,
                 boxSizing: 'border-box',
                 display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '10px 12px',
-                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                borderRadius: 8,
-                fontSize: 12,
                 color: colors.textPrimary,
-                border: '1px solid #3b82f6',
+                border: `1px solid ${colors.accentBorder}`,
+                boxShadow: `inset 0 0 0 1px ${colors.accentBorder}`,
               }}>
-                <Keyboard size={14} style={{ color: '#3b82f6', flexShrink: 0 }} />
+                <Keyboard size={14} style={{ color: colors.accentText, flexShrink: 0 }} />
                 <span>{formatShortcutForDisplay(recordedKeys, isMacOS) || "Press keys..."}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
@@ -889,18 +941,7 @@ function SettingsPage() {
             <button
               onClick={startRecording}
               style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '10px 12px',
-                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                borderRadius: 8,
-                border: `1px solid ${colors.borderStart}`,
-                textAlign: 'left',
-                fontSize: 12,
-                color: colors.textSecondary,
-                cursor: 'pointer',
+                ...fieldSurfaceStyle,
               }}
             >
               <Keyboard size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
@@ -910,16 +951,16 @@ function SettingsPage() {
         </div>
 
         {/* Launch at startup */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+        <div style={sectionStyle}>
+          <label style={sectionLabelStyle}>
             Launch at startup
           </label>
           <NeonToggle checked={autostart} onChange={toggleAutostart} />
         </div>
 
         {/* Media Rename */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+        <div style={sectionStyle}>
+          <label style={sectionLabelStyle}>
             Enable Rename on Download
           </label>
           <NeonToggle checked={renameMediaOnDownload} onChange={toggleRenameMediaOnDownload} />
@@ -928,7 +969,7 @@ function SettingsPage() {
               {renameRulePreset === "prefix_number" ? (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
+                    <label style={nestedLabelStyle}>
                       Prefix
                     </label>
                     <input
@@ -936,18 +977,7 @@ function SettingsPage() {
                       value={renamePrefix}
                       onChange={(e) => void handleRenamePrefixChange(e.target.value)}
                       placeholder="Flow"
-                      style={{
-                        width: '100%',
-                        height: 36,
-                        boxSizing: 'border-box',
-                        padding: '0 10px',
-                        borderRadius: 8,
-                        border: `1px solid ${colors.borderStart}`,
-                        background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                        color: colors.textPrimary,
-                        fontSize: 12,
-                        outline: 'none',
-                      }}
+                      style={compactFieldStyle}
                     />
                   </div>
                   {renderRenamePresetField()}
@@ -957,7 +987,7 @@ function SettingsPage() {
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: 11, color: colors.textSecondary, display: 'block', minHeight: 14, lineHeight: '14px' }}>
+                <label style={nestedLabelStyle}>
                   Suffix
                 </label>
                 <input
@@ -965,23 +995,12 @@ function SettingsPage() {
                   value={renameSuffix}
                   onChange={(e) => void handleRenameSuffixChange(e.target.value)}
                   placeholder="done"
-                  style={{
-                    width: '100%',
-                    height: 36,
-                    boxSizing: 'border-box',
-                    padding: '0 10px',
-                    borderRadius: 8,
-                    border: `1px solid ${colors.borderStart}`,
-                    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                    color: colors.textPrimary,
-                    fontSize: 12,
-                    outline: 'none',
-                  }}
+                  style={compactFieldStyle}
                 />
               </div>
 
               <div style={{ padding: '2px 0' }}>
-                <div style={{ fontSize: 10, color: colors.textSecondary, marginBottom: 4 }}>
+                <div style={{ ...subtleHintStyle, marginBottom: 4 }}>
                   Preview
                 </div>
                 <div style={{ fontSize: 12, color: colors.textSecondary, opacity: 0.82, overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -993,8 +1012,8 @@ function SettingsPage() {
         </div>
 
         {/* Slice Download Mode */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+        <div style={sectionStyle}>
+          <label style={sectionLabelStyle}>
             Slice Download Mode
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1005,13 +1024,9 @@ function SettingsPage() {
                   key={option.value}
                   onClick={() => void handleClipDownloadModeChange(option.value)}
                   style={{
-                    borderRadius: 8,
-                    border: active ? '1px solid #3b82f6' : `1px solid ${colors.borderStart}`,
-                    backgroundColor: active ? 'rgba(59,130,246,0.12)' : 'transparent',
-                    color: active ? '#3b82f6' : colors.textSecondary,
+                    ...getSelectableOptionStyle(active),
                     padding: '8px 10px',
                     textAlign: 'left',
-                    cursor: 'pointer',
                     display: 'grid',
                     gap: 2,
                   }}
@@ -1022,14 +1037,14 @@ function SettingsPage() {
               );
             })}
           </div>
-          <div style={{ marginTop: 6, fontSize: 10, color: colors.textSecondary, opacity: 0.82 }}>
+          <div style={{ marginTop: 6, ...subtleHintStyle }}>
             Applies to new slice tasks only.
           </div>
         </div>
 
         {/* AE Portal */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+        <div style={sectionStyle}>
+          <label style={sectionLabelStyle}>
             AE Portal (Auto Import to After Effects)
           </label>
           <NeonToggle checked={aePortalEnabled} onChange={toggleAePortal} />
@@ -1038,18 +1053,7 @@ function SettingsPage() {
               onClick={selectAeExePath}
               style={{
                 marginTop: 8,
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '10px 12px',
-                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                borderRadius: 8,
-                border: `1px solid ${colors.borderStart}`,
-                textAlign: 'left',
-                fontSize: 12,
-                color: colors.textSecondary,
-                cursor: 'pointer',
+                ...fieldSurfaceStyle,
               }}
             >
               <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
@@ -1061,19 +1065,12 @@ function SettingsPage() {
         </div>
 
         {/* yt-dlp Version */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8, display: 'block' }}>
+        <div style={sectionStyle}>
+          <label style={sectionLabelStyle}>
             yt-dlp Version
           </label>
           <div
-            style={{
-              padding: '10px 12px',
-              borderRadius: 8,
-              border: `1px solid ${colors.borderStart}`,
-              background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-              display: 'grid',
-              gap: 8,
-            }}
+            style={{ ...panelCardStyle, display: 'grid', gap: 8 }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ fontSize: 12, color: colors.textPrimary }}>
@@ -1081,14 +1078,7 @@ function SettingsPage() {
               </span>
               {ytdlpInfo?.updateAvailable ? (
                 <span
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    backgroundColor: '#ef4444',
-                    boxShadow: '0 0 6px rgba(239, 68, 68, 0.6)',
-                    flexShrink: 0,
-                  }}
+                  style={statusDotStyle}
                   title="Update available"
                 />
               ) : null}
@@ -1105,38 +1095,30 @@ function SettingsPage() {
                   height: 30,
                   padding: '0 10px',
                   borderRadius: 6,
-                  border: `1px solid ${colors.borderStart}`,
-                  backgroundColor: isUpdatingYtdlp ? 'rgba(59,130,246,0.08)' : 'transparent',
-                  color: isUpdatingYtdlp ? '#3b82f6' : colors.textSecondary,
+                  border: `1px solid ${isUpdatingYtdlp ? colors.accentBorder : colors.fieldBorder}`,
+                  backgroundColor: isUpdatingYtdlp ? colors.accentSurface : 'transparent',
+                  color: isUpdatingYtdlp ? colors.accentText : colors.textSecondary,
                   cursor: isUpdatingYtdlp ? 'wait' : 'pointer',
                   fontSize: 11,
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 6,
+                  boxShadow: isUpdatingYtdlp ? `inset 0 0 0 1px ${colors.accentBorder}` : `inset 0 1px 0 ${colors.fieldInset}`,
+                  transition: 'border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease',
                 }}
               >
                 {isUpdatingYtdlp ? (
-                  <span
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: '50%',
-                      border: '1.5px solid rgba(59, 130, 246, 0.22)',
-                      borderTopColor: '#3b82f6',
-                      animation: 'spin 0.75s linear infinite',
-                      transformOrigin: '50% 50%',
-                    }}
-                  />
+                  <span style={spinnerStyle} />
                 ) : null}
                 {isUpdatingYtdlp ? "Updating..." : "Update yt-dlp"}
               </button>
-              <span style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.85 }}>
+              <span style={{ ...subtleHintStyle, opacity: 0.85 }}>
                 You can also update from the red dot in main window.
               </span>
             </div>
             {ytdlpHint ? (
-              <div style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.85 }}>
+              <div style={{ ...subtleHintStyle, opacity: 0.85 }}>
                 {ytdlpHint}
               </div>
             ) : null}

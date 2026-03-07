@@ -118,12 +118,11 @@ function ContextMenuPage() {
     display: "flex",
     flexDirection: "column",
     background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-    border: `1px solid ${colors.borderStart}`,
+    border: `1px solid ${colors.fieldBorder}`,
     borderRadius: 8,
-    boxShadow:
-      theme === "black"
-        ? "0 2px 8px rgba(0,0,0,0.24)"
-        : `inset 0 1px 0 rgba(255,255,255,0.72), inset 0 -1px 0 ${colors.shadowSpread}`,
+    boxShadow: theme === "black"
+      ? `inset 0 1px 0 ${colors.fieldInset}, ${colors.panelShadow}`
+      : `inset 0 1px 0 rgba(255,255,255,0.72), inset 0 -1px 0 ${colors.shadowSpread}, ${colors.panelShadow}`,
     overflow: "hidden",
   };
 
@@ -137,11 +136,11 @@ function ContextMenuPage() {
     textAlign: "left",
     fontSize: 13,
     color: colors.textPrimary,
-    background: hoveredItem === item ? colors.bgPrimary : "transparent",
+    background: hoveredItem === item ? colors.fieldHoverBg : "transparent",
     border: "none",
     borderRadius: 0,
     cursor: "pointer",
-    transition: "background-color 0.15s",
+    transition: "background-color 0.15s, color 0.15s",
     userSelect: "none",
   });
 

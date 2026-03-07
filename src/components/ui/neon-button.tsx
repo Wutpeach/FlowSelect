@@ -21,26 +21,32 @@ export function NeonButton({
     justifyContent: 'center',
     borderRadius: 8,
     fontWeight: 500,
-    border: 'none',
+    border: '1px solid transparent',
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.5 : 1,
-    transition: 'all 0.3s ease',
+    transition: 'background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, transform 0.18s ease',
+    boxShadow: `inset 0 1px 0 ${colors.fieldInset}`,
+    outline: 'none',
   };
 
   const variantStyles: Record<string, React.CSSProperties> = {
     default: {
-      backgroundColor: '#3b82f6',
-      color: 'white',
-      boxShadow: '0 0 12px rgba(59,130,246,0.5)',
+      backgroundColor: colors.accentSolid,
+      color: colors.knobBg,
+      borderColor: colors.accentBorder,
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.18), 0 10px 18px ${colors.accentGlow}`,
     },
     outline: {
-      backgroundColor: 'transparent',
-      color: '#3b82f6',
-      border: '1px solid #3b82f6',
+      backgroundColor: colors.accentSurface,
+      color: colors.accentText,
+      borderColor: colors.accentBorder,
+      boxShadow: `inset 0 0 0 1px ${colors.accentBorder}`,
     },
     ghost: {
       backgroundColor: 'transparent',
-      color: colors.textPrimary,
+      color: colors.textSecondary,
+      borderColor: colors.fieldBorder,
+      boxShadow: `inset 0 0 0 1px ${colors.fieldBorder}`,
     },
   };
 

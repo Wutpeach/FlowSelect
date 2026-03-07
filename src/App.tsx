@@ -247,6 +247,9 @@ function App() {
   const [isInitialMount, setIsInitialMount] = useState(true);
   const [isResetCounterHovered, setIsResetCounterHovered] = useState(false);
   const [isResetCounterActive, setIsResetCounterActive] = useState(false);
+  const [isCloseHovered, setIsCloseHovered] = useState(false);
+  const [isSettingsHovered, setIsSettingsHovered] = useState(false);
+  const [isProgressCancelHovered, setIsProgressCancelHovered] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
   const resetCounterFeedbackTimerRef = useRef<number | null>(null);
   const contextMenuMonitorRef = useRef<number | null>(null);
@@ -1443,11 +1446,29 @@ function App() {
     }
   };
 
+  const shouldShowMiniControls = isPanelHovered && !isMinimized;
   const containerBoxShadow = downloadProgress
-    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px rgba(59,130,246,0.28)`
+    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px ${colors.accentGlow}`
     : isHovering
-      ? `inset 0 0 0 1px rgba(191,219,254,0.88), inset 0 0 24px rgba(59,130,246,0.22), inset 0 0 42px rgba(96,165,250,0.14)`
+      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 24px ${colors.accentGlow}, inset 0 0 42px ${colors.accentSurfaceStrong}`
       : `inset 0 0 0 1px ${colors.borderStart}`;
+  const miniControlStyle: CSSProperties = {
+    position: 'absolute',
+    width: 16,
+    height: 16,
+    border: 'none',
+    borderRadius: 4,
+    backgroundColor: 'transparent',
+    padding: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: shouldShowMiniControls ? 1 : 0,
+    transition: 'opacity 0.2s ease',
+    transitionDelay: !isMinimized ? '0.2s' : '0s',
+    pointerEvents: shouldShowMiniControls ? 'auto' : 'none',
+    zIndex: 10,
+  };
   const isPrimaryTaskCancelling = primaryQueueTask
     ? cancellingTraceIds.includes(primaryQueueTask.traceId)
     : false;
@@ -1867,33 +1888,13 @@ function App() {
           }
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        onMouseEnter={(e) => {
-          const span = e.currentTarget.querySelector('span');
-          if (span) span.style.backgroundColor = '#ef4444';
-        }}
-        onMouseLeave={(e) => {
-          const span = e.currentTarget.querySelector('span');
-          if (span) span.style.backgroundColor = '#444444';
-        }}
+        onMouseEnter={() => setIsCloseHovered(true)}
+        onMouseLeave={() => setIsCloseHovered(false)}
         style={{
-          position: 'absolute',
           top: 8,
           right: 8,
-          width: 16,
-          height: 16,
-          border: 'none',
-          borderRadius: 4,
-          backgroundColor: 'transparent',
+          ...miniControlStyle,
           cursor: 'pointer',
-          padding: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: isPanelHovered && !isMinimized ? 1 : 0,
-          transition: 'opacity 0.2s ease',
-          transitionDelay: !isMinimized ? '0.2s' : '0s',
-          pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
-          zIndex: 10,
         }}
         title="Hide window"
       >
@@ -1902,7 +1903,8 @@ function App() {
             width: 10,
             height: 10,
             borderRadius: '50%',
-            backgroundColor: '#444444',
+            backgroundColor: isCloseHovered ? colors.dangerSolid : colors.controlMuted,
+            boxShadow: isCloseHovered ? `0 0 6px ${colors.dangerGlow}` : 'none',
             transition: 'background-color 0.2s ease',
             display: 'block',
             pointerEvents: 'none',
@@ -2016,16 +2018,8 @@ function App() {
                 void cancelVideoTask(primaryQueueTask.traceId, { showCurrentTaskFeedback: true });
               }}
               onMouseDown={(e) => e.stopPropagation()}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = colors.progressCancelHoverBg;
-                const svg = e.currentTarget.querySelector('svg');
-                if (svg) svg.style.color = colors.progressCancelHoverIcon;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                const svg = e.currentTarget.querySelector('svg');
-                if (svg) svg.style.color = colors.progressCancelIcon;
-              }}
+              onMouseEnter={() => setIsProgressCancelHovered(true)}
+              onMouseLeave={() => setIsProgressCancelHovered(false)}
               style={{
                 margin: 0,
                 marginTop: 4,
@@ -2035,7 +2029,7 @@ function App() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: 'transparent',
+                backgroundColor: isProgressCancelHovered ? colors.progressCancelHoverBg : 'transparent',
                 border: 'none',
                 cursor: !primaryQueueTask || isPrimaryTaskCancelling ? 'default' : 'pointer',
                 transition: 'background-color 0.2s',
@@ -2047,7 +2041,10 @@ function App() {
                 width="10"
                 height="10"
                 viewBox="0 0 10 10"
-                style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
+                style={{
+                  color: isProgressCancelHovered ? colors.progressCancelHoverIcon : colors.progressCancelIcon,
+                  transition: 'color 0.2s',
+                }}
               >
                 <path
                   d="M2 2L8 8M8 2L2 8"
@@ -2142,12 +2139,12 @@ function App() {
                 width: 10,
                 height: 10,
                 borderRadius: '50%',
-                border: '1.5px solid rgba(59, 130, 246, 0.22)',
-                borderTopColor: '#3b82f6',
+                border: `1.5px solid ${colors.accentBorder}`,
+                borderTopColor: colors.accentSolid,
                 display: 'block',
                 animation: 'spin 0.75s linear infinite',
                 transformOrigin: '50% 50%',
-                boxShadow: '0 0 4px rgba(59, 130, 246, 0.35)',
+                boxShadow: `0 0 4px ${colors.accentGlow}`,
               }}
             />
           ) : (
@@ -2156,9 +2153,9 @@ function App() {
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
-                backgroundColor: '#ef4444',
+                backgroundColor: colors.dangerSolid,
                 display: 'block',
-                boxShadow: '0 0 6px rgba(239, 68, 68, 0.6)',
+                boxShadow: `0 0 6px ${colors.dangerGlow}`,
               }}
             />
           )}
@@ -2173,24 +2170,10 @@ function App() {
           onMouseEnter={() => setIsResetCounterHovered(true)}
           onMouseLeave={() => setIsResetCounterHovered(false)}
           style={{
-            position: 'absolute',
             bottom: 8,
             left: 8,
-            width: 16,
-            height: 16,
-            border: 'none',
-            borderRadius: 4,
-            backgroundColor: 'transparent',
+            ...miniControlStyle,
             cursor: 'pointer',
-            padding: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: isPanelHovered && !isMinimized ? 1 : 0,
-            transition: 'opacity 0.2s ease',
-            transitionDelay: !isMinimized ? '0.2s' : '0s',
-            pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
-            zIndex: 10,
           }}
           title="Reset rename counter"
         >
@@ -2200,7 +2183,11 @@ function App() {
               y="1"
               width="8"
               height="8"
-              fill={isResetCounterActive ? '#3b82f6' : (isResetCounterHovered ? '#808080' : '#444444')}
+              fill={
+                isResetCounterActive
+                  ? colors.accentSolid
+                  : (isResetCounterHovered ? colors.controlMutedHover : colors.controlMuted)
+              }
               stroke="none"
               rx="1"
               style={{ transition: 'fill 0.2s ease' }}
@@ -2213,33 +2200,13 @@ function App() {
       <button
         onClick={openSettings}
         onMouseDown={(e) => e.stopPropagation()}
-        onMouseEnter={(e) => {
-          const rect = e.currentTarget.querySelector('rect');
-          if (rect) rect.style.stroke = '#808080';
-        }}
-        onMouseLeave={(e) => {
-          const rect = e.currentTarget.querySelector('rect');
-          if (rect) rect.style.stroke = '#444444';
-        }}
+        onMouseEnter={() => setIsSettingsHovered(true)}
+        onMouseLeave={() => setIsSettingsHovered(false)}
         style={{
-          position: 'absolute',
           bottom: 8,
           right: 8,
-          width: 16,
-          height: 16,
-          border: 'none',
-          borderRadius: 4,
-          backgroundColor: 'transparent',
+          ...miniControlStyle,
           cursor: 'pointer',
-          padding: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: isPanelHovered && !isMinimized ? 1 : 0,
-          transition: 'opacity 0.2s ease',
-          transitionDelay: !isMinimized ? '0.2s' : '0s',
-          pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
-          zIndex: 10,
         }}
         title="Settings"
       >
@@ -2250,7 +2217,7 @@ function App() {
             width="8"
             height="8"
             fill="none"
-            stroke="#444444"
+            stroke={isSettingsHovered ? colors.controlStrokeHover : colors.controlStroke}
             strokeWidth="1.5"
             rx="1"
             style={{ transition: 'stroke 0.2s ease' }}
