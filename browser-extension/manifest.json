@@ -17,25 +17,25 @@
     {
       "matches": ["https://twitter.com/*", "https://x.com/*"],
       "js": ["twitter-detector.js"],
-      "css": ["twitter-button.css"],
+      "css": ["flowselect-shared.css", "twitter-button.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.douyin.com/*"],
       "js": ["douyin-detector.js"],
-      "css": ["douyin-button.css"],
+      "css": ["flowselect-shared.css", "douyin-button.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.youtube.com/*", "https://youtube.com/*"],
       "js": ["youtube-detector.js"],
-      "css": ["youtube-button.css"],
+      "css": ["flowselect-shared.css", "youtube-button.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.bilibili.com/*", "https://bilibili.com/*"],
       "js": ["control-style-utils.js", "bilibili-detector.js"],
-      "css": ["bilibili-button.css"],
+      "css": ["flowselect-shared.css", "bilibili-button.css"],
       "run_at": "document_idle"
     },
     {
@@ -46,7 +46,7 @@
         "https://xhslink.com/*"
       ],
       "js": ["xiaohongshu-detector.js"],
-      "css": ["xiaohongshu-button.css"],
+      "css": ["flowselect-shared.css", "xiaohongshu-button.css"],
       "run_at": "document_idle"
     }
   ],

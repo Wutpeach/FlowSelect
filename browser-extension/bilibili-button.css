@@ -1,5 +1,10 @@
 /* FlowSelect Browser Extension - Bilibili Download Button Styles */
 
+:root {
+  --flowselect-site-accent: #00a1d6;
+  --flowselect-site-accent-soft: rgba(0, 161, 214, 0.18);
+}
+
 /* Button wrapper - matches Bilibili's control bar item pattern */
 .flowselect-bilibili-btn {
   display: flex;
@@ -32,8 +37,8 @@
   display: block;
   width: 22px;
   height: 22px;
-  color: #fff;
-  fill: #fff;
+  color: currentColor;
+  fill: currentColor;
   transition: transform 0.2s ease-out;
   pointer-events: none;
 }
@@ -42,21 +47,21 @@
   display: block;
   width: 22px;
   height: 22px;
-  color: #fff;
-  fill: #fff;
+  color: currentColor;
+  fill: currentColor;
   transition: transform 0.2s ease-out;
   pointer-events: none;
 }
 
 /* Hover effect */
 .flowselect-bilibili-btn:hover svg {
-  color: #00a1d6;
-  fill: #00a1d6;
+  color: var(--flowselect-site-accent);
+  fill: var(--flowselect-site-accent);
 }
 
 .flowselect-bilibili-screenshot-btn:hover svg {
-  color: #00a1d6;
-  fill: #00a1d6;
+  color: var(--flowselect-site-accent);
+  fill: var(--flowselect-site-accent);
 }
 
 /* Active effect */
@@ -98,127 +103,4 @@ body.player-fullscreen-fix .bpx-player-control-wrap .flowselect-bilibili-screens
 body.player-mode-web .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn,
 body.player-full-win .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn {
   padding-top: 2px;
-}
-
-#flowselect-bilibili-screenshot-panel {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  width: 268px;
-  max-height: calc(100vh - 24px);
-  z-index: 2147483646;
-  padding: 12px;
-  border: 0.5px solid rgba(255, 255, 255, 0.16);
-  border-radius: 12px;
-  box-sizing: border-box;
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(2px);
-}
-
-#flowselect-bilibili-screenshot-panel.flowselect-hidden {
-  display: none;
-}
-
-#flowselect-bilibili-screenshot-list {
-  max-height: calc(100vh - 44px);
-  overflow-y: auto;
-  scrollbar-width: thin;
-}
-
-#flowselect-bilibili-screenshot-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-#flowselect-bilibili-screenshot-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.35);
-  border-radius: 6px;
-}
-
-.flowselect-bilibili-screenshot-item {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #000;
-  margin-bottom: 12px;
-}
-
-.flowselect-bilibili-screenshot-item:last-child {
-  margin-bottom: 0;
-}
-
-.flowselect-bilibili-screenshot-item img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-}
-
-.flowselect-bilibili-screenshot-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  opacity: 0;
-  background: rgba(0, 0, 0, 0.58);
-  transition: opacity 0.18s ease;
-  pointer-events: none;
-}
-
-.flowselect-bilibili-screenshot-item:hover .flowselect-bilibili-screenshot-overlay {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.flowselect-bilibili-screenshot-overlay button {
-  border: none;
-  border-radius: 999px;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.95);
-  background: rgba(0, 0, 0, 0.75);
-  cursor: pointer;
-  transition: color 0.16s ease, background 0.16s ease;
-}
-
-.flowselect-bilibili-screenshot-overlay button svg {
-  width: 24px;
-  height: 24px;
-  pointer-events: none;
-}
-
-.flowselect-bilibili-screenshot-overlay button:hover {
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.flowselect-bilibili-screenshot-overlay button.flowselect-danger:hover {
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.flowselect-bilibili-screenshot-overlay button[data-copied="true"] {
-  color: #22c55e;
-  background: rgba(34, 197, 94, 0.22);
-}
-
-.flowselect-bilibili-screenshot-overlay button[data-copied="true"]:hover {
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.flowselect-bilibili-screenshot-time {
-  position: absolute;
-  left: 8px;
-  bottom: 6px;
-  font-size: 11px;
-  line-height: 1;
-  color: rgba(255, 255, 255, 0.9);
 }

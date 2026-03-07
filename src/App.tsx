@@ -1503,13 +1503,14 @@ function App() {
     : "";
   const queueStatusText = isPrimaryTaskCancelling
     ? "Cancelling current task..."
-    : videoQueueState.totalCount > 1
-      ? `${videoQueueState.totalCount - 1} more task${videoQueueState.totalCount - 1 === 1 ? "" : "s"}`
-      : videoQueueState.pendingCount > 0
-        ? `${videoQueueState.pendingCount} waiting`
+    : videoQueueState.pendingCount > 0
+      ? `${videoQueueState.pendingCount} queued next`
+      : videoQueueState.totalCount > 1
+        ? `${videoQueueState.totalCount} tasks in queue`
         : "";
   const showVideoTaskBadge = videoQueueState.totalCount > 1 || isQueuePopoverOpen;
-  const queueViewTitle = `${videoQueueState.totalCount} download task${videoQueueState.totalCount === 1 ? "" : "s"}`;
+  const queueViewTitle = "Video queue";
+  const queueViewMeta = `${videoQueueState.activeCount} active · ${videoQueueState.pendingCount} queued`;
 
   return (
     <motion.div
@@ -1648,12 +1649,13 @@ function App() {
               zIndex: 30,
               boxShadow: isQueuePopoverOpen
                 ? `0 10px 18px ${colors.progressCancelHoverBg}`
-                : `0 10px 18px ${colors.queueBadgeShadow}`,
+                : `0 10px 18px ${colors.queueBadgeShadow}, ${colors.panelShadow}`,
               backdropFilter: 'blur(12px)',
               cursor: 'pointer',
               transition: 'background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
             }}
             aria-label={`Current video tasks: ${videoQueueState.totalCount}`}
+            aria-pressed={isQueuePopoverOpen}
             title={isQueuePopoverOpen ? "Close download list" : "Show current video tasks"}
           >
             {isQueuePopoverOpen ? (
@@ -1720,6 +1722,19 @@ function App() {
                 >
                   <span
                     style={{
+                      fontSize: 8,
+                      letterSpacing: '0.14em',
+                      textTransform: 'uppercase',
+                      color: colors.textSecondary,
+                      opacity: 0.76,
+                      lineHeight: 1,
+                      userSelect: 'none',
+                    }}
+                  >
+                    Queue
+                  </span>
+                  <span
+                    style={{
                       fontSize: 12,
                       fontWeight: 700,
                       color: colors.textPrimary,
@@ -1737,7 +1752,7 @@ function App() {
                       userSelect: 'none',
                     }}
                   >
-                    {videoQueueState.activeCount} running, {videoQueueState.pendingCount} waiting
+                    {queueViewMeta}
                   </span>
                 </div>
 
@@ -1766,7 +1781,7 @@ function App() {
                           borderRadius: 8,
                           background: `linear-gradient(180deg, ${colors.bgPrimary} 0%, ${colors.bgSecondary} 100%)`,
                           border: `1px solid ${colors.borderStart}`,
-                          boxShadow: `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`,
+                          boxShadow: `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
                         }}
                       >
                         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>

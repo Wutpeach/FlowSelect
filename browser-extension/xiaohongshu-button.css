@@ -1,5 +1,10 @@
 /* FlowSelect Browser Extension - Xiaohongshu Download Button */
 
+:root {
+  --flowselect-site-accent: #ff2442;
+  --flowselect-site-accent-soft: rgba(255, 36, 66, 0.18);
+}
+
 .flowselect-xhs-download-btn {
   position: fixed;
   right: 22px;
@@ -7,20 +12,13 @@
   width: 44px;
   height: 44px;
   border: 0;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.65);
-  color: rgba(255, 255, 255, 0.95);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   cursor: pointer;
   z-index: 2147483647;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
-  transition: transform 0.18s ease, background-color 0.18s ease;
 }
 
 .flowselect-xhs-download-btn:hover {
-  background: rgba(255, 36, 66, 0.9);
+  background: var(--flowselect-site-accent-soft);
+  border-color: rgba(255, 36, 66, 0.32);
   transform: translateY(-1px) scale(1.06);
 }
 
@@ -45,9 +43,7 @@
   min-height: 36px;
   margin: 0 2px;
   box-sizing: border-box;
-  color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
-  transition: color 0.16s ease;
 }
 
 .flowselect-xhs-control-btn xg-icon {
@@ -69,7 +65,7 @@
 }
 
 .flowselect-xhs-control-btn:hover .flowselect-xhs-icon {
-  color: rgba(255, 36, 66, 1);
+  color: var(--flowselect-site-accent);
   transform: scale(1.08);
 }
 

@@ -1,5 +1,10 @@
 /* FlowSelect Browser Extension - Douyin Download Button Styles */
 
+:root {
+  --flowselect-site-accent: #fe2c55;
+  --flowselect-site-accent-soft: rgba(254, 44, 85, 0.18);
+}
+
 /* Control bar button (inside xgplayer controls) */
 .flowselect-douyin-control-btn {
   display: inline-flex;
@@ -10,13 +15,11 @@
   padding: 0;
   margin: 0 2px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
-  transition: color 0.2s;
 }
 
 .flowselect-douyin-control-btn:hover {
-  color: rgba(254, 44, 85, 1);
+  color: var(--flowselect-site-accent);
 }
 
 .flowselect-douyin-control-btn:active {
@@ -34,23 +37,16 @@
   position: absolute;
   top: 8px;
   right: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 50%;
-  background-color: rgba(0, 0, 0, 0.5);
-  color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
-  transition: background-color 0.2s, transform 0.2s;
   z-index: 10;
   opacity: 0;
 }
 
 .flowselect-douyin-cover-btn:hover {
-  background-color: rgba(254, 44, 85, 0.9);
-  color: #ffffff;
+  background: var(--flowselect-site-accent-soft);
+  color: var(--flowselect-site-accent);
   transform: scale(1.1);
 }
 

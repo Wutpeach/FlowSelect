@@ -4,26 +4,28 @@ const directDownloadQuality = window.FlowSelectDirectDownloadQuality;
 
 // Apply theme to popup
 function applyTheme(theme) {
-  if (theme === 'white') {
-    document.body.classList.add('white');
-  } else {
-    document.body.classList.remove('white');
-  }
+  document.body.classList.toggle('flowselect-theme-white', theme === 'white');
+  document.body.classList.toggle('flowselect-theme-black', theme !== 'white');
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
+  const statusCard = document.getElementById('statusCard');
+  const statusChip = document.getElementById('statusChip');
+  const statusHint = document.getElementById('statusHint');
   const qualityGrid = document.getElementById('qualityGrid');
   let statusTimer = null;
 
   function updateStatus(connected, nextStatusText) {
+    statusCard.dataset.connected = connected ? 'true' : 'false';
     if (connected) {
-      statusDot.classList.add('connected');
-      statusText.textContent = 'Connected';
+      statusText.textContent = 'Connected to desktop app';
+      statusChip.textContent = 'Live';
+      statusHint.textContent = 'Theme, queue actions, and extension download requests are synced.';
     } else {
-      statusDot.classList.remove('connected');
       statusText.textContent = nextStatusText || 'Desktop app not running';
+      statusChip.textContent = 'Offline';
+      statusHint.textContent = 'Open FlowSelect to restore connection, queueing, and theme sync.';
     }
   }
 
@@ -39,12 +41,12 @@ document.addEventListener('DOMContentLoaded', () => {
     directDownloadQuality.QUALITY_PREFERENCE_OPTIONS.forEach((option) => {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'quality-btn';
+      button.className = 'flowselect-quality-btn';
       if (option.value === selectedValue) {
         button.classList.add('active');
       }
       button.innerHTML = `
-        <span class="quality-value">${option.label}</span>
+        <span class="flowselect-quality-value">${option.label}</span>
       `;
       button.title = option.description;
       button.addEventListener('click', async () => {

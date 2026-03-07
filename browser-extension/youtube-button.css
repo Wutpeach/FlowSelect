@@ -1,5 +1,10 @@
 /* FlowSelect Browser Extension - YouTube Download Button Styles */
 
+:root {
+  --flowselect-site-accent: #ff4d57;
+  --flowselect-site-accent-soft: rgba(255, 77, 87, 0.18);
+}
+
 .flowselect-youtube-btn,
 .flowselect-youtube-set-in-btn,
 .flowselect-youtube-set-out-btn,
@@ -14,9 +19,7 @@
   margin: 0 !important;
   border: none !important;
   background: transparent;
-  color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
-  transition: color 0.2s, opacity 0.2s;
   vertical-align: top;
   align-self: stretch;
   line-height: 0 !important;
@@ -30,7 +33,7 @@
 .flowselect-youtube-set-in-btn:hover,
 .flowselect-youtube-set-out-btn:hover,
 .flowselect-youtube-screenshot-btn:hover {
-  color: #ff0000;
+  color: var(--flowselect-site-accent);
 }
 
 .flowselect-youtube-btn:active,
@@ -81,132 +84,9 @@
 
 .flowselect-youtube-set-in-btn[data-selected="true"],
 .flowselect-youtube-set-out-btn[data-selected="true"] {
-  color: #77affb;
+  color: #8fc0ff;
 }
 
 .flowselect-youtube-btn[data-clip-ready="true"] {
-  color: #00c2ff;
-}
-
-#flowselect-youtube-screenshot-panel {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  width: 268px;
-  max-height: calc(100vh - 24px);
-  z-index: 2147483646;
-  padding: 12px;
-  border: 0.5px solid rgba(255, 255, 255, 0.16);
-  border-radius: 12px;
-  box-sizing: border-box;
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(2px);
-}
-
-#flowselect-youtube-screenshot-panel.flowselect-hidden {
-  display: none;
-}
-
-#flowselect-youtube-screenshot-list {
-  max-height: calc(100vh - 44px);
-  overflow-y: auto;
-  scrollbar-width: thin;
-}
-
-#flowselect-youtube-screenshot-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-#flowselect-youtube-screenshot-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.35);
-  border-radius: 6px;
-}
-
-.flowselect-youtube-screenshot-item {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #000;
-  margin-bottom: 12px;
-}
-
-.flowselect-youtube-screenshot-item:last-child {
-  margin-bottom: 0;
-}
-
-.flowselect-youtube-screenshot-item img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-}
-
-.flowselect-youtube-screenshot-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  opacity: 0;
-  background: rgba(0, 0, 0, 0.58);
-  transition: opacity 0.18s ease;
-  pointer-events: none;
-}
-
-.flowselect-youtube-screenshot-item:hover .flowselect-youtube-screenshot-overlay {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.flowselect-youtube-screenshot-overlay button {
-  border: none;
-  border-radius: 999px;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.95);
-  background: rgba(0, 0, 0, 0.75);
-  cursor: pointer;
-  transition: color 0.16s ease, background 0.16s ease;
-}
-
-.flowselect-youtube-screenshot-overlay button svg {
-  width: 24px;
-  height: 24px;
-  pointer-events: none;
-}
-
-.flowselect-youtube-screenshot-overlay button:hover {
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.flowselect-youtube-screenshot-overlay button.flowselect-danger:hover {
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.flowselect-youtube-screenshot-overlay button[data-copied="true"] {
-  color: #22c55e;
-  background: rgba(34, 197, 94, 0.22);
-}
-
-.flowselect-youtube-screenshot-overlay button[data-copied="true"]:hover {
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.22);
-}
-
-.flowselect-youtube-screenshot-time {
-  position: absolute;
-  left: 8px;
-  bottom: 6px;
-  font-size: 11px;
-  line-height: 1;
-  color: rgba(255, 255, 255, 0.9);
+  color: #7dd3fc;
 }
