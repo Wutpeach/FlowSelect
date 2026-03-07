@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
 import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
+import { NeonCard, NeonFieldButton, NeonHint, NeonSection } from "../components/ui";
 import { useTheme } from "../contexts/ThemeContext";
 import { saveOutputPath } from "../utils/outputPath";
 import { APP_VERSION } from "../constants/appVersion";
@@ -621,14 +622,6 @@ function SettingsPage() {
   const renamePresetLabel =
     RENAME_RULE_PRESET_OPTIONS.find((option) => option.value === renameRulePreset)?.label ??
     RENAME_RULE_PRESET_OPTIONS[0].label;
-  const sectionStyle: CSSProperties = { marginBottom: 20 };
-  const sectionLabelStyle: CSSProperties = {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginBottom: 8,
-    display: 'block',
-    letterSpacing: 0.18,
-  };
   const nestedLabelStyle: CSSProperties = {
     fontSize: 11,
     color: colors.textSecondary,
@@ -636,22 +629,6 @@ function SettingsPage() {
     minHeight: 14,
     lineHeight: '14px',
     letterSpacing: 0.18,
-  };
-  const fieldSurfaceStyle: CSSProperties = {
-    width: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '10px 12px',
-    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-    borderRadius: 8,
-    border: `1px solid ${colors.fieldBorder}`,
-    boxShadow: `inset 0 1px 0 ${colors.fieldInset}`,
-    textAlign: 'left',
-    fontSize: 12,
-    color: colors.textSecondary,
-    cursor: 'pointer',
-    transition: 'border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, color 0.18s ease',
   };
   const compactFieldStyle: CSSProperties = {
     width: '100%',
@@ -677,18 +654,6 @@ function SettingsPage() {
     flexDirection: 'column',
     border: 'none',
     boxShadow: `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
-  };
-  const panelCardStyle: CSSProperties = {
-    padding: '10px 12px',
-    borderRadius: 8,
-    border: `1px solid ${colors.fieldBorder}`,
-    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-    boxShadow: `inset 0 1px 0 ${colors.fieldInset}`,
-  };
-  const subtleHintStyle: CSSProperties = {
-    fontSize: 10,
-    color: colors.textSecondary,
-    opacity: 0.82,
   };
   const getSelectableOptionStyle = (active: boolean): CSSProperties => ({
     borderRadius: 8,
@@ -725,8 +690,7 @@ function SettingsPage() {
       <label style={nestedLabelStyle}>
         Rename Preset
       </label>
-      <button
-        type="button"
+      <NeonFieldButton
         onClick={() =>
           setRenamePresetMenuOpen((prev) => {
             const nextOpen = !prev;
@@ -734,23 +698,23 @@ function SettingsPage() {
             return nextOpen;
           })
         }
+        trailingContent={
+          <span style={{ fontSize: 11, color: colors.textSecondary }}>
+            {renamePresetMenuOpen ? "▴" : "▾"}
+          </span>
+        }
+        active={renamePresetMenuOpen}
         style={{
-          ...compactFieldStyle,
+          height: 36,
+          padding: "0 10px",
           border: `1px solid ${renamePresetTriggerBorderColor}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
           boxShadow: renamePresetMenuOpen
             ? `inset 0 0 0 1px ${colors.fieldBorderStrong}, ${colors.panelShadow}`
-            : compactFieldStyle.boxShadow,
+            : `inset 0 1px 0 ${colors.fieldInset}`,
         }}
       >
-        <span>{renamePresetLabel}</span>
-        <span style={{ fontSize: 11, color: colors.textSecondary }}>
-          {renamePresetMenuOpen ? '▴' : '▾'}
-        </span>
-      </button>
+        {renamePresetLabel}
+      </NeonFieldButton>
       {renamePresetMenuOpen && (
         <div
           style={{
@@ -851,10 +815,7 @@ function SettingsPage() {
         msOverflowStyle: 'none', // IE/Edge
       }} className="hide-scrollbar">
         {/* Theme */}
-        <div style={sectionStyle}>
-          <label style={sectionLabelStyle}>
-            Theme
-          </label>
+        <NeonSection title="Theme">
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={() => setTheme('black')}
@@ -879,43 +840,44 @@ function SettingsPage() {
               White
             </button>
           </div>
-        </div>
+        </NeonSection>
 
         {/* Output Path */}
-        <div style={sectionStyle}>
-          <label style={sectionLabelStyle}>
-            Output Path
-          </label>
-          <button
+        <NeonSection title="Output Folder">
+          <NeonFieldButton
             onClick={selectOutputPath}
-            style={{
-              ...fieldSurfaceStyle,
-            }}
+            leadingIcon={<FolderOpen size={14} />}
           >
-            <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {outputPath ? truncatePath(outputPath) : "Select folder..."}
-            </span>
-          </button>
-        </div>
+            {outputPath ? truncatePath(outputPath) : "Choose a folder..."}
+          </NeonFieldButton>
+        </NeonSection>
 
         {/* Shortcut */}
-        <div style={sectionStyle}>
-          <label style={sectionLabelStyle}>
-            Global Shortcut
-          </label>
+        <NeonSection
+          title="Global Shortcut"
+          hint="Use one shortcut to open FlowSelect from anywhere."
+        >
           {isRecording ? (
             <div>
               <div style={{
-                ...fieldSurfaceStyle,
-                boxSizing: 'border-box',
+                width: '100%',
                 display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 12px',
+                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                borderRadius: 8,
+                textAlign: 'left',
+                fontSize: 12,
+                cursor: 'default',
+                transition: 'border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, color 0.18s ease',
+                boxSizing: 'border-box',
                 color: colors.textPrimary,
                 border: `1px solid ${colors.accentBorder}`,
                 boxShadow: `inset 0 0 0 1px ${colors.accentBorder}`,
               }}>
                 <Keyboard size={14} style={{ color: colors.accentText, flexShrink: 0 }} />
-                <span>{formatShortcutForDisplay(recordedKeys, isMacOS) || "Press keys..."}</span>
+                <span>{formatShortcutForDisplay(recordedKeys, isMacOS) || "Press your shortcut"}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
                 <NeonButton
@@ -938,31 +900,25 @@ function SettingsPage() {
               </div>
             </div>
           ) : (
-            <button
+            <NeonFieldButton
               onClick={startRecording}
-              style={{
-                ...fieldSurfaceStyle,
-              }}
+              leadingIcon={<Keyboard size={14} />}
             >
-              <Keyboard size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
-              <span>{formatShortcutForDisplay(shortcut, isMacOS) || "Click to set..."}</span>
-            </button>
+              {formatShortcutForDisplay(shortcut, isMacOS) || "Click to record shortcut"}
+            </NeonFieldButton>
           )}
-        </div>
+        </NeonSection>
 
         {/* Launch at startup */}
-        <div style={sectionStyle}>
-          <label style={sectionLabelStyle}>
-            Launch at startup
-          </label>
+        <NeonSection title="Launch at startup">
           <NeonToggle checked={autostart} onChange={toggleAutostart} />
-        </div>
+        </NeonSection>
 
         {/* Media Rename */}
-        <div style={sectionStyle}>
-          <label style={sectionLabelStyle}>
-            Enable Rename on Download
-          </label>
+        <NeonSection
+          title="Rename downloaded media"
+          hint="Apply a naming rule to new downloads instead of keeping the source name."
+        >
           <NeonToggle checked={renameMediaOnDownload} onChange={toggleRenameMediaOnDownload} />
           {renameMediaOnDownload && (
             <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
@@ -1000,22 +956,17 @@ function SettingsPage() {
               </div>
 
               <div style={{ padding: '2px 0' }}>
-                <div style={{ ...subtleHintStyle, marginBottom: 4 }}>
-                  Preview
-                </div>
+                <NeonHint style={{ marginBottom: 4 }}>Preview</NeonHint>
                 <div style={{ fontSize: 12, color: colors.textSecondary, opacity: 0.82, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {renamePreview}
                 </div>
               </div>
             </div>
           )}
-        </div>
+        </NeonSection>
 
         {/* Slice Download Mode */}
-        <div style={sectionStyle}>
-          <label style={sectionLabelStyle}>
-            Slice Download Mode
-          </label>
+        <NeonSection title="Clip download mode">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {CLIP_DOWNLOAD_MODE_OPTIONS.map((option) => {
               const active = clipDownloadMode === option.value;
@@ -1037,44 +988,37 @@ function SettingsPage() {
               );
             })}
           </div>
-          <div style={{ marginTop: 6, ...subtleHintStyle }}>
-            Applies to new slice tasks only.
-          </div>
-        </div>
+          <NeonHint style={{ marginTop: 6 }}>
+            Applies only to new clip downloads.
+          </NeonHint>
+        </NeonSection>
 
         {/* AE Portal */}
-        <div style={sectionStyle}>
-          <label style={sectionLabelStyle}>
-            AE Portal (Auto Import to After Effects)
-          </label>
+        <NeonSection
+          title="After Effects auto-import"
+          hint="Open finished media in After Effects after download."
+        >
           <NeonToggle checked={aePortalEnabled} onChange={toggleAePortal} />
           {aePortalEnabled && (
-            <button
+            <NeonFieldButton
               onClick={selectAeExePath}
-              style={{
-                marginTop: 8,
-                ...fieldSurfaceStyle,
-              }}
+              leadingIcon={<FolderOpen size={14} />}
+              style={{ marginTop: 8 }}
             >
-              <FolderOpen size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {aeExePath ? truncatePath(aeExePath) : "Select AfterFX.exe..."}
-              </span>
-            </button>
+              {aeExePath ? truncatePath(aeExePath) : "Choose AfterFX.exe..."}
+            </NeonFieldButton>
           )}
-        </div>
+        </NeonSection>
 
         {/* yt-dlp Version */}
-        <div style={sectionStyle}>
-          <label style={sectionLabelStyle}>
-            yt-dlp Version
-          </label>
-          <div
-            style={{ ...panelCardStyle, display: 'grid', gap: 8 }}
+        <NeonSection title="yt-dlp version">
+          <NeonCard
+            className="grid gap-2 rounded-lg p-0"
+            style={{ padding: '10px 12px', borderRadius: 8 }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ fontSize: 12, color: colors.textPrimary }}>
-                Current: {ytdlpCurrentVersion}
+                Installed: {ytdlpCurrentVersion}
               </span>
               {ytdlpInfo?.updateAvailable ? (
                 <span
@@ -1083,9 +1027,13 @@ function SettingsPage() {
                 />
               ) : null}
             </div>
-            <div style={{ fontSize: 11, color: ytdlpStatus.color }}>
+            <NeonHint
+              size="sm"
+              tone={ytdlpInfo?.updateAvailable ? "accent" : "default"}
+              style={{ color: ytdlpStatus.color, opacity: 1 }}
+            >
               {ytdlpStatus.message}
-            </div>
+            </NeonHint>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
                 onClick={handleYtdlpUpdate}
@@ -1113,17 +1061,17 @@ function SettingsPage() {
                 ) : null}
                 {isUpdatingYtdlp ? "Updating..." : "Update yt-dlp"}
               </button>
-              <span style={{ ...subtleHintStyle, opacity: 0.85 }}>
-                You can also update from the red dot in main window.
-              </span>
+              <NeonHint style={{ opacity: 0.85 }}>
+                You can also start this update from the red badge in the main window.
+              </NeonHint>
             </div>
             {ytdlpHint ? (
-              <div style={{ ...subtleHintStyle, opacity: 0.85 }}>
+              <NeonHint style={{ opacity: 0.85 }}>
                 {ytdlpHint}
-              </div>
+              </NeonHint>
             ) : null}
-          </div>
-        </div>
+          </NeonCard>
+        </NeonSection>
 
       </div>
 
