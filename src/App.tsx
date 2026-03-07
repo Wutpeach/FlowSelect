@@ -716,6 +716,29 @@ function App() {
     return () => { unlisten.then(fn => fn()); };
   }, []);
 
+  useEffect(() => {
+    const unlisten = listen<void>("request-output-path-picker", async () => {
+      try {
+        const selected = await open({
+          directory: true,
+          multiple: false,
+          title: "Select Output Folder",
+        });
+
+        if (typeof selected === "string") {
+          await saveOutputPath(selected);
+          setOutputPath(selected);
+        }
+      } catch (err) {
+        console.error("Failed to select output folder from context menu:", err);
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   // Listen for devMode changes from settings window
   useEffect(() => {
     const unlisten = listen<{ enabled: boolean }>("devmode-changed", (event) => {

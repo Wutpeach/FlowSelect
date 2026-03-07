@@ -1,11 +1,10 @@
 import { useEffect, type CSSProperties, type MouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { desktopDir, join } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion } from "framer-motion";
 import { useTheme } from "../contexts/ThemeContext";
-import { open } from "@tauri-apps/plugin-dialog";
-import { saveOutputPath } from "../utils/outputPath";
 
 type AppConfig = {
   outputPath?: string;
@@ -104,15 +103,7 @@ function ContextMenuPage() {
   const selectOutputFolder = async () => {
     const currentWindow = getCurrentWindow();
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Select Output Folder",
-      });
-
-      if (typeof selected === "string") {
-        await saveOutputPath(selected);
-      }
+      await emit("request-output-path-picker");
     } catch (err) {
       console.error("Failed to set output folder:", err);
     } finally {
@@ -120,21 +111,29 @@ function ContextMenuPage() {
     }
   };
 
-  const menuButtonStyle: CSSProperties = {
+  const panelStyle: CSSProperties = {
     width: "100%",
-    flex: 1,
-    padding: "8px 12px",
-    textAlign: "left",
-    fontSize: 13,
-    color: colors.textPrimary,
     background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
     border: `1px solid ${colors.borderStart}`,
     borderRadius: 8,
-    cursor: "pointer",
     boxShadow:
       theme === "black"
         ? "0 2px 8px rgba(0,0,0,0.24)"
         : `0 4px 12px ${colors.shadowSpread}`,
+    overflow: "hidden",
+  };
+
+  const menuButtonStyle: CSSProperties = {
+    width: "100%",
+    minHeight: 36,
+    padding: "8px 12px",
+    textAlign: "left",
+    fontSize: 13,
+    color: colors.textPrimary,
+    background: "transparent",
+    border: "none",
+    borderRadius: 0,
+    cursor: "pointer",
     transition: "background-color 0.15s",
     userSelect: "none",
   };
@@ -155,38 +154,43 @@ function ContextMenuPage() {
         width: "100%",
         height: "100%",
         padding: 4,
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
         borderRadius: 8,
-        overflow: "hidden",
         background: "transparent",
       }}
     >
-      <button
-        onClick={openOutputFolder}
-        style={menuButtonStyle}
-        onMouseEnter={(event) => {
-          applyHoverBackground(event, true);
-        }}
-        onMouseLeave={(event) => {
-          applyHoverBackground(event, false);
-        }}
-      >
-        Open Folder
-      </button>
-      <button
-        onClick={selectOutputFolder}
-        style={menuButtonStyle}
-        onMouseEnter={(event) => {
-          applyHoverBackground(event, true);
-        }}
-        onMouseLeave={(event) => {
-          applyHoverBackground(event, false);
-        }}
-      >
-        Set Output Folder
-      </button>
+      <div style={panelStyle}>
+        <button
+          onClick={openOutputFolder}
+          style={menuButtonStyle}
+          onMouseEnter={(event) => {
+            applyHoverBackground(event, true);
+          }}
+          onMouseLeave={(event) => {
+            applyHoverBackground(event, false);
+          }}
+        >
+          Open Folder
+        </button>
+        <div
+          style={{
+            height: 1,
+            background: colors.borderStart,
+            opacity: 0.9,
+          }}
+        />
+        <button
+          onClick={selectOutputFolder}
+          style={menuButtonStyle}
+          onMouseEnter={(event) => {
+            applyHoverBackground(event, true);
+          }}
+          onMouseLeave={(event) => {
+            applyHoverBackground(event, false);
+          }}
+        >
+          Set Output Folder
+        </button>
+      </div>
     </motion.div>
   );
 }
