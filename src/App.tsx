@@ -1439,7 +1439,7 @@ function App() {
         alwaysOnTop: true,
         skipTaskbar: true,
         shadow: false,
-        focus: false,
+        focus: true,
         parent: "main",
       });
       startContextMenuMonitor();

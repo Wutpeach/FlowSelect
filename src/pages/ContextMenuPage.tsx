@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { desktopDir, join } from "@tauri-apps/api/path";
@@ -23,6 +23,7 @@ async function resolveOutputFolderPath(): Promise<string> {
 
 function ContextMenuPage() {
   const { theme, colors } = useTheme();
+  const [hoveredItem, setHoveredItem] = useState<"open" | "set" | null>(null);
 
   useEffect(() => {
     const currentWindow = getCurrentWindow();
@@ -113,6 +114,9 @@ function ContextMenuPage() {
 
   const panelStyle: CSSProperties = {
     width: "100%",
+    height: "100%",
+    display: "flex",
+    flexDirection: "column",
     background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
     border: `1px solid ${colors.borderStart}`,
     borderRadius: 8,
@@ -123,26 +127,23 @@ function ContextMenuPage() {
     overflow: "hidden",
   };
 
-  const menuButtonStyle: CSSProperties = {
+  const getMenuButtonStyle = (item: "open" | "set"): CSSProperties => ({
     width: "100%",
-    minHeight: 36,
-    padding: "8px 12px",
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    padding: "0 12px",
+    boxSizing: "border-box",
     textAlign: "left",
     fontSize: 13,
     color: colors.textPrimary,
-    background: "transparent",
+    background: hoveredItem === item ? colors.bgPrimary : "transparent",
     border: "none",
     borderRadius: 0,
     cursor: "pointer",
     transition: "background-color 0.15s",
     userSelect: "none",
-  };
-
-  const applyHoverBackground = (event: MouseEvent<HTMLButtonElement>, hovered: boolean) => {
-    event.currentTarget.style.background = hovered
-      ? colors.bgPrimary
-      : `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`;
-  };
+  });
 
   return (
     <motion.div
@@ -153,20 +154,19 @@ function ContextMenuPage() {
       style={{
         width: "100%",
         height: "100%",
-        padding: 4,
-        borderRadius: 8,
+        padding: 0,
         background: "transparent",
       }}
     >
       <div style={panelStyle}>
         <button
           onClick={openOutputFolder}
-          style={menuButtonStyle}
-          onMouseEnter={(event) => {
-            applyHoverBackground(event, true);
+          style={getMenuButtonStyle("open")}
+          onMouseEnter={() => {
+            setHoveredItem("open");
           }}
-          onMouseLeave={(event) => {
-            applyHoverBackground(event, false);
+          onMouseLeave={() => {
+            setHoveredItem(null);
           }}
         >
           Open Folder
@@ -180,12 +180,12 @@ function ContextMenuPage() {
         />
         <button
           onClick={selectOutputFolder}
-          style={menuButtonStyle}
-          onMouseEnter={(event) => {
-            applyHoverBackground(event, true);
+          style={getMenuButtonStyle("set")}
+          onMouseEnter={() => {
+            setHoveredItem("set");
           }}
-          onMouseLeave={(event) => {
-            applyHoverBackground(event, false);
+          onMouseLeave={() => {
+            setHoveredItem(null);
           }}
         >
           Set Output Folder
