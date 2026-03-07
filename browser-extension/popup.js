@@ -1,6 +1,7 @@
 // FlowSelect Browser Extension - Popup Script
 
 const directDownloadQuality = window.FlowSelectDirectDownloadQuality;
+const OFFLINE_STATUS_TEXT = 'FlowSelect desktop app is offline. Open FlowSelect to connect.';
 
 // Apply theme to popup
 function applyTheme(theme) {
@@ -23,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
       statusChip.textContent = 'Live';
       statusHint.textContent = 'Theme, queue actions, and extension download requests are synced.';
     } else {
-      statusText.textContent = nextStatusText || 'Desktop app not running';
+      statusText.textContent = nextStatusText || OFFLINE_STATUS_TEXT;
       statusChip.textContent = 'Offline';
       statusHint.textContent = 'Open FlowSelect to restore connection, queueing, and theme sync.';
     }

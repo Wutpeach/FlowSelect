@@ -9,9 +9,11 @@ let reconnectTimer = null;
 const WS_URL = 'ws://127.0.0.1:39527';
 const REQUEST_TIMEOUT_MS = 7000;
 const CONNECTING_WAIT_TIMEOUT_MS = 500;
+const CONNECTING_STATUS_TEXT = 'Connecting to FlowSelect...';
+const OFFLINE_STATUS_TEXT = 'FlowSelect desktop app is offline. Open FlowSelect to connect.';
 const pendingRequests = new Map();
 let requestCounter = 0;
-let lastConnectionIssue = 'Desktop app not running';
+let lastConnectionIssue = OFFLINE_STATUS_TEXT;
 
 // Store current theme from desktop app
 let currentTheme = 'black';
@@ -25,14 +27,28 @@ function isConnecting() {
   return ws && ws.readyState === WebSocket.CONNECTING;
 }
 
+function unavailableStatusText() {
+  return OFFLINE_STATUS_TEXT;
+}
+
+function hasUnavailableIssue() {
+  return lastConnectionIssue === OFFLINE_STATUS_TEXT;
+}
+
 function connectionStatusText() {
   if (isConnected()) {
     return 'Connected';
   }
-  if (isConnecting() || reconnectTimer !== null) {
-    return lastConnectionIssue || 'Connecting to desktop app...';
+  if (isConnecting()) {
+    if (hasUnavailableIssue()) {
+      return lastConnectionIssue;
+    }
+    return lastConnectionIssue || CONNECTING_STATUS_TEXT;
   }
-  return lastConnectionIssue || 'Desktop app not running';
+  if (reconnectTimer !== null) {
+    return lastConnectionIssue || unavailableStatusText();
+  }
+  return lastConnectionIssue || OFFLINE_STATUS_TEXT;
 }
 
 function notifyConnectionStatus() {
@@ -44,19 +60,21 @@ function notifyConnectionStatus() {
   }).catch(() => {});
 }
 
-function clearReconnectTimer() {
+function connect(options = {}) {
+  const force = options.force === true;
+
+  if (isConnected() || isConnecting()) return;
   if (reconnectTimer !== null) {
+    if (!force) return;
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
-}
 
-function connect() {
-  if (isConnected() || isConnecting()) return;
-
-  clearReconnectTimer();
-  lastConnectionIssue = 'Connecting to desktop app...';
-  notifyConnectionStatus();
+  const shouldNotifyConnecting = reconnectAttempts === 0 && !hasUnavailableIssue();
+  if (shouldNotifyConnecting) {
+    lastConnectionIssue = CONNECTING_STATUS_TEXT;
+    notifyConnectionStatus();
+  }
 
   ws = new WebSocket(WS_URL);
 
@@ -85,14 +103,14 @@ function connect() {
     console.log('[FlowSelect] Disconnected');
     rejectPendingRequests('ws_closed');
     ws = null;
-    lastConnectionIssue = `Desktop app unavailable at ${WS_URL}. Open FlowSelect to connect.`;
+    lastConnectionIssue = unavailableStatusText();
     notifyConnectionStatus();
     scheduleReconnect();
   };
 
   ws.onerror = () => {
     if (!isConnected()) {
-      lastConnectionIssue = `Desktop app unavailable at ${WS_URL}. Open FlowSelect to connect.`;
+      lastConnectionIssue = unavailableStatusText();
       console.warn('[FlowSelect] WebSocket unavailable. Open the FlowSelect desktop app to enable browser-extension features.');
       notifyConnectionStatus();
       return;
@@ -191,7 +209,7 @@ function sendToApp(data) {
     ws.send(JSON.stringify(data));
     return true;
   }
-  connect();
+  connect({ force: true });
   return false;
 }
 
@@ -401,7 +419,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       if (!sent) {
         console.warn('[FlowSelect] Desktop app not connected, retrying websocket connect');
-        connect();
       }
       sendResponse({
         success: sent,
@@ -409,7 +426,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     });
   } else if (message.type === 'connect') {
-    connect();
+    connect({ force: true });
     sendResponse({
       success: true,
       connected: isConnected()
@@ -443,9 +460,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   } else if (message.type === 'get_status') {
-    if (!isConnected()) {
-      connect();
-    }
     sendResponse({
       connected: isConnected(),
       connecting: isConnecting() || reconnectTimer !== null,
