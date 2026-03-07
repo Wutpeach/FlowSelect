@@ -421,6 +421,7 @@ function App() {
 
   const shouldShowEdgeGlow =
     isPanelHovered && !isHovering && !downloadProgress && !isMinimized && showEdgeGlow;
+  const panelRadius = isMinimized ? 100 : 16;
 
   const getEdgeGlowOpacity = () => {
     const distanceToEdge = Math.min(
@@ -439,21 +440,21 @@ function App() {
     return {
       position: 'absolute',
       inset: 0,
-      borderRadius: 16,
+      borderRadius: panelRadius,
       pointerEvents: 'none',
-      border: `${EDGE_GLOW_BORDER_WIDTH}px solid transparent`,
-      background: `
-        linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%) padding-box,
-        radial-gradient(
-          ${EDGE_GLOW_RADIUS}px circle at ${mousePos.x}px ${mousePos.y}px,
-          rgba(59,130,246,1) 0%,
-          rgba(96,165,250,0.9) 24%,
-          rgba(147,197,253,0.42) 50%,
-          rgba(191,219,254,0.18) 66%,
-          transparent 84%
-        ) border-box
-      `,
-      filter: 'drop-shadow(0 0 2.6px rgba(59,130,246,0.78))',
+      padding: EDGE_GLOW_BORDER_WIDTH,
+      background: `radial-gradient(
+        ${EDGE_GLOW_RADIUS}px circle at ${mousePos.x}px ${mousePos.y}px,
+        rgba(59,130,246,1) 0%,
+        rgba(96,165,250,0.9) 24%,
+        rgba(147,197,253,0.42) 50%,
+        rgba(191,219,254,0.18) 66%,
+        transparent 84%
+      )`,
+      mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+      maskComposite: 'exclude',
+      WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+      WebkitMaskComposite: 'xor',
     };
   };
 
@@ -1412,10 +1413,10 @@ function App() {
   };
 
   const containerBoxShadow = downloadProgress
-    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px rgba(59,130,246,0.35), 0 2px 4px rgba(0,0,0,0.1)`
+    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px rgba(59,130,246,0.28)`
     : isHovering
-      ? `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1), 0 0 12px rgba(59,130,246,0.4)`
-      : `inset 0 0 0 1px ${colors.borderStart}, 0 2px 4px rgba(0,0,0,0.1)`;
+      ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 18px rgba(59,130,246,0.16)`
+      : `inset 0 0 0 1px ${colors.borderStart}`;
   const isPrimaryTaskCancelling = primaryQueueTask
     ? cancellingTraceIds.includes(primaryQueueTask.traceId)
     : false;
@@ -1530,6 +1531,8 @@ function App() {
         alignItems: 'center',
         gap: 8,
         outline: 'none',
+        borderRadius: panelRadius,
+        overflow: 'hidden',
         background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
         border: 'none',
         boxShadow: containerBoxShadow,
