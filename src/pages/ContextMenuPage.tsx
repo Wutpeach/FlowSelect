@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, type CSSProperties, type MouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { desktopDir, join } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion } from "framer-motion";
 import { useTheme } from "../contexts/ThemeContext";
+import { open } from "@tauri-apps/plugin-dialog";
+import { saveOutputPath } from "../utils/outputPath";
 
 type AppConfig = {
   outputPath?: string;
@@ -95,8 +97,52 @@ function ContextMenuPage() {
     } catch (err) {
       console.error("Failed to open output folder:", err);
     } finally {
-      await currentWindow.close();
+      await currentWindow.close().catch(() => undefined);
     }
+  };
+
+  const selectOutputFolder = async () => {
+    const currentWindow = getCurrentWindow();
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Output Folder",
+      });
+
+      if (typeof selected === "string") {
+        await saveOutputPath(selected);
+      }
+    } catch (err) {
+      console.error("Failed to set output folder:", err);
+    } finally {
+      await currentWindow.close().catch(() => undefined);
+    }
+  };
+
+  const menuButtonStyle: CSSProperties = {
+    width: "100%",
+    flex: 1,
+    padding: "8px 12px",
+    textAlign: "left",
+    fontSize: 13,
+    color: colors.textPrimary,
+    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+    border: `1px solid ${colors.borderStart}`,
+    borderRadius: 8,
+    cursor: "pointer",
+    boxShadow:
+      theme === "black"
+        ? "0 2px 8px rgba(0,0,0,0.24)"
+        : `0 4px 12px ${colors.shadowSpread}`,
+    transition: "background-color 0.15s",
+    userSelect: "none",
+  };
+
+  const applyHoverBackground = (event: MouseEvent<HTMLButtonElement>, hovered: boolean) => {
+    event.currentTarget.style.background = hovered
+      ? colors.bgPrimary
+      : `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`;
   };
 
   return (
@@ -109,6 +155,9 @@ function ContextMenuPage() {
         width: "100%",
         height: "100%",
         padding: 4,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
         borderRadius: 8,
         overflow: "hidden",
         background: "transparent",
@@ -116,32 +165,27 @@ function ContextMenuPage() {
     >
       <button
         onClick={openOutputFolder}
-        style={{
-          width: "100%",
-          height: "100%",
-          padding: "8px 12px",
-          textAlign: "left",
-          fontSize: 13,
-          color: colors.textPrimary,
-          background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-          border: `1px solid ${colors.borderStart}`,
-          borderRadius: 8,
-          cursor: "pointer",
-          boxShadow:
-            theme === "black"
-              ? "0 2px 8px rgba(0,0,0,0.24)"
-              : `0 4px 12px ${colors.shadowSpread}`,
-          transition: "background-color 0.15s",
-          userSelect: "none",
-        }}
+        style={menuButtonStyle}
         onMouseEnter={(event) => {
-          event.currentTarget.style.background = colors.bgPrimary;
+          applyHoverBackground(event, true);
         }}
         onMouseLeave={(event) => {
-          event.currentTarget.style.background = `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`;
+          applyHoverBackground(event, false);
         }}
       >
         Open Folder
+      </button>
+      <button
+        onClick={selectOutputFolder}
+        style={menuButtonStyle}
+        onMouseEnter={(event) => {
+          applyHoverBackground(event, true);
+        }}
+        onMouseLeave={(event) => {
+          applyHoverBackground(event, false);
+        }}
+      >
+        Set Output Folder
       </button>
     </motion.div>
   );

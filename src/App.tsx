@@ -7,6 +7,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, X } from "lucide-react";
 import { isVideoUrl } from "./utils/videoUrl";
+import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
 
 // Helper function to check and show sequence overflow error
@@ -271,8 +272,8 @@ function App() {
   const EDGE_GLOW_FALLOFF_EXPONENT = 0.58;
   const DRAG_GLOW_BORDER_WIDTH = 2.4;
   const WINDOW_EDGE_PADDING = 8;
-  const CONTEXT_MENU_WIDTH = 148;
-  const CONTEXT_MENU_HEIGHT = 46;
+  const CONTEXT_MENU_WIDTH = 176;
+  const CONTEXT_MENU_HEIGHT = 80;
   const SETTINGS_WINDOW_WIDTH = 320;
   const SETTINGS_WINDOW_HEIGHT = 400;
   const SETTINGS_WINDOW_GAP = 16;
@@ -615,25 +616,6 @@ function App() {
       }
     };
   }, [closeContextMenuWindow]);
-
-  // Save config when outputPath changes
-  useEffect(() => {
-    if (!outputPath) return;
-
-    const saveConfig = async () => {
-      try {
-        // Read existing config first, then merge update
-        const configStr = await invoke<string>("get_config");
-        const config = JSON.parse(configStr);
-        config.outputPath = outputPath;
-        await invoke("save_config", { json: JSON.stringify(config) });
-        console.log("Saved config:", config);
-      } catch (err) {
-        console.error("Failed to save config:", err);
-      }
-    };
-    saveConfig();
-  }, [outputPath]);
 
   // Listen for video download progress events
   useEffect(() => {
@@ -1040,6 +1022,7 @@ function App() {
 
           if (selected && typeof selected === "string") {
             console.log("用户选择的路径:", selected);
+            await saveOutputPath(selected);
             setOutputPath(selected);
             resetDownloadOutcome();
             setIsProcessing(true);

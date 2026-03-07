@@ -7,6 +7,7 @@ import { X, FolderOpen, Keyboard } from "lucide-react";
 import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
 import { useTheme } from "../contexts/ThemeContext";
+import { saveOutputPath } from "../utils/outputPath";
 
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
 type ClipDownloadMode = "fast" | "precise";
@@ -248,6 +249,16 @@ function SettingsPage() {
     loadShortcut();
   }, [refreshYtdlpVersion]);
 
+  useEffect(() => {
+    const unlisten = listen<{ path: string }>("output-path-changed", (event) => {
+      setOutputPath(event.payload.path);
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   // Keyboard event listener for shortcut recording
   useEffect(() => {
     if (!isRecording) return;
@@ -369,30 +380,6 @@ function SettingsPage() {
     }
   };
 
-  const saveOutputPath = async (nextOutputPath: string) => {
-    try {
-      const configStr = await invoke<string>("get_config");
-      const config = JSON.parse(configStr) as Record<string, unknown>;
-      const previousOutputPath =
-        typeof config.outputPath === "string" ? config.outputPath : "";
-
-      if (previousOutputPath === nextOutputPath) {
-        return;
-      }
-
-      config.outputPath = nextOutputPath;
-      await invoke<void>("save_config", { json: JSON.stringify(config) });
-      await emit("output-path-changed", { path: nextOutputPath });
-      try {
-        await invoke<boolean>("reset_rename_counter");
-      } catch (err) {
-        console.error("Failed to reset rename counter after output path change:", err);
-      }
-    } catch (err) {
-      console.error("Failed to save output path:", err);
-    }
-  };
-
   const selectOutputPath = async () => {
     try {
       const selected = await open({
@@ -401,8 +388,8 @@ function SettingsPage() {
         title: "Select Output Folder",
       });
       if (typeof selected === "string") {
-        setOutputPath(selected);
         await saveOutputPath(selected);
+        setOutputPath(selected);
       }
     } catch (err) {
       console.error("Failed to select folder:", err);
