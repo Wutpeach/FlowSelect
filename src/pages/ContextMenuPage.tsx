@@ -123,7 +123,7 @@ function ContextMenuPage() {
     boxShadow:
       theme === "black"
         ? "0 2px 8px rgba(0,0,0,0.24)"
-        : `0 4px 12px ${colors.shadowSpread}`,
+        : `inset 0 1px 0 rgba(255,255,255,0.72), inset 0 -1px 0 ${colors.shadowSpread}`,
     overflow: "hidden",
   };
 
