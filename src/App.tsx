@@ -6,6 +6,7 @@ import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/
 import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, X } from "lucide-react";
+import type { YtdlpVersionInfo } from "./types/ytdlp";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
@@ -44,12 +45,6 @@ const resolveRenameMediaEnabled = (config: Record<string, unknown>): boolean => 
     return !config.videoKeepOriginalName;
   }
   return false;
-};
-
-type YtdlpVersionInfo = {
-  current: string;
-  latest: string;
-  updateAvailable: boolean;
 };
 
 type DownloadStage = "preparing" | "downloading" | "merging" | "post_processing";
@@ -501,7 +496,7 @@ function App() {
       console.log(">>> Checking yt-dlp version...");
       const result = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
       console.log(">>> yt-dlp version check result:", result);
-      setYtdlpUpdate(result.updateAvailable ? result : null);
+      setYtdlpUpdate(result.updateAvailable === true ? result : null);
     } catch (err) {
       console.error(">>> yt-dlp version check failed:", err);
     }

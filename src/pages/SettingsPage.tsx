@@ -9,14 +9,10 @@ import { NeonButton } from "../components/ui/neon-button";
 import { useTheme } from "../contexts/ThemeContext";
 import { saveOutputPath } from "../utils/outputPath";
 import { APP_VERSION } from "../constants/appVersion";
+import type { YtdlpVersionInfo } from "../types/ytdlp";
 
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
 type ClipDownloadMode = "fast" | "precise";
-type YtdlpVersionInfo = {
-  current: string;
-  latest: string;
-  updateAvailable: boolean;
-};
 
 const DEFAULT_RENAME_RULE_PRESET: RenameRulePreset = "desc_number";
 const RENAME_RULE_PRESET_OPTIONS: Array<{ value: RenameRulePreset; label: string }> = [
@@ -187,6 +183,35 @@ function SettingsPage() {
       setYtdlpInfo(null);
     }
   }, []);
+
+  const ytdlpCurrentVersion = ytdlpInfo?.current ?? "Unknown";
+  const ytdlpStatus = (() => {
+    if (!ytdlpInfo) {
+      return {
+        color: colors.textSecondary,
+        message: "Version check unavailable.",
+      };
+    }
+
+    if (ytdlpInfo.updateAvailable === true && ytdlpInfo.latest) {
+      return {
+        color: "#ef4444",
+        message: `Update available: ${ytdlpInfo.latest}`,
+      };
+    }
+
+    if (ytdlpInfo.latest) {
+      return {
+        color: colors.textSecondary,
+        message: "Already up to date.",
+      };
+    }
+
+    return {
+      color: colors.textSecondary,
+      message: "Latest version check unavailable. Showing local version only.",
+    };
+  })();
 
   // Load config on mount
   useEffect(() => {
@@ -1052,7 +1077,7 @@ function SettingsPage() {
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ fontSize: 12, color: colors.textPrimary }}>
-                Current: {ytdlpInfo?.current ?? "Unknown"}
+                Current: {ytdlpCurrentVersion}
               </span>
               {ytdlpInfo?.updateAvailable ? (
                 <span
@@ -1068,15 +1093,9 @@ function SettingsPage() {
                 />
               ) : null}
             </div>
-            {ytdlpInfo?.updateAvailable ? (
-              <div style={{ fontSize: 11, color: '#ef4444' }}>
-                Update available: {ytdlpInfo.latest}
-              </div>
-            ) : (
-              <div style={{ fontSize: 11, color: colors.textSecondary }}>
-                Already up to date.
-              </div>
-            )}
+            <div style={{ fontSize: 11, color: ytdlpStatus.color }}>
+              {ytdlpStatus.message}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
                 onClick={handleYtdlpUpdate}

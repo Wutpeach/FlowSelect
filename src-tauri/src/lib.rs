@@ -33,6 +33,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
 
 const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.flowselect.app"];
+const YTDLP_LATEST_CACHE_FILE_NAME: &str = "ytdlp-latest-cache.json";
+const YTDLP_LATEST_CACHE_TTL_MS: u128 = 60 * 60 * 1000;
 
 // Store current registered shortcut
 struct RegisteredShortcut {
@@ -5925,9 +5927,17 @@ fn process_ytdlp_output_line(
 #[derive(serde::Serialize, Clone)]
 pub struct YtdlpVersionInfo {
     pub current: String,
-    pub latest: String,
+    pub latest: Option<String>,
     #[serde(rename = "updateAvailable")]
-    pub update_available: bool,
+    pub update_available: Option<bool>,
+    #[serde(rename = "latestError")]
+    pub latest_error: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct YtdlpLatestCacheEntry {
+    latest: String,
+    fetched_at_ms: u64,
 }
 
 fn ytdlp_sidecar_filename() -> Result<&'static str, String> {
@@ -6025,40 +6035,17 @@ async fn get_local_ytdlp_version(app: &AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 async fn check_ytdlp_version(app: AppHandle) -> Result<YtdlpVersionInfo, String> {
-    // 1. Get current version by running yt-dlp --version
     let current_version = get_local_ytdlp_version(&app).await?;
-
-    // 2. Get latest version from GitHub API
-    let client = reqwest::Client::new();
-    let response = client
-        .get("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
-        .header("User-Agent", "FlowSelect-App")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch GitHub API: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(format!("GitHub API error: {}", response.status()));
-    }
-
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse GitHub response: {}", e))?;
-
-    let latest_version = json
-        .get("tag_name")
-        .and_then(|v| v.as_str())
-        .ok_or("Failed to get tag_name from GitHub response")?
-        .to_string();
-
-    // 3. Compare versions
-    let update_available = current_version != latest_version;
+    let (latest_version, latest_error) = resolve_latest_ytdlp_version(&app).await;
+    let update_available = latest_version
+        .as_ref()
+        .map(|latest_version| current_version != *latest_version);
 
     Ok(YtdlpVersionInfo {
         current: current_version,
         latest: latest_version,
         update_available,
+        latest_error,
     })
 }
 
@@ -6256,6 +6243,148 @@ fn get_logs_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let log_dir = config_dir.join("logs");
     fs::create_dir_all(&log_dir).map_err(|e| format!("Failed to create log dir: {}", e))?;
     Ok(log_dir)
+}
+
+fn get_ytdlp_latest_cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let config_path = get_config_path(app)?;
+    let config_dir = config_path
+        .parent()
+        .ok_or_else(|| "Failed to resolve config directory".to_string())?;
+    Ok(config_dir.join(YTDLP_LATEST_CACHE_FILE_NAME))
+}
+
+fn read_ytdlp_latest_cache(app: &tauri::AppHandle) -> Option<YtdlpLatestCacheEntry> {
+    let cache_path = match get_ytdlp_latest_cache_path(app) {
+        Ok(path) => path,
+        Err(err) => {
+            println!(
+                ">>> [Rust] Failed to resolve yt-dlp latest cache path: {}",
+                err
+            );
+            return None;
+        }
+    };
+
+    if !cache_path.exists() {
+        return None;
+    }
+
+    let raw = match fs::read_to_string(&cache_path) {
+        Ok(raw) => raw,
+        Err(err) => {
+            println!(
+                ">>> [Rust] Failed to read yt-dlp latest cache {:?}: {}",
+                cache_path, err
+            );
+            return None;
+        }
+    };
+
+    match serde_json::from_str::<YtdlpLatestCacheEntry>(&raw) {
+        Ok(entry) => Some(entry),
+        Err(err) => {
+            println!(
+                ">>> [Rust] Failed to parse yt-dlp latest cache {:?}: {}",
+                cache_path, err
+            );
+            None
+        }
+    }
+}
+
+fn write_ytdlp_latest_cache(app: &tauri::AppHandle, latest: &str, fetched_at_ms: u64) {
+    let cache_path = match get_ytdlp_latest_cache_path(app) {
+        Ok(path) => path,
+        Err(err) => {
+            println!(
+                ">>> [Rust] Failed to resolve yt-dlp latest cache path: {}",
+                err
+            );
+            return;
+        }
+    };
+
+    let payload = YtdlpLatestCacheEntry {
+        latest: latest.to_string(),
+        fetched_at_ms,
+    };
+
+    let serialized = match serde_json::to_string_pretty(&payload) {
+        Ok(serialized) => serialized,
+        Err(err) => {
+            println!(
+                ">>> [Rust] Failed to serialize yt-dlp latest cache: {}",
+                err
+            );
+            return;
+        }
+    };
+
+    if let Err(err) = fs::write(&cache_path, serialized) {
+        println!(
+            ">>> [Rust] Failed to write yt-dlp latest cache {:?}: {}",
+            cache_path, err
+        );
+    }
+}
+
+async fn fetch_latest_ytdlp_version() -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
+        .header("User-Agent", "FlowSelect-App")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch GitHub API: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("GitHub API error: {}", response.status()));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse GitHub response: {}", e))?;
+
+    json.get("tag_name")
+        .and_then(|value| value.as_str())
+        .map(ToString::to_string)
+        .ok_or("Failed to get tag_name from GitHub response".to_string())
+}
+
+async fn resolve_latest_ytdlp_version(app: &tauri::AppHandle) -> (Option<String>, Option<String>) {
+    let now_ms = now_timestamp_ms();
+    let cached_entry = read_ytdlp_latest_cache(app);
+
+    if let Some(entry) = cached_entry.as_ref() {
+        let age_ms = now_ms.saturating_sub(u128::from(entry.fetched_at_ms));
+        if age_ms <= YTDLP_LATEST_CACHE_TTL_MS {
+            return (Some(entry.latest.clone()), None);
+        }
+    }
+
+    match fetch_latest_ytdlp_version().await {
+        Ok(latest) => {
+            let fetched_at_ms = u64::try_from(now_ms).ok().unwrap_or(u64::MAX);
+            write_ytdlp_latest_cache(app, &latest, fetched_at_ms);
+            (Some(latest), None)
+        }
+        Err(err) => {
+            if let Some(entry) = cached_entry {
+                println!(
+                    ">>> [Rust] Latest yt-dlp lookup failed, using cached value {}: {}",
+                    entry.latest, err
+                );
+                (Some(entry.latest), Some(err))
+            } else {
+                println!(
+                    ">>> [Rust] Latest yt-dlp lookup failed without cache: {}",
+                    err
+                );
+                (None, Some(err))
+            }
+        }
+    }
 }
 
 fn format_support_log_config(config_raw: &str) -> String {
