@@ -265,10 +265,11 @@ function App() {
   // Window size constants
   const FULL_SIZE = 200;
   const ICON_SIZE = 80;
-  const EDGE_GLOW_TRIGGER_DISTANCE = 112;
-  const EDGE_GLOW_RADIUS = 222;
-  const EDGE_GLOW_BORDER_WIDTH = 1.75;
-  const EDGE_GLOW_FALLOFF_EXPONENT = 0.72;
+  const EDGE_GLOW_TRIGGER_DISTANCE = 126;
+  const EDGE_GLOW_RADIUS = 248;
+  const EDGE_GLOW_BORDER_WIDTH = 2.2;
+  const EDGE_GLOW_FALLOFF_EXPONENT = 0.58;
+  const DRAG_GLOW_BORDER_WIDTH = 2.4;
   const WINDOW_EDGE_PADDING = 8;
   const CONTEXT_MENU_WIDTH = 148;
   const CONTEXT_MENU_HEIGHT = 46;
@@ -421,6 +422,7 @@ function App() {
 
   const shouldShowEdgeGlow =
     isPanelHovered && !isHovering && !downloadProgress && !isMinimized && showEdgeGlow;
+  const shouldShowDragGlow = isHovering && !downloadProgress && !isMinimized;
   const panelRadius = isMinimized ? 100 : 16;
 
   const getEdgeGlowOpacity = () => {
@@ -431,7 +433,7 @@ function App() {
       FULL_SIZE - mousePos.y,
     );
     const normalized = Math.max(0, 1 - distanceToEdge / EDGE_GLOW_TRIGGER_DISTANCE);
-    return Math.pow(normalized, EDGE_GLOW_FALLOFF_EXPONENT);
+    return Math.min(1, Math.pow(normalized, EDGE_GLOW_FALLOFF_EXPONENT) * 1.18);
   };
 
   const edgeGlowOpacity = getEdgeGlowOpacity();
@@ -446,11 +448,39 @@ function App() {
       background: `radial-gradient(
         ${EDGE_GLOW_RADIUS}px circle at ${mousePos.x}px ${mousePos.y}px,
         rgba(59,130,246,1) 0%,
-        rgba(96,165,250,0.9) 24%,
-        rgba(147,197,253,0.42) 50%,
-        rgba(191,219,254,0.18) 66%,
+        rgba(96,165,250,0.98) 18%,
+        rgba(125,211,252,0.72) 38%,
+        rgba(147,197,253,0.36) 56%,
+        rgba(191,219,254,0.14) 70%,
         transparent 84%
       )`,
+      boxShadow: 'inset 0 0 14px rgba(96,165,250,0.18)',
+      mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+      maskComposite: 'exclude',
+      WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+      WebkitMaskComposite: 'xor',
+    };
+  };
+
+  const getDragGlowStyle = (): CSSProperties => {
+    return {
+      position: 'absolute',
+      inset: 0,
+      borderRadius: panelRadius,
+      pointerEvents: 'none',
+      padding: DRAG_GLOW_BORDER_WIDTH,
+      background: `linear-gradient(
+        135deg,
+        rgba(125,211,252,0.96) 0%,
+        rgba(96,165,250,0.98) 35%,
+        rgba(59,130,246,0.96) 65%,
+        rgba(147,197,253,0.92) 100%
+      )`,
+      boxShadow: `
+        inset 0 0 0 1px rgba(191,219,254,0.85),
+        inset 0 0 22px rgba(59,130,246,0.28),
+        inset 0 0 36px rgba(96,165,250,0.16)
+      `,
       mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
       maskComposite: 'exclude',
       WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
@@ -1415,7 +1445,7 @@ function App() {
   const containerBoxShadow = downloadProgress
     ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px rgba(59,130,246,0.28)`
     : isHovering
-      ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 18px rgba(59,130,246,0.16)`
+      ? `inset 0 0 0 1px rgba(191,219,254,0.88), inset 0 0 24px rgba(59,130,246,0.22), inset 0 0 42px rgba(96,165,250,0.14)`
       : `inset 0 0 0 1px ${colors.borderStart}`;
   const isPrimaryTaskCancelling = primaryQueueTask
     ? cancellingTraceIds.includes(primaryQueueTask.traceId)
@@ -1468,10 +1498,10 @@ function App() {
         e.dataTransfer.dropEffect = "copy";
         console.log("DragOver types:", e.dataTransfer.types);
         resetIdleTimer();
-        // Show hover state for URL drops too
+        const hasFiles = e.dataTransfer.files.length > 0 || e.dataTransfer.types.includes("Files");
         const hasUrl = e.dataTransfer.types.includes("text/uri-list")
-                    || e.dataTransfer.types.includes("text/plain");
-        if (hasUrl && !isHovering) {
+          || e.dataTransfer.types.includes("text/plain");
+        if ((hasFiles || hasUrl) && !isHovering) {
           setIsHovering(true);
         }
       }}
@@ -1548,6 +1578,18 @@ function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.08, ease: 'linear' }}
             style={getEdgeGlowStyle()}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {shouldShowDragGlow && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.985 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.99 }}
+            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+            style={getDragGlowStyle()}
           />
         )}
       </AnimatePresence>
