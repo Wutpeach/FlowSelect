@@ -79,7 +79,7 @@ function connect(options = {}) {
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
-    console.log('[FlowSelect] Connected to desktop app');
+    console.info('[FlowSelect] Connected to desktop app');
     reconnectAttempts = 0;
     lastConnectionIssue = '';
     notifyConnectionStatus();
@@ -100,7 +100,7 @@ function connect(options = {}) {
   };
 
   ws.onclose = () => {
-    console.log('[FlowSelect] Disconnected');
+    console.info('[FlowSelect] Disconnected');
     rejectPendingRequests('ws_closed');
     ws = null;
     lastConnectionIssue = unavailableStatusText();
@@ -395,7 +395,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       directDownloadQuality.getQualityPreference(),
       directDownloadQuality.getAeFriendlyConversionEnabled(),
     ]).then(([cookies, qualityPreference, aeFriendlyConversionEnabled]) => {
-      console.log('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
+      console.info('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
       const prioritizedCandidates = directDownloadQuality.prioritizeCandidatesForHighestQuality(
         videoCandidates,
         platform
