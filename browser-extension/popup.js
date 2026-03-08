@@ -15,6 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusChip = document.getElementById('statusChip');
   const statusHint = document.getElementById('statusHint');
   const qualityGrid = document.getElementById('qualityGrid');
+  const aeCompatibilityToggle = document.getElementById('aeCompatibilityToggle');
+  const aeCompatibilityState = document.getElementById('aeCompatibilityState');
   let statusTimer = null;
 
   function updateStatus(connected, nextStatusText) {
@@ -62,10 +64,35 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function renderAeCompatibilityOption(enabled) {
+    if (!aeCompatibilityToggle || !aeCompatibilityState) {
+      return;
+    }
+
+    aeCompatibilityToggle.dataset.enabled = enabled ? 'true' : 'false';
+    aeCompatibilityToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    aeCompatibilityState.textContent = enabled
+      ? 'On. yt-dlp downloads will finish with AE-friendly conversion.'
+      : 'Off. Highest finishes without extra AE conversion.';
+  }
+
   // Initial connection attempt and status check
   chrome.runtime.sendMessage({ type: 'connect' });
   checkStatus();
   directDownloadQuality.getQualityPreference().then(renderQualityOptions);
+  directDownloadQuality.getAeFriendlyConversionEnabled().then(renderAeCompatibilityOption);
+
+  if (aeCompatibilityToggle) {
+    aeCompatibilityToggle.addEventListener('click', async () => {
+      const currentEnabled = aeCompatibilityToggle.dataset.enabled === 'true';
+      try {
+        const nextEnabled = await directDownloadQuality.setAeFriendlyConversionEnabled(!currentEnabled);
+        renderAeCompatibilityOption(nextEnabled);
+      } catch (error) {
+        console.error('[FlowSelect] Failed to save AE-friendly conversion preference:', error);
+      }
+    });
+  }
 
   // Query current theme from background
   chrome.runtime.sendMessage({ type: 'get_theme' }, (response) => {

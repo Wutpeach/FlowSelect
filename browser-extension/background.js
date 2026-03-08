@@ -393,7 +393,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     Promise.all([
       getCookiesForUrl(pageUrl),
       directDownloadQuality.getQualityPreference(),
-    ]).then(([cookies, qualityPreference]) => {
+      directDownloadQuality.getAeFriendlyConversionEnabled(),
+    ]).then(([cookies, qualityPreference, aeFriendlyConversionEnabled]) => {
       console.log('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
       const prioritizedCandidates = directDownloadQuality.prioritizeCandidatesForHighestQuality(
         videoCandidates,
@@ -415,6 +416,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           clipStartSec: clipStartSec,
           clipEndSec: clipEndSec,
           ytdlpQualityPreference: qualityPreference,
+          aeFriendlyConversionEnabled: aeFriendlyConversionEnabled,
           cookies: cookies
         }
       });

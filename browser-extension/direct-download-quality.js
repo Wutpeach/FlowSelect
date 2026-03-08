@@ -4,6 +4,8 @@
   const STORAGE_KEY = "defaultVideoDownloadQuality";
   const LEGACY_STORAGE_KEY = "defaultDirectDownloadQuality";
   const DEFAULT_QUALITY_PREFERENCE = "balanced";
+  const AE_FRIENDLY_CONVERSION_STORAGE_KEY = "aeFriendlyConversionEnabled";
+  const DEFAULT_AE_FRIENDLY_CONVERSION_ENABLED = false;
   const QUALITY_PREFERENCE_OPTIONS = Object.freeze([
     {
       value: "best",
@@ -42,6 +44,10 @@
       return value;
     }
     return DEFAULT_QUALITY_PREFERENCE;
+  }
+
+  function normalizeAeFriendlyConversionEnabled(value) {
+    return value === true;
   }
 
   function decodeToken(value) {
@@ -230,17 +236,48 @@
     return normalized;
   }
 
+  async function getAeFriendlyConversionEnabled() {
+    if (!chrome?.storage?.local) {
+      return DEFAULT_AE_FRIENDLY_CONVERSION_ENABLED;
+    }
+
+    try {
+      const result = await storageGet(AE_FRIENDLY_CONVERSION_STORAGE_KEY);
+      return normalizeAeFriendlyConversionEnabled(result?.[AE_FRIENDLY_CONVERSION_STORAGE_KEY]);
+    } catch (error) {
+      console.error("[FlowSelect] Failed to load AE-friendly conversion preference:", error);
+      return DEFAULT_AE_FRIENDLY_CONVERSION_ENABLED;
+    }
+  }
+
+  async function setAeFriendlyConversionEnabled(value) {
+    const normalized = normalizeAeFriendlyConversionEnabled(value);
+    if (!chrome?.storage?.local) {
+      return normalized;
+    }
+
+    await storageSet({
+      [AE_FRIENDLY_CONVERSION_STORAGE_KEY]: normalized,
+    });
+    return normalized;
+  }
+
   root.FlowSelectDirectDownloadQuality = {
+    AE_FRIENDLY_CONVERSION_STORAGE_KEY,
+    DEFAULT_AE_FRIENDLY_CONVERSION_ENABLED,
     STORAGE_KEY,
     LEGACY_STORAGE_KEY,
     DEFAULT_QUALITY_PREFERENCE,
     QUALITY_PREFERENCE_OPTIONS,
+    getAeFriendlyConversionEnabled,
     getDirectPlatform,
     getQualityPreference,
     inferQualityScoreFromUrl,
+    normalizeAeFriendlyConversionEnabled,
     normalizeQualityPreference,
     prioritizeCandidatesForHighestQuality,
     selectPreferredVideoUrl,
+    setAeFriendlyConversionEnabled,
     setQualityPreference,
   };
 })(typeof self !== "undefined" ? self : window);

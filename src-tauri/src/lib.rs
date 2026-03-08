@@ -264,6 +264,7 @@ enum QueuedVideoTask {
         cookies_path: Option<PathBuf>,
         direct_candidates: Vec<SelectedDirectCandidate>,
         ytdlp_quality: YtdlpQualityPreference,
+        ae_friendly_conversion_enabled: bool,
         trace_id: String,
     },
     Xiaohongshu {
@@ -273,6 +274,7 @@ enum QueuedVideoTask {
         cookies_path: Option<PathBuf>,
         direct_candidates: Vec<SelectedDirectCandidate>,
         ytdlp_quality: YtdlpQualityPreference,
+        ae_friendly_conversion_enabled: bool,
         trace_id: String,
     },
     Smart {
@@ -281,6 +283,7 @@ enum QueuedVideoTask {
         cookies_path: Option<PathBuf>,
         clip_range: Option<ClipTimeRange>,
         ytdlp_quality: YtdlpQualityPreference,
+        ae_friendly_conversion_enabled: bool,
         trace_id: String,
     },
 }
@@ -2445,8 +2448,9 @@ async fn finalize_ytdlp_success(
     app: &AppHandle,
     trace_id: &str,
     final_path: String,
+    ae_friendly_conversion_enabled: bool,
 ) -> DownloadResult {
-    let normalized_path =
+    let normalized_path = if ae_friendly_conversion_enabled {
         match normalize_video_output_for_ae(app, Path::new(&final_path), trace_id).await {
             Ok(path) => path,
             Err(err) => {
@@ -2457,7 +2461,23 @@ async fn finalize_ytdlp_success(
                     err.as_str(),
                 );
             }
-        };
+        }
+    } else {
+        println!(
+            ">>> [Rust] Skipping AE-friendly normalization for trace_id={} path={}",
+            trace_id, final_path
+        );
+        append_runtime_log_event(
+            "download",
+            "ae_safe_normalize_skipped",
+            Some(trace_id),
+            serde_json::json!({
+                "path": final_path,
+                "reason": "preference_disabled",
+            }),
+        );
+        final_path
+    };
 
     cleanup_residual_audio_artifacts(&normalized_path);
 
@@ -3401,6 +3421,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
             cookies_path,
             direct_candidates,
             ytdlp_quality,
+            ae_friendly_conversion_enabled,
             trace_id,
         } => {
             if let Err(err) = download_platform_direct_with_retry(
@@ -3412,6 +3433,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 cookies_path,
                 direct_candidates,
                 ytdlp_quality,
+                ae_friendly_conversion_enabled,
                 trace_id.clone(),
             )
             .await
@@ -3433,6 +3455,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
             cookies_path,
             direct_candidates,
             ytdlp_quality,
+            ae_friendly_conversion_enabled,
             trace_id,
         } => {
             if let Err(err) = download_platform_direct_with_retry(
@@ -3444,6 +3467,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 cookies_path,
                 direct_candidates,
                 ytdlp_quality,
+                ae_friendly_conversion_enabled,
                 trace_id.clone(),
             )
             .await
@@ -3464,6 +3488,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
             cookies_path,
             clip_range,
             ytdlp_quality,
+            ae_friendly_conversion_enabled,
             trace_id,
         } => {
             if let Err(err) = download_video_smart(
@@ -3473,6 +3498,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 cookies_path,
                 clip_range,
                 ytdlp_quality,
+                ae_friendly_conversion_enabled,
                 Some(trace_id.clone()),
                 None,
             )
@@ -3568,6 +3594,7 @@ async fn download_platform_direct_with_retry(
     extension_cookies_path: Option<PathBuf>,
     direct_candidates: Vec<SelectedDirectCandidate>,
     ytdlp_quality: YtdlpQualityPreference,
+    ae_friendly_conversion_enabled: bool,
     trace_id: String,
 ) -> Result<DownloadResult, String> {
     let direct_route = direct_route_for_platform(platform);
@@ -3608,6 +3635,7 @@ async fn download_platform_direct_with_retry(
             extension_cookies_path,
             None,
             ytdlp_quality,
+            ae_friendly_conversion_enabled,
             Some(trace_id),
             None,
         )
@@ -3761,6 +3789,7 @@ async fn download_platform_direct_with_retry(
         extension_cookies_path,
         None,
         ytdlp_quality,
+        ae_friendly_conversion_enabled,
         Some(trace_id),
         Some(vec![direct_route]),
     )
@@ -3776,6 +3805,7 @@ async fn download_video_internal(
     clip_range: Option<ClipTimeRange>,
     source_title: Option<String>,
     ytdlp_quality: YtdlpQualityPreference,
+    ae_friendly_conversion_enabled: bool,
     trace_id: String,
     allow_youtube_cookie_retry: bool,
 ) -> Result<DownloadResult, String> {
@@ -3822,6 +3852,7 @@ async fn download_video_internal(
             "mode": "yt-dlp",
             "url": summarize_url_for_log(&url),
             "quality": ytdlp_quality.as_str(),
+            "aeFriendlyConversionEnabled": ae_friendly_conversion_enabled,
             "clipMode": clip_download_mode.as_str(),
             "hasClipRange": clip_range.is_some(),
             "renameEnabled": rename_media_on_download,
@@ -3851,7 +3882,13 @@ async fn download_video_internal(
             {
                 Ok(file_path) => {
                     cleanup_extension_cookies_file(&extension_cookies_path);
-                    let result = finalize_ytdlp_success(&app, trace_id.as_str(), file_path).await;
+                    let result = finalize_ytdlp_success(
+                        &app,
+                        trace_id.as_str(),
+                        file_path,
+                        ae_friendly_conversion_enabled,
+                    )
+                    .await;
                     return Ok(result);
                 }
                 Err(err) => {
@@ -4151,6 +4188,7 @@ async fn download_video_internal(
                             clip_range.clone(),
                             source_title.clone(),
                             ytdlp_quality,
+                            ae_friendly_conversion_enabled,
                             trace_id.clone(),
                             false,
                         ))
@@ -4204,8 +4242,13 @@ async fn download_video_internal(
                             );
                             return Ok(result);
                         };
-                        let result =
-                            finalize_ytdlp_success(&app, trace_id.as_str(), path.clone()).await;
+                        let result = finalize_ytdlp_success(
+                            &app,
+                            trace_id.as_str(),
+                            path.clone(),
+                            ae_friendly_conversion_enabled,
+                        )
+                        .await;
                         if !result.success {
                             append_runtime_log_event(
                                 "download",
@@ -4505,6 +4548,7 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         cookies_path: None,
         clip_range: None,
         ytdlp_quality: YtdlpQualityPreference::Best,
+        ae_friendly_conversion_enabled: false,
         trace_id: trace_id.clone(),
     };
     mark_video_task_active(&app, task);
@@ -4515,6 +4559,7 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         None,
         None,
         YtdlpQualityPreference::Best,
+        false,
         trace_id.clone(),
         false,
     )
@@ -4536,6 +4581,7 @@ async fn queue_video_download(
         cookies_path: None,
         clip_range: None,
         ytdlp_quality: YtdlpQualityPreference::Best,
+        ae_friendly_conversion_enabled: false,
         trace_id: trace_id.clone(),
     };
     enqueue_video_task(&app, queued_task);
@@ -4741,6 +4787,12 @@ fn parse_ytdlp_quality_preference(data: &serde_json::Value) -> YtdlpQualityPrefe
         .get("ytdlpQualityPreference")
         .and_then(|value| value.as_str());
     YtdlpQualityPreference::from_extension_value(raw)
+}
+
+fn parse_ae_friendly_conversion_enabled(data: &serde_json::Value) -> bool {
+    data.get("aeFriendlyConversionEnabled")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
 }
 
 fn format_seconds_for_download_section(seconds: f64) -> String {
@@ -4974,6 +5026,7 @@ async fn download_video_smart(
     extension_cookies_path: Option<PathBuf>,
     clip_range: Option<ClipTimeRange>,
     ytdlp_quality: YtdlpQualityPreference,
+    ae_friendly_conversion_enabled: bool,
     trace_id: Option<String>,
     initial_route_chain: Option<Vec<DownloadRoute>>,
 ) -> Result<DownloadResult, String> {
@@ -4990,6 +5043,7 @@ async fn download_video_smart(
             "hasExtensionCookies": extension_cookies_path.as_ref().is_some_and(|path| path.exists()),
             "hasClipRange": clip_range.is_some(),
             "ytdlpQuality": ytdlp_quality.as_str(),
+            "aeFriendlyConversionEnabled": ae_friendly_conversion_enabled,
         }),
     );
 
@@ -5136,6 +5190,7 @@ async fn download_video_smart(
         clip_range.clone(),
         title.clone(),
         ytdlp_quality,
+        ae_friendly_conversion_enabled,
         trace_id.clone(),
         true,
     )
@@ -6977,6 +7032,8 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     let title = data.get("title").and_then(|v| v.as_str());
                     let trace_id = next_download_trace_id();
                     let ytdlp_quality = parse_ytdlp_quality_preference(&data);
+                    let ae_friendly_conversion_enabled =
+                        parse_ae_friendly_conversion_enabled(&data);
                     let clip_range = match parse_clip_time_range(&data) {
                         Ok(value) => value,
                         Err(err) => {
@@ -7026,6 +7083,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             "clipStartSec": clip_range.as_ref().map(|range| range.start_seconds),
                             "clipEndSec": clip_range.as_ref().map(|range| range.end_seconds),
                             "ytdlpQuality": ytdlp_quality.as_str(),
+                            "aeFriendlyConversionEnabled": ae_friendly_conversion_enabled,
                         }),
                     );
 
@@ -7039,6 +7097,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                 .and_then(|value| save_extension_cookies(value).ok()),
                             direct_candidates: douyin_direct_candidates,
                             ytdlp_quality,
+                            ae_friendly_conversion_enabled,
                             trace_id: trace_id.clone(),
                         }
                     } else if is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url) {
@@ -7051,6 +7110,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                 .and_then(|value| save_extension_cookies(value).ok()),
                             direct_candidates: xiaohongshu_direct_candidates,
                             ytdlp_quality,
+                            ae_friendly_conversion_enabled,
                             trace_id: trace_id.clone(),
                         }
                     } else {
@@ -7062,6 +7122,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                 .and_then(|value| save_extension_cookies(value).ok()),
                             clip_range: clip_range.clone(),
                             ytdlp_quality,
+                            ae_friendly_conversion_enabled,
                             trace_id: trace_id.clone(),
                         }
                     };

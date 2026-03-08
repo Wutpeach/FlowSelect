@@ -37,6 +37,25 @@
       <div class="flowselect-section-hint">Applies to yt-dlp downloads. Balanced is the default; Highest still prefers top-tier quality, but now avoids pointless slow paths when quality ties.</div>
       <div class="flowselect-quality-grid" id="qualityGrid"></div>
     </section>
+
+    <section class="flowselect-popup-card">
+      <div class="flowselect-preference-row">
+        <div class="flowselect-preference-copy">
+          <div class="flowselect-section-title">AE-Friendly Format</div>
+          <div class="flowselect-section-hint">Convert finished yt-dlp videos to an After Effects-friendly MP4. This can make the last step much slower.</div>
+        </div>
+        <button
+          type="button"
+          class="flowselect-switch"
+          id="aeCompatibilityToggle"
+          aria-pressed="false"
+          aria-label="Toggle AE-friendly format"
+        >
+          <span class="flowselect-switch-thumb"></span>
+        </button>
+      </div>
+      <div class="flowselect-preference-state" id="aeCompatibilityState">Off. Highest finishes without extra AE conversion.</div>
+    </section>
   </main>
   <script src="direct-download-quality.js"></script>
   <script src="popup.js"></script>
