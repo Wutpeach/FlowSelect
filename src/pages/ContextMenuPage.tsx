@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { desktopDir, join } from "@tauri-apps/api/path";
-import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion } from "framer-motion";
 import { useTheme } from "../contexts/ThemeContext";
@@ -128,13 +127,8 @@ function ContextMenuPage() {
   const selectOutputFolder = async () => {
     isFolderPickerOpenRef.current = true;
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Select Output Folder",
-      });
-
-      if (typeof selected === "string") {
+      const selected = await invoke<string | null>("pick_output_folder");
+      if (typeof selected === "string" && selected.length > 0) {
         await saveOutputPath(selected);
       }
     } catch (err) {

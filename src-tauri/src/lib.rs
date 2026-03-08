@@ -28,6 +28,7 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
@@ -6396,6 +6397,21 @@ fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn pick_output_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .blocking_pick_folder()
+        .map(|path| {
+            path.into_path()
+                .map_err(|err| format!("Failed to convert selected folder path: {}", err))
+        })
+        .transpose()?;
+
+    Ok(selected.map(|path| path.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
 async fn export_support_log(app: AppHandle) -> Result<String, String> {
     let config_path = get_config_path(&app)?;
     let log_dir = get_logs_dir(&app)?;
@@ -7227,6 +7243,7 @@ pub fn run() {
             get_clipboard_files,
             get_config,
             save_config,
+            pick_output_folder,
             export_support_log,
             reset_rename_counter,
             get_autostart,
