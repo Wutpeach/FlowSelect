@@ -1,25 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
-import { desktopDir, join } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion } from "framer-motion";
 import { useTheme } from "../contexts/ThemeContext";
-
-type AppConfig = {
-  outputPath?: string;
-};
-
-async function resolveOutputFolderPath(): Promise<string> {
-  const configStr = await invoke<string>("get_config");
-  const config = JSON.parse(configStr) as AppConfig;
-  if (config.outputPath && config.outputPath.trim().length > 0) {
-    return config.outputPath;
-  }
-
-  const desktop = await desktopDir();
-  return join(desktop, "FlowSelect_Received");
-}
 
 function ContextMenuPage() {
   const { theme, colors } = useTheme();
@@ -113,11 +97,9 @@ function ContextMenuPage() {
 
   const openOutputFolder = async () => {
     try {
-      const path = await resolveOutputFolderPath();
-      await invoke<void>("open_folder", { path });
+      await invoke<void>("begin_open_output_folder_from_context_menu");
     } catch (err) {
       console.error("Failed to open output folder:", err);
-    } finally {
       await requestClose();
     }
   };

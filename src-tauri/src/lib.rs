@@ -6422,12 +6422,40 @@ fn persist_output_path(app: tauri::AppHandle, next_output_path: String) -> Resul
     Ok(true)
 }
 
-#[tauri::command]
-fn begin_pick_output_folder_from_context_menu(app: tauri::AppHandle) -> Result<(), String> {
+fn resolve_current_output_folder_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let config_str = get_config(app.clone())?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
+
+    Ok(config
+        .get("outputPath")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            desktop_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("FlowSelect_Received")
+        }))
+}
+
+fn close_context_menu_window(app: &tauri::AppHandle) {
     if let Some(context_menu) = app.get_webview_window("context-menu") {
         let _ = app.emit("context-menu-closed", ());
         let _ = context_menu.close();
     }
+}
+
+#[tauri::command]
+fn begin_open_output_folder_from_context_menu(app: tauri::AppHandle) -> Result<(), String> {
+    close_context_menu_window(&app);
+    let path = resolve_current_output_folder_path(&app)?;
+    open_folder(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn begin_pick_output_folder_from_context_menu(app: tauri::AppHandle) -> Result<(), String> {
+    close_context_menu_window(&app);
 
     let main_always_on_top = app
         .get_webview_window("main")
@@ -7303,6 +7331,7 @@ pub fn run() {
             get_clipboard_files,
             get_config,
             save_config,
+            begin_open_output_folder_from_context_menu,
             begin_pick_output_folder_from_context_menu,
             export_support_log,
             reset_rename_counter,
