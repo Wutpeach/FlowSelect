@@ -1,7 +1,6 @@
 // FlowSelect Browser Extension - Popup Script
 
 const directDownloadQuality = window.FlowSelectDirectDownloadQuality;
-const OFFLINE_STATUS_TEXT = 'FlowSelect desktop app is offline. Open FlowSelect to connect.';
 
 // Apply theme to popup
 function applyTheme(theme) {
@@ -12,23 +11,24 @@ function applyTheme(theme) {
 document.addEventListener('DOMContentLoaded', () => {
   const statusText = document.getElementById('statusText');
   const statusCard = document.getElementById('statusCard');
-  const statusChip = document.getElementById('statusChip');
   const statusHint = document.getElementById('statusHint');
   const qualityGrid = document.getElementById('qualityGrid');
   const aeCompatibilityToggle = document.getElementById('aeCompatibilityToggle');
   const aeCompatibilityState = document.getElementById('aeCompatibilityState');
+  const aeCompatibilityToggleLabel = document.getElementById('aeCompatibilityToggleLabel');
   let statusTimer = null;
 
   function updateStatus(connected, nextStatusText) {
     statusCard.dataset.connected = connected ? 'true' : 'false';
     if (connected) {
-      statusText.textContent = 'Connected to desktop app';
-      statusChip.textContent = 'Live';
-      statusHint.textContent = 'Theme, queue actions, and extension download requests are synced.';
+      statusCard.dataset.state = 'connected';
+      statusText.textContent = 'Connected';
+      statusHint.textContent = 'Desktop app ready.';
     } else {
-      statusText.textContent = nextStatusText || OFFLINE_STATUS_TEXT;
-      statusChip.textContent = 'Offline';
-      statusHint.textContent = 'Open FlowSelect to restore connection, queueing, and theme sync.';
+      const isConnecting = nextStatusText === 'Connecting';
+      statusCard.dataset.state = isConnecting ? 'connecting' : 'offline';
+      statusText.textContent = nextStatusText || 'Offline';
+      statusHint.textContent = isConnecting ? 'Trying desktop app...' : 'Open desktop app to connect.';
     }
   }
 
@@ -51,7 +51,6 @@ document.addEventListener('DOMContentLoaded', () => {
       button.innerHTML = `
         <span class="flowselect-quality-value">${option.label}</span>
       `;
-      button.title = option.description;
       button.addEventListener('click', async () => {
         try {
           const savedValue = await directDownloadQuality.setQualityPreference(option.value);
@@ -65,15 +64,14 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderAeCompatibilityOption(enabled) {
-    if (!aeCompatibilityToggle || !aeCompatibilityState) {
+    if (!aeCompatibilityToggle || !aeCompatibilityState || !aeCompatibilityToggleLabel) {
       return;
     }
 
     aeCompatibilityToggle.dataset.enabled = enabled ? 'true' : 'false';
-    aeCompatibilityToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-    aeCompatibilityState.textContent = enabled
-      ? 'On. yt-dlp downloads will finish with AE-friendly conversion.'
-      : 'Off. Highest finishes without extra AE conversion.';
+    aeCompatibilityToggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+    aeCompatibilityToggleLabel.textContent = enabled ? 'AE' : 'Original';
+    aeCompatibilityState.textContent = enabled ? 'Slower finish' : 'Keep original file';
   }
 
   // Initial connection attempt and status check
