@@ -5,7 +5,6 @@ import { desktopDir, join } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion } from "framer-motion";
 import { useTheme } from "../contexts/ThemeContext";
-import { saveOutputPath } from "../utils/outputPath";
 
 type AppConfig = {
   outputPath?: string;
@@ -26,7 +25,6 @@ function ContextMenuPage() {
   const { theme, colors } = useTheme();
   const [hoveredItem, setHoveredItem] = useState<"open" | "set" | null>(null);
   const dismissArmedRef = useRef(false);
-  const isFolderPickerOpenRef = useRef(false);
 
   const requestClose = useCallback(async () => {
     dismissArmedRef.current = false;
@@ -43,7 +41,7 @@ function ContextMenuPage() {
       dismissArmedRef.current = true;
     }, 150);
 
-    const shouldIgnoreDismiss = () => !dismissArmedRef.current || isFolderPickerOpenRef.current;
+    const shouldIgnoreDismiss = () => !dismissArmedRef.current;
 
     currentWindow
       .onFocusChanged(({ payload: focused }) => {
@@ -125,16 +123,10 @@ function ContextMenuPage() {
   };
 
   const selectOutputFolder = async () => {
-    isFolderPickerOpenRef.current = true;
     try {
-      const selected = await invoke<string | null>("pick_output_folder");
-      if (typeof selected === "string" && selected.length > 0) {
-        await saveOutputPath(selected);
-      }
+      await invoke<void>("begin_pick_output_folder_from_context_menu");
     } catch (err) {
       console.error("Failed to set output folder:", err);
-    } finally {
-      isFolderPickerOpenRef.current = false;
       await requestClose();
     }
   };

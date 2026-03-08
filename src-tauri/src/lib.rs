@@ -6396,19 +6396,79 @@ fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))
 }
 
-#[tauri::command]
-fn pick_output_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let selected = app
-        .dialog()
-        .file()
-        .blocking_pick_folder()
-        .map(|path| {
-            path.into_path()
-                .map_err(|err| format!("Failed to convert selected folder path: {}", err))
-        })
-        .transpose()?;
+fn persist_output_path(app: tauri::AppHandle, next_output_path: String) -> Result<bool, String> {
+    let config_str = get_config(app.clone())?;
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
 
-    Ok(selected.map(|path| path.to_string_lossy().to_string()))
+    let previous_output_path = config
+        .get("outputPath")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+
+    if previous_output_path == next_output_path {
+        return Ok(false);
+    }
+
+    config["outputPath"] = serde_json::Value::String(next_output_path.clone());
+    let json =
+        serde_json::to_string(&config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    save_config(app.clone(), json)?;
+    let _ = app.emit(
+        "output-path-changed",
+        serde_json::json!({ "path": next_output_path }),
+    );
+    reset_rename_counter(app)?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn begin_pick_output_folder_from_context_menu(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(context_menu) = app.get_webview_window("context-menu") {
+        let _ = app.emit("context-menu-closed", ());
+        let _ = context_menu.close();
+    }
+
+    let main_always_on_top = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_always_on_top().ok())
+        .unwrap_or(false);
+
+    if let Some(window) = app.get_webview_window("main") {
+        if main_always_on_top {
+            let _ = window.set_always_on_top(false);
+        }
+        let _ = window.set_focus();
+    }
+
+    let app_handle = app.clone();
+    app.dialog().file().pick_folder(move |folder_path| {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            if main_always_on_top {
+                let _ = window.set_always_on_top(true);
+            }
+            let _ = window.set_focus();
+        }
+
+        let Some(folder_path) = folder_path else {
+            return;
+        };
+
+        let path = match folder_path.into_path() {
+            Ok(path) => path,
+            Err(err) => {
+                eprintln!(">>> [Rust] Failed to convert picked output folder path: {}", err);
+                return;
+            }
+        };
+        let selected = path.to_string_lossy().to_string();
+
+        if let Err(err) = persist_output_path(app_handle.clone(), selected) {
+            eprintln!(">>> [Rust] Failed to persist output folder from context menu: {}", err);
+        }
+    });
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -7243,7 +7303,7 @@ pub fn run() {
             get_clipboard_files,
             get_config,
             save_config,
-            pick_output_folder,
+            begin_pick_output_folder_from_context_menu,
             export_support_log,
             reset_rename_counter,
             get_autostart,
