@@ -245,6 +245,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download MSI artifact
         uses: actions/download-artifact@v4
         with:
@@ -300,13 +303,27 @@ jobs:
             echo "prerelease=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Resolve release notes
+        id: release_notes
+        run: |
+          RELEASE_NOTES="release-notes/v${{ steps.version.outputs.version }}.md"
+          if [[ ! -f "$RELEASE_NOTES" ]]; then
+            echo "::error::Missing release notes file: $RELEASE_NOTES"
+            echo "Create and commit the versioned release note before pushing the tag."
+            exit 1
+          fi
+
+          echo "path=$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          echo "Using release notes: $RELEASE_NOTES"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: FlowSelect v${{ steps.version.outputs.version }}
           draft: false
           prerelease: ${{ steps.version.outputs.prerelease }}
-          generate_release_notes: true
+          generate_release_notes: false
+          body_path: ${{ steps.release_notes.outputs.path }}
           files: |
             artifacts/msi/*.msi
             artifacts/nsis/*.exe
