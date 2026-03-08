@@ -115,14 +115,15 @@ function ContextMenuPage() {
   const panelStyle: CSSProperties = {
     width: "100%",
     height: "100%",
+    boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
     background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
     border: `1px solid ${colors.fieldBorder}`,
     borderRadius: 8,
     boxShadow: theme === "black"
-      ? `inset 0 1px 0 ${colors.fieldInset}, ${colors.panelShadow}`
-      : `inset 0 1px 0 rgba(255,255,255,0.72), inset 0 -1px 0 ${colors.shadowSpread}, ${colors.panelShadow}`,
+      ? `inset 0 1px 0 ${colors.fieldInset}`
+      : `inset 0 1px 0 ${colors.fieldInset}, inset 0 -1px 0 ${colors.shadowSpread}`,
     overflow: "hidden",
   };
 
@@ -153,7 +154,8 @@ function ContextMenuPage() {
       style={{
         width: "100%",
         height: "100%",
-        padding: 0,
+        padding: 4,
+        boxSizing: "border-box",
         background: "transparent",
       }}
     >
