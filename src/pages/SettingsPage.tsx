@@ -13,21 +13,12 @@ import { APP_VERSION } from "../constants/appVersion";
 import type { YtdlpVersionInfo } from "../types/ytdlp";
 
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
-type ClipDownloadMode = "fast" | "precise";
 
 const DEFAULT_RENAME_RULE_PRESET: RenameRulePreset = "desc_number";
 const RENAME_RULE_PRESET_OPTIONS: Array<{ value: RenameRulePreset; label: string }> = [
   { value: "desc_number", label: "Descending" },
   { value: "asc_number", label: "Ascending" },
   { value: "prefix_number", label: "Prefix + Sequence" },
-];
-const CLIP_DOWNLOAD_MODE_OPTIONS: Array<{
-  value: ClipDownloadMode;
-  label: string;
-  description: string;
-}> = [
-  { value: "fast", label: "Fast", description: "Keyframe-aligned slicing (recommended)." },
-  { value: "precise", label: "Precise", description: "Accurate cut points, usually slower." },
 ];
 const ILLEGAL_FILENAME_CHARS = /[/\\:*?"<>|]/g;
 const VERSION_TAP_THRESHOLD = 5;
@@ -111,10 +102,6 @@ const getParentDirectory = (filePath: string): string => {
   return normalized.slice(0, separatorIndex);
 };
 
-const resolveClipDownloadMode = (config: Record<string, unknown>): ClipDownloadMode => {
-  return config.clipDownloadMode === "precise" ? "precise" : "fast";
-};
-
 const buildRenamePreview = (
   preset: RenameRulePreset,
   prefixRaw: string,
@@ -145,7 +132,6 @@ function SettingsPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedKeys, setRecordedKeys] = useState("");
   const [renameMediaOnDownload, setRenameMediaOnDownload] = useState(false);
-  const [clipDownloadMode, setClipDownloadMode] = useState<ClipDownloadMode>("fast");
   const [renameRulePreset, setRenameRulePreset] = useState<RenameRulePreset>(DEFAULT_RENAME_RULE_PRESET);
   const [renamePrefix, setRenamePrefix] = useState("");
   const [renameSuffix, setRenameSuffix] = useState("");
@@ -224,7 +210,6 @@ function SettingsPage() {
         if (typeof config.outputPath === "string") {
           setOutputPath(config.outputPath);
         }
-        setClipDownloadMode(resolveClipDownloadMode(config));
         if (typeof config.renameMediaOnDownload === "boolean") {
           setRenameMediaOnDownload(config.renameMediaOnDownload);
         } else if (typeof config.videoKeepOriginalName === "boolean") {
@@ -461,21 +446,6 @@ function SettingsPage() {
       await emit("rename-setting-changed", { enabled: newValue });
     } catch (err) {
       console.error("Failed to toggle rename media:", err);
-    }
-  };
-
-  const handleClipDownloadModeChange = async (mode: ClipDownloadMode) => {
-    if (mode === clipDownloadMode) return;
-    const previousMode = clipDownloadMode;
-    setClipDownloadMode(mode);
-    try {
-      const configStr = await invoke<string>("get_config");
-      const config = JSON.parse(configStr);
-      config.clipDownloadMode = mode;
-      await invoke<void>("save_config", { json: JSON.stringify(config) });
-    } catch (err) {
-      setClipDownloadMode(previousMode);
-      console.error("Failed to save clip download mode:", err);
     }
   };
 
@@ -963,34 +933,6 @@ function SettingsPage() {
               </div>
             </div>
           )}
-        </NeonSection>
-
-        {/* Slice Download Mode */}
-        <NeonSection title="Clip download mode">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {CLIP_DOWNLOAD_MODE_OPTIONS.map((option) => {
-              const active = clipDownloadMode === option.value;
-              return (
-                <button
-                  key={option.value}
-                  onClick={() => void handleClipDownloadModeChange(option.value)}
-                  style={{
-                    ...getSelectableOptionStyle(active),
-                    padding: '8px 10px',
-                    textAlign: 'left',
-                    display: 'grid',
-                    gap: 2,
-                  }}
-                >
-                  <span style={{ fontSize: 12, fontWeight: 500 }}>{option.label}</span>
-                  <span style={{ fontSize: 10, opacity: 0.82 }}>{option.description}</span>
-                </button>
-              );
-            })}
-          </div>
-          <NeonHint style={{ marginTop: 6 }}>
-            Applies only to new clip downloads.
-          </NeonHint>
         </NeonSection>
 
         {/* AE Portal */}

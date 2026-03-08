@@ -3,22 +3,22 @@
 
   const STORAGE_KEY = "defaultVideoDownloadQuality";
   const LEGACY_STORAGE_KEY = "defaultDirectDownloadQuality";
-  const DEFAULT_QUALITY_PREFERENCE = "best";
+  const DEFAULT_QUALITY_PREFERENCE = "balanced";
   const QUALITY_PREFERENCE_OPTIONS = Object.freeze([
     {
       value: "best",
-      label: "Auto",
-      description: "Keep the current best-available behavior.",
+      label: "Highest",
+      description: "Prefer the highest available tier, but avoid slower compatibility work when formats tie at the same practical quality.",
     },
     {
       value: "balanced",
-      label: "1080p",
-      description: "Ask yt-dlp for 1080p when available, then fall back gracefully.",
+      label: "Balanced",
+      description: "Prefer AE-friendlier 1080p MP4/H.264/AAC paths before broader fallback.",
     },
     {
       value: "data_saver",
-      label: "360p",
-      description: "Ask yt-dlp for 360p, otherwise fall back to the lowest available tier.",
+      label: "Saver",
+      description: "Prefer lighter downloads and lower bandwidth usage when possible.",
     },
   ]);
 
@@ -223,7 +223,10 @@
       return normalized;
     }
 
-    await storageSet({ [STORAGE_KEY]: normalized });
+    await storageSet({
+      [STORAGE_KEY]: normalized,
+      [LEGACY_STORAGE_KEY]: normalized,
+    });
     return normalized;
   }
 

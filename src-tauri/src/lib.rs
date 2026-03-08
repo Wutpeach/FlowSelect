@@ -144,7 +144,9 @@ impl YtdlpQualityPreference {
 
     fn format_sort(self) -> Option<&'static str> {
         match self {
-            Self::Best => None,
+            // Preserve highest resolution preference, but for ties at the same practical
+            // tier prefer AE-friendlier codec/container combinations before broader fallbacks.
+            Self::Best => Some("res,codec:h264,acodec:aac,ext"),
             Self::Balanced | Self::DataSaver => Some("ext:mp4:m4a"),
         }
     }
@@ -376,7 +378,6 @@ const RUNTIME_LOG_MAX_BYTES: u64 = 512 * 1024;
 const RUNTIME_LOG_TAIL_LINE_LIMIT: usize = 180;
 const RUNTIME_LOG_PROGRESS_BUCKET_PERCENT: f32 = 5.0;
 const RUNTIME_LOG_PROGRESS_MIN_INTERVAL_MS: u128 = 1500;
-const PRECISE_GPU_REQUIRED_ERROR_MARKER: &str = "Precise mode requires hardware encoder";
 // `best` should follow the highest tier available to the current account, even when
 // that requires mixed containers/codecs. We merge to mkv in that tier so yt-dlp can
 // keep 1440p/2160p streams instead of collapsing to MP4-compatible 1080p.
@@ -1678,24 +1679,18 @@ impl DownloadProgressStage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClipDownloadMode {
     Fast,
-    Precise,
 }
 
 impl ClipDownloadMode {
-    fn from_config(config: &serde_json::Value) -> Self {
-        match config
-            .get("clipDownloadMode")
-            .and_then(|value| value.as_str())
-        {
-            Some("precise") => Self::Precise,
-            _ => Self::Fast,
-        }
+    fn from_config(_config: &serde_json::Value) -> Self {
+        // Clip downloads are standardized on the fast path. Legacy config keys are
+        // tolerated for backward compatibility but no longer alter runtime behavior.
+        Self::Fast
     }
 
     fn as_str(self) -> &'static str {
         match self {
             Self::Fast => "fast",
-            Self::Precise => "precise",
         }
     }
 }
@@ -2723,7 +2718,6 @@ async fn slice_cached_source_to_output(
     config: &mut serde_json::Value,
     rename_media_on_download: bool,
     clip_range: &ClipTimeRange,
-    clip_mode: ClipDownloadMode,
     title_hint: Option<&str>,
     trace_id: &str,
 ) -> Result<String, String> {
@@ -2758,36 +2752,16 @@ async fn slice_cached_source_to_output(
         "-loglevel".to_string(),
         "error".to_string(),
     ];
-
-    if clip_mode == ClipDownloadMode::Fast {
-        ffmpeg_args.extend_from_slice(&[
-            "-ss".to_string(),
-            start,
-            "-to".to_string(),
-            end,
-            "-i".to_string(),
-            source_str,
-            "-c".to_string(),
-            "copy".to_string(),
-        ]);
-    } else {
-        ffmpeg_args.extend_from_slice(&[
-            "-i".to_string(),
-            source_str,
-            "-ss".to_string(),
-            start,
-            "-to".to_string(),
-            end,
-        ]);
-        let encoder = resolve_precise_clip_hw_encoder()
-            .ok_or_else(|| format!("{} (mode=precise)", PRECISE_GPU_REQUIRED_ERROR_MARKER))?;
-        ffmpeg_args.extend_from_slice(&[
-            "-c:v".to_string(),
-            encoder,
-            "-c:a".to_string(),
-            "copy".to_string(),
-        ]);
-    }
+    ffmpeg_args.extend_from_slice(&[
+        "-ss".to_string(),
+        start,
+        "-to".to_string(),
+        end,
+        "-i".to_string(),
+        source_str,
+        "-c".to_string(),
+        "copy".to_string(),
+    ]);
     ffmpeg_args.push(output_str.clone());
 
     let ffmpeg_output = tokio::task::spawn_blocking(move || {
@@ -2829,7 +2803,6 @@ async fn try_slice_download_with_reuse(
     config: &mut serde_json::Value,
     rename_media_on_download: bool,
     clip_range: &ClipTimeRange,
-    clip_mode: ClipDownloadMode,
     title_hint: Option<String>,
     trace_id: &str,
 ) -> Result<String, String> {
@@ -2849,7 +2822,6 @@ async fn try_slice_download_with_reuse(
         config,
         rename_media_on_download,
         clip_range,
-        clip_mode,
         title_hint.as_deref(),
         trace_id,
     )
@@ -2858,9 +2830,6 @@ async fn try_slice_download_with_reuse(
         Ok(path) => Ok(path),
         Err(first_err) => {
             if is_cancelled_error(first_err.as_str()) {
-                return Err(first_err);
-            }
-            if is_precise_gpu_required_error(first_err.as_str()) {
                 return Err(first_err);
             }
             println!(
@@ -2884,7 +2853,6 @@ async fn try_slice_download_with_reuse(
                 config,
                 rename_media_on_download,
                 clip_range,
-                clip_mode,
                 title_hint.as_deref(),
                 trace_id,
             )
@@ -2904,8 +2872,6 @@ enum DownloadTerminalErrorCode {
     Cancelled,
     WatchdogHardStall,
     YtdlpSpawnFailure,
-    PreciseGpuRequired,
-    PreciseSliceFailed,
     YtdlpExitFailure,
     YtdlpUnexpectedEnd,
     OutputNormalizationFailed,
@@ -2917,8 +2883,6 @@ impl DownloadTerminalErrorCode {
             Self::Cancelled => "E_DOWNLOAD_CANCELLED",
             Self::WatchdogHardStall => "E_WATCHDOG_HARD_STALL",
             Self::YtdlpSpawnFailure => "E_YTDLP_SPAWN_FAILURE",
-            Self::PreciseGpuRequired => "E_PRECISE_GPU_REQUIRED",
-            Self::PreciseSliceFailed => "E_PRECISE_SLICE_FAILED",
             Self::YtdlpExitFailure => "E_YTDLP_EXIT_FAILURE",
             Self::YtdlpUnexpectedEnd => "E_YTDLP_UNEXPECTED_END",
             Self::OutputNormalizationFailed => "E_OUTPUT_NORMALIZATION_FAILED",
@@ -3544,10 +3508,6 @@ fn is_cancelled_error(err: &str) -> bool {
     err.to_ascii_lowercase().contains("cancelled")
 }
 
-fn is_precise_gpu_required_error(err: &str) -> bool {
-    err.contains(PRECISE_GPU_REQUIRED_ERROR_MARKER)
-}
-
 fn log_download_trace(trace_id: &str, stage: &str, payload: serde_json::Value) {
     let event = serde_json::json!({
         "traceId": trace_id,
@@ -3871,12 +3831,8 @@ async fn download_video_internal(
 
     if let Some(clip_range_ref) = clip_range.as_ref() {
         let cache_key = build_slice_source_cache_key(&url, ytdlp_quality);
-        let force_precise_gpu_pipeline = clip_download_mode == ClipDownloadMode::Precise;
-        let should_use_slice_cache_pipeline = force_precise_gpu_pipeline
-            || should_attempt_slice_source_reuse(cache_key.as_str(), now_timestamp_ms());
-        if force_precise_gpu_pipeline {
-            println!(">>> [Rust] Slice mode precise: strict GPU path enabled (no CPU fallback)");
-        }
+        let should_use_slice_cache_pipeline =
+            should_attempt_slice_source_reuse(cache_key.as_str(), now_timestamp_ms());
         if should_use_slice_cache_pipeline {
             match try_slice_download_with_reuse(
                 &app,
@@ -3888,7 +3844,6 @@ async fn download_video_internal(
                 &mut config,
                 rename_media_on_download,
                 clip_range_ref,
-                clip_download_mode,
                 source_title.clone(),
                 trace_id.as_str(),
             )
@@ -3912,22 +3867,6 @@ async fn download_video_internal(
                             )),
                         };
                         let _ = app.emit("video-download-complete", result.clone());
-                        return Ok(result);
-                    }
-                    if force_precise_gpu_pipeline {
-                        cleanup_extension_cookies_file(&extension_cookies_path);
-                        cleanup_part_files_for_output_root(&output_dir);
-                        let error_code = if is_precise_gpu_required_error(err.as_str()) {
-                            DownloadTerminalErrorCode::PreciseGpuRequired
-                        } else {
-                            DownloadTerminalErrorCode::PreciseSliceFailed
-                        };
-                        let result = emit_download_terminal_failure(
-                            &app,
-                            trace_id.as_str(),
-                            error_code,
-                            err.as_str(),
-                        );
                         return Ok(result);
                     }
                     println!(
@@ -4011,19 +3950,6 @@ async fn download_video_internal(
         );
         args.push("--download-sections".to_string());
         args.push(format!("*{}-{}", start, end));
-        if clip_download_mode == ClipDownloadMode::Precise {
-            args.push("--force-keyframes-at-cuts".to_string());
-            if let Some(encoder) = resolve_precise_clip_hw_encoder() {
-                args.push("--postprocessor-args".to_string());
-                args.push(format!("ffmpeg:-c:v {} -c:a copy", encoder));
-                println!(
-                    ">>> [Rust] Slice mode precise: force keyframes + hardware encoder {}",
-                    encoder
-                );
-            } else {
-                println!(">>> [Rust] Slice mode precise: force keyframes + CPU encoder fallback");
-            }
-        }
     }
 
     args.push(url.clone());

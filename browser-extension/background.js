@@ -394,6 +394,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       getCookiesForUrl(pageUrl),
       directDownloadQuality.getQualityPreference(),
     ]).then(([cookies, qualityPreference]) => {
+      console.log('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
       const prioritizedCandidates = directDownloadQuality.prioritizeCandidatesForHighestQuality(
         videoCandidates,
         platform
