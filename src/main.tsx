@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
 import SettingsPage from "./pages/SettingsPage";
+import ContextMenuPage from "./pages/ContextMenuPage";
 import { AgentationDevTools } from "./components/AgentationDevTools";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import "./index.css";
@@ -18,6 +19,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         <Routes>
           <Route path="/" element={<App />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/context-menu" element={<ContextMenuPage />} />
         </Routes>
         {shouldRenderAgentation && <AgentationDevTools />}
       </BrowserRouter>

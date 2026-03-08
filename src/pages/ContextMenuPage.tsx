@@ -1,10 +1,12 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { desktopDir, join } from "@tauri-apps/api/path";
+import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion } from "framer-motion";
 import { useTheme } from "../contexts/ThemeContext";
+import { saveOutputPath } from "../utils/outputPath";
 
 type AppConfig = {
   outputPath?: string;
@@ -24,18 +26,32 @@ async function resolveOutputFolderPath(): Promise<string> {
 function ContextMenuPage() {
   const { theme, colors } = useTheme();
   const [hoveredItem, setHoveredItem] = useState<"open" | "set" | null>(null);
+  const dismissArmedRef = useRef(false);
+  const isFolderPickerOpenRef = useRef(false);
+
+  const requestClose = useCallback(async () => {
+    dismissArmedRef.current = false;
+    await emit("context-menu-closed").catch(() => undefined);
+    await getCurrentWindow().close().catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const currentWindow = getCurrentWindow();
     let isMounted = true;
     let unlistenFocus: (() => void) | null = null;
     let unlistenTauriBlur: (() => void) | null = null;
+    const armDismissTimer = window.setTimeout(() => {
+      dismissArmedRef.current = true;
+    }, 150);
+
+    const shouldIgnoreDismiss = () => !dismissArmedRef.current || isFolderPickerOpenRef.current;
 
     currentWindow
       .onFocusChanged(({ payload: focused }) => {
-        if (!focused) {
-          void currentWindow.close();
+        if (focused || shouldIgnoreDismiss()) {
+          return;
         }
+        void requestClose();
       })
       .then((fn) => {
         if (isMounted) {
@@ -50,7 +66,10 @@ function ContextMenuPage() {
 
     currentWindow
       .listen("tauri://blur", () => {
-        void currentWindow.close();
+        if (shouldIgnoreDismiss()) {
+          return;
+        }
+        void requestClose();
       })
       .then((fn) => {
         if (isMounted) {
@@ -65,12 +84,16 @@ function ContextMenuPage() {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        void currentWindow.close();
+        event.preventDefault();
+        void requestClose();
       }
     };
 
     const handleWindowBlur = () => {
-      void currentWindow.close();
+      if (shouldIgnoreDismiss()) {
+        return;
+      }
+      void requestClose();
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -78,6 +101,8 @@ function ContextMenuPage() {
 
     return () => {
       isMounted = false;
+      dismissArmedRef.current = false;
+      clearTimeout(armDismissTimer);
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("blur", handleWindowBlur);
       if (unlistenFocus) {
@@ -87,28 +112,36 @@ function ContextMenuPage() {
         unlistenTauriBlur();
       }
     };
-  }, []);
+  }, [requestClose]);
 
   const openOutputFolder = async () => {
-    const currentWindow = getCurrentWindow();
     try {
       const path = await resolveOutputFolderPath();
       await invoke<void>("open_folder", { path });
     } catch (err) {
       console.error("Failed to open output folder:", err);
     } finally {
-      await currentWindow.close().catch(() => undefined);
+      await requestClose();
     }
   };
 
   const selectOutputFolder = async () => {
-    const currentWindow = getCurrentWindow();
+    isFolderPickerOpenRef.current = true;
     try {
-      await emit("request-output-path-picker");
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Output Folder",
+      });
+
+      if (typeof selected === "string") {
+        await saveOutputPath(selected);
+      }
     } catch (err) {
       console.error("Failed to set output folder:", err);
     } finally {
-      await currentWindow.close().catch(() => undefined);
+      isFolderPickerOpenRef.current = false;
+      await requestClose();
     }
   };
 

@@ -2,8 +2,7 @@ import { useState, useEffect, useRef, useCallback, type CSSProperties } from "re
 import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { desktopDir, join } from "@tauri-apps/api/path";
-import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, X } from "lucide-react";
@@ -252,8 +251,6 @@ function App() {
   const [isSettingsHovered, setIsSettingsHovered] = useState(false);
   const [isProgressCancelHovered, setIsProgressCancelHovered] = useState(false);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
-  const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
-  const [contextMenuHoveredItem, setContextMenuHoveredItem] = useState<"open" | "set" | null>(null);
   const idleTimerRef = useRef<number | null>(null);
   const resetCounterFeedbackTimerRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
@@ -333,7 +330,10 @@ function App() {
   }, []);
 
   const closeContextMenuWindow = useCallback(async () => {
-    setContextMenuHoveredItem(null);
+    const existing = await WebviewWindow.getByLabel("context-menu");
+    if (existing) {
+      await existing.close().catch(() => undefined);
+    }
     updateContextMenuOpen(false);
   }, [updateContextMenuOpen]);
 
@@ -538,40 +538,6 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const mainWindow = getCurrentWindow();
-    let isMounted = true;
-    let unlistenFocus: (() => void) | null = null;
-
-    mainWindow
-      .onFocusChanged(({ payload: focused }) => {
-        if (!focused) {
-          return;
-        }
-        void closeContextMenuWindow()
-          .catch((err) => {
-            console.error("Failed to close context menu on main focus:", err);
-          });
-      })
-      .then((fn) => {
-        if (isMounted) {
-          unlistenFocus = fn;
-        } else {
-          fn();
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to listen for main focus changes:", err);
-      });
-
-    return () => {
-      isMounted = false;
-      if (unlistenFocus) {
-        unlistenFocus();
-      }
-    };
-  }, [closeContextMenuWindow]);
-
   // Listen for video download progress events
   useEffect(() => {
     const unlistenProgress = listen<DownloadProgressPayload>(
@@ -672,27 +638,14 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const unlisten = listen<void>("request-output-path-picker", async () => {
-      try {
-        const selected = await open({
-          directory: true,
-          multiple: false,
-          title: "Select Output Folder",
-        });
-
-        if (typeof selected === "string") {
-          await saveOutputPath(selected);
-          setOutputPath(selected);
-        }
-      } catch (err) {
-        console.error("Failed to select output folder from context menu:", err);
-      }
+    const unlisten = listen<void>("context-menu-closed", () => {
+      updateContextMenuOpen(false);
     });
 
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [updateContextMenuOpen]);
 
   // Listen for devMode changes from settings window
   useEffect(() => {
@@ -1364,62 +1317,70 @@ function App() {
   };
 
   // 右键菜单
-  const resolveCurrentOutputFolderPath = async (): Promise<string> => {
-    if (outputPath && outputPath.trim().length > 0) {
-      return outputPath;
-    }
-
-    const desktop = await desktopDir();
-    return join(desktop, "FlowSelect_Received");
-  };
-
-  const openOutputFolderFromContextMenu = async () => {
-    await closeContextMenuWindow();
-    try {
-      const path = await resolveCurrentOutputFolderPath();
-      await invoke<void>("open_folder", { path });
-    } catch (err) {
-      console.error("Failed to open output folder from context menu:", err);
-    }
-  };
-
-  const selectOutputFolderFromContextMenu = async () => {
-    await closeContextMenuWindow();
-    await new Promise((resolve) => window.setTimeout(resolve, 10));
-
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Select Output Folder",
-      });
-
-      if (typeof selected === "string") {
-        await saveOutputPath(selected);
-        setOutputPath(selected);
-      }
-    } catch (err) {
-      console.error("Failed to select folder from context menu:", err);
-    }
-  };
-
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     resetIdleTimer();
 
-    await closeContextMenuWindow();
+    try {
+      await closeContextMenuWindow();
 
-    const rect = e.currentTarget.getBoundingClientRect();
-    const minX = WINDOW_EDGE_PADDING;
-    const minY = WINDOW_EDGE_PADDING;
-    const maxX = rect.width - CONTEXT_MENU_WIDTH - WINDOW_EDGE_PADDING;
-    const maxY = rect.height - CONTEXT_MENU_HEIGHT - WINDOW_EDGE_PADDING;
-    const x = Math.min(Math.max(e.clientX - rect.left, minX), Math.max(minX, maxX));
-    const y = Math.min(Math.max(e.clientY - rect.top, minY), Math.max(minY, maxY));
+      const currentWindow = getCurrentWindow();
+      const [outerPosition, scaleFactor, monitor] = await Promise.all([
+        currentWindow.outerPosition(),
+        currentWindow.scaleFactor(),
+        currentMonitor(),
+      ]);
 
-    setContextMenuPosition({ x, y });
-    updateContextMenuOpen(true);
+      const logicalWindowPosition = new PhysicalPosition(outerPosition).toLogical(scaleFactor);
+      let x = logicalWindowPosition.x + e.clientX;
+      let y = logicalWindowPosition.y + e.clientY;
+
+      if (monitor) {
+        const monitorX = monitor.position.x / scaleFactor;
+        const monitorY = monitor.position.y / scaleFactor;
+        const monitorWidth = monitor.size.width / scaleFactor;
+        const monitorHeight = monitor.size.height / scaleFactor;
+        const minX = monitorX + WINDOW_EDGE_PADDING;
+        const minY = monitorY + WINDOW_EDGE_PADDING;
+        const maxX = monitorX + monitorWidth - CONTEXT_MENU_WIDTH - WINDOW_EDGE_PADDING;
+        const maxY = monitorY + monitorHeight - CONTEXT_MENU_HEIGHT - WINDOW_EDGE_PADDING;
+
+        x = Math.min(Math.max(x, minX), Math.max(minX, maxX));
+        y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
+      } else {
+        const screenWidth = window.screen.availWidth;
+        const screenHeight = window.screen.availHeight;
+        const minX = WINDOW_EDGE_PADDING;
+        const minY = WINDOW_EDGE_PADDING;
+        const maxX = screenWidth - CONTEXT_MENU_WIDTH - WINDOW_EDGE_PADDING;
+        const maxY = screenHeight - CONTEXT_MENU_HEIGHT - WINDOW_EDGE_PADDING;
+
+        x = Math.min(Math.max(x, minX), Math.max(minX, maxX));
+        y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
+      }
+
+      new WebviewWindow("context-menu", {
+        url: "/context-menu",
+        title: "Context Menu",
+        x,
+        y,
+        width: CONTEXT_MENU_WIDTH,
+        height: CONTEXT_MENU_HEIGHT,
+        decorations: false,
+        transparent: true,
+        resizable: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        shadow: false,
+        focus: true,
+        parent: "main",
+      });
+      updateContextMenuOpen(true);
+    } catch (err) {
+      updateContextMenuOpen(false);
+      console.error("Failed to open context menu window:", err);
+    }
   };
 
   const shouldShowMiniControls = isPanelHovered && !isMinimized;
@@ -1486,35 +1447,6 @@ function App() {
         : "";
   const showVideoTaskBadge = videoQueueState.totalCount > 1 || isQueuePopoverOpen;
   const queueViewTitle = "Video queue";
-  const contextMenuPanelStyle: CSSProperties = {
-    width: "100%",
-    height: "100%",
-    boxSizing: "border-box",
-    display: "flex",
-    flexDirection: "column",
-    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-    border: `1px solid ${colors.fieldBorder}`,
-    borderRadius: 8,
-    boxShadow: `inset 0 1px 0 ${colors.fieldInset}, inset 0 -1px 0 ${colors.shadowSpread}`,
-    overflow: "hidden",
-  };
-  const getContextMenuButtonStyle = (item: "open" | "set"): CSSProperties => ({
-    width: "100%",
-    flex: 1,
-    display: "flex",
-    alignItems: "center",
-    padding: "0 12px",
-    boxSizing: "border-box",
-    textAlign: "left",
-    fontSize: 13,
-    color: colors.textPrimary,
-    background: contextMenuHoveredItem === item ? colors.fieldHoverBg : "transparent",
-    border: "none",
-    borderRadius: 0,
-    cursor: "pointer",
-    transition: "background-color 0.15s, color 0.15s",
-    userSelect: "none",
-  });
   const queueViewMeta = `${videoQueueState.activeCount} active · ${videoQueueState.pendingCount} queued`;
 
   return (
@@ -1597,98 +1529,6 @@ function App() {
         willChange: 'transform',
       }}
     >
-      <AnimatePresence>
-        {isContextMenuOpen ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.12 }}
-            onMouseDown={(event) => {
-              event.stopPropagation();
-              void closeContextMenuWindow();
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            style={{
-              position: "absolute",
-              inset: 0,
-              zIndex: 50,
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.92, y: -4 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: -2 }}
-              transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-              onMouseDown={(event) => {
-                event.stopPropagation();
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              style={{
-                position: "absolute",
-                left: contextMenuPosition.x,
-                top: contextMenuPosition.y,
-                width: CONTEXT_MENU_WIDTH,
-                height: CONTEXT_MENU_HEIGHT,
-                padding: 4,
-                boxSizing: "border-box",
-                background: "transparent",
-              }}
-            >
-              <div style={contextMenuPanelStyle}>
-                <button
-                  onClick={() => {
-                    void openOutputFolderFromContextMenu();
-                  }}
-                  onMouseDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                  onMouseEnter={() => {
-                    setContextMenuHoveredItem("open");
-                  }}
-                  onMouseLeave={() => {
-                    setContextMenuHoveredItem(null);
-                  }}
-                  style={getContextMenuButtonStyle("open")}
-                >
-                  Open Folder
-                </button>
-                <div
-                  style={{
-                    height: 1,
-                    background: colors.borderStart,
-                    opacity: 0.9,
-                  }}
-                />
-                <button
-                  onClick={() => {
-                    void selectOutputFolderFromContextMenu();
-                  }}
-                  onMouseDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                  onMouseEnter={() => {
-                    setContextMenuHoveredItem("set");
-                  }}
-                  onMouseLeave={() => {
-                    setContextMenuHoveredItem(null);
-                  }}
-                  style={getContextMenuButtonStyle("set")}
-                >
-                  Set Output Folder
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-
       {/* Edge glow layer - follows mouse */}
       <AnimatePresence>
         {shouldShowEdgeGlow && (
