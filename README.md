@@ -1,110 +1,231 @@
 # FlowSelect
 
-一款轻量级桌面悬浮窗素材收集工具，支持快速收集图片、视频和文件。
+<div align="center">
+  <img src="./app-icon.png" width="112" alt="FlowSelect logo" />
+  <p><strong>桌面悬浮素材收集器，面向文件、图片、网页视频与浏览器扩展联动。</strong></p>
+  <p>
+    <a href="./README.md">中文</a> |
+    <a href="./README.en.md">English</a> |
+    <a href="https://github.com/Wutpeach/FlowSelect/releases">下载 Releases</a> |
+    <a href="./browser-extension/">浏览器扩展</a> |
+    <a href="./release-notes/">Release Notes</a>
+  </p>
+  <p>
+    <img alt="Latest release" src="https://img.shields.io/github/v/release/Wutpeach/FlowSelect?display_name=tag" />
+    <img alt="Release workflow" src="https://img.shields.io/github/actions/workflow/status/Wutpeach/FlowSelect/release.yml?label=release" />
+    <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-111827" />
+    <img alt="Tauri v2" src="https://img.shields.io/badge/Tauri-v2-24C8DB" />
+    <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB" />
+    <img alt="TypeScript 5.8" src="https://img.shields.io/badge/TypeScript-5.8-3178C6" />
+  </p>
+</div>
 
-## 功能特性
+FlowSelect 是一个基于 Tauri 的轻量桌面素材收集工具，专门用来快速接收文件、图片和网页视频。它提供一个常驻桌面的悬浮窗口，支持拖拽、粘贴，以及可选的浏览器扩展联动，并将内容统一保存到可控的输出目录。
 
-- **拖拽收集** - 将文件、图片或视频链接拖拽到悬浮窗即可保存
-- **粘贴收集** - 支持粘贴剪贴板中的文件、图片URL或视频URL
-- **视频下载** - 集成 yt-dlp，支持 YouTube、Bilibili 等主流视频平台
-- **智能命名** - 自动序号命名（99-1倒序），保持文件夹整洁
-- **悬浮窗口** - 始终置顶、透明背景、可拖拽移动
-- **系统托盘** - 最小化到托盘，不占用任务栏
-- **全局快捷键** - 自定义快捷键快速显示/隐藏窗口
-- **开机自启** - 可选开机自动启动
+## 截图 / 界面预览
 
-## 支持的内容类型
+当前仓库还没有现成的录屏素材，下面先放基于当前产品结构整理的预览图，后续可以直接替换为真实截图或 GIF。
 
-| 类型 | 支持格式 |
-|------|----------|
-| 图片 | JPG, PNG, GIF, WebP, BMP, SVG |
-| 视频 | YouTube, Bilibili, Twitter/X, 抖音等 (通过 yt-dlp) |
-| 文件 | 任意文件类型 |
+<p align="center">
+  <img src="./docs/readme/preview-desktop.svg" width="48%" alt="FlowSelect desktop floating window preview" />
+  <img src="./docs/readme/preview-settings.svg" width="48%" alt="FlowSelect settings preview" />
+</p>
 
-## 安装
+<p align="center">
+  <img src="./docs/readme/preview-browser.svg" width="98%" alt="FlowSelect browser extension preview" />
+</p>
 
-### 从 Release 下载
+## 一眼看懂
 
-前往 [Releases](https://github.com/Wutpeach/FlowSelect/releases) 页面下载最新版本的安装包。
+| 方向 | 当前能力 |
+| --- | --- |
+| 收集入口 | 拖拽文件、拖拽文件夹、粘贴链接、Windows 剪贴板文件、浏览器扩展选取 |
+| 视频流程 | 下载队列、实时进度、取消任务、最多 3 并发、直链优先、`yt-dlp` 回退 |
+| 浏览器联动 | Cookies 透传、质量偏好同步、AE 偏好同步、YouTube 片段下载、截图保存 |
+| 桌面体验 | 全局快捷键、系统托盘、开机启动、主题切换、右键输出目录菜单 |
 
-### 从源码构建
+## 适合的使用场景
 
-#### 环境要求
+- 想把桌面上的文件、图片和网页视频快速汇总到同一个目录。
+- 需要一个常驻桌面、低打扰、不占主工作流的下载和收集入口。
+- 会在浏览器里选视频，希望把 Cookies、质量偏好和下载动作同步到桌面端。
+- 下载完成后还要继续进 After Effects 做剪辑或包装。
+
+## 下载与安装
+
+所有按钮都会跳转到 GitHub Releases 页面，请按平台选择对应产物。
+
+### Windows
+
+<p>
+  <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="Windows MSI" src="https://img.shields.io/badge/Windows-MSI-0078D4?logo=windows&logoColor=white" /></a>
+  <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="Windows NSIS EXE" src="https://img.shields.io/badge/Windows-NSIS_EXE-2563EB?logo=windows&logoColor=white" /></a>
+  <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="Windows Portable ZIP" src="https://img.shields.io/badge/Windows-Portable_ZIP-0F6CBD?logo=windows&logoColor=white" /></a>
+</p>
+
+- `MSI`: 更适合标准安装流程。
+- `NSIS EXE`: 另一种安装包形式，适合常见 Windows 分发场景。
+- `Portable ZIP`: 免安装，解压即可运行。
+
+### macOS
+
+<p>
+  <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="macOS Apple Silicon DMG" src="https://img.shields.io/badge/macOS-Apple_Silicon_DMG-111827?logo=apple&logoColor=white" /></a>
+  <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="macOS Intel DMG" src="https://img.shields.io/badge/macOS-Intel_DMG-374151?logo=apple&logoColor=white" /></a>
+</p>
+
+- `Apple Silicon DMG`: 适用于 M 系列芯片 Mac。
+- `Intel DMG`: 适用于 Intel Mac。
+
+## 核心能力
+
+- 桌面悬浮收集窗口
+  - 透明的 200x200 主窗口
+  - 始终置顶
+  - 空闲后自动缩成猫咪图标
+- 快速收集流程
+  - 拖拽本地文件到窗口，自动复制到输出目录
+  - 拖拽文件夹到窗口，直接设置输出目录
+  - 支持粘贴视频链接、图片链接和 data URL
+  - 在 Windows 上支持粘贴剪贴板里的文件列表
+- 视频下载流程
+  - 内置下载队列、进度展示和取消能力
+  - 最多支持 3 个视频任务并发
+  - 对抖音、小红书直链优先走直连下载流程
+  - 其他网页视频或回退场景交给 `yt-dlp`
+- 输出控制
+  - 默认保存路径为 `Desktop/FlowSelect_Received`
+  - 可在设置页或右键菜单中修改输出目录
+  - 可选下载重命名规则：
+    - 倒序编号
+    - 正序编号
+    - 前缀 + 编号
+- 桌面集成
+  - 全局快捷键，可在鼠标附近显示或隐藏窗口
+  - 开机启动
+  - 系统托盘菜单
+  - 黑白两套主题
+  - 内置 `yt-dlp` 版本检查与更新入口
+- After Effects 工作流
+  - 下载完成后可选自动导入 After Effects
+  - 浏览器扩展触发的视频下载可同步 AE 兼容格式偏好
+
+## 配套浏览器扩展
+
+仓库中同时包含一个 Manifest V3 浏览器扩展，位于 [`browser-extension/`](./browser-extension)。它面向 Chromium 内核浏览器，例如 Chrome 和 Edge。
+
+当前已接入的网站包括：
+
+- YouTube
+- Bilibili
+- X / Twitter
+- Douyin
+- Xiaohongshu
+
+扩展当前提供的能力包括：
+
+- 通过本地 WebSocket 连接桌面应用，地址为 `127.0.0.1:39527`
+- 将选中的视频链接和浏览器 Cookies 发送给 FlowSelect
+- 同步下载质量偏好：
+  - `Highest`
+  - `Balanced`
+  - `Saver`
+- 同步 AE 兼容格式偏好
+- 站点侧辅助能力，例如：
+  - 播放器内下载操作
+  - YouTube 片段 IN/OUT 点下载
+  - YouTube 和 Bilibili 截图捕获与保存
+
+## 架构概览
+
+- [`src/`](./src)：React 前端，包含主悬浮窗、设置页和右键菜单窗口
+- [`src-tauri/`](./src-tauri)：Rust + Tauri 后端，负责文件处理、下载调度、队列管理、系统托盘、快捷键和扩展 WebSocket 服务
+- [`browser-extension/`](./browser-extension)：配套浏览器扩展源码
+- [`scripts/`](./scripts)：版本号更新、开发启动、便携包打包等脚本
+- [`release-notes/`](./release-notes)：发布流程依赖的版本说明文件
+
+## 快速开始
+
+### 环境要求
 
 - Node.js 18+
-- Rust 1.70+
 - npm
+- Rust 稳定版工具链
+- 当前平台所需的 Tauri 系统依赖
 
-#### 构建步骤
+### 安装依赖
 
 ```bash
-# 克隆仓库
-git clone https://github.com/Wutpeach/FlowSelect.git
-cd FlowSelect
-
-# 安装依赖
 npm install
+```
 
-# 开发模式运行
+### 启动开发环境
+
+```bash
 npm run tauri dev
+```
 
-# 生产构建
+### 构建桌面应用
+
+```bash
+npm run build
 npm run tauri build
 ```
 
-## 使用方法
+### 常用检查命令
 
-### 基本操作
-
-1. **收集文件** - 将文件拖拽到悬浮窗，或复制文件后在悬浮窗按 `Ctrl+V`
-2. **收集图片** - 拖拽图片或图片URL到悬浮窗
-3. **下载视频** - 拖拽或粘贴视频链接（如 YouTube、Bilibili 链接）
-4. **设置输出目录** - 拖拽文件夹到悬浮窗，右键悬浮窗选择 "Set Output Folder"，或在设置中选择
-5. **打开输出文件夹** - 右键悬浮窗选择 "Open Folder"
-
-### 快捷操作
-
-- **隐藏窗口** - 点击右上角圆点按钮
-- **打开设置** - 点击右下角方块按钮
-- **取消下载** - 下载进行中点击取消按钮
-
-### 设置选项
-
-- **输出路径** - 自定义素材保存位置
-- **全局快捷键** - 设置显示/隐藏窗口的快捷键
-- **开机自启** - 开启/关闭开机自动启动
-- **浏览器 Cookies** - 启用后可下载需要登录的视频
-
-## 技术栈
-
-- **框架**: [Tauri v2](https://tauri.app/)
-- **前端**: React 19 + TypeScript + Vite
-- **后端**: Rust
-- **UI**: TailwindCSS + Framer Motion
-- **视频下载**: [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-
-## 项目结构
-
+```bash
+npm run lint
+npm run type-check
+npm run test
 ```
+
+## 如何使用
+
+1. 启动桌面应用。
+2. 将文件、图片链接或视频链接拖入悬浮窗口。
+3. 使用 `Ctrl+V` 或 `Cmd+V` 粘贴链接。
+4. 在 Windows 上，也可以直接粘贴剪贴板中的文件。
+5. 右键主窗口，可以打开当前输出目录或重新选择输出目录。
+6. 打开设置页后，可以管理主题、快捷键、开机启动、重命名规则、After Effects 集成和 `yt-dlp` 更新。
+
+## 典型工作流
+
+1. 打开 FlowSelect，让悬浮窗停在桌面边缘。
+2. 在浏览器中复制链接、拖拽素材，或通过扩展直接选中视频。
+3. FlowSelect 自动把文件保存到输出目录，并对视频任务进入队列管理。
+4. 如果启用了重命名规则或 After Effects 联动，下载完成后会继续执行对应动作。
+
+## 加载浏览器扩展
+
+### 浏览器扩展安装示意
+
+<p align="center">
+  <img src="./docs/readme/extension-install.svg" width="100%" alt="FlowSelect browser extension install diagram" />
+</p>
+
+1. 打开浏览器扩展管理页面。
+2. 启用开发者模式。
+3. 选择 “Load unpacked”。
+4. 选中 [`browser-extension/`](./browser-extension) 目录。
+5. 启动 FlowSelect 桌面应用。
+6. 打开扩展弹窗，确认状态显示为 `Connected`。
+
+## 仓库结构
+
+```text
 FlowSelect/
-├── src/                    # React 前端代码
-│   ├── App.tsx            # 主悬浮窗组件
-│   ├── pages/             # 页面组件
-│   └── utils/             # 工具函数
-├── src-tauri/             # Rust 后端代码
-│   ├── src/lib.rs         # 核心逻辑
-│   ├── binaries/          # yt-dlp 可执行文件
-│   └── Cargo.toml         # Rust 依赖配置
-├── package.json           # Node.js 依赖配置
-└── README.md
+|-- src/                React UI
+|-- src-tauri/          Rust backend and Tauri config
+|-- browser-extension/  Chromium extension
+|-- scripts/            Dev and packaging helpers
+|-- release-notes/      Versioned release notes
+|-- README.md
+`-- README.en.md
 ```
 
-## 许可证
+## 维护说明
 
-MIT License
-
-## 致谢
-
-- [Tauri](https://tauri.app/) - 跨平台桌面应用框架
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - 视频下载工具
-- [Lucide](https://lucide.dev/) - 图标库
+- 更新版本号时，使用 `npm run version:set -- <version>`。
+- 发布版本标签前，先新增 `release-notes/v<version>.md`。
+- GitHub Releases 由标签触发，且要求对应版本的 release note 文件已经存在于被打标签的提交中。

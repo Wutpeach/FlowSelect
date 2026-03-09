@@ -1,0 +1,55 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="60" y1="40" x2="1120" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#020617" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="760" rx="32" fill="url(#bg)"/>
+  <circle cx="1080" cy="160" r="150" fill="#38BDF8" opacity="0.1"/>
+
+  <text x="80" y="102" fill="#E2E8F0" font-family="Segoe UI, Arial, sans-serif" font-size="40" font-weight="700">Browser-assisted capture</text>
+  <text x="80" y="142" fill="#94A3B8" font-family="Segoe UI, Arial, sans-serif" font-size="20">The extension can detect platform pages, forward cookies, sync quality preferences, and push picks into FlowSelect.</text>
+
+  <rect x="80" y="194" width="760" height="490" rx="28" fill="#F8FAFC" filter="url(#shadow)"/>
+  <rect x="80" y="194" width="760" height="54" rx="28" fill="#E2E8F0"/>
+  <circle cx="122" cy="221" r="8" fill="#F43F5E"/>
+  <circle cx="148" cy="221" r="8" fill="#F59E0B"/>
+  <circle cx="174" cy="221" r="8" fill="#22C55E"/>
+  <rect x="228" y="207" width="520" height="28" rx="14" fill="#CBD5E1"/>
+  <text x="252" y="226" fill="#475569" font-family="Segoe UI, Arial, sans-serif" font-size="15">https://www.youtube.com/watch?v=flowselect</text>
+
+  <rect x="126" y="280" width="668" height="324" rx="22" fill="#0F172A"/>
+  <rect x="156" y="320" width="608" height="244" rx="18" fill="#111827" stroke="#1D4ED8"/>
+  <polygon points="410,365 410,518 548,441" fill="#38BDF8" opacity="0.88"/>
+  <rect x="196" y="590" width="90" height="28" rx="14" fill="#172554"/>
+  <text x="226" y="609" fill="#DBEAFE" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Set IN</text>
+  <rect x="298" y="590" width="94" height="28" rx="14" fill="#172554"/>
+  <text x="329" y="609" fill="#DBEAFE" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Set OUT</text>
+  <rect x="404" y="590" width="142" height="28" rx="14" fill="#1D4ED8"/>
+  <text x="440" y="609" fill="#EFF6FF" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Download clip</text>
+  <rect x="558" y="590" width="116" height="28" rx="14" fill="#0F172A" stroke="#38BDF8"/>
+  <text x="592" y="609" fill="#BAE6FD" font-family="Segoe UI, Arial, sans-serif" font-size="14">Screenshot</text>
+
+  <rect x="876" y="210" width="244" height="366" rx="26" fill="#0B1120" stroke="#1D4ED8" stroke-width="2" filter="url(#shadow)"/>
+  <text x="906" y="252" fill="#E2E8F0" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700">Extension</text>
+  <rect x="906" y="278" width="184" height="56" rx="16" fill="#082F49" stroke="#0EA5E9"/>
+  <circle cx="934" cy="306" r="8" fill="#22C55E"/>
+  <text x="954" y="311" fill="#E0F2FE" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">Connected</text>
+  <text x="906" y="372" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="600">Quality</text>
+  <rect x="906" y="388" width="184" height="42" rx="14" fill="#172554"/>
+  <text x="975" y="415" fill="#DBEAFE" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">Balanced</text>
+  <text x="906" y="466" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="600">AE Format</text>
+  <rect x="1018" y="454" width="72" height="34" rx="17" fill="#1D4ED8"/>
+  <circle cx="1068" cy="471" r="13" fill="#EFF6FF"/>
+  <text x="906" y="534" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="600">Syncs to desktop</text>
+  <text x="906" y="564" fill="#94A3B8" font-family="Segoe UI, Arial, sans-serif" font-size="16">Cookies, quality, clip range</text>
+
+  <rect x="876" y="600" width="244" height="84" rx="22" fill="#0B1120" stroke="#1E40AF"/>
+  <text x="906" y="638" fill="#E2E8F0" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700">FlowSelect ready</text>
+  <text x="906" y="666" fill="#94A3B8" font-family="Segoe UI, Arial, sans-serif" font-size="16">Desktop app receives the next pick.</text>
+</svg>
