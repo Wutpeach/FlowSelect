@@ -43,7 +43,8 @@
     ],
     "resources": {
       "binaries/yt-dlp*": "binaries/",
-      "binaries/deno*": "binaries/"
+      "binaries/deno*": "binaries/",
+      "binaries/pinterest-*": "binaries/"
     }
   }
 }

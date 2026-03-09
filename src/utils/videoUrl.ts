@@ -27,6 +27,7 @@ const VIDEO_PATTERNS = [
   // Xiaohongshu (小红书)
   /^https?:\/\/(www\.)?xiaohongshu\.com\//i,
   /^https?:\/\/xhslink\.com\//i,
+  /^https?:\/\/([a-z0-9-]+\.)?pinterest\.com\/pin\/\d+/i,
 
   // Tencent Video (腾讯视频)
   /^https?:\/\/v\.qq\.com\//i,

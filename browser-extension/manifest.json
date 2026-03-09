@@ -48,6 +48,12 @@
       "js": ["xiaohongshu-detector.js"],
       "css": ["flowselect-shared.css", "xiaohongshu-button.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.pinterest.com/*", "https://pinterest.com/*"],
+      "js": ["pinterest-detector.js"],
+      "css": ["flowselect-shared.css", "pinterest-button.css"],
+      "run_at": "document_idle"
     }
   ],
   "background": {

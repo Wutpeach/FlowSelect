@@ -1,0 +1,46 @@
+:root {
+  --flowselect-site-accent: #e60023;
+  --flowselect-site-accent-soft: rgba(230, 0, 35, 0.14);
+}
+
+.flowselect-pinterest-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(230, 0, 35, 0.18);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(23, 22, 25, 0.96) 0%, rgba(43, 40, 46, 0.96) 100%);
+  color: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  font: 600 14px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0.01em;
+  transition: transform 0.16s ease, color 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+  flex-shrink: 0;
+}
+
+.flowselect-pinterest-action-btn:hover {
+  color: var(--flowselect-site-accent);
+  border-color: rgba(230, 0, 35, 0.34);
+  background: linear-gradient(180deg, rgba(40, 20, 24, 0.98) 0%, rgba(54, 23, 30, 0.98) 100%);
+  transform: translateY(-1px);
+}
+
+.flowselect-pinterest-action-btn:active {
+  transform: scale(0.97);
+}
+
+.flowselect-pinterest-action-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  pointer-events: none;
+}
+
+.flowselect-pinterest-action-btn span {
+  pointer-events: none;
+  white-space: nowrap;
+}
