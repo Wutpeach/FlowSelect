@@ -9,6 +9,7 @@ let reconnectTimer = null;
 const WS_URL = 'ws://127.0.0.1:39527';
 const REQUEST_TIMEOUT_MS = 7000;
 const CONNECTING_WAIT_TIMEOUT_MS = 500;
+const VIDEO_SELECTION_CONNECT_TIMEOUT_MS = 2500;
 const CONNECTING_STATUS_TEXT = 'Connecting';
 const OFFLINE_STATUS_TEXT = 'Offline';
 const pendingRequests = new Map();
@@ -58,6 +59,19 @@ function notifyConnectionStatus() {
     connecting: Boolean(isConnecting() || reconnectTimer !== null),
     statusText: connectionStatusText(),
   }).catch(() => {});
+}
+
+function buildRequestFailure(code, requestId = null) {
+  const data = { code };
+  if (requestId) {
+    data.requestId = requestId;
+  }
+
+  return {
+    success: false,
+    message: code,
+    data,
+  };
 }
 
 function connect(options = {}) {
@@ -158,11 +172,7 @@ function handlePendingRequestResponse(message) {
 function rejectPendingRequests(reason) {
   for (const [requestId, pending] of pendingRequests.entries()) {
     clearTimeout(pending.timer);
-    pending.resolve({
-      success: false,
-      message: reason,
-      data: { requestId, code: reason },
-    });
+    pending.resolve(buildRequestFailure(reason, requestId));
   }
   pendingRequests.clear();
 }
@@ -255,33 +265,30 @@ async function waitForConnection(timeoutMs) {
   return isConnected();
 }
 
-async function sendRequestToApp(action, data = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function ensureConnection(timeoutMs, options = {}) {
+  if (isConnected()) {
+    return true;
+  }
+
+  connect({ force: options.force === true });
+  return waitForConnection(timeoutMs);
+}
+
+async function sendRequestToApp(action, data = {}, timeoutMs = REQUEST_TIMEOUT_MS, options = {}) {
+  const connectTimeoutMs = typeof options.connectTimeoutMs === 'number'
+    ? options.connectTimeoutMs
+    : CONNECTING_WAIT_TIMEOUT_MS;
+  const forceConnect = options.forceConnect === true;
+
   if (!isConnected()) {
-    if (isConnecting()) {
-      const connected = await waitForConnection(CONNECTING_WAIT_TIMEOUT_MS);
-      if (!connected) {
-        return {
-          success: false,
-          message: 'not_connected',
-          data: { code: 'not_connected' },
-        };
-      }
-    } else {
-      connect();
-      return {
-        success: false,
-        message: 'not_connected',
-        data: { code: 'not_connected' },
-      };
+    const connected = await ensureConnection(connectTimeoutMs, { force: forceConnect });
+    if (!connected) {
+      return buildRequestFailure('not_connected');
     }
   }
 
   if (!isConnected()) {
-    return {
-      success: false,
-      message: 'not_connected',
-      data: { code: 'not_connected' },
-    };
+    return buildRequestFailure('not_connected');
   }
 
   const requestId = nextRequestId();
@@ -299,11 +306,7 @@ async function sendRequestToApp(action, data = {}, timeoutMs = REQUEST_TIMEOUT_M
         return;
       }
       pendingRequests.delete(requestId);
-      resolve({
-        success: false,
-        message: 'request_timeout',
-        data: { requestId, code: 'request_timeout' },
-      });
+      resolve(buildRequestFailure('request_timeout', requestId));
     }, timeoutMs);
 
     pendingRequests.set(requestId, { resolve, timer });
@@ -313,13 +316,21 @@ async function sendRequestToApp(action, data = {}, timeoutMs = REQUEST_TIMEOUT_M
     } catch (error) {
       clearTimeout(timer);
       pendingRequests.delete(requestId);
-      resolve({
-        success: false,
-        message: 'send_failed',
-        data: { requestId, code: 'send_failed' },
-      });
+      resolve(buildRequestFailure('send_failed', requestId));
     }
   });
+}
+
+function queueVideoSelectionToApp(data) {
+  return sendRequestToApp(
+    'video_selected',
+    data,
+    REQUEST_TIMEOUT_MS,
+    {
+      connectTimeoutMs: VIDEO_SELECTION_CONNECT_TIMEOUT_MS,
+      forceConnect: true,
+    }
+  );
 }
 
 function normalizeVideoCandidates(rawCandidates) {
@@ -426,27 +437,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         platform,
         message.videoUrl
       );
-      const sent = sendToApp({
-        action: 'video_selected',
-        data: {
-          url: preferredVideoUrl || message.url,
-          pageUrl: pageUrl,
-          title: message.title,
-          videoUrl: preferredVideoUrl,
-          videoCandidates: prioritizedCandidates,
-          clipStartSec: clipStartSec,
-          clipEndSec: clipEndSec,
-          ytdlpQualityPreference: qualityPreference,
-          aeFriendlyConversionEnabled: aeFriendlyConversionEnabled,
-          cookies: cookies
-        }
+      return queueVideoSelectionToApp({
+        url: preferredVideoUrl || message.url,
+        pageUrl: pageUrl,
+        title: message.title,
+        videoUrl: preferredVideoUrl,
+        videoCandidates: prioritizedCandidates,
+        clipStartSec: clipStartSec,
+        clipEndSec: clipEndSec,
+        ytdlpQualityPreference: qualityPreference,
+        aeFriendlyConversionEnabled: aeFriendlyConversionEnabled,
+        cookies: cookies
       });
-      if (!sent) {
-        console.warn('[FlowSelect] Desktop app not connected, retrying websocket connect');
+    }).then((result) => {
+      if (!result?.success) {
+        console.warn(
+          '[FlowSelect] Video selection request was not queued:',
+          result?.data?.code || result?.message || 'unknown'
+        );
       }
+
       sendResponse({
-        success: sent,
+        success: Boolean(result?.success),
         connected: isConnected(),
+        reason: result?.data?.code || null,
+      });
+    }).catch((error) => {
+      console.error('[FlowSelect] Failed to prepare video selection request:', error);
+      sendResponse({
+        success: false,
+        connected: isConnected(),
+        reason: 'prepare_failed',
       });
     });
   } else if (message.type === 'connect') {

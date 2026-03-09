@@ -65,6 +65,28 @@ struct WsResponse {
     data: Option<serde_json::Value>,
 }
 
+fn extract_ws_request_id(data: &serde_json::Value) -> Option<String> {
+    data.get("requestId")
+        .or_else(|| data.get("request_id"))
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string())
+}
+
+fn build_ws_request_data(
+    request_id: &Option<String>,
+    code: Option<&str>,
+) -> Option<serde_json::Value> {
+    request_id.as_ref().map(|rid| match code {
+        Some(c) => serde_json::json!({
+            "requestId": rid,
+            "code": c
+        }),
+        None => serde_json::json!({
+            "requestId": rid
+        }),
+    })
+}
+
 #[derive(Clone, Debug)]
 struct ExtensionVideoCandidate {
     url: String,
@@ -7195,22 +7217,8 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
         }
         "save_data_url" => {
             if let Some(data) = msg.data {
-                let request_id = data
-                    .get("requestId")
-                    .or_else(|| data.get("request_id"))
-                    .and_then(|v| v.as_str())
-                    .map(|v| v.to_string());
-                let with_request_id = |code: Option<&str>| {
-                    request_id.as_ref().map(|rid| match code {
-                        Some(c) => serde_json::json!({
-                            "requestId": rid,
-                            "code": c
-                        }),
-                        None => serde_json::json!({
-                            "requestId": rid
-                        }),
-                    })
-                };
+                let request_id = extract_ws_request_id(&data);
+                let with_request_id = |code: Option<&str>| build_ws_request_data(&request_id, code);
                 let data_url = data
                     .get("dataUrl")
                     .or_else(|| data.get("data_url"))
@@ -7291,6 +7299,8 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
         }
         "video_selected" => {
             if let Some(data) = msg.data {
+                let request_id = extract_ws_request_id(&data);
+                let with_request_id = |code: Option<&str>| build_ws_request_data(&request_id, code);
                 if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
                     // Extract cookies and optional direct candidates from extension.
                     let cookies = data.get("cookies").and_then(|v| v.as_str());
@@ -7343,7 +7353,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             return WsResponse {
                                 success: false,
                                 message: Some(err),
-                                data: None,
+                                data: with_request_id(Some("invalid_clip_range")),
                             };
                         }
                     };
@@ -7429,13 +7439,13 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     WsResponse {
                         success: true,
                         message: Some("Download queued".to_string()),
-                        data: None,
+                        data: with_request_id(None),
                     }
                 } else {
                     WsResponse {
                         success: false,
                         message: Some("Missing url in data".to_string()),
-                        data: None,
+                        data: with_request_id(Some("missing_url")),
                     }
                 }
             } else {
