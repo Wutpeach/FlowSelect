@@ -758,12 +758,10 @@ fn binary_candidate_paths(app: &AppHandle, file_name: &str) -> Vec<PathBuf> {
 
     if let Ok(resource_dir) = app.path().resource_dir() {
         candidates.push(resource_dir.join("binaries").join(file_name));
-        candidates.push(resource_dir.join(file_name));
     }
 
     if let Some(exe_dir) = executable_dir() {
         candidates.push(exe_dir.join("binaries").join(file_name));
-        candidates.push(exe_dir.join(file_name));
     }
 
     candidates
@@ -2713,31 +2711,19 @@ async fn download_full_source_to_slice_cache(
     args.push(url.to_string());
 
     let env_path = build_env_path_with_deno(app);
+    let ytdlp_path = ytdlp_binary_path(app)?;
     let shell = app.shell();
-    let sidecar_spawn = shell
-        .sidecar("yt-dlp")
-        .and_then(|command| command.args(&args).env("PATH", &env_path).spawn());
-    let (mut rx, child) = match sidecar_spawn {
-        Ok(result) => result,
-        Err(sidecar_err) => {
-            let ytdlp_path = ytdlp_sidecar_path(app)?;
-            println!(
-                ">>> [Rust] Slice cache sidecar spawn failed, trying fallback path {:?}: {}",
-                ytdlp_path, sidecar_err
-            );
-            shell
-                .command(ytdlp_path.to_string_lossy().to_string())
-                .args(&args)
-                .env("PATH", &env_path)
-                .spawn()
-                .map_err(|fallback_err| {
-                    format!(
-                        "Failed to spawn yt-dlp for slice cache via sidecar ({}) and fallback path {:?} ({})",
-                        sidecar_err, ytdlp_path, fallback_err
-                    )
-                })?
-        }
-    };
+    let (mut rx, child) = shell
+        .command(ytdlp_path.to_string_lossy().to_string())
+        .args(&args)
+        .env("PATH", &env_path)
+        .spawn()
+        .map_err(|spawn_err| {
+            format!(
+                "Failed to spawn yt-dlp for slice cache at {:?}: {}",
+                ytdlp_path, spawn_err
+            )
+        })?;
     register_download_child(trace_id, child.pid());
 
     let mut stderr_buffer = String::new();
@@ -4182,57 +4168,40 @@ async fn download_video_internal(
         "",
     );
 
+    let ytdlp_path = match ytdlp_binary_path(&app) {
+        Ok(path) => path,
+        Err(resolve_err) => {
+            cleanup_extension_cookies_file(&extension_cookies_path);
+            cleanup_part_files_for_output_root(&output_dir);
+            let result = emit_download_terminal_failure(
+                &app,
+                trace_id.as_str(),
+                DownloadTerminalErrorCode::YtdlpSpawnFailure,
+                &format!("Failed to resolve yt-dlp binary path: {}", resolve_err),
+            );
+            return Ok(result);
+        }
+    };
+
     // Spawn yt-dlp process
     let shell = app.shell();
-    let sidecar_spawn = shell
-        .sidecar("yt-dlp")
-        .and_then(|command| command.args(&args).env("PATH", &env_path).spawn());
-    let (mut rx, child) = match sidecar_spawn {
+    let (mut rx, child) = match shell
+        .command(ytdlp_path.to_string_lossy().to_string())
+        .args(&args)
+        .env("PATH", &env_path)
+        .spawn()
+    {
         Ok(result) => result,
-        Err(sidecar_err) => {
-            let ytdlp_path = match ytdlp_sidecar_path(&app) {
-                Ok(path) => path,
-                Err(resolve_err) => {
-                    cleanup_extension_cookies_file(&extension_cookies_path);
-                    cleanup_part_files_for_output_root(&output_dir);
-                    let result = emit_download_terminal_failure(
-                        &app,
-                        trace_id.as_str(),
-                        DownloadTerminalErrorCode::YtdlpSpawnFailure,
-                        &format!(
-                            "Failed to resolve yt-dlp fallback path after sidecar spawn error: {}; {}",
-                            sidecar_err, resolve_err
-                        ),
-                    );
-                    return Ok(result);
-                }
-            };
-            println!(
-                ">>> [Rust] yt-dlp sidecar spawn failed, trying fallback path {:?}: {}",
-                ytdlp_path, sidecar_err
+        Err(spawn_err) => {
+            cleanup_extension_cookies_file(&extension_cookies_path);
+            cleanup_part_files_for_output_root(&output_dir);
+            let result = emit_download_terminal_failure(
+                &app,
+                trace_id.as_str(),
+                DownloadTerminalErrorCode::YtdlpSpawnFailure,
+                &format!("Failed to spawn yt-dlp at {:?}: {}", ytdlp_path, spawn_err),
             );
-            match shell
-                .command(ytdlp_path.to_string_lossy().to_string())
-                .args(&args)
-                .env("PATH", &env_path)
-                .spawn()
-            {
-                Ok(result) => result,
-                Err(fallback_err) => {
-                    cleanup_extension_cookies_file(&extension_cookies_path);
-                    cleanup_part_files_for_output_root(&output_dir);
-                    let result = emit_download_terminal_failure(
-                        &app,
-                        trace_id.as_str(),
-                        DownloadTerminalErrorCode::YtdlpSpawnFailure,
-                        &format!(
-                            "Failed to spawn yt-dlp via sidecar ({}) and fallback path {:?} ({})",
-                            sidecar_err, ytdlp_path, fallback_err
-                        ),
-                    );
-                    return Ok(result);
-                }
-            }
+            return Ok(result);
         }
     };
 
@@ -5390,7 +5359,7 @@ async fn download_video_smart(
         &trace_id,
         "route_policy",
         serde_json::json!({
-            "policy": "yt_dlp_first_direct_plus_sidecar",
+            "policy": "yt_dlp_first_direct_plus_bundled_binary",
         }),
     );
 
@@ -6145,7 +6114,7 @@ struct YtdlpLatestCacheEntry {
     fetched_at_ms: u64,
 }
 
-fn ytdlp_sidecar_filename() -> Result<&'static str, String> {
+fn ytdlp_binary_filename() -> Result<&'static str, String> {
     if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         Ok("yt-dlp-x86_64-pc-windows-msvc.exe")
     } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
@@ -6178,10 +6147,11 @@ fn ytdlp_download_url() -> Result<&'static str, String> {
     }
 }
 
-fn ytdlp_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let file_name = ytdlp_sidecar_filename()?;
+fn ytdlp_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let file_name = ytdlp_binary_filename()?;
     let candidates = binary_candidate_paths(app, file_name);
     if let Some(path) = candidates.iter().find(|path| path.exists()) {
+        println!(">>> [Rust] Using bundled yt-dlp from: {:?}", path);
         return Ok(path.clone());
     }
 
@@ -6194,31 +6164,18 @@ fn ytdlp_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
 async fn get_local_ytdlp_version(app: &AppHandle) -> Result<String, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
+    let ytdlp_path = ytdlp_binary_path(app)?;
     let shell = app.shell();
-    let sidecar_spawn = shell
-        .sidecar("yt-dlp")
-        .and_then(|command| command.args(["--version"]).spawn());
-
-    let (mut rx, _child) = match sidecar_spawn {
-        Ok(result) => result,
-        Err(sidecar_err) => {
-            let ytdlp_path = ytdlp_sidecar_path(app)?;
-            println!(
-                ">>> [Rust] yt-dlp sidecar version check failed, trying fallback path {:?}: {}",
-                ytdlp_path, sidecar_err
-            );
-            shell
-                .command(ytdlp_path.to_string_lossy().to_string())
-                .args(["--version"])
-                .spawn()
-                .map_err(|fallback_err| {
-                    format!(
-                        "Failed to spawn yt-dlp via sidecar ({}) and fallback path {:?} ({})",
-                        sidecar_err, ytdlp_path, fallback_err
-                    )
-                })?
-        }
-    };
+    let (mut rx, _child) = shell
+        .command(ytdlp_path.to_string_lossy().to_string())
+        .args(["--version"])
+        .spawn()
+        .map_err(|spawn_err| {
+            format!(
+                "Failed to spawn yt-dlp for version check at {:?}: {}",
+                ytdlp_path, spawn_err
+            )
+        })?;
 
     let mut current_version = String::new();
     while let Some(event) = rx.recv().await {
@@ -6268,14 +6225,14 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
 
     println!(">>> [Rust] Starting yt-dlp update");
 
-    let sidecar_path = ytdlp_sidecar_path(&app)?;
+    let ytdlp_path = ytdlp_binary_path(&app)?;
     let download_url = ytdlp_download_url()?;
     println!(
         ">>> [Rust] CARGO_MANIFEST_DIR: {}",
         env!("CARGO_MANIFEST_DIR")
     );
-    println!(">>> [Rust] sidecar_path: {:?}", sidecar_path);
-    println!(">>> [Rust] sidecar_path exists: {}", sidecar_path.exists());
+    println!(">>> [Rust] ytdlp_path: {:?}", ytdlp_path);
+    println!(">>> [Rust] ytdlp_path exists: {}", ytdlp_path.exists());
     println!(">>> [Rust] ytdlp download url: {}", download_url);
 
     // Download from GitHub
@@ -6298,7 +6255,7 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
     let temp_path = std::env::temp_dir().join(format!("yt-dlp-update-{}.tmp", std::process::id()));
 
     // 确保目标目录存在
-    if let Some(parent) = sidecar_path.parent() {
+    if let Some(parent) = ytdlp_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|e| format!("Failed to create directory: {}", e))?;
@@ -6342,14 +6299,14 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
 
     let mut last_copy_err: Option<std::io::Error> = None;
     for attempt in 1..=3 {
-        match tokio::fs::copy(&temp_path, &sidecar_path).await {
+        match tokio::fs::copy(&temp_path, &ytdlp_path).await {
             Ok(_) => {
                 last_copy_err = None;
                 break;
             }
             Err(err) => {
                 println!(
-                    ">>> [Rust] sidecar replace attempt {} failed: {}",
+                    ">>> [Rust] yt-dlp binary replace attempt {} failed: {}",
                     attempt, err
                 );
                 last_copy_err = Some(err);
@@ -6363,13 +6320,13 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
     if let Some(err) = last_copy_err {
         let _ = tokio::fs::remove_file(&temp_path).await;
         return Err(format!(
-            "Failed to replace yt-dlp sidecar at {:?}: {}",
-            sidecar_path, err
+            "Failed to replace yt-dlp binary at {:?}: {}",
+            ytdlp_path, err
         ));
     }
 
     #[cfg(unix)]
-    tokio::fs::set_permissions(&sidecar_path, std::fs::Permissions::from_mode(0o755))
+    tokio::fs::set_permissions(&ytdlp_path, std::fs::Permissions::from_mode(0o755))
         .await
         .map_err(|e| format!("Failed to set executable permission: {}", e))?;
 
@@ -6795,7 +6752,7 @@ async fn export_support_log(app: AppHandle) -> Result<String, String> {
     let current_exe = std::env::current_exe()
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|err| format!("unavailable ({})", err));
-    let ytdlp_path = ytdlp_sidecar_path(&app)
+    let ytdlp_path = ytdlp_binary_path(&app)
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|err| format!("unavailable ({})", err));
     let ytdlp_version = match get_local_ytdlp_version(&app).await {

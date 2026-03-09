@@ -41,10 +41,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": [
-      "binaries/yt-dlp"
-    ],
     "resources": {
+      "binaries/yt-dlp*": "binaries/",
       "binaries/deno*": "binaries/"
     }
   }

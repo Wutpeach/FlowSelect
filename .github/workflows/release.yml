@@ -146,9 +146,6 @@ jobs:
           Copy-Item "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "binaries/yt-dlp-x86_64-pc-windows-msvc.exe") -Force
           Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $portableDir "binaries/deno.exe") -Force
           Copy-Item "src-tauri/binaries/ffmpeg.exe" (Join-Path $portableDir "binaries/ffmpeg.exe") -Force
-          Copy-Item "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "yt-dlp-x86_64-pc-windows-msvc.exe") -Force
-          Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $portableDir "deno.exe") -Force
-          Copy-Item "src-tauri/binaries/ffmpeg.exe" (Join-Path $portableDir "ffmpeg.exe") -Force
 
           if (Test-Path $portableZip) {
             Remove-Item $portableZip -Force
