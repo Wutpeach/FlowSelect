@@ -25,16 +25,53 @@ function Get-BinaryVersion {
   }
 }
 
+function Ensure-WindowsFfmpegBinary {
+  param([string]$DestinationPath)
+
+  if (Test-Path $DestinationPath) {
+    Write-Host ">>> Using existing ffmpeg source binary: $DestinationPath"
+    return
+  }
+
+  $downloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+  $tempZipPath = Join-Path ([System.IO.Path]::GetTempPath()) ("flowselect-ffmpeg-{0}.zip" -f [Guid]::NewGuid().ToString("N"))
+  $extractDir = Join-Path ([System.IO.Path]::GetTempPath()) ("flowselect-ffmpeg-{0}" -f [Guid]::NewGuid().ToString("N"))
+
+  try {
+    Write-Host ">>> Downloading ffmpeg source binary..."
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZipPath
+    Expand-Archive -Path $tempZipPath -DestinationPath $extractDir -Force
+
+    $ffmpegBinary = Get-ChildItem -Path $extractDir -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+    if (-not $ffmpegBinary) {
+      throw "ffmpeg download failed: ffmpeg.exe not found in extracted archive"
+    }
+
+    New-Item -ItemType Directory -Force -Path (Split-Path $DestinationPath -Parent) | Out-Null
+    Copy-Item $ffmpegBinary.FullName $DestinationPath -Force
+  } finally {
+    if (Test-Path $tempZipPath) {
+      Remove-Item $tempZipPath -Force
+    }
+    if (Test-Path $extractDir) {
+      Remove-Item $extractDir -Recurse -Force
+    }
+  }
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Push-Location $repoRoot
 
 try {
   $ytdlpSource = "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe"
+  $ffmpegSource = "src-tauri/binaries/ffmpeg.exe"
   $ytdlpDownloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 
   if (-not (Test-Path $ytdlpSource)) {
     throw "Cannot find yt-dlp source binary: $ytdlpSource"
   }
+
+  Ensure-WindowsFfmpegBinary $ffmpegSource
 
   if (-not $SkipYtdlpUpdate) {
     $currentYtdlpVersion = Get-BinaryVersion $ytdlpSource
@@ -106,6 +143,10 @@ try {
   Copy-Item $appExe (Join-Path $stagingDir "FlowSelect.exe") -Force
   Copy-Item $ytdlpSource (Join-Path $stagingDir "binaries/yt-dlp-x86_64-pc-windows-msvc.exe") -Force
   Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $stagingDir "binaries/deno.exe") -Force
+  Copy-Item $ffmpegSource (Join-Path $stagingDir "binaries/ffmpeg.exe") -Force
+  Copy-Item $ytdlpSource (Join-Path $stagingDir "yt-dlp-x86_64-pc-windows-msvc.exe") -Force
+  Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $stagingDir "deno.exe") -Force
+  Copy-Item $ffmpegSource (Join-Path $stagingDir "ffmpeg.exe") -Force
 
   if (Test-Path $portableZip) {
     Remove-Item $portableZip -Force

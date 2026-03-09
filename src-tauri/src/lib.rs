@@ -786,6 +786,54 @@ fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
         .ok_or_else(|| "Failed to resolve deno runtime path candidates".to_string())
 }
 
+#[cfg(target_os = "windows")]
+fn ffmpeg_executable_name() -> &'static str {
+    "ffmpeg.exe"
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ffmpeg_executable_name() -> &'static str {
+    "ffmpeg"
+}
+
+fn resolve_binary_from_env_path(file_name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|raw_path| {
+        std::env::split_paths(&raw_path)
+            .map(|dir| dir.join(file_name))
+            .find(|path| path.exists())
+    })
+}
+
+fn ffmpeg_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let file_name = ffmpeg_executable_name();
+    let candidates = binary_candidate_paths(app, file_name);
+    if let Some(path) = candidates.iter().find(|path| path.exists()) {
+        println!(">>> [Rust] Using bundled ffmpeg from: {:?}", path);
+        return Ok(path.clone());
+    }
+
+    if let Some(path) = resolve_binary_from_env_path(file_name) {
+        println!(">>> [Rust] Using system ffmpeg from PATH: {:?}", path);
+        return Ok(path);
+    }
+
+    Err(format!(
+        "Failed to resolve ffmpeg runtime. Looked for {:?} in bundled candidates {:?} and system PATH",
+        file_name, candidates
+    ))
+}
+
+fn ffmpeg_location_for_ytdlp(app: &AppHandle) -> Result<String, String> {
+    let ffmpeg_path = ffmpeg_binary_path(app)?;
+    let parent = ffmpeg_path.parent().ok_or_else(|| {
+        format!(
+            "Resolved ffmpeg path has no parent directory: {:?}",
+            ffmpeg_path
+        )
+    })?;
+    Ok(parent.to_string_lossy().to_string())
+}
+
 fn build_env_path_with_deno(app: &AppHandle) -> String {
     let mut env_path = std::env::var("PATH").unwrap_or_default();
     if let Ok(deno_path) = get_deno_path(app) {
@@ -1947,13 +1995,21 @@ fn precise_clip_hw_encoder_candidates() -> &'static [&'static str] {
     }
 }
 
-fn detect_precise_clip_hw_encoder() -> Option<String> {
+fn detect_precise_clip_hw_encoder(app: &AppHandle) -> Option<String> {
     let candidates = precise_clip_hw_encoder_candidates();
     if candidates.is_empty() {
         return None;
     }
 
-    let output = match std::process::Command::new("ffmpeg")
+    let ffmpeg_path = match ffmpeg_binary_path(app) {
+        Ok(path) => path,
+        Err(err) => {
+            println!(">>> [Rust] Precise mode encoder probe skipped: {}", err);
+            return None;
+        }
+    };
+
+    let output = match std::process::Command::new(&ffmpeg_path)
         .args(["-hide_banner", "-encoders"])
         .output()
     {
@@ -1986,13 +2042,13 @@ fn detect_precise_clip_hw_encoder() -> Option<String> {
     None
 }
 
-fn resolve_precise_clip_hw_encoder() -> Option<String> {
+fn resolve_precise_clip_hw_encoder(app: &AppHandle) -> Option<String> {
     let mut cache_guard = PRECISE_CLIP_HW_ENCODER_CACHE.lock().unwrap();
     if let Some(cached) = cache_guard.as_ref() {
         return cached.clone();
     }
 
-    let detected = detect_precise_clip_hw_encoder();
+    let detected = detect_precise_clip_hw_encoder(app);
     if let Some(encoder) = detected.as_ref() {
         println!(
             ">>> [Rust] Precise mode hardware encoder detected: {}",
@@ -2209,13 +2265,30 @@ fn replace_file_preserving_backup(temp_path: &Path, target_path: &Path) -> Resul
     }
 }
 
-async fn run_ffmpeg_with_args(args: Vec<String>) -> Result<(), String> {
+async fn run_ffmpeg_capture_output(
+    app: &AppHandle,
+    args: Vec<String>,
+    context: &str,
+) -> Result<std::process::Output, String> {
+    let ffmpeg_path = ffmpeg_binary_path(app)?;
+    let ffmpeg_path_display = ffmpeg_path.to_string_lossy().to_string();
     let output = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("ffmpeg").args(args).output()
+        std::process::Command::new(&ffmpeg_path).args(args).output()
     })
     .await
-    .map_err(|e| format!("Failed to await ffmpeg task: {}", e))?
-    .map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
+    .map_err(|e| format!("Failed to await {}: {}", context, e))?
+    .map_err(|e| {
+        format!(
+            "Failed to spawn {} using {}: {}",
+            context, ffmpeg_path_display, e
+        )
+    })?;
+
+    Ok(output)
+}
+
+async fn run_ffmpeg_with_args(app: &AppHandle, args: Vec<String>) -> Result<(), String> {
+    let output = run_ffmpeg_capture_output(app, args, "ffmpeg task").await?;
 
     if !output.status.success() {
         return Err(extract_process_failure_message(
@@ -2323,7 +2396,7 @@ async fn normalize_video_output_for_ae(
                 "+faststart".to_string(),
                 temp_output_path.to_string_lossy().to_string(),
             ];
-            run_ffmpeg_with_args(ffmpeg_args)
+            run_ffmpeg_with_args(app, ffmpeg_args)
                 .await
                 .map_err(|e| format!("AE-safe remux failed: {}", e))
         }
@@ -2349,7 +2422,7 @@ async fn normalize_video_output_for_ae(
                 "+faststart".to_string(),
                 temp_output_path.to_string_lossy().to_string(),
             ];
-            run_ffmpeg_with_args(ffmpeg_args)
+            run_ffmpeg_with_args(app, ffmpeg_args)
                 .await
                 .map_err(|e| format!("AE-safe audio transcode failed: {}", e))
         }
@@ -2380,8 +2453,8 @@ async fn normalize_video_output_for_ae(
                 ]
             };
 
-            if let Some(gpu_encoder) = resolve_precise_clip_hw_encoder() {
-                match run_ffmpeg_with_args(build_args(gpu_encoder.as_str())).await {
+            if let Some(gpu_encoder) = resolve_precise_clip_hw_encoder(app) {
+                match run_ffmpeg_with_args(app, build_args(gpu_encoder.as_str())).await {
                     Ok(_) => Ok(()),
                     Err(err) => {
                         println!(
@@ -2401,7 +2474,7 @@ async fn normalize_video_output_for_ae(
                         if temp_output_path.exists() {
                             let _ = fs::remove_file(&temp_output_path);
                         }
-                        run_ffmpeg_with_args(build_args("libx264"))
+                        run_ffmpeg_with_args(app, build_args("libx264"))
                             .await
                             .map_err(|cpu_err| {
                                 format!(
@@ -2413,7 +2486,7 @@ async fn normalize_video_output_for_ae(
                 }
             } else {
                 println!(">>> [Rust] AE-safe full transcode using CPU encoder libx264");
-                run_ffmpeg_with_args(build_args("libx264"))
+                run_ffmpeg_with_args(app, build_args("libx264"))
                     .await
                     .map_err(|e| format!("AE-safe full transcode failed: {}", e))
             }
@@ -2451,7 +2524,10 @@ fn cleanup_residual_audio_artifacts(final_path: &str) {
     let Some(parent) = final_path.parent() else {
         return;
     };
-    let target_stem = final_path.file_stem().and_then(|value| value.to_str());
+    let target_stem = final_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
     let Ok(entries) = std::fs::read_dir(parent) else {
         return;
     };
@@ -2462,11 +2538,46 @@ fn cleanup_residual_audio_artifacts(final_path: &str) {
             continue;
         }
         if let Some(ext) = path.extension() {
-            let same_stem = path.file_stem().and_then(|value| value.to_str()) == target_stem;
-            if ext == "m4a" && same_stem {
+            let same_stem = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .map(|value| value.to_ascii_lowercase())
+                == target_stem;
+            let split_artifact_matches = ytdlp_split_artifact_base_name(&path)
+                .as_deref()
+                == target_stem.as_deref();
+            if (ext == "m4a" && same_stem) || split_artifact_matches {
                 println!(">>> [Rust] Cleaning up residual file: {:?}", path);
                 let _ = std::fs::remove_file(&path);
             }
+        }
+    }
+}
+
+fn ytdlp_split_artifact_base_name(path: &Path) -> Option<String> {
+    static YTDLP_SPLIT_ARTIFACT_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)^(?P<base>.+)\.f\d+\.[^.]+$")
+            .expect("invalid yt-dlp split artifact regex")
+    });
+
+    let file_name = path.file_name()?.to_str()?;
+    YTDLP_SPLIT_ARTIFACT_RE
+        .captures(file_name)
+        .and_then(|caps| caps.name("base"))
+        .map(|value| value.as_str().to_ascii_lowercase())
+}
+
+fn cleanup_captured_ytdlp_artifacts(
+    captured_artifact_paths: &HashSet<PathBuf>,
+    keep_path: Option<&Path>,
+) {
+    for path in captured_artifact_paths {
+        if keep_path.is_some_and(|keep| keep == path) {
+            continue;
+        }
+        if path.exists() {
+            println!(">>> [Rust] Cleaning up yt-dlp artifact: {:?}", path);
+            let _ = fs::remove_file(path);
         }
     }
 }
@@ -2556,6 +2667,7 @@ async fn download_full_source_to_slice_cache(
     use tauri_plugin_shell::process::CommandEvent;
 
     println!(">>> [Rust] Slice cache source download start: {}", url);
+    let ffmpeg_location = ffmpeg_location_for_ytdlp(app)?;
     let ytdlp_temp_dir = std::env::temp_dir().join(YTDLP_TEMP_DIR_NAME);
     fs::create_dir_all(&ytdlp_temp_dir)
         .map_err(|e| format!("Failed to create yt-dlp temp directory: {}", e))?;
@@ -2572,6 +2684,8 @@ async fn download_full_source_to_slice_cache(
         ytdlp_quality.format_selector().to_string(),
         "--merge-output-format".to_string(),
         ytdlp_quality.merge_output_format().to_string(),
+        "--ffmpeg-location".to_string(),
+        ffmpeg_location,
         "--no-keep-video".to_string(),
         "--newline".to_string(),
         "--progress".to_string(),
@@ -2632,6 +2746,7 @@ async fn download_full_source_to_slice_cache(
     let mut heartbeat_state = YtdlpHeartbeatState::default();
     let mut last_hard_heartbeat_at = std::time::Instant::now();
     let mut last_soft_heartbeat_at = Some(std::time::Instant::now());
+    let mut captured_artifact_paths = HashSet::new();
 
     loop {
         match tokio::time::timeout(
@@ -2650,6 +2765,7 @@ async fn download_full_source_to_slice_cache(
                         &mut last_file_path,
                         &mut last_stage,
                         &mut heartbeat_state,
+                        &mut captured_artifact_paths,
                         trace_id,
                     );
                     let now = std::time::Instant::now();
@@ -2672,6 +2788,7 @@ async fn download_full_source_to_slice_cache(
                         &mut last_file_path,
                         &mut last_stage,
                         &mut heartbeat_state,
+                        &mut captured_artifact_paths,
                         trace_id,
                     );
                     let now = std::time::Instant::now();
@@ -2687,14 +2804,20 @@ async fn download_full_source_to_slice_cache(
                     clear_download_child(trace_id);
                     if payload.code == Some(0) {
                         if slice_cache_file_size_if_valid(cache_path).is_some() {
+                            cleanup_captured_ytdlp_artifacts(
+                                &captured_artifact_paths,
+                                Some(cache_path),
+                            );
                             return Ok(cache_path.to_path_buf());
                         }
+                        cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
                         return Err(format!(
                             "Slice cache source invalid after download: {:?}",
                             cache_path
                         ));
                     }
 
+                    cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
                     let message = stderr_buffer
                         .lines()
                         .map(str::trim)
@@ -2711,6 +2834,7 @@ async fn download_full_source_to_slice_cache(
 
         if is_download_cancelled(trace_id) {
             kill_download_child_process(trace_id);
+            cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
             return Err("Download cancelled".to_string());
         }
 
@@ -2721,11 +2845,13 @@ async fn download_full_source_to_slice_cache(
         }
         if is_watchdog_timeout_candidate(last_hard_heartbeat_at, last_soft_heartbeat_at, now) {
             terminate_download_child_process_with_grace(trace_id).await;
+            cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
             return Err("Slice cache source download stalled".to_string());
         }
     }
 
     clear_download_child(trace_id);
+    cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
     Err("Slice cache source download ended unexpectedly".to_string())
 }
 
@@ -2811,14 +2937,8 @@ async fn slice_cached_source_to_output(
     ]);
     ffmpeg_args.push(output_str.clone());
 
-    let ffmpeg_output = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("ffmpeg")
-            .args(ffmpeg_args)
-            .output()
-    })
-    .await
-    .map_err(|e| format!("Failed to await ffmpeg slicing task: {}", e))?
-    .map_err(|e| format!("Failed to spawn ffmpeg for cached slicing: {}", e))?;
+    let ffmpeg_output =
+        run_ffmpeg_capture_output(app, ffmpeg_args, "ffmpeg slicing task").await?;
 
     if !ffmpeg_output.status.success() {
         let stderr_message = String::from_utf8_lossy(&ffmpeg_output.stderr)
@@ -3955,6 +4075,13 @@ async fn download_video_internal(
     let ytdlp_temp_dir = std::env::temp_dir().join(YTDLP_TEMP_DIR_NAME);
     fs::create_dir_all(&ytdlp_temp_dir)
         .map_err(|e| format!("Failed to create yt-dlp temp directory: {}", e))?;
+    let ffmpeg_location = match ffmpeg_location_for_ytdlp(&app) {
+        Ok(location) => location,
+        Err(err) => {
+            cleanup_extension_cookies_file(&extension_cookies_path);
+            return Err(err);
+        }
+    };
 
     // Build args
     let mut args = vec![
@@ -3962,6 +4089,8 @@ async fn download_video_internal(
         ytdlp_quality.format_selector().to_string(),
         "--merge-output-format".to_string(),
         ytdlp_quality.merge_output_format().to_string(),
+        "--ffmpeg-location".to_string(),
+        ffmpeg_location,
         "--no-keep-video".to_string(),
         "--newline".to_string(),
         "--progress".to_string(),
@@ -4117,6 +4246,7 @@ async fn download_video_internal(
     let mut heartbeat_state = YtdlpHeartbeatState::default();
     let mut last_hard_heartbeat_at = std::time::Instant::now();
     let mut last_soft_heartbeat_at = Some(std::time::Instant::now());
+    let mut captured_artifact_paths = HashSet::new();
 
     // Process events from yt-dlp
     loop {
@@ -4138,6 +4268,7 @@ async fn download_video_internal(
                         &mut last_file_path,
                         &mut last_stage,
                         &mut heartbeat_state,
+                        &mut captured_artifact_paths,
                         trace_id.as_str(),
                     );
                     let now = std::time::Instant::now();
@@ -4160,6 +4291,7 @@ async fn download_video_internal(
                         &mut last_file_path,
                         &mut last_stage,
                         &mut heartbeat_state,
+                        &mut captured_artifact_paths,
                         trace_id.as_str(),
                     );
                     let now = std::time::Instant::now();
@@ -4182,8 +4314,10 @@ async fn download_video_internal(
                     let success = payload.code == Some(0) && !was_cancelled;
                     if !success {
                         cleanup_part_files_for_output_root(&output_dir);
+                        cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
                     }
                     if was_cancelled {
+                        cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
                         if let Some(ref final_path) = last_file_path {
                             let _ = std::fs::remove_file(final_path);
                         }
@@ -4208,6 +4342,7 @@ async fn download_video_internal(
                         if let Some(ref final_path) = last_file_path {
                             let _ = std::fs::remove_file(final_path);
                         }
+                        cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
                         return Box::pin(download_video_internal(
                             app.clone(),
                             url.clone(),
@@ -4269,6 +4404,10 @@ async fn download_video_internal(
                             );
                             return Ok(result);
                         };
+                        cleanup_captured_ytdlp_artifacts(
+                            &captured_artifact_paths,
+                            Some(Path::new(path)),
+                        );
                         let result = finalize_ytdlp_success(
                             &app,
                             trace_id.as_str(),
@@ -4338,6 +4477,7 @@ async fn download_video_internal(
             terminate_download_child_process_with_grace(trace_id.as_str()).await;
             cleanup_extension_cookies_file(&extension_cookies_path);
             cleanup_part_files_for_output_root(&output_dir);
+            cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
             let was_cancelled = is_download_cancelled(trace_id.as_str());
             let result = DownloadResult {
                 trace_id: trace_id.clone(),
@@ -4388,6 +4528,7 @@ async fn download_video_internal(
     // Fallback if loop exits without Terminated event
     cleanup_extension_cookies_file(&extension_cookies_path);
     cleanup_part_files_for_output_root(&output_dir);
+    cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
     clear_download_child(trace_id.as_str());
     let was_cancelled = is_download_cancelled(trace_id.as_str());
     let result = DownloadResult {
@@ -5899,6 +6040,7 @@ fn process_ytdlp_output_line(
     last_file_path: &mut Option<String>,
     last_stage: &mut DownloadProgressStage,
     heartbeat_state: &mut YtdlpHeartbeatState,
+    captured_artifact_paths: &mut HashSet<PathBuf>,
     trace_id: &str,
 ) -> YtdlpHeartbeatEvent {
     let mut heartbeat_event = YtdlpHeartbeatEvent::default();
@@ -5979,6 +6121,7 @@ fn process_ytdlp_output_line(
             if last_file_path.as_deref() != Some(path.as_str()) {
                 heartbeat_state.last_output_bytes = None;
             }
+            captured_artifact_paths.insert(PathBuf::from(path.as_str()));
             *last_file_path = Some(path);
         }
     }

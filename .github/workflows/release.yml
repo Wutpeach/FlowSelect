@@ -56,6 +56,30 @@ jobs:
 
           Write-Host "Downloaded Deno from: $downloadUrl"
 
+      - name: Download FFmpeg
+        shell: pwsh
+        run: |
+          $downloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP "ffmpeg-release-essentials.zip"
+          $extractDir = Join-Path $env:RUNNER_TEMP "ffmpeg-release-essentials"
+
+          if (Test-Path $extractDir) {
+            Remove-Item $extractDir -Recurse -Force
+          }
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -MaximumRetryCount 3 -RetryIntervalSec 5
+          Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+
+          $ffmpegBinary = Get-ChildItem -Path $extractDir -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          if (-not $ffmpegBinary) {
+            throw "ffmpeg.exe not found in extracted archive"
+          }
+
+          New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
+          Copy-Item $ffmpegBinary.FullName "src-tauri/binaries/ffmpeg.exe" -Force
+
+          Write-Host "Downloaded FFmpeg from: $downloadUrl"
+
       - name: Extract version from tag
         id: version
         shell: bash
@@ -121,8 +145,10 @@ jobs:
           Copy-Item $appExe (Join-Path $portableDir "FlowSelect.exe") -Force
           Copy-Item "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "binaries/yt-dlp-x86_64-pc-windows-msvc.exe") -Force
           Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $portableDir "binaries/deno.exe") -Force
+          Copy-Item "src-tauri/binaries/ffmpeg.exe" (Join-Path $portableDir "binaries/ffmpeg.exe") -Force
           Copy-Item "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "yt-dlp-x86_64-pc-windows-msvc.exe") -Force
           Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $portableDir "deno.exe") -Force
+          Copy-Item "src-tauri/binaries/ffmpeg.exe" (Join-Path $portableDir "ffmpeg.exe") -Force
 
           if (Test-Path $portableZip) {
             Remove-Item $portableZip -Force
