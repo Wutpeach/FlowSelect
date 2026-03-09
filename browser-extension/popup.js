@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'flowselect-quality-btn';
+      button.dataset.quality = option.value;
       if (option.value === selectedValue) {
         button.classList.add('active');
       }
