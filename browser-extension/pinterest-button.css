@@ -13,9 +13,6 @@
   padding: 0;
   border-radius: 999px;
   border: none;
-  background: #e60023;
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
   cursor: pointer;
   transition:
     transform 0.16s ease,
@@ -25,11 +22,34 @@
   flex-shrink: 0;
 }
 
+.flowselect-pinterest-action-btn {
+  background: #e60023;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.flowselect-pinterest-card-btn {
+  width: var(--flowselect-pinterest-card-size, 36px);
+  height: var(--flowselect-pinterest-card-size, 36px);
+  color: #ffffff;
+  background: var(--flowselect-pinterest-card-bg, rgba(0, 0, 0, 0.55));
+  box-shadow: var(--flowselect-pinterest-card-shadow, 0 6px 16px rgba(0, 0, 0, 0.18));
+  border-radius: var(--flowselect-pinterest-card-border-radius, 999px);
+  backdrop-filter: blur(10px);
+}
+
 .flowselect-pinterest-action-btn:hover,
 .flowselect-pinterest-card-btn:hover {
   color: #ffffff;
-  background: #ad081b;
   transform: translateY(-1px);
+}
+
+.flowselect-pinterest-action-btn:hover {
+  background: #ad081b;
+}
+
+.flowselect-pinterest-card-btn:hover {
+  background: var(--flowselect-pinterest-card-bg, rgba(0, 0, 0, 0.62));
 }
 
 .flowselect-pinterest-action-btn:active,
@@ -51,15 +71,20 @@
 
 .flowselect-pinterest-card-btn[data-flowselect-card-mode="fallback"] {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: var(--flowselect-pinterest-card-top, auto);
+  bottom: var(--flowselect-pinterest-card-bottom, 56px);
+  right: var(--flowselect-pinterest-card-right, 84px);
   opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px) scale(0.96);
   pointer-events: none;
 }
 
 [data-flowselect-pinterest-card-host="true"]:hover .flowselect-pinterest-card-btn[data-flowselect-card-mode="fallback"],
 [data-flowselect-pinterest-card-host="true"]:focus-within .flowselect-pinterest-card-btn[data-flowselect-card-mode="fallback"] {
   opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
   pointer-events: auto;
 }
 
