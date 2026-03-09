@@ -3,44 +3,68 @@
   --flowselect-site-accent-soft: rgba(230, 0, 35, 0.14);
 }
 
-.flowselect-pinterest-action-btn {
+.flowselect-pinterest-action-btn,
+.flowselect-pinterest-card-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 14px;
-  border: 1px solid rgba(230, 0, 35, 0.18);
+  width: 36px;
+  height: 36px;
+  padding: 0;
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(23, 22, 25, 0.96) 0%, rgba(43, 40, 46, 0.96) 100%);
-  color: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  border: none;
+  background: #e60023;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
   cursor: pointer;
-  font: 600 14px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  letter-spacing: 0.01em;
-  transition: transform 0.16s ease, color 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+  transition:
+    transform 0.16s ease,
+    color 0.16s ease,
+    background-color 0.16s ease,
+    opacity 0.16s ease;
   flex-shrink: 0;
 }
 
-.flowselect-pinterest-action-btn:hover {
-  color: var(--flowselect-site-accent);
-  border-color: rgba(230, 0, 35, 0.34);
-  background: linear-gradient(180deg, rgba(40, 20, 24, 0.98) 0%, rgba(54, 23, 30, 0.98) 100%);
+.flowselect-pinterest-action-btn:hover,
+.flowselect-pinterest-card-btn:hover {
+  color: #ffffff;
+  background: #ad081b;
   transform: translateY(-1px);
 }
 
-.flowselect-pinterest-action-btn:active {
-  transform: scale(0.97);
+.flowselect-pinterest-action-btn:active,
+.flowselect-pinterest-card-btn:active {
+  transform: scale(0.96);
 }
 
-.flowselect-pinterest-action-btn svg {
+.flowselect-pinterest-action-btn svg,
+.flowselect-pinterest-card-btn svg {
   width: 16px;
   height: 16px;
   display: block;
   pointer-events: none;
 }
 
-.flowselect-pinterest-action-btn span {
+.flowselect-pinterest-card-btn {
+  z-index: 6;
+}
+
+.flowselect-pinterest-card-btn[data-flowselect-card-mode="fallback"] {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  opacity: 0;
   pointer-events: none;
-  white-space: nowrap;
+}
+
+[data-flowselect-pinterest-card-host="true"]:hover .flowselect-pinterest-card-btn[data-flowselect-card-mode="fallback"],
+[data-flowselect-pinterest-card-host="true"]:focus-within .flowselect-pinterest-card-btn[data-flowselect-card-mode="fallback"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.flowselect-pinterest-card-btn:focus-visible,
+.flowselect-pinterest-action-btn:focus-visible {
+  outline: 2px solid rgba(230, 0, 35, 0.3);
+  outline-offset: 2px;
 }

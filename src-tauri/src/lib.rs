@@ -334,6 +334,8 @@ enum QueuedVideoTask {
         title: Option<String>,
         cookies_header: Option<String>,
         cookies_path: Option<PathBuf>,
+        video_url_hint: Option<String>,
+        video_candidates: Vec<ExtensionVideoCandidate>,
         trace_id: String,
     },
     Smart {
@@ -3726,6 +3728,8 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
             title,
             cookies_header,
             cookies_path,
+            video_url_hint,
+            video_candidates,
             trace_id,
         } => {
             let pinterest_cookies_header =
@@ -3735,6 +3739,8 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 page_url,
                 title,
                 pinterest_cookies_header,
+                video_url_hint,
+                video_candidates,
                 trace_id.clone(),
             )
             .await;
@@ -4070,6 +4076,8 @@ async fn download_pinterest_video(
     page_url: String,
     title: Option<String>,
     cookies_header: Option<String>,
+    video_url_hint: Option<String>,
+    video_candidates: Vec<ExtensionVideoCandidate>,
     trace_id: String,
 ) -> Result<DownloadResult, String> {
     use tauri_plugin_shell::process::CommandEvent;
@@ -4117,7 +4125,29 @@ async fn download_pinterest_video(
     let resolved_title = title
         .filter(|value| !value.trim().is_empty())
         .or_else(|| resolved.title.clone());
-    let Some(video_asset) = resolved.video.clone() else {
+    let hinted_video_url =
+        select_pinterest_hint_video_url(video_url_hint.as_deref(), &video_candidates);
+    let video_asset = if let Some(video_asset) = resolved.video.clone() {
+        video_asset
+    } else if let Some(video_url) = hinted_video_url.clone() {
+        log_download_trace(
+            &trace_id,
+            "pinterest_extension_hint_selected",
+            serde_json::json!({
+                "pinId": resolved.pin_id,
+                "videoUrl": summarize_url_for_log(&video_url),
+                "source": "extension_hint",
+                "videoCandidatesCount": video_candidates.len(),
+            }),
+        );
+        PinterestVideoAsset {
+            url: video_url,
+            width: None,
+            height: None,
+            duration_seconds: None,
+            poster_url: Some(resolved.image.url.clone()),
+        }
+    } else {
         append_runtime_log_event(
             "download",
             "complete",
@@ -5255,6 +5285,8 @@ async fn queue_video_download(
             title: None,
             cookies_header: None,
             cookies_path: None,
+            video_url_hint: None,
+            video_candidates: Vec::new(),
             trace_id: trace_id.clone(),
         }
     } else {
@@ -5876,6 +5908,7 @@ async fn resolve_pinterest_pin_media(
         .ok_or_else(|| format!("Invalid Pinterest pin URL: {}", page_url))?;
     let client = build_pinterest_request_client(page_url, cookies_header)?;
     let mut failure_notes = Vec::new();
+    let mut image_only_fallback: Option<PinterestResolvedMedia> = None;
 
     let main_pin_options = serde_json::json!({
         "url": "/v3/users/me/recent/engaged/pin/stories/",
@@ -5922,9 +5955,16 @@ async fn resolve_pinterest_pin_media(
                         "resolver": "api_main_pin",
                     }),
                 );
-                return Ok(resolved);
+                if resolved.video.is_some() {
+                    return Ok(resolved);
+                }
+                failure_notes.push("api_main_pin_image_only".to_string());
+                if image_only_fallback.is_none() {
+                    image_only_fallback = Some(resolved);
+                }
+            } else {
+                failure_notes.push("api_main_pin_unmatched".to_string());
             }
-            failure_notes.push("api_main_pin_unmatched".to_string());
         }
         Err(err) => {
             log_download_trace(
@@ -5987,9 +6027,16 @@ async fn resolve_pinterest_pin_media(
                         "resolver": "api_related_modules",
                     }),
                 );
-                return Ok(resolved);
+                if resolved.video.is_some() {
+                    return Ok(resolved);
+                }
+                failure_notes.push("api_related_image_only".to_string());
+                if image_only_fallback.is_none() {
+                    image_only_fallback = Some(resolved);
+                }
+            } else {
+                failure_notes.push("api_related_unmatched".to_string());
             }
-            failure_notes.push("api_related_unmatched".to_string());
         }
         Err(err) => {
             log_download_trace(
@@ -6027,8 +6074,17 @@ async fn resolve_pinterest_pin_media(
                     "resolver": "page_html",
                 }),
             );
-            return Ok(resolved);
+            if resolved.video.is_some() {
+                return Ok(resolved);
+            }
+            if image_only_fallback.is_none() {
+                image_only_fallback = Some(resolved);
+            }
         }
+    }
+
+    if let Some(resolved) = image_only_fallback {
+        return Ok(resolved);
     }
 
     if let Some(image) = fallback_image {
@@ -6260,6 +6316,34 @@ fn parse_extension_video_candidates(data: &serde_json::Value) -> Vec<ExtensionVi
     }
 
     candidates
+}
+
+fn select_pinterest_hint_video_url(
+    video_url_hint: Option<&str>,
+    video_candidates: &[ExtensionVideoCandidate],
+) -> Option<String> {
+    let mut manifest_fallback = video_url_hint
+        .and_then(normalize_video_candidate_url)
+        .filter(|url| is_manifest_video_url(url));
+
+    if let Some(url) = video_url_hint
+        .and_then(normalize_video_candidate_url)
+        .filter(|url| !is_manifest_video_url(url))
+    {
+        return Some(url);
+    }
+
+    for candidate in video_candidates {
+        if !is_manifest_video_url(&candidate.url) {
+            return Some(candidate.url.clone());
+        }
+
+        if manifest_fallback.is_none() {
+            manifest_fallback = Some(candidate.url.clone());
+        }
+    }
+
+    manifest_fallback
 }
 
 fn is_direct_candidate_for_platform(platform: DirectPlatform, url: &str) -> bool {
@@ -8737,6 +8821,9 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             cookies_path: cookies
                                 .filter(|value| !value.is_empty())
                                 .and_then(|value| save_extension_cookies(value).ok()),
+                            video_url_hint: video_url
+                                .and_then(normalize_video_candidate_url),
+                            video_candidates,
                             trace_id: trace_id.clone(),
                         }
                     } else if is_xiaohongshu_url(page_url) || is_xiaohongshu_url(url) {

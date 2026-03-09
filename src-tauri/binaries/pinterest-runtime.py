@@ -1,39 +1,101 @@
 #!/usr/bin/env python3
 import argparse
+import importlib
 import json
+import os
+import site
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 RESULT_PREFIX = "FLOWSELECT_PINTEREST_RESULT"
 PROGRESS_PREFIX = "FLOWSELECT_PINTEREST_PROGRESS"
+PINTEREST_DL_SITE_DIR = (
+    Path(tempfile.gettempdir())
+    / "flowselect_pinterest_runtime"
+    / f"py{sys.version_info.major}{sys.version_info.minor}"
+    / "site-packages"
+)
+PIP_PROXY_ENV_KEYS = (
+    "ALL_PROXY",
+    "all_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "NO_PROXY",
+    "no_proxy",
+)
 
 
-def ensure_pinterest_dl():
-    try:
-        from pinterest_dl.domain.media import PinterestMedia, VideoStreamInfo
-        from pinterest_dl.download import USER_AGENT
-        from pinterest_dl.download.downloader import MediaDownloader
-
-        return PinterestMedia, VideoStreamInfo, USER_AGENT, MediaDownloader
-    except ImportError:
-        subprocess.check_call(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "-q",
-                "pinterest-dl",
-            ]
-        )
-
+def import_pinterest_dl():
     from pinterest_dl.domain.media import PinterestMedia, VideoStreamInfo
     from pinterest_dl.download import USER_AGENT
     from pinterest_dl.download.downloader import MediaDownloader
 
     return PinterestMedia, VideoStreamInfo, USER_AGENT, MediaDownloader
+
+
+def ensure_bootstrap_site_dir():
+    PINTEREST_DL_SITE_DIR.mkdir(parents=True, exist_ok=True)
+    site_dir = str(PINTEREST_DL_SITE_DIR)
+    if site_dir not in sys.path:
+        site.addsitedir(site_dir)
+    importlib.invalidate_caches()
+
+
+def build_pip_env():
+    env = os.environ.copy()
+    for key in PIP_PROXY_ENV_KEYS:
+        env.pop(key, None)
+    return env
+
+
+def install_pinterest_dl():
+    ensure_bootstrap_site_dir()
+    print(
+        f"Bootstrapping pinterest-dl into {PINTEREST_DL_SITE_DIR}",
+        file=sys.stderr,
+        flush=True,
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--isolated",
+            "--disable-pip-version-check",
+            "-q",
+            "--upgrade",
+            "--target",
+            str(PINTEREST_DL_SITE_DIR),
+            "pinterest-dl",
+        ],
+        env=build_pip_env(),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return
+
+    error_output = (result.stderr or result.stdout or "").strip()
+    if not error_output:
+        error_output = f"pip exited with code {result.returncode}"
+    raise RuntimeError(
+        "Failed to install pinterest-dl into "
+        f"{PINTEREST_DL_SITE_DIR}: {error_output}"
+    )
+
+
+def ensure_pinterest_dl():
+    ensure_bootstrap_site_dir()
+    try:
+        return import_pinterest_dl()
+    except ImportError:
+        install_pinterest_dl()
+        return import_pinterest_dl()
 
 
 def parse_args():

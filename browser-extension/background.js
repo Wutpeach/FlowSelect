@@ -412,7 +412,7 @@ async function getCookiesForUrl(url) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'video_selected') {
     // Get cookies and send to app
-    const pageUrl = sender.tab?.url || message.url;
+    const pageUrl = message.pageUrl || sender.tab?.url || message.url;
     const platform = directDownloadQuality.getDirectPlatform([
       pageUrl,
       message.pageUrl,
