@@ -85,6 +85,7 @@ function connect(options = {}) {
     notifyConnectionStatus();
     // Query current theme after connection
     ws.send(JSON.stringify({ action: 'get_theme' }));
+    void syncDownloadPreferencesToApp();
   };
 
   ws.onmessage = (event) => {
@@ -211,6 +212,26 @@ function sendToApp(data) {
   }
   connect({ force: true });
   return false;
+}
+
+function syncDownloadPreferencesToApp() {
+  return Promise.all([
+    directDownloadQuality.getQualityPreference(),
+    directDownloadQuality.getAeFriendlyConversionEnabled(),
+  ])
+    .then(([qualityPreference, aeFriendlyConversionEnabled]) => {
+      return sendToApp({
+        action: 'sync_download_preferences',
+        data: {
+          ytdlpQualityPreference: qualityPreference,
+          aeFriendlyConversionEnabled,
+        },
+      });
+    })
+    .catch((error) => {
+      console.error('[FlowSelect] Failed to sync download preferences:', error);
+      return false;
+    });
 }
 
 function sleep(ms) {
@@ -473,6 +494,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   return true;
 });
+
+if (chrome?.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') {
+      return;
+    }
+
+    if (
+      !changes?.[directDownloadQuality.STORAGE_KEY]
+      && !changes?.[directDownloadQuality.LEGACY_STORAGE_KEY]
+      && !changes?.[directDownloadQuality.AE_FRIENDLY_CONVERSION_STORAGE_KEY]
+    ) {
+      return;
+    }
+
+    void syncDownloadPreferencesToApp();
+  });
+}
 
 // Auto-connect on startup
 connect();

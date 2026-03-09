@@ -28,8 +28,8 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
-use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
 
@@ -112,11 +112,12 @@ enum YtdlpQualityPreference {
 }
 
 impl YtdlpQualityPreference {
-    fn from_extension_value(value: Option<&str>) -> Self {
+    fn parse_optional(value: Option<&str>) -> Option<Self> {
         match value {
-            Some("balanced") | Some("high") => Self::Balanced,
-            Some("data_saver") | Some("standard") => Self::DataSaver,
-            _ => Self::Best,
+            Some("best") => Some(Self::Best),
+            Some("balanced") | Some("high") => Some(Self::Balanced),
+            Some("data_saver") | Some("standard") => Some(Self::DataSaver),
+            _ => None,
         }
     }
 
@@ -417,6 +418,9 @@ const YTDLP_FORMAT_SELECTOR_DATA_SAVER: &str = concat!(
     "worst[ext=mp4]/",
     "worst"
 );
+const DEFAULT_VIDEO_DOWNLOAD_QUALITY_CONFIG_KEY: &str = "defaultVideoDownloadQuality";
+const LEGACY_VIDEO_DOWNLOAD_QUALITY_CONFIG_KEY: &str = "ytdlpQualityPreference";
+const AE_FRIENDLY_CONVERSION_CONFIG_KEY: &str = "aeFriendlyConversionEnabled";
 const RENAME_SEQUENCE_COUNTERS_KEY: &str = "renameSequenceCounters";
 const RENAME_RULE_PRESET_KEY: &str = "renameRulePreset";
 const RENAME_PREFIX_KEY: &str = "renamePrefix";
@@ -4543,13 +4547,14 @@ fn cleanup_part_files_for_output_root(output_root: &Path) {
 #[tauri::command]
 async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, String> {
     let trace_id = next_download_trace_id();
+    let preferences = resolve_video_download_preferences(&app)?;
     let task = QueuedVideoTask::Smart {
         url: url.clone(),
         title: None,
         cookies_path: None,
         clip_range: None,
-        ytdlp_quality: YtdlpQualityPreference::Best,
-        ae_friendly_conversion_enabled: false,
+        ytdlp_quality: preferences.ytdlp_quality,
+        ae_friendly_conversion_enabled: preferences.ae_friendly_conversion_enabled,
         trace_id: trace_id.clone(),
     };
     mark_video_task_active(&app, task);
@@ -4559,8 +4564,8 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         None,
         None,
         None,
-        YtdlpQualityPreference::Best,
-        false,
+        preferences.ytdlp_quality,
+        preferences.ae_friendly_conversion_enabled,
         trace_id.clone(),
         false,
     )
@@ -4576,13 +4581,14 @@ async fn queue_video_download(
     url: String,
 ) -> Result<QueuedVideoDownloadAck, String> {
     let trace_id = next_download_trace_id();
+    let preferences = resolve_video_download_preferences(&app)?;
     let queued_task = QueuedVideoTask::Smart {
         url,
         title: None,
         cookies_path: None,
         clip_range: None,
-        ytdlp_quality: YtdlpQualityPreference::Best,
-        ae_friendly_conversion_enabled: false,
+        ytdlp_quality: preferences.ytdlp_quality,
+        ae_friendly_conversion_enabled: preferences.ae_friendly_conversion_enabled,
         trace_id: trace_id.clone(),
     };
     enqueue_video_task(&app, queued_task);
@@ -4783,17 +4789,69 @@ fn parse_clip_time_range(data: &serde_json::Value) -> Result<Option<ClipTimeRang
     }
 }
 
-fn parse_ytdlp_quality_preference(data: &serde_json::Value) -> YtdlpQualityPreference {
+fn parse_ytdlp_quality_preference_override(
+    data: &serde_json::Value,
+) -> Option<YtdlpQualityPreference> {
     let raw = data
         .get("ytdlpQualityPreference")
         .and_then(|value| value.as_str());
-    YtdlpQualityPreference::from_extension_value(raw)
+    YtdlpQualityPreference::parse_optional(raw)
 }
 
-fn parse_ae_friendly_conversion_enabled(data: &serde_json::Value) -> bool {
-    data.get("aeFriendlyConversionEnabled")
+fn parse_ae_friendly_conversion_enabled_override(data: &serde_json::Value) -> Option<bool> {
+    data.get(AE_FRIENDLY_CONVERSION_CONFIG_KEY)
         .and_then(|value| value.as_bool())
-        .unwrap_or(false)
+}
+
+fn resolve_video_download_preferences(
+    app: &tauri::AppHandle,
+) -> Result<VideoDownloadPreferences, String> {
+    let config_str = get_config(app.clone())?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
+
+    Ok(VideoDownloadPreferences::from_config(&config))
+}
+
+fn persist_video_download_preferences(
+    app: tauri::AppHandle,
+    preferences: VideoDownloadPreferences,
+) -> Result<bool, String> {
+    let config_str = get_config(app.clone())?;
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
+
+    let current_preferences = VideoDownloadPreferences::from_config(&config);
+    if current_preferences.ytdlp_quality == preferences.ytdlp_quality
+        && current_preferences.ae_friendly_conversion_enabled
+            == preferences.ae_friendly_conversion_enabled
+    {
+        return Ok(false);
+    }
+
+    let config_obj = config
+        .as_object_mut()
+        .ok_or("Config should be a JSON object".to_string())?;
+    config_obj.insert(
+        DEFAULT_VIDEO_DOWNLOAD_QUALITY_CONFIG_KEY.to_string(),
+        serde_json::Value::String(preferences.ytdlp_quality.as_str().to_string()),
+    );
+    config_obj.insert(
+        AE_FRIENDLY_CONVERSION_CONFIG_KEY.to_string(),
+        serde_json::Value::Bool(preferences.ae_friendly_conversion_enabled),
+    );
+    config_obj.remove(LEGACY_VIDEO_DOWNLOAD_QUALITY_CONFIG_KEY);
+
+    let json =
+        serde_json::to_string(&config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    save_config(app, json)?;
+    println!(
+        ">>> [Rust] Synced download preferences: quality={}, aeFriendlyConversionEnabled={}",
+        preferences.ytdlp_quality.as_str(),
+        preferences.ae_friendly_conversion_enabled
+    );
+
+    Ok(true)
 }
 
 fn format_seconds_for_download_section(seconds: f64) -> String {
@@ -6446,6 +6504,55 @@ fn close_context_menu_window(app: &tauri::AppHandle) {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct VideoDownloadPreferences {
+    ytdlp_quality: YtdlpQualityPreference,
+    ae_friendly_conversion_enabled: bool,
+}
+
+impl Default for VideoDownloadPreferences {
+    fn default() -> Self {
+        Self {
+            ytdlp_quality: YtdlpQualityPreference::Balanced,
+            ae_friendly_conversion_enabled: false,
+        }
+    }
+}
+
+impl VideoDownloadPreferences {
+    fn from_config(config: &serde_json::Value) -> Self {
+        let quality_raw = config
+            .get(DEFAULT_VIDEO_DOWNLOAD_QUALITY_CONFIG_KEY)
+            .and_then(|value| value.as_str())
+            .or_else(|| {
+                config
+                    .get(LEGACY_VIDEO_DOWNLOAD_QUALITY_CONFIG_KEY)
+                    .and_then(|value| value.as_str())
+            });
+
+        Self {
+            ytdlp_quality: YtdlpQualityPreference::parse_optional(quality_raw)
+                .unwrap_or(YtdlpQualityPreference::Balanced),
+            ae_friendly_conversion_enabled: config
+                .get(AE_FRIENDLY_CONVERSION_CONFIG_KEY)
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+        }
+    }
+
+    fn merged_with(
+        self,
+        ytdlp_quality: Option<YtdlpQualityPreference>,
+        ae_friendly_conversion_enabled: Option<bool>,
+    ) -> Self {
+        Self {
+            ytdlp_quality: ytdlp_quality.unwrap_or(self.ytdlp_quality),
+            ae_friendly_conversion_enabled: ae_friendly_conversion_enabled
+                .unwrap_or(self.ae_friendly_conversion_enabled),
+        }
+    }
+}
+
 #[tauri::command]
 fn begin_open_output_folder_from_context_menu(app: tauri::AppHandle) -> Result<(), String> {
     close_context_menu_window(&app);
@@ -6485,14 +6592,20 @@ fn begin_pick_output_folder_from_context_menu(app: tauri::AppHandle) -> Result<(
         let path = match folder_path.into_path() {
             Ok(path) => path,
             Err(err) => {
-                eprintln!(">>> [Rust] Failed to convert picked output folder path: {}", err);
+                eprintln!(
+                    ">>> [Rust] Failed to convert picked output folder path: {}",
+                    err
+                );
                 return;
             }
         };
         let selected = path.to_string_lossy().to_string();
 
         if let Err(err) = persist_output_path(app_handle.clone(), selected) {
-            eprintln!(">>> [Rust] Failed to persist output folder from context menu: {}", err);
+            eprintln!(
+                ">>> [Rust] Failed to persist output folder from context menu: {}",
+                err
+            );
         }
     });
 
@@ -6999,6 +7112,56 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                 data: None,
             },
         },
+        "sync_download_preferences" => {
+            if let Some(data) = msg.data {
+                let incoming_quality = parse_ytdlp_quality_preference_override(&data);
+                let incoming_ae = parse_ae_friendly_conversion_enabled_override(&data);
+
+                if incoming_quality.is_none() && incoming_ae.is_none() {
+                    return WsResponse {
+                        success: false,
+                        message: Some("Missing download preference fields".to_string()),
+                        data: None,
+                    };
+                }
+
+                match resolve_video_download_preferences(app) {
+                    Ok(current_preferences) => {
+                        let next_preferences =
+                            current_preferences.merged_with(incoming_quality, incoming_ae);
+                        match persist_video_download_preferences(app.clone(), next_preferences) {
+                            Ok(_) => WsResponse {
+                                success: true,
+                                message: Some("Download preferences synced".to_string()),
+                                data: Some(serde_json::json!({
+                                    "quality": next_preferences.ytdlp_quality.as_str(),
+                                    "aeFriendlyConversionEnabled": next_preferences.ae_friendly_conversion_enabled,
+                                })),
+                            },
+                            Err(err) => WsResponse {
+                                success: false,
+                                message: Some(format!(
+                                    "Failed to persist download preferences: {}",
+                                    err
+                                )),
+                                data: None,
+                            },
+                        }
+                    }
+                    Err(err) => WsResponse {
+                        success: false,
+                        message: Some(format!("Failed to resolve download preferences: {}", err)),
+                        data: None,
+                    },
+                }
+            } else {
+                WsResponse {
+                    success: false,
+                    message: Some("Missing data".to_string()),
+                    data: None,
+                }
+            }
+        }
         "save_image" => {
             if let Some(data) = msg.data {
                 let url = data.get("url").and_then(|v| v.as_str());
@@ -7135,9 +7298,38 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
                     let title = data.get("title").and_then(|v| v.as_str());
                     let trace_id = next_download_trace_id();
-                    let ytdlp_quality = parse_ytdlp_quality_preference(&data);
+                    let persisted_preferences = match resolve_video_download_preferences(app) {
+                        Ok(preferences) => preferences,
+                        Err(err) => {
+                            println!(
+                                ">>> [Rust] Failed to resolve persisted download preferences, using defaults: {}",
+                                err
+                            );
+                            VideoDownloadPreferences::default()
+                        }
+                    };
+                    let incoming_ytdlp_quality = parse_ytdlp_quality_preference_override(&data);
+                    let incoming_ae_friendly_conversion_enabled =
+                        parse_ae_friendly_conversion_enabled_override(&data);
+                    let resolved_preferences = persisted_preferences.merged_with(
+                        incoming_ytdlp_quality,
+                        incoming_ae_friendly_conversion_enabled,
+                    );
+                    if incoming_ytdlp_quality.is_some()
+                        || incoming_ae_friendly_conversion_enabled.is_some()
+                    {
+                        if let Err(err) =
+                            persist_video_download_preferences(app.clone(), resolved_preferences)
+                        {
+                            println!(
+                                ">>> [Rust] Failed to persist synced download preferences: {}",
+                                err
+                            );
+                        }
+                    }
+                    let ytdlp_quality = resolved_preferences.ytdlp_quality;
                     let ae_friendly_conversion_enabled =
-                        parse_ae_friendly_conversion_enabled(&data);
+                        resolved_preferences.ae_friendly_conversion_enabled;
                     let clip_range = match parse_clip_time_range(&data) {
                         Ok(value) => value,
                         Err(err) => {
