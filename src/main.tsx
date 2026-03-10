@@ -7,6 +7,9 @@ import SettingsPage from "./pages/SettingsPage";
 import ContextMenuPage from "./pages/ContextMenuPage";
 import { AgentationDevTools } from "./components/AgentationDevTools";
 import { ThemeProvider, type Theme } from "./contexts/ThemeContext";
+import { I18nRuntimeBridge } from "./i18n/I18nRuntimeBridge";
+import { initializeI18n } from "./i18n";
+import { resolveAppLanguage, resolveAppLanguageFromConfigString } from "./i18n/language";
 import "./index.css";
 
 const AGENTATION_ENABLED_PATHS = new Set(["/settings"]);
@@ -23,23 +26,34 @@ const getThemeFromConfigString = (configStr: string): Theme => {
   }
 };
 
-const resolveInitialTheme = async (): Promise<Theme> => {
+const resolveBootstrapState = async (): Promise<{
+  initialTheme: Theme;
+  initialLanguage: "en" | "zh-CN";
+}> => {
   try {
     const configStr = await invoke<string>("get_config");
-    return getThemeFromConfigString(configStr);
+    return {
+      initialTheme: getThemeFromConfigString(configStr),
+      initialLanguage: resolveAppLanguageFromConfigString(configStr, navigator.language),
+    };
   } catch (err) {
-    console.error("Failed to resolve initial theme:", err);
-    return DEFAULT_THEME;
+    console.error("Failed to resolve bootstrap config:", err);
+    return {
+      initialTheme: DEFAULT_THEME,
+      initialLanguage: resolveAppLanguage(undefined, navigator.language),
+    };
   }
 };
 
 const bootstrap = async () => {
-  const initialTheme = await resolveInitialTheme();
+  const { initialTheme, initialLanguage } = await resolveBootstrapState();
+  await initializeI18n(initialLanguage);
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <ThemeProvider initialTheme={initialTheme}>
         <BrowserRouter>
+          <I18nRuntimeBridge />
           <Routes>
             <Route path="/" element={<App />} />
             <Route path="/settings" element={<SettingsPage />} />

@@ -44,7 +44,8 @@
     "resources": {
       "binaries/yt-dlp*": "binaries/",
       "binaries/deno*": "binaries/",
-      "binaries/pinterest-dl*": "binaries/"
+      "binaries/pinterest-dl*": "binaries/",
+      "resources/locales/": "locales/"
     }
   }
 }
