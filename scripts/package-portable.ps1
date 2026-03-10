@@ -64,6 +64,7 @@ Push-Location $repoRoot
 
 try {
   $ytdlpSource = "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe"
+  $pinterestSidecarSource = "src-tauri/binaries/pinterest-dl-x86_64-pc-windows-msvc.exe"
   $ffmpegSource = "src-tauri/binaries/ffmpeg.exe"
   $ytdlpDownloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 
@@ -106,11 +107,21 @@ try {
   }
 
   if (-not $SkipBuild) {
+    Write-Host ">>> Building Pinterest sidecar..."
+    npm run build:pinterest-sidecar -- --target x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) {
+      throw "Pinterest sidecar build failed with exit code $LASTEXITCODE"
+    }
+
     Write-Host ">>> Building Tauri app (no bundle)..."
     npx tauri build --no-bundle
     if ($LASTEXITCODE -ne 0) {
       throw "Tauri build failed with exit code $LASTEXITCODE"
     }
+  }
+
+  if (-not (Test-Path $pinterestSidecarSource)) {
+    throw "Cannot find Pinterest sidecar source binary: $pinterestSidecarSource"
   }
 
   if (-not $Version) {
@@ -142,6 +153,7 @@ try {
 
   Copy-Item $appExe (Join-Path $stagingDir "FlowSelect.exe") -Force
   Copy-Item $ytdlpSource (Join-Path $stagingDir "binaries/yt-dlp-x86_64-pc-windows-msvc.exe") -Force
+  Copy-Item $pinterestSidecarSource (Join-Path $stagingDir "binaries/pinterest-dl-x86_64-pc-windows-msvc.exe") -Force
   Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $stagingDir "binaries/deno.exe") -Force
   Copy-Item $ffmpegSource (Join-Path $stagingDir "binaries/ffmpeg.exe") -Force
 

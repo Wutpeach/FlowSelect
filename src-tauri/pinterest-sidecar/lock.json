@@ -1,0 +1,12 @@
+{
+  "flowselectSidecarVersion": "0.1.0-dev",
+  "upstream": {
+    "package": "pinterest-dl",
+    "version": "1.1.2",
+    "commit": "e0e3710c5c0078497cf3e76322b7f76ad3b7c14d"
+  },
+  "freezer": {
+    "package": "pyinstaller",
+    "version": "6.18.0"
+  }
+}

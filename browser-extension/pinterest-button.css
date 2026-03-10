@@ -75,6 +75,36 @@
   z-index: 6;
 }
 
+.flowselect-pinterest-detail-group-slot {
+  position: relative;
+}
+
+.flowselect-pinterest-detail-group-btn > div {
+  background: transparent;
+  border-radius: 14px;
+  padding: 0 4px;
+  transition:
+    background-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.flowselect-pinterest-detail-group-btn > div > div,
+.flowselect-pinterest-detail-group-btn .VHreRh {
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: inherit;
+}
+
+.flowselect-pinterest-detail-group-btn:hover > div,
+.flowselect-pinterest-detail-group-btn:focus-visible > div {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.flowselect-pinterest-detail-group-btn:active > div {
+  background: rgba(0, 0, 0, 0.14);
+  transform: scale(0.96);
+}
+
 .flowselect-pinterest-card-btn[data-flowselect-card-mode] {
   position: absolute;
   opacity: 0;

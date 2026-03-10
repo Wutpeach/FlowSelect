@@ -118,6 +118,17 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build Pinterest sidecar
+        run: npm run build:pinterest-sidecar -- --target x86_64-pc-windows-msvc
+
+      - name: Smoke test Pinterest sidecar
+        run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target x86_64-pc-windows-msvc
+
       - name: Build Tauri application
         run: npm run tauri build
 
@@ -144,6 +155,7 @@ jobs:
 
           Copy-Item $appExe (Join-Path $portableDir "FlowSelect.exe") -Force
           Copy-Item "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "binaries/yt-dlp-x86_64-pc-windows-msvc.exe") -Force
+          Copy-Item "src-tauri/binaries/pinterest-dl-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "binaries/pinterest-dl-x86_64-pc-windows-msvc.exe") -Force
           Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $portableDir "binaries/deno.exe") -Force
           Copy-Item "src-tauri/binaries/ffmpeg.exe" (Join-Path $portableDir "binaries/ffmpeg.exe") -Force
 
@@ -250,6 +262,17 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build Pinterest sidecar
+        run: npm run build:pinterest-sidecar -- --target ${{ matrix.target }}
+
+      - name: Smoke test Pinterest sidecar
+        run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target ${{ matrix.target }}
 
       - name: Build Tauri application
         run: npm run tauri build -- --target ${{ matrix.target }}

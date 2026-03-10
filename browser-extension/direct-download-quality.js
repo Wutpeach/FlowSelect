@@ -102,8 +102,23 @@
       if (url.includes("xiaohongshu.com") || url.includes("xhslink.com") || url.includes("xhscdn.com")) {
         return "xiaohongshu";
       }
+      if (url.includes("pinterest.com/pin/") || url.includes("pinimg.com/videos/")) {
+        return "pinterest";
+      }
     }
     return null;
+  }
+
+  function isPinterestDirectMp4Url(url) {
+    return typeof url === "string" && /\.mp4(?:[?#]|$)/i.test(url);
+  }
+
+  function isPinterestManifestUrl(url) {
+    return typeof url === "string" && /\.m3u8(?:[?#]|$)/i.test(url);
+  }
+
+  function isSupportedPinterestHintUrl(url) {
+    return isPinterestDirectMp4Url(url) || isPinterestManifestUrl(url);
   }
 
   function isDirectUrlForPlatform(platform, url) {
@@ -122,6 +137,10 @@
 
     if (platform === "xiaohongshu") {
       return lower.includes("xhscdn.com");
+    }
+
+    if (platform === "pinterest") {
+      return isPinterestDirectMp4Url(url);
     }
 
     return false;
@@ -169,7 +188,28 @@
 
   function selectPreferredVideoUrl(candidates, platform, fallbackVideoUrl) {
     if (!Array.isArray(candidates) || candidates.length === 0) {
+      if (platform === "pinterest") {
+        return isSupportedPinterestHintUrl(fallbackVideoUrl) ? fallbackVideoUrl : null;
+      }
       return fallbackVideoUrl || null;
+    }
+
+    if (platform === "pinterest") {
+      const preferredDirect = candidates.find((candidate) =>
+        isPinterestDirectMp4Url(candidate?.url)
+      );
+      if (preferredDirect?.url) {
+        return preferredDirect.url;
+      }
+
+      const preferredManifest = candidates.find((candidate) =>
+        isPinterestManifestUrl(candidate?.url)
+      );
+      if (preferredManifest?.url) {
+        return preferredManifest.url;
+      }
+
+      return isSupportedPinterestHintUrl(fallbackVideoUrl) ? fallbackVideoUrl : null;
     }
 
     const preferredDirect = candidates.find((candidate) =>

@@ -6,6 +6,8 @@
 
   const DETAIL_BUTTON_ID = "flowselect-pinterest-download-btn";
   const DETAIL_BUTTON_CLASS = "flowselect-pinterest-action-btn";
+  const DETAIL_GROUP_BUTTON_CLASS = "flowselect-pinterest-detail-group-btn";
+  const DETAIL_GROUP_SLOT_CLASS = "flowselect-pinterest-detail-group-slot";
   const DETAIL_SLOT_ATTR = "data-flowselect-pinterest-detail-slot";
   const CARD_BUTTON_CLASS = "flowselect-pinterest-card-btn";
   const CARD_HOST_ATTR = "data-flowselect-pinterest-card-host";
@@ -25,10 +27,9 @@
     ["VHreRh", "cUw_ba"],
   ];
   const PIN_PATH_RE = /\/pin\/(\d+)\/?/i;
-  const DURATION_RE = /\b(?:\d{1,2}:)?\d{1,2}:\d{2}\b/;
+  const EXACT_DURATION_RE = /^(?:\d{1,2}:)?\d{1,2}:\d{2}$/;
   const VIDEO_HINT_RE =
-    /(?:video_list|story_pin_data|carousel_data|v\d+\.pinimg\.com\/videos|\.m3u8\b|\.mp4\b)/i;
-  const PIN_VIDEO_HOST_RE = /(?:^|\/\/)(?:v\d+\.pinimg\.com|i\.pinimg\.com)\//i;
+    /(?:video_list|story_pin_data|carousel_data|v\d+\.pinimg\.com\/videos|\/videos\/iht\/hls\/|\.m3u8\b|\.mp4\b|\.cmfv\b)/i;
   const DETECT_DELAY_MS = 96;
   const CAT_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" fill-rule="evenodd" d="M11.75 6.406c-1.48 0-1.628.157-2.394.157C8.718 6.563 6.802 5 5.845 5S3.77 5.563 3.77 7.188v1.875c.002.492.18 2 .88 1.597c-.827.978-.91 2.119-.899 3.223c-.223.064-.45.137-.671.212c-.684.234-1.41.532-1.737.744a.75.75 0 0 0 .814 1.26c.156-.101.721-.35 1.408-.585l.228-.075c.046.433.161.83.332 1.19l-.024.013c-.41.216-.79.465-1.032.623l-.113.074a.75.75 0 1 0 .814 1.26l.131-.086c.245-.16.559-.365.901-.545q.12-.064.231-.116C6.763 19.475 9.87 20 11.75 20s4.987-.525 6.717-2.148q.11.052.231.116c.342.18.656.385.901.545l.131.086a.75.75 0 0 0 .814-1.26l-.113-.074a13 13 0 0 0-1.032-.623l-.024-.013c.171-.36.286-.757.332-1.19l.228.075c.687.235 1.252.484 1.409.585a.75.75 0 0 0 .813-1.26c-.327-.212-1.053-.51-1.736-.744a16 16 0 0 0-.672-.213c.012-1.104-.072-2.244-.9-3.222c.7.403.88-1.105.881-1.598V7.188C19.73 5.563 18.613 5 17.655 5c-.957 0-2.873 1.563-3.51 1.563c-.767 0-.915-.157-2.395-.157m-.675 9.194c.202-.069.441-.1.675-.1s.473.031.676.1c.1.034.22.088.328.174a.62.62 0 0 1 .246.476c0 .23-.139.39-.246.476s-.229.14-.328.174c-.203.069-.442.1-.676.1s-.473-.031-.675-.1a1.1 1.1 0 0 1-.329-.174a.62.62 0 0 1-.246-.476c0-.23.139-.39.246-.476s.23-.14.329-.174m2.845-3.1c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812m-5.96 0c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812" clip-rule="evenodd"/>
@@ -74,10 +75,29 @@
     return normalized;
   }
 
+  function isPinterestDirectMp4Url(url) {
+    return /\.mp4(?:[?#]|$)/i.test(url);
+  }
+
+  function isPinterestManifestUrl(url) {
+    return /\.m3u8(?:[?#]|$)/i.test(url);
+  }
+
+  function isPinterestStreamLikeUrl(url) {
+    return (
+      isPinterestManifestUrl(url) ||
+      /\.cmfv(?:[?#]|$)/i.test(url) ||
+      /\/videos\/iht\/hls\//i.test(url)
+    );
+  }
+
+  function isPinterestVideoUrl(url) {
+    return isPinterestDirectMp4Url(url) || isPinterestStreamLikeUrl(url);
+  }
+
   function classifyCandidateType(url) {
-    const lower = url.toLowerCase();
-    if (/\.m3u8(\?|$)/.test(lower)) return "manifest_m3u8";
-    if (PIN_VIDEO_HOST_RE.test(lower) || /\.mp4(\?|$)/.test(lower)) return "direct_mp4";
+    if (isPinterestDirectMp4Url(url)) return "direct_mp4";
+    if (isPinterestStreamLikeUrl(url)) return "manifest_m3u8";
     return "indirect_media";
   }
 
@@ -115,47 +135,64 @@
     return "low";
   }
 
-  function collectSignalText(root) {
-    if (!(root instanceof HTMLElement || root instanceof Document)) {
-      return "";
+  function resolveAnimatedSignalScope(root) {
+    if (root instanceof Document) {
+      return (
+        document.querySelector(
+          '[data-test-id="closeup-image"], [data-test-id="closeup-content"], [data-test-id="closeup-pin"], [data-test-id="closeupMainPin"]',
+        ) || root.body
+      );
     }
 
-    const parts = [];
-    const scope = root instanceof Document ? root.body : root;
-    if (!(scope instanceof HTMLElement)) {
-      return "";
-    }
-
-    const text = (scope.innerText || "").trim();
-    if (text) {
-      parts.push(text.slice(0, 1600));
-    }
-
-    const labeledNodes = Array.from(scope.querySelectorAll("[aria-label], [title]")).slice(0, 24);
-    for (const node of labeledNodes) {
-      if (!(node instanceof HTMLElement)) {
-        continue;
-      }
-
-      const label = node.getAttribute("aria-label");
-      if (label && label.trim()) {
-        parts.push(label.trim());
-      }
-
-      const title = node.getAttribute("title");
-      if (title && title.trim()) {
-        parts.push(title.trim());
-      }
-    }
-
-    return parts.join(" ");
+    return root;
   }
 
-  function textIndicatesAnimated(text) {
-    if (typeof text !== "string" || !text.trim()) {
+  function hasAnimatedTextLabel(scope) {
+    if (!(scope instanceof HTMLElement)) {
       return false;
     }
-    return /\bGIF\b/i.test(text) || /\u52a8\u56fe/.test(text) || DURATION_RE.test(text);
+
+    const nodes = [scope, ...Array.from(scope.querySelectorAll("[aria-label], [title], img[alt]"))].slice(
+      0,
+      36,
+    );
+
+    return nodes.some((node) => {
+      if (!(node instanceof HTMLElement)) {
+        return false;
+      }
+
+      const label = [
+        node.getAttribute("aria-label"),
+        node.getAttribute("title"),
+        node.getAttribute("alt"),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+      return /\b(video|gif)\b/i.test(label) || /\u52a8\u56fe/.test(label);
+    });
+  }
+
+  function hasDurationBadge(scope) {
+    if (!(scope instanceof HTMLElement)) {
+      return false;
+    }
+
+    const candidates = [scope, ...Array.from(scope.querySelectorAll("span, div, time"))].slice(0, 48);
+    return candidates.some((node) => {
+      if (!(node instanceof HTMLElement)) {
+        return false;
+      }
+
+      const text = (node.innerText || node.textContent || "").trim();
+      if (!text || text.length > 8) {
+        return false;
+      }
+
+      return EXACT_DURATION_RE.test(text);
+    });
   }
 
   function rootLooksAnimated(root) {
@@ -163,7 +200,7 @@
       return false;
     }
 
-    const scope = root instanceof Document ? root.body : root;
+    const scope = resolveAnimatedSignalScope(root);
     if (!(scope instanceof HTMLElement)) {
       return false;
     }
@@ -172,7 +209,11 @@
       return true;
     }
 
-    return textIndicatesAnimated(collectSignalText(scope));
+    if (extractVideoCandidates(scope, { includeScripts: false, includePerformance: false }).length > 0) {
+      return true;
+    }
+
+    return hasAnimatedTextLabel(scope) || hasDurationBadge(scope);
   }
 
   function extractVideoCandidates(root = document, options = {}) {
@@ -184,7 +225,7 @@
     const collectCandidate = (raw, source) => {
       const url = normalizeCandidateUrl(raw);
       if (!url || seen.has(url)) return;
-      if (!PIN_VIDEO_HOST_RE.test(url) && !/\.m3u8(\?|$)|\.mp4(\?|$)/i.test(url)) return;
+      if (!isPinterestVideoUrl(url)) return;
       seen.add(url);
       const type = classifyCandidateType(url);
       const score = typeScore(type) + sourceScore(source);
@@ -239,8 +280,17 @@
   }
 
   function selectPreferredVideoUrl(candidates) {
-    const directCandidate = candidates.find((candidate) => candidate.type !== "manifest_m3u8");
-    return directCandidate ? directCandidate.url : candidates[0]?.url || null;
+    const directCandidate = candidates.find((candidate) => isPinterestDirectMp4Url(candidate?.url || ""));
+    if (directCandidate) {
+      return directCandidate.url;
+    }
+
+    const manifestCandidate = candidates.find((candidate) => isPinterestManifestUrl(candidate?.url || ""));
+    if (manifestCandidate) {
+      return manifestCandidate.url;
+    }
+
+    return null;
   }
 
   function extractTitle(scope = document.body) {
@@ -297,6 +347,33 @@
       host.style.removeProperty("position");
       host.removeAttribute(HOST_PATCH_ATTR);
     }
+  }
+
+  function collectDistinctPinUrls(root) {
+    if (!(root instanceof HTMLElement)) {
+      return [];
+    }
+
+    const urls = new Set();
+    if (root instanceof HTMLAnchorElement) {
+      const rootUrl = normalizePinUrl(root.href);
+      if (rootUrl) {
+        urls.add(rootUrl);
+      }
+    }
+
+    root.querySelectorAll('a[href*="/pin/"]').forEach((anchor) => {
+      if (!(anchor instanceof HTMLAnchorElement)) {
+        return;
+      }
+
+      const url = normalizePinUrl(anchor.href);
+      if (url) {
+        urls.add(url);
+      }
+    });
+
+    return Array.from(urls);
   }
 
   function isRenderableCardAnchor(anchor) {
@@ -384,6 +461,13 @@
       onClick(button, event);
     });
     return button;
+  }
+
+  function createCatSvgElement() {
+    const template = document.createElement("template");
+    template.innerHTML = CAT_ICON_SVG.trim();
+    const catSvg = template.content.firstElementChild;
+    return catSvg instanceof SVGElement ? catSvg : null;
   }
 
   function extractControlLabel(element) {
@@ -729,6 +813,7 @@
     }
 
     slot.setAttribute(DETAIL_SLOT_ATTR, "true");
+    slot.classList.add(DETAIL_GROUP_SLOT_CLASS);
     const button = slot.querySelector("button");
     if (!(button instanceof HTMLButtonElement)) {
       return null;
@@ -751,6 +836,7 @@
 
     button.id = DETAIL_BUTTON_ID;
     button.type = "button";
+    button.classList.add(DETAIL_GROUP_BUTTON_CLASS);
     button.title = "Download with FlowSelect";
     button.setAttribute("aria-label", "Download with FlowSelect");
     button.removeAttribute("aria-expanded");
@@ -759,22 +845,20 @@
     const iconShell = button.querySelector(".VHreRh");
     if (iconShell instanceof HTMLElement) {
       const nativeSvg = iconShell.querySelector("svg");
-      const nativeSvgClassName =
-        nativeSvg instanceof SVGElement ? nativeSvg.getAttribute("class") || "" : "";
-      iconShell.innerHTML = CAT_ICON_SVG;
-      const catSvg = iconShell.querySelector("svg");
-      if (catSvg instanceof SVGElement) {
-        if (nativeSvgClassName) {
-          catSvg.setAttribute("class", nativeSvgClassName);
+      const catSvg = createCatSvgElement();
+      if (nativeSvg instanceof SVGElement && catSvg instanceof SVGElement) {
+        for (const attribute of nativeSvg.getAttributeNames()) {
+          const value = nativeSvg.getAttribute(attribute);
+          if (value != null && attribute !== "viewBox") {
+            catSvg.setAttribute(attribute, value);
+          }
         }
-        catSvg.setAttribute("width", "32");
-        catSvg.setAttribute("height", "32");
         catSvg.setAttribute("role", "img");
         catSvg.setAttribute("aria-hidden", "true");
         catSvg.setAttribute("focusable", "false");
-        catSvg.style.width = "32px";
-        catSvg.style.height = "32px";
-        catSvg.style.display = "block";
+        nativeSvg.replaceWith(catSvg);
+      } else if (catSvg instanceof SVGElement) {
+        iconShell.replaceChildren(catSvg);
       }
     } else {
       button.innerHTML = CAT_ICON_SVG;
@@ -797,12 +881,9 @@
     }
 
     if (host instanceof HTMLElement) {
-      const anchor = host.querySelector('a[href*="/pin/"]');
-      if (anchor instanceof HTMLAnchorElement) {
-        const normalizedAnchorUrl = normalizePinUrl(anchor.href);
-        if (normalizedAnchorUrl) {
-          return normalizedAnchorUrl;
-        }
+      const hostPinUrls = collectDistinctPinUrls(host);
+      if (hostPinUrls.length === 1) {
+        return hostPinUrls[0];
       }
     }
 
@@ -1016,11 +1097,7 @@
 
   function ensureCardButtons() {
     const activeHosts = new Set();
-
-    if (isPinterestPinPage()) {
-      removeStaleCardButtons(activeHosts);
-      return;
-    }
+    const currentPinUrl = isPinterestPinPage() ? normalizePinUrl(window.location.href) : null;
 
     const anchors = Array.from(document.querySelectorAll('a[href*="/pin/"]'));
     for (const anchor of anchors) {
@@ -1032,6 +1109,9 @@
       if (!pageUrl) {
         continue;
       }
+      if (currentPinUrl && pageUrl === currentPinUrl) {
+        continue;
+      }
 
       const existingHost = anchor.closest(`[${CARD_HOST_ATTR}]`);
       const host =
@@ -1039,6 +1119,11 @@
           ? existingHost
           : resolveCardHost(anchor);
       if (!(host instanceof HTMLElement)) {
+        continue;
+      }
+
+      const hostPinUrls = collectDistinctPinUrls(host);
+      if (hostPinUrls.length !== 1 || hostPinUrls[0] !== pageUrl) {
         continue;
       }
 

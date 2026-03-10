@@ -29,6 +29,7 @@ dist-ssr
 
 # Tauri sidecar binaries (downloaded in CI)
 src-tauri/binaries/*.exe
+src-tauri/binaries/pinterest-dl-*
 
 # Test files
 test_video.mp4

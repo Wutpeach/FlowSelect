@@ -153,6 +153,20 @@ struct PinterestResolvedMedia {
     video: Option<PinterestVideoAsset>,
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+struct PinterestRuntimePayload {
+    #[serde(rename = "traceId")]
+    trace_id: String,
+    #[serde(rename = "pageUrl")]
+    page_url: String,
+    #[serde(flatten)]
+    media: PinterestResolvedMedia,
+    #[serde(rename = "cookiesHeader", skip_serializing_if = "Option::is_none")]
+    cookies_header: Option<String>,
+    #[serde(rename = "outputDir")]
+    output_dir: String,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum YtdlpQualityPreference {
     #[default]
@@ -439,6 +453,7 @@ const YTDLP_HARD_HEARTBEAT_TIMEOUT_SECS: u64 = 90;
 const YTDLP_SOFT_HEARTBEAT_GRACE_SECS: u64 = 20;
 const YTDLP_WATCHDOG_TICK_MILLIS: u64 = 1500;
 const YTDLP_TERMINATION_GRACE_MILLIS: u64 = 2500;
+const PINTEREST_RUNTIME_STALL_TIMEOUT_SECS: u64 = 60;
 const YTDLP_TEMP_DIR_NAME: &str = "flowselect-ytdlp-temp";
 const RUNTIME_LOG_FILE_NAME: &str = "runtime.log";
 const RUNTIME_LOG_ROTATED_FILE_NAME: &str = "runtime.log.1";
@@ -825,52 +840,36 @@ fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
         .ok_or_else(|| "Failed to resolve deno runtime path candidates".to_string())
 }
 
-fn pinterest_runtime_script_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let file_name = "pinterest-runtime.py";
+fn pinterest_downloader_binary_filename() -> Result<&'static str, String> {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Ok("pinterest-dl-x86_64-pc-windows-msvc.exe")
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Ok("pinterest-dl-aarch64-apple-darwin")
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Ok("pinterest-dl-x86_64-apple-darwin")
+    } else {
+        Err(format!(
+            "Unsupported platform for Pinterest downloader: {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ))
+    }
+}
+
+fn pinterest_downloader_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let file_name = pinterest_downloader_binary_filename()?;
     let candidates = binary_candidate_paths(app, file_name);
     if let Some(path) = candidates.iter().find(|path| path.exists()) {
-        println!(">>> [Rust] Using Pinterest runtime script from: {:?}", path);
+        println!(">>> [Rust] Using bundled Pinterest downloader from: {:?}", path);
         return Ok(path.clone());
     }
 
     candidates.into_iter().next().ok_or_else(|| {
         format!(
-            "Failed to resolve Pinterest runtime script path for {}",
+            "Failed to resolve Pinterest downloader path for {}",
             file_name
         )
     })
-}
-
-fn python_binary_path() -> Result<String, String> {
-    #[cfg(target_os = "windows")]
-    let in_repo_python = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join(".venv")
-        .join("Scripts")
-        .join("python.exe");
-    #[cfg(not(target_os = "windows"))]
-    let in_repo_python = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join(".venv")
-        .join("bin")
-        .join("python");
-
-    if in_repo_python.exists() {
-        return Ok(in_repo_python.to_string_lossy().to_string());
-    }
-
-    #[cfg(target_os = "windows")]
-    let path_candidates = ["python.exe", "py.exe"];
-    #[cfg(not(target_os = "windows"))]
-    let path_candidates = ["python3", "python"];
-
-    for candidate in path_candidates {
-        if let Some(path) = resolve_binary_from_env_path(candidate) {
-            return Ok(path.to_string_lossy().to_string());
-        }
-    }
-
-    Err("Failed to resolve Python runtime for Pinterest downloader".to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -949,7 +948,7 @@ fn build_env_path_with_ffmpeg(app: &AppHandle) -> String {
             let separator = ":";
             env_path = format!("{}{}{}", ffmpeg_dir.to_string_lossy(), separator, env_path);
             println!(
-                ">>> [Rust] Added ffmpeg to PATH for Pinterest runtime: {:?}",
+                ">>> [Rust] Added ffmpeg to PATH for Pinterest downloader: {:?}",
                 ffmpeg_dir
             );
         }
@@ -4127,9 +4126,13 @@ async fn download_pinterest_video(
         .or_else(|| resolved.title.clone());
     let hinted_video_url =
         select_pinterest_hint_video_url(video_url_hint.as_deref(), &video_candidates);
-    let video_asset = if let Some(video_asset) = resolved.video.clone() {
-        video_asset
-    } else if let Some(video_url) = hinted_video_url.clone() {
+    let prefer_hint_video = hinted_video_url
+        .as_deref()
+        .is_some_and(|video_url| {
+            should_prefer_pinterest_hint_video_url(video_url, resolved.video.as_ref())
+        });
+    let video_asset = if prefer_hint_video {
+        let video_url = hinted_video_url.clone().unwrap_or_default();
         log_download_trace(
             &trace_id,
             "pinterest_extension_hint_selected",
@@ -4137,16 +4140,18 @@ async fn download_pinterest_video(
                 "pinId": resolved.pin_id,
                 "videoUrl": summarize_url_for_log(&video_url),
                 "source": "extension_hint",
+                "policy": if resolved.video.is_some() {
+                    "prefer_direct_hint_over_manifest_resolved"
+                } else {
+                    "use_hint_without_resolved_video"
+                },
+                "resolvedVideoUrl": resolved.video.as_ref().map(|video| summarize_url_for_log(&video.url)),
                 "videoCandidatesCount": video_candidates.len(),
             }),
         );
-        PinterestVideoAsset {
-            url: video_url,
-            width: None,
-            height: None,
-            duration_seconds: None,
-            poster_url: Some(resolved.image.url.clone()),
-        }
+        build_pinterest_hint_video_asset(video_url, &resolved)
+    } else if let Some(video_asset) = resolved.video.clone() {
+        video_asset
     } else {
         append_runtime_log_event(
             "download",
@@ -4178,7 +4183,7 @@ async fn download_pinterest_video(
 
     let mut runtime_payload = resolved.clone();
     runtime_payload.title = resolved_title.clone();
-
+    runtime_payload.video = Some(video_asset.clone());
     let config_str = get_config(app.clone())?;
     let config: serde_json::Value = serde_json::from_str(&config_str)
         .map_err(|err| format!("Failed to parse config: {}", err))?;
@@ -4196,14 +4201,22 @@ async fn download_pinterest_video(
             .map_err(|err| format!("Failed to create output directory: {}", err))?;
     }
 
+    let runtime_payload = PinterestRuntimePayload {
+        trace_id: trace_id.clone(),
+        page_url: page_url.clone(),
+        media: runtime_payload,
+        cookies_header: cookies_header.filter(|value| !value.trim().is_empty()),
+        output_dir: output_dir.to_string_lossy().to_string(),
+    };
+
     let runtime_input_path = std::env::temp_dir().join(format!(
         "flowselect_pinterest_{}_{}.json",
-        runtime_payload.pin_id, trace_id
+        runtime_payload.media.pin_id, trace_id
     ));
     let runtime_input_json = serde_json::to_vec(&runtime_payload)
-        .map_err(|err| format!("Failed to serialize Pinterest runtime payload: {}", err))?;
+        .map_err(|err| format!("Failed to serialize Pinterest downloader payload: {}", err))?;
     fs::write(&runtime_input_path, runtime_input_json)
-        .map_err(|err| format!("Failed to write Pinterest runtime payload: {}", err))?;
+        .map_err(|err| format!("Failed to write Pinterest downloader payload: {}", err))?;
 
     append_runtime_log_event(
         "download",
@@ -4212,32 +4225,14 @@ async fn download_pinterest_video(
         serde_json::json!({
             "mode": "pinterest",
             "pageUrl": summarize_url_for_log(&page_url),
-            "pinId": runtime_payload.pin_id,
+            "pinId": runtime_payload.media.pin_id,
             "hasVideo": true,
             "videoUrl": summarize_url_for_log(&video_asset.url),
             "outputDir": output_dir.to_string_lossy().to_string(),
         }),
     );
 
-    let python_path = match python_binary_path() {
-        Ok(path) => path,
-        Err(err) => {
-            let _ = fs::remove_file(&runtime_input_path);
-            append_runtime_log_event(
-                "download",
-                "complete",
-                Some(trace_id.as_str()),
-                serde_json::json!({
-                    "mode": "pinterest",
-                    "success": false,
-                    "error": err,
-                }),
-            );
-            clear_runtime_progress_log_state(trace_id.as_str());
-            return Err(stage_error("runtime_spawn", err.as_str()));
-        }
-    };
-    let runtime_script_path = match pinterest_runtime_script_path(&app) {
+    let downloader_path = match pinterest_downloader_binary_path(&app) {
         Ok(path) => path,
         Err(err) => {
             let _ = fs::remove_file(&runtime_input_path);
@@ -4258,14 +4253,11 @@ async fn download_pinterest_video(
 
     let shell = app.shell();
     let runtime_args = vec![
-        runtime_script_path.to_string_lossy().to_string(),
         "--input-json".to_string(),
         runtime_input_path.to_string_lossy().to_string(),
-        "--output-dir".to_string(),
-        output_dir.to_string_lossy().to_string(),
     ];
     let (mut rx, child) = match shell
-        .command(python_path.clone())
+        .command(downloader_path.to_string_lossy().to_string())
         .args(runtime_args)
         .env("PATH", build_env_path_with_ffmpeg(&app))
         .spawn()
@@ -4280,15 +4272,18 @@ async fn download_pinterest_video(
                 serde_json::json!({
                     "mode": "pinterest",
                     "success": false,
-                    "error": format!("Failed to spawn Pinterest runtime via {}: {}", python_path, err),
+                    "error": format!(
+                        "Failed to spawn Pinterest downloader at {:?}: {}",
+                        downloader_path, err
+                    ),
                 }),
             );
             clear_runtime_progress_log_state(trace_id.as_str());
             return Err(stage_error(
                 "runtime_spawn",
                 format!(
-                    "Failed to spawn Pinterest runtime via {}: {}",
-                    python_path, err
+                    "Failed to spawn Pinterest downloader at {:?}: {}",
+                    downloader_path, err
                 )
                 .as_str(),
             ));
@@ -4298,10 +4293,9 @@ async fn download_pinterest_video(
     register_download_child(trace_id.as_str(), child.pid());
     log_download_trace(
         &trace_id,
-        "pinterest_runtime_spawn",
+        "pinterest_sidecar_spawn",
         serde_json::json!({
-            "python": python_path,
-            "script": runtime_script_path.to_string_lossy().to_string(),
+            "binary": downloader_path.to_string_lossy().to_string(),
             "payloadPath": runtime_input_path.to_string_lossy().to_string(),
         }),
     );
@@ -4309,14 +4303,22 @@ async fn download_pinterest_video(
     let mut stdout_buffer = String::new();
     let mut stderr_buffer = String::new();
     let mut final_file_path: Option<String> = None;
+    let mut last_runtime_output_at = std::time::Instant::now();
 
-    while let Some(event) = rx.recv().await {
-        match event {
+    loop {
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(YTDLP_WATCHDOG_TICK_MILLIS),
+            rx.recv(),
+        )
+        .await
+        {
+            Ok(Some(event)) => match event {
             CommandEvent::Stdout(line) => {
                 let line_str = String::from_utf8_lossy(&line).trim().to_string();
                 if line_str.is_empty() {
                     continue;
                 }
+                last_runtime_output_at = std::time::Instant::now();
 
                 stdout_buffer.push_str(&line_str);
                 stdout_buffer.push('\n');
@@ -4358,21 +4360,67 @@ async fn download_pinterest_video(
                     continue;
                 }
 
+                if let Some(stage_name) = line_str.strip_prefix("FLOWSELECT_PINTEREST_STAGE\t") {
+                    let stage_name = stage_name.trim();
+                    log_download_trace(
+                        &trace_id,
+                        "pinterest_sidecar_stage",
+                        serde_json::json!({
+                            "stage": stage_name,
+                        }),
+                    );
+
+                    let stage = match stage_name {
+                        "preparing" => Some(DownloadProgressStage::Preparing),
+                        "downloading" => Some(DownloadProgressStage::Downloading),
+                        "completed" => Some(DownloadProgressStage::PostProcessing),
+                        _ => None,
+                    };
+
+                    if let Some(stage) = stage {
+                        let percent = if stage == DownloadProgressStage::PostProcessing {
+                            100.0
+                        } else {
+                            -1.0
+                        };
+                        let speed = stage.label().to_string();
+                        let _ = app.emit(
+                            "video-download-progress",
+                            DownloadProgress {
+                                trace_id: trace_id.clone(),
+                                percent,
+                                stage,
+                                speed: speed.clone(),
+                                eta: "".to_string(),
+                            },
+                        );
+                        maybe_log_runtime_progress(
+                            trace_id.as_str(),
+                            stage,
+                            percent,
+                            speed.as_str(),
+                            "",
+                        );
+                    }
+                    continue;
+                }
+
                 if let Some(path) = line_str.strip_prefix("FLOWSELECT_PINTEREST_RESULT\t") {
                     final_file_path = Some(path.trim().to_string());
                     continue;
                 }
 
-                println!(">>> [Pinterest runtime stdout] {}", line_str);
+                println!(">>> [Pinterest downloader stdout] {}", line_str);
             }
             CommandEvent::Stderr(line) => {
                 let line_str = String::from_utf8_lossy(&line).trim().to_string();
                 if line_str.is_empty() {
                     continue;
                 }
+                last_runtime_output_at = std::time::Instant::now();
                 stderr_buffer.push_str(&line_str);
                 stderr_buffer.push('\n');
-                println!(">>> [Pinterest runtime stderr] {}", line_str);
+                println!(">>> [Pinterest downloader stderr] {}", line_str);
             }
             CommandEvent::Terminated(payload) => {
                 clear_download_child(trace_id.as_str());
@@ -4436,13 +4484,13 @@ async fn download_pinterest_video(
                         serde_json::json!({
                             "mode": "pinterest",
                             "success": false,
-                            "error": "Pinterest runtime exited successfully but produced no output path",
+                            "error": "Pinterest downloader exited successfully but produced no output path",
                         }),
                     );
                     clear_runtime_progress_log_state(trace_id.as_str());
                     return Err(stage_error(
                         "runtime_exit",
-                        "Pinterest runtime exited successfully but produced no output path",
+                        "Pinterest downloader exited successfully but produced no output path",
                     ));
                 }
 
@@ -4450,7 +4498,7 @@ async fn download_pinterest_video(
                     .lines()
                     .find(|line| !line.trim().is_empty())
                     .or_else(|| stdout_buffer.lines().find(|line| !line.trim().is_empty()))
-                    .unwrap_or("Pinterest runtime exited with an unknown error");
+                    .unwrap_or("Pinterest downloader exited with an unknown error");
                 append_runtime_log_event(
                     "download",
                     "complete",
@@ -4466,13 +4514,45 @@ async fn download_pinterest_video(
                 return Err(stage_error(
                     "runtime_exit",
                     format!(
-                        "Pinterest runtime exited with code {:?}: {}",
+                        "Pinterest downloader exited with code {:?}: {}",
                         payload.code, runtime_error
                     )
                     .as_str(),
                 ));
             }
             _ => {}
+            },
+            Ok(None) => break,
+            Err(_) => {}
+        }
+
+        if is_download_cancelled(trace_id.as_str()) {
+            terminate_download_child_process_with_grace(trace_id.as_str()).await;
+            let _ = fs::remove_file(&runtime_input_path);
+            clear_runtime_progress_log_state(trace_id.as_str());
+            return Err("Download cancelled".to_string());
+        }
+
+        if std::time::Instant::now().duration_since(last_runtime_output_at)
+            > std::time::Duration::from_secs(PINTEREST_RUNTIME_STALL_TIMEOUT_SECS)
+        {
+            terminate_download_child_process_with_grace(trace_id.as_str()).await;
+            let _ = fs::remove_file(&runtime_input_path);
+            append_runtime_log_event(
+                "download",
+                "complete",
+                Some(trace_id.as_str()),
+                serde_json::json!({
+                    "mode": "pinterest",
+                    "success": false,
+                    "error": "Pinterest downloader stalled with no output",
+                }),
+            );
+            clear_runtime_progress_log_state(trace_id.as_str());
+            return Err(stage_error(
+                "runtime_watchdog",
+                "Pinterest downloader stalled with no output",
+            ));
         }
     }
 
@@ -4485,13 +4565,13 @@ async fn download_pinterest_video(
         serde_json::json!({
             "mode": "pinterest",
             "success": false,
-            "error": "Pinterest runtime ended unexpectedly",
+            "error": "Pinterest downloader ended unexpectedly",
         }),
     );
     clear_runtime_progress_log_state(trace_id.as_str());
     Err(stage_error(
         "runtime_exit",
-        "Pinterest runtime ended unexpectedly",
+        "Pinterest downloader ended unexpectedly",
     ))
 }
 
@@ -5536,12 +5616,14 @@ fn pinterest_video_variant_score(value: &serde_json::Value) -> u64 {
         .and_then(|inner| inner.as_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let format_bonus = if url.contains(".mp4") {
+    let format_bonus = if is_pinterest_direct_mp4_url(url.as_str()) {
         5_000_000_000
-    } else if url.contains(".m3u8") {
+    } else if is_pinterest_manifest_hint_url(url.as_str()) {
+        3_000_000_000
+    } else if is_pinterest_manifest_like_url(url.as_str()) {
         1_000_000_000
     } else {
-        2_500_000_000
+        0
     };
 
     format_bonus + (width.saturating_mul(height))
@@ -5585,12 +5667,14 @@ fn parse_pinterest_video_asset_from_video_list(
 fn pinterest_video_asset_score(asset: &PinterestVideoAsset) -> u64 {
     let width = asset.width.unwrap_or(0) as u64;
     let height = asset.height.unwrap_or(0) as u64;
-    let format_bonus = if asset.url.to_ascii_lowercase().contains(".mp4") {
+    let format_bonus = if is_pinterest_direct_mp4_url(asset.url.as_str()) {
         5_000_000_000
-    } else if asset.url.to_ascii_lowercase().contains(".m3u8") {
+    } else if is_pinterest_manifest_hint_url(asset.url.as_str()) {
+        3_000_000_000
+    } else if is_pinterest_manifest_like_url(asset.url.as_str()) {
         1_000_000_000
     } else {
-        2_500_000_000
+        0
     };
 
     format_bonus + width.saturating_mul(height)
@@ -5615,6 +5699,47 @@ fn extract_pinterest_title(value: &serde_json::Value) -> Option<String> {
     }
 
     None
+}
+
+fn build_pinterest_hint_video_asset(
+    hint_url: String,
+    resolved: &PinterestResolvedMedia,
+) -> PinterestVideoAsset {
+    let poster_url = resolved
+        .video
+        .as_ref()
+        .and_then(|video| video.poster_url.clone())
+        .or_else(|| Some(resolved.image.url.clone()));
+
+    PinterestVideoAsset {
+        url: hint_url,
+        width: resolved.video.as_ref().and_then(|video| video.width),
+        height: resolved.video.as_ref().and_then(|video| video.height),
+        duration_seconds: resolved.video.as_ref().and_then(|video| video.duration_seconds),
+        poster_url,
+    }
+}
+
+fn should_prefer_pinterest_hint_video_url(
+    hint_url: &str,
+    resolved_video: Option<&PinterestVideoAsset>,
+) -> bool {
+    if !is_valid_pinterest_hint_video_url(hint_url) {
+        return false;
+    }
+
+    let Some(resolved_video) = resolved_video else {
+        return true;
+    };
+
+    let normalized_hint = normalize_video_candidate_url(hint_url);
+    let normalized_resolved = normalize_video_candidate_url(resolved_video.url.as_str());
+    if normalized_hint.is_some() && normalized_hint == normalized_resolved {
+        return false;
+    }
+
+    !is_pinterest_manifest_hint_url(hint_url)
+        && is_pinterest_manifest_like_url(resolved_video.url.as_str())
 }
 
 fn extract_pinterest_video_asset(
@@ -5909,6 +6034,63 @@ async fn resolve_pinterest_pin_media(
     let client = build_pinterest_request_client(page_url, cookies_header)?;
     let mut failure_notes = Vec::new();
     let mut image_only_fallback: Option<PinterestResolvedMedia> = None;
+    let mut fallback_image: Option<PinterestImageAsset> = None;
+    let mut fallback_title: Option<String> = None;
+
+    match fetch_pinterest_page_html(&client, page_url).await {
+        Ok(html) => {
+            log_download_trace(
+                trace_id,
+                "pinterest_page_html",
+                serde_json::json!({
+                    "status": "ok",
+                    "pinId": pin_id,
+                }),
+            );
+            fallback_image = extract_pinterest_meta_image(&html);
+            fallback_title = extract_pinterest_meta_title(&html);
+            for block in extract_pinterest_json_blocks(&html) {
+                if let Some(resolved) = resolve_pinterest_pin_media_from_value(
+                    &block,
+                    pin_id.as_str(),
+                    page_url,
+                    fallback_image.clone(),
+                    fallback_title.clone(),
+                ) {
+                    log_download_trace(
+                        trace_id,
+                        "pinterest_media_resolved",
+                        serde_json::json!({
+                            "pinId": resolved.pin_id,
+                            "hasVideo": resolved.video.is_some(),
+                            "imageUrl": summarize_url_for_log(&resolved.image.url),
+                            "videoUrl": resolved.video.as_ref().map(|video| summarize_url_for_log(&video.url)),
+                            "resolver": "page_html",
+                        }),
+                    );
+                    if resolved.video.is_some() {
+                        return Ok(resolved);
+                    }
+                    failure_notes.push("page_html_image_only".to_string());
+                    if image_only_fallback.is_none() {
+                        image_only_fallback = Some(resolved);
+                    }
+                }
+            }
+        }
+        Err(err) => {
+            log_download_trace(
+                trace_id,
+                "pinterest_page_html",
+                serde_json::json!({
+                    "status": "error",
+                    "error": err,
+                    "pinId": pin_id,
+                }),
+            );
+            failure_notes.push("page_html_failed".to_string());
+        }
+    }
 
     let main_pin_options = serde_json::json!({
         "url": "/v3/users/me/recent/engaged/pin/stories/",
@@ -5941,8 +6123,8 @@ async fn resolve_pinterest_pin_media(
                 &value,
                 pin_id.as_str(),
                 page_url,
-                None,
-                None,
+                fallback_image.clone(),
+                fallback_title.clone(),
             ) {
                 log_download_trace(
                     trace_id,
@@ -6013,8 +6195,8 @@ async fn resolve_pinterest_pin_media(
                 &value,
                 pin_id.as_str(),
                 page_url,
-                None,
-                None,
+                fallback_image.clone(),
+                fallback_title.clone(),
             ) {
                 log_download_trace(
                     trace_id,
@@ -6052,37 +6234,6 @@ async fn resolve_pinterest_pin_media(
         }
     }
 
-    let html = fetch_pinterest_page_html(&client, page_url).await?;
-    let fallback_image = extract_pinterest_meta_image(&html);
-    let fallback_title = extract_pinterest_meta_title(&html);
-    for block in extract_pinterest_json_blocks(&html) {
-        if let Some(resolved) = resolve_pinterest_pin_media_from_value(
-            &block,
-            pin_id.as_str(),
-            page_url,
-            fallback_image.clone(),
-            fallback_title.clone(),
-        ) {
-            log_download_trace(
-                trace_id,
-                "pinterest_media_resolved",
-                serde_json::json!({
-                    "pinId": resolved.pin_id,
-                    "hasVideo": resolved.video.is_some(),
-                    "imageUrl": summarize_url_for_log(&resolved.image.url),
-                    "videoUrl": resolved.video.as_ref().map(|video| summarize_url_for_log(&video.url)),
-                    "resolver": "page_html",
-                }),
-            );
-            if resolved.video.is_some() {
-                return Ok(resolved);
-            }
-            if image_only_fallback.is_none() {
-                image_only_fallback = Some(resolved);
-            }
-        }
-    }
-
     if let Some(resolved) = image_only_fallback {
         return Ok(resolved);
     }
@@ -6115,6 +6266,30 @@ fn normalize_video_candidate_url(raw: &str) -> Option<String> {
     }
 
     Some(trimmed.replace("\\u002F", "/"))
+}
+
+fn is_mp4_video_url(url: &str) -> bool {
+    url.to_ascii_lowercase().contains(".mp4")
+}
+
+fn is_pinterest_direct_mp4_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains(".mp4") || lower.contains("/videos/iht/expmp4/")
+}
+
+fn is_pinterest_manifest_hint_url(url: &str) -> bool {
+    url.to_ascii_lowercase().contains(".m3u8")
+}
+
+fn is_pinterest_manifest_like_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    is_pinterest_manifest_hint_url(&lower)
+        || lower.contains(".cmfv")
+        || lower.contains("/videos/iht/hls/")
+}
+
+fn is_valid_pinterest_hint_video_url(url: &str) -> bool {
+    is_pinterest_manifest_hint_url(url) || is_pinterest_direct_mp4_url(url) || is_mp4_video_url(url)
 }
 
 fn normalize_page_url_for_direct_cache(raw: &str) -> Option<String> {
@@ -6322,19 +6497,23 @@ fn select_pinterest_hint_video_url(
     video_url_hint: Option<&str>,
     video_candidates: &[ExtensionVideoCandidate],
 ) -> Option<String> {
-    let mut manifest_fallback = video_url_hint
+    let normalized_hint = video_url_hint
         .and_then(normalize_video_candidate_url)
-        .filter(|url| is_manifest_video_url(url));
+        .filter(|url| is_valid_pinterest_hint_video_url(url));
+    let mut manifest_fallback = normalized_hint
+        .clone()
+        .filter(|url| is_pinterest_manifest_hint_url(url));
 
-    if let Some(url) = video_url_hint
-        .and_then(normalize_video_candidate_url)
-        .filter(|url| !is_manifest_video_url(url))
-    {
+    if let Some(url) = normalized_hint.filter(|url| !is_pinterest_manifest_hint_url(url)) {
         return Some(url);
     }
 
     for candidate in video_candidates {
-        if !is_manifest_video_url(&candidate.url) {
+        if !is_valid_pinterest_hint_video_url(&candidate.url) {
+            continue;
+        }
+
+        if !is_pinterest_manifest_hint_url(&candidate.url) {
             return Some(candidate.url.clone());
         }
 
