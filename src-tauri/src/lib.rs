@@ -372,6 +372,13 @@ impl YtdlpQualityPreference {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct YtdlpInvocationPolicy {
+    allow_youtube_cookie_retry: bool,
+    allow_http_416_retry: bool,
+    disable_resume_artifacts: bool,
+}
+
 #[derive(Clone, Debug)]
 struct DirectCandidateCacheEntry {
     url: String,
@@ -1007,7 +1014,10 @@ fn pinterest_downloader_binary_path(app: &AppHandle) -> Result<PathBuf, String> 
     let file_name = pinterest_downloader_binary_filename()?;
     let candidates = binary_candidate_paths(app, file_name);
     if let Some(path) = candidates.iter().find(|path| path.exists()) {
-        println!(">>> [Rust] Using bundled Pinterest downloader from: {:?}", path);
+        println!(
+            ">>> [Rust] Using bundled Pinterest downloader from: {:?}",
+            path
+        );
         return Ok(path.clone());
     }
 
@@ -2907,6 +2917,21 @@ fn should_retry_youtube_without_cookies(error_text: &str) -> bool {
         || lower.contains("not a bot")
 }
 
+fn should_retry_ytdlp_without_resume(error_text: &str) -> bool {
+    let lower = error_text.to_ascii_lowercase();
+    lower.contains("http error 416") || lower.contains("requested range not satisfiable")
+}
+
+fn append_ytdlp_runtime_guard_args(args: &mut Vec<String>, disable_resume_artifacts: bool) {
+    // Keep bundled yt-dlp isolated from host-machine config so portable builds
+    // behave consistently across different user environments.
+    args.push("--ignore-config".to_string());
+    if disable_resume_artifacts {
+        args.push("--no-continue".to_string());
+        args.push("--no-part".to_string());
+    }
+}
+
 async fn download_full_source_to_slice_cache(
     app: &AppHandle,
     url: &str,
@@ -2914,6 +2939,7 @@ async fn download_full_source_to_slice_cache(
     ytdlp_quality: YtdlpQualityPreference,
     cache_path: &Path,
     trace_id: &str,
+    disable_resume_artifacts: bool,
 ) -> Result<PathBuf, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
@@ -2951,6 +2977,7 @@ async fn download_full_source_to_slice_cache(
         "-o".to_string(),
         cache_path.to_string_lossy().to_string(),
     ];
+    append_ytdlp_runtime_guard_args(&mut args, disable_resume_artifacts);
     if let Some(format_sort) = ytdlp_quality.format_sort() {
         args.push("-S".to_string());
         args.push(format_sort.to_string());
@@ -3117,6 +3144,7 @@ async fn ensure_slice_source_cache(
         ytdlp_quality,
         &cache_path,
         trace_id,
+        false,
     )
     .await?;
     upsert_slice_source_cache(cache_key, downloaded_path.clone(), now_timestamp_ms())?;
@@ -4284,9 +4312,7 @@ async fn download_pinterest_video(
                 return Err(stage_error("resolve", resolve_err.as_str()));
             };
 
-            let fallback_title = title
-                .clone()
-                .filter(|value| !value.trim().is_empty());
+            let fallback_title = title.clone().filter(|value| !value.trim().is_empty());
             let fallback_media = build_minimal_pinterest_media_from_hint(
                 page_url.as_str(),
                 fallback_title,
@@ -4316,13 +4342,10 @@ async fn download_pinterest_video(
     let resolved_title = title
         .filter(|value| !value.trim().is_empty())
         .or_else(|| resolved.title.clone());
-    let prefer_hint_video = hinted_video_url
-        .as_deref()
-        .is_some_and(|video_url| {
-            !used_hint_only_fallback
-                &&
-            should_prefer_pinterest_hint_video_url(video_url, resolved.video.as_ref())
-        });
+    let prefer_hint_video = hinted_video_url.as_deref().is_some_and(|video_url| {
+        !used_hint_only_fallback
+            && should_prefer_pinterest_hint_video_url(video_url, resolved.video.as_ref())
+    });
     let video_asset = if used_hint_only_fallback {
         resolved.video.clone().unwrap_or(PinterestVideoAsset {
             url: hinted_video_url.clone().unwrap_or_default(),
@@ -4513,170 +4536,193 @@ async fn download_pinterest_video(
         .await
         {
             Ok(Some(event)) => match event {
-            CommandEvent::Stdout(line) => {
-                let line_str = String::from_utf8_lossy(&line).trim().to_string();
-                if line_str.is_empty() {
-                    continue;
-                }
-                last_runtime_output_at = std::time::Instant::now();
+                CommandEvent::Stdout(line) => {
+                    let line_str = String::from_utf8_lossy(&line).trim().to_string();
+                    if line_str.is_empty() {
+                        continue;
+                    }
+                    last_runtime_output_at = std::time::Instant::now();
 
-                stdout_buffer.push_str(&line_str);
-                stdout_buffer.push('\n');
+                    stdout_buffer.push_str(&line_str);
+                    stdout_buffer.push('\n');
 
-                if let Some(rest) = line_str.strip_prefix("FLOWSELECT_PINTEREST_PROGRESS\t") {
-                    let parts: Vec<&str> = rest.split('\t').collect();
-                    let done = parts
-                        .first()
-                        .and_then(|value| value.parse::<f32>().ok())
-                        .unwrap_or(0.0);
-                    let total = parts
-                        .get(1)
-                        .and_then(|value| value.parse::<f32>().ok())
-                        .filter(|value| *value > 0.0)
-                        .unwrap_or(1.0);
-                    let percent = ((done / total) * 100.0).clamp(0.0, 100.0);
-                    let speed = if percent >= 100.0 {
-                        "Finalizing...".to_string()
-                    } else {
-                        "Downloading...".to_string()
-                    };
-                    let _ = app.emit(
-                        "video-download-progress",
-                        DownloadProgress {
-                            trace_id: trace_id.clone(),
-                            percent,
-                            stage: DownloadProgressStage::Downloading,
-                            speed: speed.clone(),
-                            eta: "N/A".to_string(),
-                        },
-                    );
-                    maybe_log_runtime_progress(
-                        trace_id.as_str(),
-                        DownloadProgressStage::Downloading,
-                        percent,
-                        speed.as_str(),
-                        "N/A",
-                    );
-                    continue;
-                }
-
-                if let Some(stage_name) = line_str.strip_prefix("FLOWSELECT_PINTEREST_STAGE\t") {
-                    let stage_name = stage_name.trim();
-                    log_download_trace(
-                        &trace_id,
-                        "pinterest_sidecar_stage",
-                        serde_json::json!({
-                            "stage": stage_name,
-                        }),
-                    );
-
-                    let stage = match stage_name {
-                        "preparing" => Some(DownloadProgressStage::Preparing),
-                        "downloading" => Some(DownloadProgressStage::Downloading),
-                        "completed" => Some(DownloadProgressStage::PostProcessing),
-                        _ => None,
-                    };
-
-                    if let Some(stage) = stage {
-                        let percent = if stage == DownloadProgressStage::PostProcessing {
-                            100.0
+                    if let Some(rest) = line_str.strip_prefix("FLOWSELECT_PINTEREST_PROGRESS\t") {
+                        let parts: Vec<&str> = rest.split('\t').collect();
+                        let done = parts
+                            .first()
+                            .and_then(|value| value.parse::<f32>().ok())
+                            .unwrap_or(0.0);
+                        let total = parts
+                            .get(1)
+                            .and_then(|value| value.parse::<f32>().ok())
+                            .filter(|value| *value > 0.0)
+                            .unwrap_or(1.0);
+                        let percent = ((done / total) * 100.0).clamp(0.0, 100.0);
+                        let speed = if percent >= 100.0 {
+                            "Finalizing...".to_string()
                         } else {
-                            -1.0
+                            "Downloading...".to_string()
                         };
-                        let speed = stage.label().to_string();
                         let _ = app.emit(
                             "video-download-progress",
                             DownloadProgress {
                                 trace_id: trace_id.clone(),
                                 percent,
-                                stage,
+                                stage: DownloadProgressStage::Downloading,
                                 speed: speed.clone(),
-                                eta: "".to_string(),
+                                eta: "N/A".to_string(),
                             },
                         );
                         maybe_log_runtime_progress(
                             trace_id.as_str(),
-                            stage,
+                            DownloadProgressStage::Downloading,
                             percent,
                             speed.as_str(),
-                            "",
+                            "N/A",
                         );
+                        continue;
                     }
-                    continue;
-                }
 
-                if let Some(path) = line_str.strip_prefix("FLOWSELECT_PINTEREST_RESULT\t") {
-                    final_file_path = Some(path.trim().to_string());
-                    continue;
-                }
-
-                println!(">>> [Pinterest downloader stdout] {}", line_str);
-            }
-            CommandEvent::Stderr(line) => {
-                let line_str = String::from_utf8_lossy(&line).trim().to_string();
-                if line_str.is_empty() {
-                    continue;
-                }
-                last_runtime_output_at = std::time::Instant::now();
-                stderr_buffer.push_str(&line_str);
-                stderr_buffer.push('\n');
-                println!(">>> [Pinterest downloader stderr] {}", line_str);
-            }
-            CommandEvent::Terminated(payload) => {
-                clear_download_child(trace_id.as_str());
-                let _ = fs::remove_file(&runtime_input_path);
-
-                if is_download_cancelled(trace_id.as_str()) {
-                    if let Some(path) = final_file_path.as_ref() {
-                        let _ = fs::remove_file(path);
-                    }
-                    append_runtime_log_event(
-                        "download",
-                        "complete",
-                        Some(trace_id.as_str()),
-                        serde_json::json!({
-                            "mode": "pinterest",
-                            "success": false,
-                            "error": "Download cancelled",
-                        }),
-                    );
-                    clear_runtime_progress_log_state(trace_id.as_str());
-                    return Err("Download cancelled".to_string());
-                }
-
-                if payload.code == Some(0) {
-                    if let Some(file_path) = final_file_path
-                        .clone()
-                        .filter(|path| PathBuf::from(path).exists())
+                    if let Some(stage_name) = line_str.strip_prefix("FLOWSELECT_PINTEREST_STAGE\t")
                     {
-                        let result = DownloadResult {
-                            trace_id: trace_id.clone(),
-                            success: true,
-                            file_path: Some(file_path.clone()),
-                            error: None,
+                        let stage_name = stage_name.trim();
+                        log_download_trace(
+                            &trace_id,
+                            "pinterest_sidecar_stage",
+                            serde_json::json!({
+                                "stage": stage_name,
+                            }),
+                        );
+
+                        let stage = match stage_name {
+                            "preparing" => Some(DownloadProgressStage::Preparing),
+                            "downloading" => Some(DownloadProgressStage::Downloading),
+                            "completed" => Some(DownloadProgressStage::PostProcessing),
+                            _ => None,
                         };
-                        let _ = app.emit("video-download-complete", result.clone());
+
+                        if let Some(stage) = stage {
+                            let percent = if stage == DownloadProgressStage::PostProcessing {
+                                100.0
+                            } else {
+                                -1.0
+                            };
+                            let speed = stage.label().to_string();
+                            let _ = app.emit(
+                                "video-download-progress",
+                                DownloadProgress {
+                                    trace_id: trace_id.clone(),
+                                    percent,
+                                    stage,
+                                    speed: speed.clone(),
+                                    eta: "".to_string(),
+                                },
+                            );
+                            maybe_log_runtime_progress(
+                                trace_id.as_str(),
+                                stage,
+                                percent,
+                                speed.as_str(),
+                                "",
+                            );
+                        }
+                        continue;
+                    }
+
+                    if let Some(path) = line_str.strip_prefix("FLOWSELECT_PINTEREST_RESULT\t") {
+                        final_file_path = Some(path.trim().to_string());
+                        continue;
+                    }
+
+                    println!(">>> [Pinterest downloader stdout] {}", line_str);
+                }
+                CommandEvent::Stderr(line) => {
+                    let line_str = String::from_utf8_lossy(&line).trim().to_string();
+                    if line_str.is_empty() {
+                        continue;
+                    }
+                    last_runtime_output_at = std::time::Instant::now();
+                    stderr_buffer.push_str(&line_str);
+                    stderr_buffer.push('\n');
+                    println!(">>> [Pinterest downloader stderr] {}", line_str);
+                }
+                CommandEvent::Terminated(payload) => {
+                    clear_download_child(trace_id.as_str());
+                    let _ = fs::remove_file(&runtime_input_path);
+
+                    if is_download_cancelled(trace_id.as_str()) {
+                        if let Some(path) = final_file_path.as_ref() {
+                            let _ = fs::remove_file(path);
+                        }
                         append_runtime_log_event(
                             "download",
                             "complete",
                             Some(trace_id.as_str()),
                             serde_json::json!({
                                 "mode": "pinterest",
-                                "success": true,
-                                "filePath": file_path,
+                                "success": false,
+                                "error": "Download cancelled",
                             }),
                         );
                         clear_runtime_progress_log_state(trace_id.as_str());
-
-                        let app_for_ae = app.clone();
-                        let file_path_for_ae = result.file_path.clone().unwrap_or_default();
-                        tokio::spawn(async move {
-                            let _ = send_to_ae(app_for_ae, file_path_for_ae).await;
-                        });
-
-                        return Ok(result);
+                        return Err("Download cancelled".to_string());
                     }
 
+                    if payload.code == Some(0) {
+                        if let Some(file_path) = final_file_path
+                            .clone()
+                            .filter(|path| PathBuf::from(path).exists())
+                        {
+                            let result = DownloadResult {
+                                trace_id: trace_id.clone(),
+                                success: true,
+                                file_path: Some(file_path.clone()),
+                                error: None,
+                            };
+                            let _ = app.emit("video-download-complete", result.clone());
+                            append_runtime_log_event(
+                                "download",
+                                "complete",
+                                Some(trace_id.as_str()),
+                                serde_json::json!({
+                                    "mode": "pinterest",
+                                    "success": true,
+                                    "filePath": file_path,
+                                }),
+                            );
+                            clear_runtime_progress_log_state(trace_id.as_str());
+
+                            let app_for_ae = app.clone();
+                            let file_path_for_ae = result.file_path.clone().unwrap_or_default();
+                            tokio::spawn(async move {
+                                let _ = send_to_ae(app_for_ae, file_path_for_ae).await;
+                            });
+
+                            return Ok(result);
+                        }
+
+                        append_runtime_log_event(
+                            "download",
+                            "complete",
+                            Some(trace_id.as_str()),
+                            serde_json::json!({
+                                "mode": "pinterest",
+                                "success": false,
+                                "error": "Pinterest downloader exited successfully but produced no output path",
+                            }),
+                        );
+                        clear_runtime_progress_log_state(trace_id.as_str());
+                        return Err(stage_error(
+                            "runtime_exit",
+                            "Pinterest downloader exited successfully but produced no output path",
+                        ));
+                    }
+
+                    let runtime_error = stderr_buffer
+                        .lines()
+                        .find(|line| !line.trim().is_empty())
+                        .or_else(|| stdout_buffer.lines().find(|line| !line.trim().is_empty()))
+                        .unwrap_or("Pinterest downloader exited with an unknown error");
                     append_runtime_log_event(
                         "download",
                         "complete",
@@ -4684,43 +4730,21 @@ async fn download_pinterest_video(
                         serde_json::json!({
                             "mode": "pinterest",
                             "success": false,
-                            "error": "Pinterest downloader exited successfully but produced no output path",
+                            "error": runtime_error,
+                            "exitCode": payload.code,
                         }),
                     );
                     clear_runtime_progress_log_state(trace_id.as_str());
                     return Err(stage_error(
                         "runtime_exit",
-                        "Pinterest downloader exited successfully but produced no output path",
+                        format!(
+                            "Pinterest downloader exited with code {:?}: {}",
+                            payload.code, runtime_error
+                        )
+                        .as_str(),
                     ));
                 }
-
-                let runtime_error = stderr_buffer
-                    .lines()
-                    .find(|line| !line.trim().is_empty())
-                    .or_else(|| stdout_buffer.lines().find(|line| !line.trim().is_empty()))
-                    .unwrap_or("Pinterest downloader exited with an unknown error");
-                append_runtime_log_event(
-                    "download",
-                    "complete",
-                    Some(trace_id.as_str()),
-                    serde_json::json!({
-                        "mode": "pinterest",
-                        "success": false,
-                        "error": runtime_error,
-                        "exitCode": payload.code,
-                    }),
-                );
-                clear_runtime_progress_log_state(trace_id.as_str());
-                return Err(stage_error(
-                    "runtime_exit",
-                    format!(
-                        "Pinterest downloader exited with code {:?}: {}",
-                        payload.code, runtime_error
-                    )
-                    .as_str(),
-                ));
-            }
-            _ => {}
+                _ => {}
             },
             Ok(None) => break,
             Err(_) => {}
@@ -4785,7 +4809,7 @@ async fn download_video_internal(
     ytdlp_quality: YtdlpQualityPreference,
     ae_friendly_conversion_enabled: bool,
     trace_id: String,
-    allow_youtube_cookie_retry: bool,
+    policy: YtdlpInvocationPolicy,
 ) -> Result<DownloadResult, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
@@ -4834,6 +4858,8 @@ async fn download_video_internal(
             "clipMode": clip_download_mode.as_str(),
             "hasClipRange": clip_range.is_some(),
             "renameEnabled": rename_media_on_download,
+            "ignoreConfig": true,
+            "resumeArtifactsDisabled": policy.disable_resume_artifacts,
             "outputDir": output_dir.to_string_lossy().to_string(),
         }),
     );
@@ -4939,6 +4965,7 @@ async fn download_video_internal(
         "-o".to_string(),
         output_template.to_string_lossy().to_string(),
     ];
+    append_ytdlp_runtime_guard_args(&mut args, policy.disable_resume_artifacts);
     if let Some(format_sort) = ytdlp_quality.format_sort() {
         args.push("-S".to_string());
         args.push(format_sort.to_string());
@@ -5121,9 +5148,6 @@ async fn download_video_internal(
                     // Clear download PID
                     clear_download_child(trace_id.as_str());
 
-                    // Cleanup extension cookies file
-                    cleanup_extension_cookies_file(&extension_cookies_path);
-
                     let was_cancelled = is_download_cancelled(trace_id.as_str());
                     let success = payload.code == Some(0) && !was_cancelled;
                     if !success {
@@ -5131,17 +5155,57 @@ async fn download_video_internal(
                         cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
                     }
                     if was_cancelled {
+                        cleanup_extension_cookies_file(&extension_cookies_path);
                         cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
                         if let Some(ref final_path) = last_file_path {
                             let _ = std::fs::remove_file(final_path);
                         }
                     }
                     if !success
-                        && allow_youtube_cookie_retry
+                        && policy.allow_http_416_retry
+                        && !policy.disable_resume_artifacts
+                        && should_retry_ytdlp_without_resume(&stderr_buffer)
+                    {
+                        println!(
+                            ">>> [Rust] yt-dlp failed with HTTP 416, retrying once with resume artifacts disabled"
+                        );
+                        append_runtime_log_event(
+                            "download",
+                            "http_416_retry",
+                            Some(trace_id.as_str()),
+                            serde_json::json!({
+                                "reason": "http_416",
+                                "disableResumeArtifacts": true,
+                            }),
+                        );
+                        if let Some(ref final_path) = last_file_path {
+                            let _ = std::fs::remove_file(final_path);
+                        }
+                        cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
+                        return Box::pin(download_video_internal(
+                            app.clone(),
+                            url.clone(),
+                            extension_cookies_path.clone(),
+                            clip_range.clone(),
+                            source_title.clone(),
+                            ytdlp_quality,
+                            ae_friendly_conversion_enabled,
+                            trace_id.clone(),
+                            YtdlpInvocationPolicy {
+                                allow_youtube_cookie_retry: policy.allow_youtube_cookie_retry,
+                                allow_http_416_retry: false,
+                                disable_resume_artifacts: true,
+                            },
+                        ))
+                        .await;
+                    }
+                    if !success
+                        && policy.allow_youtube_cookie_retry
                         && is_youtube_url(&url)
                         && extension_cookies_path.is_some()
                         && should_retry_youtube_without_cookies(&stderr_buffer)
                     {
+                        cleanup_extension_cookies_file(&extension_cookies_path);
                         println!(
                             ">>> [Rust] YouTube cookies-backed yt-dlp attempt failed with challenge/no-format symptoms, retrying without cookies"
                         );
@@ -5166,10 +5230,15 @@ async fn download_video_internal(
                             ytdlp_quality,
                             ae_friendly_conversion_enabled,
                             trace_id.clone(),
-                            false,
+                            YtdlpInvocationPolicy {
+                                allow_youtube_cookie_retry: false,
+                                allow_http_416_retry: policy.allow_http_416_retry,
+                                disable_resume_artifacts: policy.disable_resume_artifacts,
+                            },
                         ))
                         .await;
                     }
+                    cleanup_extension_cookies_file(&extension_cookies_path);
                     let result = DownloadResult {
                         trace_id: trace_id.clone(),
                         success,
@@ -5544,7 +5613,11 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         preferences.ytdlp_quality,
         preferences.ae_friendly_conversion_enabled,
         trace_id.clone(),
-        false,
+        YtdlpInvocationPolicy {
+            allow_youtube_cookie_retry: false,
+            allow_http_416_retry: true,
+            disable_resume_artifacts: false,
+        },
     )
     .await;
     clear_download_runtime(trace_id.as_str());
@@ -5569,9 +5642,7 @@ async fn queue_video_download(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| url.clone());
-    let normalized_video_url_hint = video_url
-        .as_deref()
-        .and_then(normalize_video_candidate_url);
+    let normalized_video_url_hint = video_url.as_deref().and_then(normalize_video_candidate_url);
     let normalized_video_candidates = normalize_command_video_candidates(video_candidates);
     let queued_task = if is_pinterest_url(&pinterest_page_url) || is_pinterest_url(&url) {
         log_download_trace(
@@ -5964,7 +6035,10 @@ fn build_pinterest_hint_video_asset(
         url: hint_url,
         width: resolved.video.as_ref().and_then(|video| video.width),
         height: resolved.video.as_ref().and_then(|video| video.height),
-        duration_seconds: resolved.video.as_ref().and_then(|video| video.duration_seconds),
+        duration_seconds: resolved
+            .video
+            .as_ref()
+            .and_then(|video| video.duration_seconds),
         poster_url,
     }
 }
@@ -7194,7 +7268,11 @@ async fn download_video_smart(
         ytdlp_quality,
         ae_friendly_conversion_enabled,
         trace_id.clone(),
-        true,
+        YtdlpInvocationPolicy {
+            allow_youtube_cookie_retry: true,
+            allow_http_416_retry: true,
+            disable_resume_artifacts: false,
+        },
     )
     .await
     {
@@ -7946,14 +8024,22 @@ pub struct PinterestDownloaderInfo {
 fn pinterest_downloader_info_from_lock_json(
     lock_json: &str,
 ) -> Result<PinterestDownloaderInfo, String> {
-    let lock: EmbeddedPinterestSidecarLock = serde_json::from_str(lock_json)
-        .map_err(|err| format!("Failed to parse bundled Pinterest downloader metadata: {}", err))?;
+    let lock: EmbeddedPinterestSidecarLock = serde_json::from_str(lock_json).map_err(|err| {
+        format!(
+            "Failed to parse bundled Pinterest downloader metadata: {}",
+            err
+        )
+    })?;
 
     if lock.upstream.package.trim().is_empty() {
-        return Err("Bundled Pinterest downloader metadata is missing upstream.package".to_string());
+        return Err(
+            "Bundled Pinterest downloader metadata is missing upstream.package".to_string(),
+        );
     }
     if lock.upstream.version.trim().is_empty() {
-        return Err("Bundled Pinterest downloader metadata is missing upstream.version".to_string());
+        return Err(
+            "Bundled Pinterest downloader metadata is missing upstream.version".to_string(),
+        );
     }
     if lock.flowselect_sidecar_version.trim().is_empty() {
         return Err(
@@ -9419,8 +9505,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             cookies_path: cookies
                                 .filter(|value| !value.is_empty())
                                 .and_then(|value| save_extension_cookies(value).ok()),
-                            video_url_hint: video_url
-                                .and_then(normalize_video_candidate_url),
+                            video_url_hint: video_url.and_then(normalize_video_candidate_url),
                             video_candidates,
                             trace_id: trace_id.clone(),
                         }
