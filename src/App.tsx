@@ -8,10 +8,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Check, X } from "lucide-react";
 import type { YtdlpVersionInfo } from "./types/ytdlp";
 import {
+  buildPinterestDragDiagnostic,
+  extractEmbeddedPinterestDragPayload,
   extractPinterestVideoSelectionFromHtml,
   extractPinterestImageUrlFromHtml,
   isPinterestPinUrl,
   looksLikePinterestVideoHtml,
+  type PinterestDragDiagnostic,
   type PinterestVideoCandidate,
 } from "./utils/pinterest";
 import { isVideoUrl } from "./utils/videoUrl";
@@ -100,6 +103,37 @@ type QueuedVideoDownloadRequest = {
   pageUrl?: string;
   videoUrl?: string;
   videoCandidates?: PinterestVideoCandidate[];
+  dragDiagnostic?: PinterestDragDiagnostic;
+};
+
+const pickDroppedUrl = (rawValue: string): string => {
+  if (typeof rawValue !== "string" || !rawValue.trim()) {
+    return "";
+  }
+
+  const lines = rawValue
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.find((line) => /^https?:\/\//i.test(line)) ?? rawValue.trim();
+};
+
+const mergePinterestVideoCandidates = (
+  embeddedCandidates: PinterestVideoCandidate[],
+  htmlCandidates: PinterestVideoCandidate[],
+): PinterestVideoCandidate[] => {
+  const merged: PinterestVideoCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of [...embeddedCandidates, ...htmlCandidates]) {
+    if (!candidate?.url || seen.has(candidate.url)) {
+      continue;
+    }
+    seen.add(candidate.url);
+    merged.push(candidate);
+  }
+
+  return merged;
 };
 
 const DOWNLOAD_STAGE_LABEL: Record<DownloadStage, string> = {
@@ -1016,11 +1050,22 @@ function App() {
     // Also log files for debugging
     console.log("files:", e.dataTransfer.files.length, Array.from(e.dataTransfer.files).map(f => f.name));
 
+    const html = e.dataTransfer.getData("text/html");
+    const rawUriList = e.dataTransfer.getData("text/uri-list");
+    const rawPlain = e.dataTransfer.getData("text/plain");
+    const embeddedPinterestDragPayload =
+      extractEmbeddedPinterestDragPayload(html) ??
+      extractEmbeddedPinterestDragPayload(rawPlain) ??
+      extractEmbeddedPinterestDragPayload(rawUriList);
+
     // Check for URL in dataTransfer
     // Note: text/uri-list may return "about:blank#blocked" due to security policy
-    let url = e.dataTransfer.getData("text/uri-list");
+    let url = pickDroppedUrl(rawUriList);
     if (!url || url === "about:blank#blocked" || url.startsWith("about:")) {
-      url = e.dataTransfer.getData("text/plain");
+      url = pickDroppedUrl(rawPlain);
+    }
+    if ((!url || url === "about:blank#blocked" || url.startsWith("about:")) && embeddedPinterestDragPayload?.pageUrl) {
+      url = embeddedPinterestDragPayload.pageUrl;
     }
 
     // === 优先处理本地文件 file:// URL ===
@@ -1047,9 +1092,22 @@ function App() {
 
     // === Pinterest special handling ===
     if (url && isPinterestPinUrl(url)) {
-      const html = e.dataTransfer.getData("text/html");
+      const pinterestDragDiagnostic = buildPinterestDragDiagnostic(html);
+      const hasEmbeddedVideoHint = Boolean(
+        embeddedPinterestDragPayload?.videoUrl ||
+        (embeddedPinterestDragPayload?.videoCandidates.length ?? 0) > 0,
+      );
+      console.log(
+        "[Pinterest drag debug] payload:",
+        JSON.stringify({
+          pageUrl: url,
+          looksLikeVideoHtml: looksLikePinterestVideoHtml(html),
+          hasEmbeddedVideoHint,
+          ...pinterestDragDiagnostic,
+        }),
+      );
 
-      if (!looksLikePinterestVideoHtml(html)) {
+      if (!looksLikePinterestVideoHtml(html) && !hasEmbeddedVideoHint) {
         const imageUrl = extractPinterestImageUrlFromHtml(html);
         if (imageUrl) {
           console.log("Detected Pinterest image pin, downloading extracted image:", imageUrl);
@@ -1070,17 +1128,25 @@ function App() {
       }
 
       const videoSelection = extractPinterestVideoSelectionFromHtml(html);
+      const mergedVideoCandidates = mergePinterestVideoCandidates(
+        embeddedPinterestDragPayload?.videoCandidates ?? [],
+        videoSelection.videoCandidates,
+      );
+      const mergedVideoUrl =
+        embeddedPinterestDragPayload?.videoUrl ?? videoSelection.videoUrl ?? undefined;
       console.log("Detected Pinterest video pin, queueing Pinterest media resolution:", {
         pageUrl: url,
-        hasVideoUrl: Boolean(videoSelection.videoUrl),
-        videoCandidatesCount: videoSelection.videoCandidates.length,
+        hasVideoUrl: Boolean(mergedVideoUrl),
+        videoCandidatesCount: mergedVideoCandidates.length,
+        topVideoCandidates: mergedVideoCandidates.slice(0, 4),
       });
       resetDownloadOutcome();
       enqueueVideoDownload({
         url,
-        pageUrl: url,
-        videoUrl: videoSelection.videoUrl ?? undefined,
-        videoCandidates: videoSelection.videoCandidates,
+        pageUrl: embeddedPinterestDragPayload?.pageUrl ?? url,
+        videoUrl: mergedVideoUrl,
+        videoCandidates: mergedVideoCandidates,
+        dragDiagnostic: pinterestDragDiagnostic,
       });
       return;
     }

@@ -18,8 +18,10 @@
   const CARD_RESOLVED_ATTR = "data-flowselect-card-resolved";
   const HOST_PATCH_ATTR = "data-flowselect-pinterest-host-patched";
   const HOST_SYNC_BOUND_ATTR = "data-flowselect-pinterest-card-sync-bound";
+  const DRAG_SYNC_BOUND_ATTR = "data-flowselect-pinterest-drag-bound";
   const COMPACT_CARD_MAX_HEIGHT = 180;
   const COMPACT_CARD_MAX_AREA = 56000;
+  const DRAG_PAYLOAD_MARKER = "FLOWSELECT_PINTEREST_DRAG";
   const CARD_ACTION_SHELL_BASE_CLASSES = ["VHreRh", "cUw_ba"];
   const CARD_SHARE_CLASS_SETS = [
     ["VHreRh", "cUw_ba", "cLlqFI"],
@@ -120,6 +122,8 @@
         return 20;
       case "video_source":
         return 18;
+      case "pin_json":
+        return 16;
       case "script_scan":
         return 12;
       case "performance_resource":
@@ -279,6 +283,138 @@
       .map(({ score, ...candidate }) => candidate);
   }
 
+  function extractPinSpecificVideoCandidates(pinId) {
+    if (!pinId) {
+      return [];
+    }
+
+    const seen = new Set();
+    const candidates = [];
+
+    const collectCandidate = (raw, source = "pin_json") => {
+      const url = normalizeCandidateUrl(raw);
+      if (!url || seen.has(url) || !isPinterestVideoUrl(url)) {
+        return;
+      }
+
+      seen.add(url);
+      const type = classifyCandidateType(url);
+      const score = typeScore(type) + sourceScore(source);
+      candidates.push({
+        url,
+        type,
+        confidence: confidenceForScore(score),
+        source,
+        score,
+      });
+    };
+
+    const collectFromVideoList = (videoList) => {
+      if (!videoList || typeof videoList !== "object") {
+        return;
+      }
+
+      Object.values(videoList).forEach((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return;
+        }
+        collectCandidate(entry.url, "pin_json");
+      });
+    };
+
+    const collectFromPinObject = (value) => {
+      if (!value || typeof value !== "object") {
+        return;
+      }
+
+      collectFromVideoList(value?.videos?.video_list);
+
+      const storyPages = value?.story_pin_data?.pages;
+      if (Array.isArray(storyPages)) {
+        storyPages.forEach((page) => {
+          const blocks = page?.blocks;
+          if (!Array.isArray(blocks)) {
+            return;
+          }
+          blocks.forEach((block) => collectFromVideoList(block?.video?.video_list));
+        });
+      }
+
+      const carouselSlots = value?.carousel_data?.carousel_slots;
+      if (Array.isArray(carouselSlots)) {
+        carouselSlots.forEach((slot) => collectFromVideoList(slot?.videos?.video_list));
+      } else if (carouselSlots && typeof carouselSlots === "object") {
+        Object.values(carouselSlots).forEach((slot) => collectFromVideoList(slot?.videos?.video_list));
+      }
+    };
+
+    const visitValue = (value) => {
+      if (Array.isArray(value)) {
+        value.forEach(visitValue);
+        return;
+      }
+
+      if (!value || typeof value !== "object") {
+        return;
+      }
+
+      const idMatches =
+        String(value.id ?? "") === pinId ||
+        String(value.pin_id ?? "") === pinId ||
+        String(value.pinId ?? "") === pinId;
+      if (idMatches) {
+        collectFromPinObject(value);
+      }
+
+      Object.values(value).forEach(visitValue);
+    };
+
+    const parseScriptJson = (scriptText) => {
+      if (!scriptText || !scriptText.includes(pinId)) {
+        return null;
+      }
+
+      const trimmed = scriptText.trim();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        try {
+          return JSON.parse(trimmed);
+        } catch (_) {
+          return null;
+        }
+      }
+
+      if (trimmed.includes("__PWS_DATA__")) {
+        const jsonStart = trimmed.indexOf("{");
+        if (jsonStart >= 0) {
+          try {
+            return JSON.parse(trimmed.slice(jsonStart).replace(/;\s*$/, ""));
+          } catch (_) {
+            return null;
+          }
+        }
+      }
+
+      return null;
+    };
+
+    document.querySelectorAll("script").forEach((script) => {
+      const text = script.textContent || "";
+      if (!text.includes(pinId)) {
+        return;
+      }
+
+      const parsed = parseScriptJson(text);
+      if (parsed) {
+        visitValue(parsed);
+      }
+    });
+
+    return candidates
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 12)
+      .map(({ score, ...candidate }) => candidate);
+  }
+
   function selectPreferredVideoUrl(candidates) {
     const directCandidate = candidates.find((candidate) => isPinterestDirectMp4Url(candidate?.url || ""));
     if (directCandidate) {
@@ -324,6 +460,133 @@
       videoCandidates,
       title,
     });
+  }
+
+  function encodeUtf8Base64(value) {
+    try {
+      return btoa(
+        encodeURIComponent(value).replace(/%([0-9A-F]{2})/gi, (_, hex) =>
+          String.fromCharCode(Number.parseInt(hex, 16)),
+        ),
+      );
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function buildDragPayloadComment(payload) {
+    const encoded = encodeUtf8Base64(JSON.stringify(payload));
+    if (!encoded) {
+      return "";
+    }
+    return `<!--${DRAG_PAYLOAD_MARKER}:${encoded}-->`;
+  }
+
+  function buildDragPayloadText(payload) {
+    const encoded = encodeUtf8Base64(JSON.stringify(payload));
+    if (!encoded) {
+      return "";
+    }
+    return `${DRAG_PAYLOAD_MARKER}:${encoded}`;
+  }
+
+  function buildDragHtml(scope, payload) {
+    const htmlRoot = scope instanceof HTMLElement ? scope : null;
+    const sourceHtml = htmlRoot?.outerHTML || "";
+    const payloadComment = buildDragPayloadComment(payload);
+    return `${payloadComment}${sourceHtml}`;
+  }
+
+  function collectDragVideoCandidates(scope, pageUrl) {
+    const pinId = extractPinId(pageUrl);
+    const pinCandidates = extractPinSpecificVideoCandidates(pinId);
+    if (pinCandidates.length > 0) {
+      return pinCandidates;
+    }
+
+    const scopedCandidates = extractVideoCandidates(scope, {
+      includeScripts: false,
+      includePerformance: false,
+    });
+    if (scopedCandidates.length > 0) {
+      return scopedCandidates;
+    }
+
+    if (isPinterestPinPage() && normalizePinUrl(window.location.href) === pageUrl) {
+      return extractVideoCandidates(document, {
+        includeScripts: true,
+        includePerformance: true,
+      });
+    }
+
+    return scopedCandidates;
+  }
+
+  function buildDragPayload(scope, pageUrl) {
+    const videoCandidates = collectDragVideoCandidates(scope, pageUrl);
+    return {
+      pageUrl,
+      videoUrl: selectPreferredVideoUrl(videoCandidates),
+      videoCandidates,
+      title: extractTitle(scope instanceof HTMLElement ? scope : document.body),
+    };
+  }
+
+  function enrichPinterestDragDataTransfer(event, scope, pageUrl) {
+    if (!(event instanceof DragEvent) || !event.dataTransfer || !pageUrl) {
+      return;
+    }
+
+    const payload = buildDragPayload(scope, pageUrl);
+    const enrichedHtml = buildDragHtml(scope, payload);
+    const dragPayloadText = buildDragPayloadText(payload);
+    if (enrichedHtml) {
+      event.dataTransfer.setData("text/html", enrichedHtml);
+    }
+    if (dragPayloadText) {
+      event.dataTransfer.setData("text/plain", `${pageUrl}\n${dragPayloadText}`);
+      event.dataTransfer.setData("application/x-flowselect-pinterest-drag", dragPayloadText);
+    } else {
+      event.dataTransfer.setData("text/plain", pageUrl);
+    }
+    event.dataTransfer.setData("text/uri-list", pageUrl);
+  }
+
+  function resolveDragPinterestContext(target) {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+
+    const host = target.closest(`[${CARD_HOST_ATTR}]`);
+    if (host instanceof HTMLElement) {
+      const pageUrl = resolveCardPageUrl(host, host.querySelector(`.${CARD_BUTTON_CLASS}`));
+      if (pageUrl) {
+        return { scope: host, pageUrl };
+      }
+    }
+
+    const anchor = target.closest('a[href*="/pin/"]');
+    if (anchor instanceof HTMLAnchorElement) {
+      const pageUrl = normalizePinUrl(anchor.href);
+      if (pageUrl) {
+        return {
+          scope: resolveCardHost(anchor) || anchor,
+          pageUrl,
+        };
+      }
+    }
+
+    if (isPinterestPinPage() && rootLooksAnimated(document)) {
+      const pageUrl = normalizePinUrl(window.location.href);
+      if (pageUrl) {
+        return {
+          scope: document.body,
+          pageUrl,
+        };
+      }
+    }
+
+    return null;
   }
 
   function ensurePositionedHost(host) {
@@ -751,6 +1014,25 @@
     host.setAttribute(HOST_SYNC_BOUND_ATTR, "true");
   }
 
+  function ensureCardHostDragSync(host) {
+    if (!(host instanceof HTMLElement) || host.getAttribute(DRAG_SYNC_BOUND_ATTR) === "true") {
+      return;
+    }
+
+    host.addEventListener(
+      "dragstart",
+      (event) => {
+        const pageUrl = resolveCardPageUrl(host, host.querySelector(`.${CARD_BUTTON_CLASS}`));
+        if (!pageUrl) {
+          return;
+        }
+        enrichPinterestDragDataTransfer(event, host, pageUrl);
+      },
+      true,
+    );
+    host.setAttribute(DRAG_SYNC_BOUND_ATTR, "true");
+  }
+
   function findActionMountPoint() {
     const detailShareMount = findDetailShareMountPoint();
     if (detailShareMount) {
@@ -1131,6 +1413,7 @@
       host.setAttribute(CARD_HOST_ATTR, "true");
       ensurePositionedHost(host);
       ensureCardHostInteractionSync(host);
+      ensureCardHostDragSync(host);
       let button = host.querySelector(`.${CARD_BUTTON_CLASS}`);
       if (button) {
         button.dataset.pageUrl = pageUrl;
@@ -1206,6 +1489,15 @@
 
   function init() {
     scheduleDetect();
+
+    document.addEventListener("dragstart", (event) => {
+      const context = resolveDragPinterestContext(event.target);
+      if (!context) {
+        return;
+      }
+
+      enrichPinterestDragDataTransfer(event, context.scope, context.pageUrl);
+    });
 
     observer = new MutationObserver(() => {
       handleUrlChange();

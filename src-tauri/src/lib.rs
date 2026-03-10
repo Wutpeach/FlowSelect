@@ -104,6 +104,30 @@ struct QueueVideoCandidateInput {
     confidence: Option<String>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueuePinterestDragDiagnosticFlagsInput {
+    has_video_tag: bool,
+    has_video_list: bool,
+    has_story_pin_data: bool,
+    has_carousel_data: bool,
+    has_mp4: bool,
+    has_m3u8: bool,
+    has_cmfv: bool,
+    has_pinimg_video_host: bool,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueuePinterestDragDiagnosticInput {
+    html_length: usize,
+    html_preview: String,
+    flags: QueuePinterestDragDiagnosticFlagsInput,
+    image_url: Option<String>,
+    video_url: Option<String>,
+    video_candidates_count: usize,
+}
+
 #[derive(Clone, Copy)]
 enum DirectPlatform {
     Douyin,
@@ -4133,6 +4157,15 @@ async fn download_pinterest_video(
         Ok(resolved) => resolved,
         Err(resolve_err) => {
             let Some(fallback_video_url) = hinted_video_url.clone() else {
+                log_download_trace(
+                    &trace_id,
+                    "pinterest_hint_fallback_unavailable",
+                    serde_json::json!({
+                        "reason": "resolver_failed_without_usable_hint",
+                        "resolverError": resolve_err,
+                        "videoCandidatesCount": video_candidates.len(),
+                    }),
+                );
                 clear_runtime_progress_log_state(trace_id.as_str());
                 return Err(stage_error("resolve", resolve_err.as_str()));
             };
@@ -5412,6 +5445,7 @@ async fn queue_video_download(
     page_url: Option<String>,
     video_url: Option<String>,
     video_candidates: Option<Vec<QueueVideoCandidateInput>>,
+    drag_diagnostic: Option<QueuePinterestDragDiagnosticInput>,
 ) -> Result<QueuedVideoDownloadAck, String> {
     let trace_id = next_download_trace_id();
     let preferences = resolve_video_download_preferences(&app)?;
@@ -5426,6 +5460,41 @@ async fn queue_video_download(
         .and_then(normalize_video_candidate_url);
     let normalized_video_candidates = normalize_command_video_candidates(video_candidates);
     let queued_task = if is_pinterest_url(&pinterest_page_url) || is_pinterest_url(&url) {
+        log_download_trace(
+            &trace_id,
+            "pinterest_queue_request",
+            serde_json::json!({
+                "url": url,
+                "pageUrl": pinterest_page_url,
+                "hasVideoUrlHint": normalized_video_url_hint.is_some(),
+                "videoUrlHint": normalized_video_url_hint
+                    .as_ref()
+                    .map(|value| summarize_url_for_log(value)),
+                "videoCandidatesCount": normalized_video_candidates.len(),
+                "videoCandidateUrls": normalized_video_candidates
+                    .iter()
+                    .take(6)
+                    .map(|candidate| summarize_url_for_log(&candidate.url))
+                    .collect::<Vec<String>>(),
+                "dragDiagnostic": drag_diagnostic.as_ref().map(|value| serde_json::json!({
+                    "htmlLength": value.html_length,
+                    "htmlPreview": value.html_preview,
+                    "flags": {
+                        "hasVideoTag": value.flags.has_video_tag,
+                        "hasVideoList": value.flags.has_video_list,
+                        "hasStoryPinData": value.flags.has_story_pin_data,
+                        "hasCarouselData": value.flags.has_carousel_data,
+                        "hasMp4": value.flags.has_mp4,
+                        "hasM3u8": value.flags.has_m3u8,
+                        "hasCmfv": value.flags.has_cmfv,
+                        "hasPinimgVideoHost": value.flags.has_pinimg_video_host,
+                    },
+                    "imageUrl": value.image_url.as_ref().map(|url| summarize_url_for_log(url)),
+                    "videoUrl": value.video_url.as_ref().map(|url| summarize_url_for_log(url)),
+                    "videoCandidatesCount": value.video_candidates_count,
+                })),
+            }),
+        );
         QueuedVideoTask::Pinterest {
             page_url: pinterest_page_url,
             title: None,
