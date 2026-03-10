@@ -560,7 +560,7 @@ function App() {
       }
       console.error("Failed to cancel download:", err);
     }
-  }, [addCancellingTraceId, removeCancellingTraceId]);
+  }, [addCancellingTraceId, removeCancellingTraceId, t]);
 
   // Load config on mount
   useEffect(() => {

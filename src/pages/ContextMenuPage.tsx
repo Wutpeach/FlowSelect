@@ -146,6 +146,10 @@ function ContextMenuPage() {
     cursor: "pointer",
     transition: "background-color 0.15s, color 0.15s",
     userSelect: "none",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   });
 
   return (
