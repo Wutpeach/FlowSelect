@@ -1,3 +1,5 @@
+mod native_i18n;
+
 use regex::Regex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
@@ -21,6 +23,11 @@ use tokio::sync::broadcast;
 #[cfg(windows)]
 use clipboard_win::{formats, get_clipboard};
 use dirs::desktop_dir;
+use native_i18n::{
+    load_native_tray_labels, normalize_app_language, resolve_language_from_config_str,
+    NativeTrayLabels, DESKTOP_LANGUAGE_CHANGED_EVENT, FALLBACK_LANGUAGE, WS_ACTION_GET_LANGUAGE,
+    WS_ACTION_LANGUAGE_CHANGED, WS_ACTION_LANGUAGE_INFO,
+};
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
 use tauri::{
@@ -44,6 +51,17 @@ struct RegisteredShortcut {
     last_trigger_ms: Mutex<u128>,
 }
 
+#[derive(Clone)]
+struct TrayMenuItems {
+    show: MenuItem<tauri::Wry>,
+    settings: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
+}
+
+struct NativeTrayState {
+    menu_items: Mutex<Option<TrayMenuItems>>,
+}
+
 // WebSocket Server state
 struct WsServerState {
     shutdown_tx: Mutex<Option<broadcast::Sender<()>>>,
@@ -64,6 +82,101 @@ struct WsResponse {
     success: bool,
     message: Option<String>,
     data: Option<serde_json::Value>,
+}
+
+fn resolve_current_app_language(app: &tauri::AppHandle) -> Result<&'static str, String> {
+    let config_str = get_config(app.clone())?;
+    Ok(resolve_language_from_config_str(&config_str).unwrap_or(FALLBACK_LANGUAGE))
+}
+
+fn load_current_native_tray_labels(app: &tauri::AppHandle) -> NativeTrayLabels {
+    let language = resolve_current_app_language(app).unwrap_or(FALLBACK_LANGUAGE);
+    load_native_tray_labels(app, language)
+}
+
+fn apply_tray_menu_labels(app: &tauri::AppHandle, labels: &NativeTrayLabels) -> Result<(), String> {
+    let menu_items = {
+        let state = app.state::<NativeTrayState>();
+        let guard = state
+            .menu_items
+            .lock()
+            .map_err(|_| "Failed to lock tray menu state".to_string())?;
+        guard
+            .clone()
+            .ok_or_else(|| "Tray menu state is not initialized".to_string())?
+    };
+
+    menu_items
+        .show
+        .set_text(&labels.show_window)
+        .map_err(|e| format!("Failed to update tray show label: {}", e))?;
+    menu_items
+        .settings
+        .set_text(&labels.settings)
+        .map_err(|e| format!("Failed to update tray settings label: {}", e))?;
+    menu_items
+        .quit
+        .set_text(&labels.quit)
+        .map_err(|e| format!("Failed to update tray quit label: {}", e))?;
+    Ok(())
+}
+
+fn refresh_tray_menu_language(app: &tauri::AppHandle, language: &str) -> Result<(), String> {
+    let labels = load_native_tray_labels(app, language);
+    apply_tray_menu_labels(app, &labels)
+}
+
+fn broadcast_language_changed(app: &AppHandle, language: &str) -> Result<(), String> {
+    let tx = {
+        let state = app.state::<WsServerState>();
+        let guard = state
+            .broadcast_tx
+            .lock()
+            .map_err(|_| "Failed to lock WebSocket broadcast state".to_string())?;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "WebSocket server not running".to_string())?
+    };
+
+    let message = serde_json::json!({
+        "action": WS_ACTION_LANGUAGE_CHANGED,
+        "data": {
+            "language": language
+        }
+    });
+    tx.send(message.to_string())
+        .map_err(|e| format!("Failed to broadcast language: {}", e))?;
+    println!(">>> [WS] Broadcasted language: {}", language);
+    Ok(())
+}
+
+fn notify_language_changed(app: &tauri::AppHandle, language: &str) {
+    let normalized_language = normalize_app_language(Some(language)).unwrap_or(FALLBACK_LANGUAGE);
+
+    if let Err(err) = refresh_tray_menu_language(app, normalized_language) {
+        println!(
+            ">>> [Rust] Failed to refresh tray labels for {}: {}",
+            normalized_language, err
+        );
+    }
+
+    if let Err(err) = app.emit(
+        DESKTOP_LANGUAGE_CHANGED_EVENT,
+        serde_json::json!({ "language": normalized_language }),
+    ) {
+        println!(
+            ">>> [Rust] Failed to emit desktop language change for {}: {}",
+            normalized_language, err
+        );
+    }
+
+    if let Err(err) = broadcast_language_changed(app, normalized_language) {
+        println!(
+            ">>> [WS] Skipped language broadcast for {}: {}",
+            normalized_language, err
+        );
+    }
 }
 
 fn extract_ws_request_id(data: &serde_json::Value) -> Option<String> {
@@ -8325,8 +8438,33 @@ fn get_config(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     let config_path = get_config_path(&app)?;
+    let previous_language = if config_path.exists() {
+        fs::read_to_string(&config_path)
+            .ok()
+            .and_then(|config_str| resolve_language_from_config_str(&config_str))
+            .unwrap_or(FALLBACK_LANGUAGE)
+    } else {
+        FALLBACK_LANGUAGE
+    };
+    let next_language = resolve_language_from_config_str(&json);
 
-    fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))
+    fs::write(&config_path, &json).map_err(|e| format!("Failed to write config: {}", e))?;
+
+    if let Some(next_language) = next_language {
+        if previous_language != next_language {
+            println!(
+                ">>> [Rust] Language changed: {} -> {}",
+                previous_language, next_language
+            );
+            notify_language_changed(&app, next_language);
+        }
+    } else {
+        println!(
+            ">>> [Rust] Skipped language sync after save_config because config JSON is invalid"
+        );
+    }
+
+    Ok(())
 }
 
 fn persist_output_path(app: tauri::AppHandle, next_output_path: String) -> Result<bool, String> {
@@ -8987,6 +9125,20 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                 data: None,
             },
         },
+        WS_ACTION_GET_LANGUAGE => {
+            let language = get_config(app.clone())
+                .ok()
+                .and_then(|config_str| resolve_language_from_config_str(&config_str))
+                .unwrap_or(FALLBACK_LANGUAGE);
+            WsResponse {
+                success: true,
+                message: None,
+                data: Some(serde_json::json!({
+                    "action": WS_ACTION_LANGUAGE_INFO,
+                    "language": language
+                })),
+            }
+        }
         "sync_download_preferences" => {
             if let Some(data) = msg.data {
                 let incoming_quality = parse_ytdlp_quality_preference_override(&data);
@@ -9388,6 +9540,9 @@ pub fn run() {
             current: Mutex::new(None),
             last_trigger_ms: Mutex::new(0),
         })
+        .manage(NativeTrayState {
+            menu_items: Mutex::new(None),
+        })
         .manage(WsServerState {
             shutdown_tx: Mutex::new(None),
             is_running: Mutex::new(false),
@@ -9449,10 +9604,34 @@ pub fn run() {
             );
 
             // Create Tray Menu
-            let quit_i = MenuItem::with_id(app, "quit", "Quit FlowSelect", true, None::<&str>)?;
-            let show_i = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
-            let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let initial_tray_labels = load_current_native_tray_labels(&app.handle());
+            let quit_i =
+                MenuItem::with_id(app, "quit", &initial_tray_labels.quit, true, None::<&str>)?;
+            let show_i = MenuItem::with_id(
+                app,
+                "show",
+                &initial_tray_labels.show_window,
+                true,
+                None::<&str>,
+            )?;
+            let settings_i = MenuItem::with_id(
+                app,
+                "settings",
+                &initial_tray_labels.settings,
+                true,
+                None::<&str>,
+            )?;
             let menu = Menu::with_items(app, &[&show_i, &settings_i, &quit_i])?;
+
+            if let Ok(mut menu_items) = app.state::<NativeTrayState>().menu_items.lock() {
+                *menu_items = Some(TrayMenuItems {
+                    show: show_i.clone(),
+                    settings: settings_i.clone(),
+                    quit: quit_i.clone(),
+                });
+            } else {
+                println!(">>> [Rust] Failed to store tray menu state");
+            }
 
             // Build Tray Icon
             let _tray = TrayIconBuilder::new()
@@ -9470,12 +9649,14 @@ pub fn run() {
                         if let Some(window) = app.get_webview_window("settings") {
                             let _ = window.set_focus();
                         } else {
+                            let settings_window_title =
+                                load_current_native_tray_labels(app).settings;
                             let mut settings_builder = tauri::WebviewWindowBuilder::new(
                                 app,
                                 "settings",
                                 tauri::WebviewUrl::App("/settings".into()),
                             )
-                            .title("Settings")
+                            .title(&settings_window_title)
                             .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
                             .decorations(false)
                             .resizable(false);

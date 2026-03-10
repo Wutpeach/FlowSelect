@@ -1,5 +1,10 @@
 {
   "_meta": {
     "surface": "native"
+  },
+  "tray": {
+    "show": "Show Window",
+    "settings": "Settings",
+    "quit": "Quit FlowSelect"
   }
 }
