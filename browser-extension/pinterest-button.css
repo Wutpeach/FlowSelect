@@ -16,8 +16,6 @@
   cursor: pointer;
   transition:
     transform 0.16s ease,
-    color 0.16s ease,
-    background-color 0.16s ease,
     opacity 0.16s ease;
   flex-shrink: 0;
 }
@@ -26,12 +24,18 @@
   background: #e60023;
   color: #ffffff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  transition:
+    transform 0.16s ease,
+    color 0.16s ease,
+    background-color 0.16s ease,
+    opacity 0.16s ease;
 }
 
 .flowselect-pinterest-card-btn {
   width: var(--flowselect-pinterest-card-size, 36px);
   height: var(--flowselect-pinterest-card-size, 36px);
-  color: #ffffff;
+  border: var(--flowselect-pinterest-card-border, none);
+  color: var(--flowselect-pinterest-card-fg, #ffffff);
   background: var(--flowselect-pinterest-card-bg, rgba(0, 0, 0, 0.55));
   box-shadow: var(--flowselect-pinterest-card-shadow, 0 6px 16px rgba(0, 0, 0, 0.18));
   border-radius: var(--flowselect-pinterest-card-border-radius, 999px);
@@ -41,15 +45,17 @@
 .flowselect-pinterest-action-btn:hover,
 .flowselect-pinterest-card-btn:hover {
   color: #ffffff;
-  transform: translateY(-1px);
 }
 
 .flowselect-pinterest-action-btn:hover {
   background: #ad081b;
+  transform: translateY(-1px);
 }
 
 .flowselect-pinterest-card-btn:hover {
+  color: var(--flowselect-pinterest-card-fg, #ffffff);
   background: var(--flowselect-pinterest-card-bg, rgba(0, 0, 0, 0.62));
+  transform: none;
 }
 
 .flowselect-pinterest-action-btn:active,
@@ -69,22 +75,31 @@
   z-index: 6;
 }
 
-.flowselect-pinterest-card-btn[data-flowselect-card-mode="fallback"] {
+.flowselect-pinterest-card-btn[data-flowselect-card-mode] {
   position: absolute;
-  top: var(--flowselect-pinterest-card-top, auto);
-  bottom: var(--flowselect-pinterest-card-bottom, 56px);
-  right: var(--flowselect-pinterest-card-right, 84px);
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-4px) scale(0.96);
+  transform: none;
   pointer-events: none;
 }
 
-[data-flowselect-pinterest-card-host="true"]:hover .flowselect-pinterest-card-btn[data-flowselect-card-mode="fallback"],
-[data-flowselect-pinterest-card-host="true"]:focus-within .flowselect-pinterest-card-btn[data-flowselect-card-mode="fallback"] {
+.flowselect-pinterest-card-btn[data-flowselect-card-mode="share"] {
+  top: var(--flowselect-pinterest-card-top, auto);
+  bottom: var(--flowselect-pinterest-card-bottom, 56px);
+  right: var(--flowselect-pinterest-card-right, 84px);
+}
+
+.flowselect-pinterest-card-btn[data-flowselect-card-mode="compact"] {
+  top: var(--flowselect-pinterest-card-top, auto);
+  right: var(--flowselect-pinterest-card-right, 10px);
+  bottom: var(--flowselect-pinterest-card-bottom, 10px);
+}
+
+[data-flowselect-pinterest-card-host="true"]:hover .flowselect-pinterest-card-btn[data-flowselect-card-mode][data-flowselect-card-ready="true"],
+[data-flowselect-pinterest-card-host="true"]:focus-within .flowselect-pinterest-card-btn[data-flowselect-card-mode][data-flowselect-card-ready="true"] {
   opacity: 1;
   visibility: visible;
-  transform: translateY(0) scale(1);
+  transform: none;
   pointer-events: auto;
 }
 
