@@ -1,5 +1,134 @@
 {
   "_meta": {
     "surface": "desktop"
+  },
+  "app": {
+    "sequenceOverflowMessage": "序号已用完，请整理文件夹后重试。",
+    "downloadStage": {
+      "preparing": "准备中...",
+      "downloading": "下载中...",
+      "merging": "合并中...",
+      "postProcessing": "后处理中..."
+    },
+    "downloadStatus": {
+      "eta": "预计 {{eta}}"
+    },
+    "drop": {
+      "directoryDialogTitle": "确认素材导出路径"
+    },
+    "queue": {
+      "label": "队列",
+      "title": "视频队列",
+      "meta": "{{active}} 个进行中 · {{queued}} 个排队中",
+      "percentStatus": "{{percent}}% · {{status}}",
+      "cancelling": "取消中...",
+      "waiting": "等待中...",
+      "cancellingCurrent": "正在取消当前任务...",
+      "queuedNext": "还有 {{count}} 个排队",
+      "tasksInQueue": "队列中共有 {{count}} 个任务",
+      "currentTasksAria": "当前视频任务：{{count}}",
+      "closeList": "关闭下载列表",
+      "showList": "显示当前视频任务",
+      "cancelTask": "取消任务",
+      "cancellingTask": "任务取消中"
+    },
+    "actions": {
+      "hideWindow": "隐藏窗口",
+      "cancelCurrentTask": "取消当前任务",
+      "updateYtdlp": "更新 yt-dlp：{{current}} → {{latest}}",
+      "updating": "更新中...",
+      "resetRenameCounter": "重置重命名计数",
+      "settings": "设置"
+    },
+    "windows": {
+      "settingsTitle": "设置",
+      "contextMenuTitle": "右键菜单"
+    }
+  },
+  "settings": {
+    "title": "设置",
+    "theme": {
+      "title": "主题",
+      "black": "黑色",
+      "white": "白色"
+    },
+    "language": {
+      "title": "语言",
+      "hint": "切换后会立即应用到主窗口、设置页和右键菜单。"
+    },
+    "outputFolder": {
+      "title": "输出文件夹",
+      "choose": "选择文件夹...",
+      "dialogTitle": "选择输出文件夹"
+    },
+    "shortcut": {
+      "title": "全局快捷键",
+      "hint": "用一个快捷键从任意位置唤起 FlowSelect。",
+      "press": "按下你的快捷键",
+      "clickToRecord": "点击录制快捷键",
+      "confirm": "确认",
+      "cancel": "取消"
+    },
+    "launchAtStartup": {
+      "title": "开机启动"
+    },
+    "rename": {
+      "title": "重命名下载媒体",
+      "hint": "为新下载内容套用命名规则，而不是保留源文件名。",
+      "preset": "重命名预设",
+      "prefix": "前缀",
+      "prefixPlaceholder": "Flow",
+      "suffix": "后缀",
+      "suffixPlaceholder": "done",
+      "preview": "预览",
+      "options": {
+        "descending": "倒序编号",
+        "ascending": "正序编号",
+        "prefixSequence": "前缀 + 编号"
+      }
+    },
+    "aePortal": {
+      "title": "After Effects 自动导入",
+      "hint": "下载完成后在 After Effects 中打开媒体。",
+      "chooseExe": "选择 AfterFX.exe...",
+      "dialogTitle": "选择 AfterFX.exe",
+      "executableFilter": "可执行文件"
+    },
+    "downloaders": {
+      "title": "外部下载器",
+      "unknown": "未知",
+      "ytdlp": {
+        "version": "版本 {{version}}",
+        "description": "通用视频下载器。",
+        "checkUnavailable": "暂时无法检查。",
+        "updateAvailable": "可更新到：{{version}}",
+        "upToDate": "已是最新。",
+        "localVersionOnly": "仅显示本地版本。",
+        "updatedFromMain": "yt-dlp 已在主窗口更新",
+        "updatedTo": "yt-dlp 已更新到 {{version}}",
+        "updateFailed": "yt-dlp 更新失败",
+        "button": "更新",
+        "updating": "更新中..."
+      },
+      "pinterest": {
+        "version": "版本 {{version}}",
+        "description": "Pinterest 视频下载器。",
+        "detailsUnavailable": "暂时无法获取详情。",
+        "updatesShipWithApp": "更新会随应用版本一起发布。",
+        "managedByApp": "由 FlowSelect 管理。",
+        "releasesButton": "版本发布",
+        "openReleasesFailed": "打开 FlowSelect 发布页失败"
+      }
+    },
+    "supportLog": {
+      "exportReady": "再点一下即可导出诊断日志",
+      "exportedAndOpened": "诊断日志已生成，并已打开目录：{{fileName}}",
+      "exported": "诊断日志已生成：{{fileName}}",
+      "failed": "生成诊断日志失败"
+    }
+  },
+  "contextMenu": {
+    "openFolder": "打开文件夹",
+    "setOutputFolder": "设置输出文件夹"
   }
 }
