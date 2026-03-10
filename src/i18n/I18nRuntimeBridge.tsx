@@ -18,7 +18,9 @@ export function I18nRuntimeBridge() {
           return;
         }
 
-        void i18n.changeLanguage(nextLanguage);
+        void i18n.changeLanguage(nextLanguage).catch((error) => {
+          console.error("Failed to apply runtime i18n language change:", error);
+        });
       },
     );
 
