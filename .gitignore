@@ -31,5 +31,9 @@ dist-ssr
 src-tauri/binaries/*.exe
 src-tauri/binaries/pinterest-dl-*
 
+# Python cache artifacts
+__pycache__/
+*.pyc
+
 # Test files
 test_video.mp4
