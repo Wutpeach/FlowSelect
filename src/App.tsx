@@ -6,6 +6,7 @@ import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/
 import { open } from "@tauri-apps/plugin-dialog";
 import { motion, AnimatePresence } from "motion/react";
 import { Check, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { YtdlpVersionInfo } from "./types/ytdlp";
 import {
   buildPinterestDragDiagnostic,
@@ -20,12 +21,13 @@ import {
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
+import i18n from "./i18n";
 
 // Helper function to check and show sequence overflow error
 const checkSequenceOverflow = (error: unknown): boolean => {
   const errorStr = String(error);
   if (errorStr.includes("序号已用完")) {
-    alert("序号已用完，请整理文件夹后重试");
+    alert(i18n.t("desktop:app.sequenceOverflowMessage"));
     return true;
   }
   return false;
@@ -136,11 +138,16 @@ const mergePinterestVideoCandidates = (
   return merged;
 };
 
-const DOWNLOAD_STAGE_LABEL: Record<DownloadStage, string> = {
+const DEFAULT_STAGE_FALLBACK_LABELS: Record<DownloadStage, string> = {
   preparing: "Preparing...",
   downloading: "Downloading...",
   merging: "Merging...",
   post_processing: "Post-processing...",
+};
+
+const getDownloadStageLabel = (stage: DownloadStage): string => {
+  const translationKey = stage === "post_processing" ? "postProcessing" : stage;
+  return i18n.t(`desktop:app.downloadStage.${translationKey}`);
 };
 
 const DOWNLOAD_STAGE_ORDER: Record<DownloadStage, number> = {
@@ -166,27 +173,25 @@ const getDownloadStatusText = (
   stage: DownloadStage | null,
 ): string => {
   const effectiveStage = stage ?? progress.stage;
-  const stageLabel = DOWNLOAD_STAGE_LABEL[effectiveStage];
+  const stageLabel = getDownloadStageLabel(effectiveStage);
   const speedText = progress.speed.trim();
   const etaText = progress.eta.trim();
   const hasEta = etaText.length > 0 && etaText !== "N/A";
+  const etaLabel = i18n.t("desktop:app.downloadStatus.eta", { eta: etaText });
 
   if (effectiveStage !== "downloading") {
-    if (speedText && speedText !== stageLabel) {
-      return speedText;
-    }
     return stageLabel;
   }
 
-  if (!speedText || speedText === stageLabel) {
+  if (!speedText || speedText === stageLabel || speedText === DEFAULT_STAGE_FALLBACK_LABELS[effectiveStage]) {
     if (hasEta) {
-      return `${stageLabel} ETA ${etaText}`;
+      return `${stageLabel} ${etaLabel}`;
     }
     return stageLabel;
   }
 
   if (hasEta) {
-    return `${stageLabel} ${speedText} · ETA ${etaText}`;
+    return `${stageLabel} ${speedText} · ${etaLabel}`;
   }
   return `${stageLabel} ${speedText}`;
 };
@@ -271,6 +276,7 @@ const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) 
 );
 
 function App() {
+  const { t } = useTranslation("desktop");
   const { colors } = useTheme();
   const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
   const [isHovering, setIsHovering] = useState(false);
@@ -334,7 +340,7 @@ function App() {
         traceId: primaryQueueTask.traceId,
         percent: -1,
         stage: "preparing" as DownloadStage,
-        speed: "Preparing...",
+        speed: getDownloadStageLabel("preparing"),
         eta: "",
       }
     : null;
@@ -538,7 +544,7 @@ function App() {
     addCancellingTraceId(traceId);
     if (options?.showCurrentTaskFeedback) {
       setDownloadCancelled(true);
-      setDownloadErrorMessage("Cancelling current task...");
+      setDownloadErrorMessage(t("app.queue.cancellingCurrent"));
     }
 
     try {
@@ -1024,7 +1030,7 @@ function App() {
           const selected = await open({
             directory: true,
             multiple: false,
-            title: "确认素材导出路径",
+            title: t("app.drop.directoryDialogTitle"),
           });
 
           if (selected && typeof selected === "string") {
@@ -1340,7 +1346,7 @@ function App() {
 
     const baseOptions = {
       url: "/settings",
-      title: "Settings",
+      title: t("app.windows.settingsTitle"),
       width: SETTINGS_WINDOW_WIDTH,
       height: SETTINGS_WINDOW_HEIGHT,
       decorations: false,
@@ -1446,7 +1452,7 @@ function App() {
 
       new WebviewWindow("context-menu", {
         url: "/context-menu",
-        title: "Context Menu",
+        title: t("app.windows.contextMenuTitle"),
         x,
         y,
         width: CONTEXT_MENU_WIDTH,
@@ -1495,19 +1501,22 @@ function App() {
     : false;
   const getQueueTaskProgressText = (task: VideoQueueTaskPayload): string => {
     if (cancellingTraceIds.includes(task.traceId)) {
-      return "Cancelling...";
+      return t("app.queue.cancelling");
     }
     if (task.status === "pending") {
-      return "Waiting...";
+      return t("app.queue.waiting");
     }
     const progress = downloadProgressByTrace[task.traceId];
     if (!progress) {
-      return "Preparing...";
+      return t("app.downloadStage.preparing");
     }
     const statusText = getDownloadStatusText(progress, progress.stage);
     return progress.percent < 0
       ? statusText
-      : `${Math.round(progress.percent)}% · ${statusText}`;
+      : t("app.queue.percentStatus", {
+          percent: Math.round(progress.percent),
+          status: statusText,
+        });
   };
   const getQueueTaskProgressPercent = (task: VideoQueueTaskPayload): number => {
     if (task.status !== "active") {
@@ -1523,15 +1532,18 @@ function App() {
     ? getDownloadStatusText(downloadProgress, downloadStage)
     : "";
   const queueStatusText = isPrimaryTaskCancelling
-    ? "Cancelling current task..."
+    ? t("app.queue.cancellingCurrent")
     : videoQueueState.pendingCount > 0
-      ? `${videoQueueState.pendingCount} queued next`
+      ? t("app.queue.queuedNext", { count: videoQueueState.pendingCount })
       : videoQueueState.totalCount > 1
-        ? `${videoQueueState.totalCount} tasks in queue`
+        ? t("app.queue.tasksInQueue", { count: videoQueueState.totalCount })
         : "";
   const showVideoTaskBadge = videoQueueState.totalCount > 1 || isQueuePopoverOpen;
-  const queueViewTitle = "Video queue";
-  const queueViewMeta = `${videoQueueState.activeCount} active · ${videoQueueState.pendingCount} queued`;
+  const queueViewTitle = t("app.queue.title");
+  const queueViewMeta = t("app.queue.meta", {
+    active: videoQueueState.activeCount,
+    queued: videoQueueState.pendingCount,
+  });
 
   return (
     <motion.div
@@ -1675,9 +1687,9 @@ function App() {
               cursor: 'pointer',
               transition: 'background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
             }}
-            aria-label={`Current video tasks: ${videoQueueState.totalCount}`}
             aria-pressed={isQueuePopoverOpen}
-            title={isQueuePopoverOpen ? "Close download list" : "Show current video tasks"}
+            aria-label={t("app.queue.currentTasksAria", { count: videoQueueState.totalCount })}
+            title={isQueuePopoverOpen ? t("app.queue.closeList") : t("app.queue.showList")}
           >
             {isQueuePopoverOpen ? (
               <svg
@@ -1752,7 +1764,7 @@ function App() {
                       userSelect: 'none',
                     }}
                   >
-                    Queue
+                    {t("app.queue.label")}
                   </span>
                   <span
                     style={{
@@ -1886,7 +1898,7 @@ function App() {
                             flexShrink: 0,
                             transition: 'background-color 0.2s ease',
                           }}
-                          title={isTaskCancelling ? 'Cancelling task' : 'Cancel task'}
+                          title={isTaskCancelling ? t("app.queue.cancellingTask") : t("app.queue.cancelTask")}
                         >
                           <svg
                             width="10"
@@ -1932,7 +1944,7 @@ function App() {
           ...miniControlStyle,
           cursor: 'pointer',
         }}
-        title="Hide window"
+        title={t("app.actions.hideWindow")}
       >
         <span
           style={{
@@ -2071,7 +2083,7 @@ function App() {
                 transition: 'background-color 0.2s',
                 opacity: !primaryQueueTask || isPrimaryTaskCancelling ? 0.6 : 1,
               }}
-              title="Cancel current task"
+              title={t("app.actions.cancelCurrentTask")}
             >
               <svg
                 width="10"
@@ -2167,7 +2179,12 @@ function App() {
             pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
             zIndex: 10,
           }}
-          title={isUpdating ? "Updating..." : `Update yt-dlp: ${ytdlpUpdate.current} → ${ytdlpUpdate.latest}`}
+          title={isUpdating
+            ? t("app.actions.updating")
+            : t("app.actions.updateYtdlp", {
+                current: ytdlpUpdate.current,
+                latest: ytdlpUpdate.latest ?? "",
+              })}
         >
           {isUpdating ? (
             <span
@@ -2211,7 +2228,7 @@ function App() {
             ...miniControlStyle,
             cursor: 'pointer',
           }}
-          title="Reset rename counter"
+          title={t("app.actions.resetRenameCounter")}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" style={{ pointerEvents: 'none' }}>
             <rect
@@ -2244,7 +2261,7 @@ function App() {
           ...miniControlStyle,
           cursor: 'pointer',
         }}
-        title="Settings"
+        title={t("app.actions.settings")}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" style={{ pointerEvents: 'none' }}>
           <rect

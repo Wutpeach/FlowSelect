@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
 import { NeonFieldButton, NeonHint, NeonSection } from "../components/ui";
@@ -14,15 +15,17 @@ import { APP_VERSION } from "../constants/appVersion";
 import { DownloaderDeck } from "./settings/DownloaderDeck";
 import type { PinterestDownloaderInfo } from "../types/pinterestDownloader";
 import type { YtdlpVersionInfo } from "../types/ytdlp";
+import { changeDesktopLanguage } from "../i18n/desktopLanguage";
+import {
+  FALLBACK_LANGUAGE,
+  SUPPORTED_APP_LANGUAGES,
+  type AppLanguage,
+} from "../i18n/contract";
+import { normalizeAppLanguage } from "../i18n/language";
 
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
 
 const DEFAULT_RENAME_RULE_PRESET: RenameRulePreset = "desc_number";
-const RENAME_RULE_PRESET_OPTIONS: Array<{ value: RenameRulePreset; label: string }> = [
-  { value: "desc_number", label: "Descending" },
-  { value: "asc_number", label: "Ascending" },
-  { value: "prefix_number", label: "Prefix + Sequence" },
-];
 const ILLEGAL_FILENAME_CHARS = /[/\\:*?"<>|]/g;
 const VERSION_TAP_THRESHOLD = 5;
 const VERSION_TAP_RESET_MS = 1500;
@@ -127,6 +130,7 @@ const buildRenamePreview = (
 };
 
 function SettingsPage() {
+  const { t, i18n } = useTranslation(["desktop", "common"]);
   const { theme, colors, setTheme } = useTheme();
   const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
   const [outputPath, setOutputPath] = useState("");
@@ -156,6 +160,25 @@ function SettingsPage() {
   const pinterestHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const supportLogExportInFlightRef = useRef(false);
   const renamePresetMenuRef = useRef<HTMLDivElement | null>(null);
+  const currentLanguage = normalizeAppLanguage(i18n.resolvedLanguage) ?? FALLBACK_LANGUAGE;
+  const languageOptions = SUPPORTED_APP_LANGUAGES.map((value) => ({
+    value,
+    label: t(`common:language.${value}`),
+  }));
+  const renameRulePresetOptions: Array<{ value: RenameRulePreset; label: string }> = [
+    {
+      value: "desc_number",
+      label: t("desktop:settings.rename.options.descending"),
+    },
+    {
+      value: "asc_number",
+      label: t("desktop:settings.rename.options.ascending"),
+    },
+    {
+      value: "prefix_number",
+      label: t("desktop:settings.rename.options.prefixSequence"),
+    },
+  ];
 
   const showYtdlpHint = useCallback((message: string) => {
     setYtdlpHint(message);
@@ -199,45 +222,47 @@ function SettingsPage() {
     }
   }, []);
 
-  const ytdlpCurrentVersion = ytdlpInfo?.current ?? "Unknown";
+  const ytdlpCurrentVersion = ytdlpInfo?.current ?? t("desktop:settings.downloaders.unknown");
   const ytdlpStatus = (() => {
     if (!ytdlpInfo) {
       return {
         color: colors.textSecondary,
-        message: "Check unavailable.",
+        message: t("desktop:settings.downloaders.ytdlp.checkUnavailable"),
       };
     }
 
     if (ytdlpInfo.updateAvailable === true && ytdlpInfo.latest) {
       return {
         color: colors.dangerText,
-        message: `Update: ${ytdlpInfo.latest}`,
+        message: t("desktop:settings.downloaders.ytdlp.updateAvailable", {
+          version: ytdlpInfo.latest,
+        }),
       };
     }
 
     if (ytdlpInfo.latest) {
       return {
         color: colors.textSecondary,
-        message: "Up to date.",
+        message: t("desktop:settings.downloaders.ytdlp.upToDate"),
       };
     }
 
     return {
       color: colors.textSecondary,
-      message: "Local version only.",
+      message: t("desktop:settings.downloaders.ytdlp.localVersionOnly"),
     };
   })();
-  const pinterestCurrentVersion = pinterestInfo?.current ?? "Unknown";
+  const pinterestCurrentVersion = pinterestInfo?.current ?? t("desktop:settings.downloaders.unknown");
   const pinterestStatusMessage = (() => {
     if (!pinterestInfo) {
-      return "Details unavailable.";
+      return t("desktop:settings.downloaders.pinterest.detailsUnavailable");
     }
 
     if (pinterestInfo.updateChannel === "app_release") {
-      return "Updates ship with app releases.";
+      return t("desktop:settings.downloaders.pinterest.updatesShipWithApp");
     }
 
-    return "Managed by FlowSelect.";
+    return t("desktop:settings.downloaders.pinterest.managedByApp");
   })();
 
   // Load config on mount
@@ -401,13 +426,13 @@ function SettingsPage() {
       }
       void refreshYtdlpVersion();
       if (event.payload.source === "main") {
-        showYtdlpHint("yt-dlp updated from main window");
+        showYtdlpHint(t("desktop:settings.downloaders.ytdlp.updatedFromMain"));
       }
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [refreshYtdlpVersion, showYtdlpHint]);
+  }, [refreshYtdlpVersion, showYtdlpHint, t]);
 
   const startRecording = () => {
     setRecordedKeys("");
@@ -417,6 +442,18 @@ function SettingsPage() {
   const cancelRecording = () => {
     setIsRecording(false);
     setRecordedKeys("");
+  };
+
+  const handleLanguageChange = async (nextLanguage: AppLanguage) => {
+    if (currentLanguage === nextLanguage) {
+      return;
+    }
+
+    try {
+      await changeDesktopLanguage(nextLanguage);
+    } catch (err) {
+      console.error("Failed to change app language:", err);
+    }
   };
 
   const confirmShortcut = async () => {
@@ -442,7 +479,7 @@ function SettingsPage() {
       const selected = await open({
         directory: true,
         multiple: false,
-        title: "Select Output Folder",
+        title: t("desktop:settings.outputFolder.dialogTitle"),
       });
       if (typeof selected === "string") {
         await saveOutputPath(selected);
@@ -459,10 +496,10 @@ function SettingsPage() {
       const latestVersion = await invoke<string>("update_ytdlp");
       await emit("ytdlp-version-refresh", { source: "settings" });
       await refreshYtdlpVersion();
-      showYtdlpHint(`yt-dlp updated to ${latestVersion}`);
+      showYtdlpHint(t("desktop:settings.downloaders.ytdlp.updatedTo", { version: latestVersion }));
     } catch (err) {
       console.error("Failed to update yt-dlp:", err);
-      showYtdlpHint("Failed to update yt-dlp");
+      showYtdlpHint(t("desktop:settings.downloaders.ytdlp.updateFailed"));
     } finally {
       setIsUpdatingYtdlp(false);
     }
@@ -473,7 +510,7 @@ function SettingsPage() {
       await openUrl("https://github.com/Wutpeach/FlowSelect/releases");
     } catch (err) {
       console.error("Failed to open FlowSelect releases:", err);
-      showPinterestHint("Failed to open FlowSelect releases");
+      showPinterestHint(t("desktop:settings.downloaders.pinterest.openReleasesFailed"));
     }
   };
 
@@ -564,16 +601,18 @@ function SettingsPage() {
       if (logDir) {
         try {
           await invoke<void>("open_folder", { path: logDir });
-          showVersionTapHint(`诊断日志已生成并打开目录：${fileName}`);
+          showVersionTapHint(
+            t("desktop:settings.supportLog.exportedAndOpened", { fileName }),
+          );
         } catch (openErr) {
-          showVersionTapHint(`诊断日志已生成：${fileName}`);
+          showVersionTapHint(t("desktop:settings.supportLog.exported", { fileName }));
           console.error("Failed to open support log folder:", openErr);
         }
       } else {
-        showVersionTapHint(`诊断日志已生成：${fileName}`);
+        showVersionTapHint(t("desktop:settings.supportLog.exported", { fileName }));
       }
     } catch (err) {
-      showVersionTapHint("生成诊断日志失败");
+      showVersionTapHint(t("desktop:settings.supportLog.failed"));
       console.error("Failed to export support log from version tap:", err);
     } finally {
       supportLogExportInFlightRef.current = false;
@@ -594,7 +633,7 @@ function SettingsPage() {
     }, VERSION_TAP_RESET_MS);
 
     if (remaining === 1) {
-      showVersionTapHint("再点一下生成诊断日志");
+      showVersionTapHint(t("desktop:settings.supportLog.exportReady"));
     }
 
     if (versionTapCountRef.current >= VERSION_TAP_THRESHOLD) {
@@ -618,8 +657,8 @@ function SettingsPage() {
 
   const selectAeExePath = async () => {
     const selected = await open({
-      filters: [{ name: "Executable", extensions: ["exe"] }],
-      title: "Select AfterFX.exe",
+      filters: [{ name: t("desktop:settings.aePortal.executableFilter"), extensions: ["exe"] }],
+      title: t("desktop:settings.aePortal.dialogTitle"),
     });
     if (selected) {
       setAeExePath(selected as string);
@@ -643,8 +682,8 @@ function SettingsPage() {
   const renamePresetTriggerBorderColor = renamePresetMenuOpen ? colors.fieldBorderStrong : colors.fieldBorder;
   const renamePresetPopupBorderColor = colors.fieldBorder;
   const renamePresetLabel =
-    RENAME_RULE_PRESET_OPTIONS.find((option) => option.value === renameRulePreset)?.label ??
-    RENAME_RULE_PRESET_OPTIONS[0].label;
+    renameRulePresetOptions.find((option) => option.value === renameRulePreset)?.label ??
+    renameRulePresetOptions[0].label;
   const nestedLabelStyle: CSSProperties = {
     fontSize: 11,
     color: colors.textSecondary,
@@ -712,7 +751,7 @@ function SettingsPage() {
         <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <span style={{ fontSize: 12, color: colors.textPrimary }}>
-              Version {ytdlpCurrentVersion}
+              {t("desktop:settings.downloaders.ytdlp.version", { version: ytdlpCurrentVersion })}
             </span>
             {ytdlpInfo?.updateAvailable ? (
               <span
@@ -732,7 +771,7 @@ function SettingsPage() {
               textOverflow: 'ellipsis',
             }}
           >
-            {ytdlpHint || "General-purpose video downloader."}
+            {ytdlpHint || t("desktop:settings.downloaders.ytdlp.description")}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
             <span
@@ -766,7 +805,9 @@ function SettingsPage() {
               {isUpdatingYtdlp ? (
                 <span style={spinnerStyle} />
               ) : null}
-              {isUpdatingYtdlp ? "Updating..." : "Update"}
+              {isUpdatingYtdlp
+                ? t("desktop:settings.downloaders.ytdlp.updating")
+                : t("desktop:settings.downloaders.ytdlp.button")}
             </NeonButton>
           </div>
         </>
@@ -779,7 +820,7 @@ function SettingsPage() {
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, color: colors.textPrimary }}>
-              Version {pinterestCurrentVersion}
+              {t("desktop:settings.downloaders.pinterest.version", { version: pinterestCurrentVersion })}
             </span>
           </div>
           <span
@@ -793,7 +834,7 @@ function SettingsPage() {
               textOverflow: 'ellipsis',
             }}
           >
-            {pinterestHint || "Pinterest video downloader."}
+            {pinterestHint || t("desktop:settings.downloaders.pinterest.description")}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
             <span
@@ -817,7 +858,7 @@ function SettingsPage() {
               onClick={() => void openFlowSelectReleases()}
               style={{ minWidth: 78, fontSize: 11, padding: '5px 10px' }}
             >
-              Releases
+              {t("desktop:settings.downloaders.pinterest.releasesButton")}
             </NeonButton>
           </div>
         </>
@@ -831,7 +872,7 @@ function SettingsPage() {
       style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative' }}
     >
       <label style={nestedLabelStyle}>
-        Rename Preset
+        {t("desktop:settings.rename.preset")}
       </label>
       <NeonFieldButton
         onClick={() =>
@@ -873,7 +914,7 @@ function SettingsPage() {
             boxShadow: colors.panelShadowStrong,
           }}
         >
-          {RENAME_RULE_PRESET_OPTIONS.map((option, index) => (
+          {renameRulePresetOptions.map((option, index) => (
             <button
               key={option.value}
               type="button"
@@ -890,7 +931,7 @@ function SettingsPage() {
                 padding: '0 10px',
                 border: 'none',
                 borderBottom:
-                  index === RENAME_RULE_PRESET_OPTIONS.length - 1
+                  index === renameRulePresetOptions.length - 1
                     ? 'none'
                     : `1px solid ${colors.borderEnd}`,
                 backgroundColor:
@@ -927,7 +968,9 @@ function SettingsPage() {
           background: 'transparent',
         }}
       >
-        <h2 style={{ fontSize: 14, fontWeight: 500, color: colors.textPrimary, margin: 0 }}>Settings</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 500, color: colors.textPrimary, margin: 0 }}>
+          {t("desktop:settings.title")}
+        </h2>
         <button
           onClick={closeWindow}
           onMouseEnter={() => setIsCloseHovered(true)}
@@ -958,7 +1001,7 @@ function SettingsPage() {
         msOverflowStyle: 'none', // IE/Edge
       }} className="hide-scrollbar">
         {/* Theme */}
-        <NeonSection title="Theme">
+        <NeonSection title={t("desktop:settings.theme.title")}>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={() => setTheme('black')}
@@ -969,7 +1012,7 @@ function SettingsPage() {
                 fontSize: 12,
               }}
             >
-              Black
+              {t("desktop:settings.theme.black")}
             </button>
             <button
               onClick={() => setTheme('white')}
@@ -980,25 +1023,49 @@ function SettingsPage() {
                 fontSize: 12,
               }}
             >
-              White
+              {t("desktop:settings.theme.white")}
             </button>
           </div>
         </NeonSection>
 
+        <NeonSection
+          title={t("desktop:settings.language.title")}
+          hint={t("desktop:settings.language.hint")}
+        >
+          <div style={{ display: 'flex', gap: 8 }}>
+            {languageOptions.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => {
+                  void handleLanguageChange(option.value);
+                }}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  ...getSelectableOptionStyle(currentLanguage === option.value),
+                  fontSize: 12,
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </NeonSection>
+
         {/* Output Path */}
-        <NeonSection title="Output Folder">
+        <NeonSection title={t("desktop:settings.outputFolder.title")}>
           <NeonFieldButton
             onClick={selectOutputPath}
             leadingIcon={<FolderOpen size={14} />}
           >
-            {outputPath ? truncatePath(outputPath) : "Choose a folder..."}
+            {outputPath ? truncatePath(outputPath) : t("desktop:settings.outputFolder.choose")}
           </NeonFieldButton>
         </NeonSection>
 
         {/* Shortcut */}
         <NeonSection
-          title="Global Shortcut"
-          hint="Use one shortcut to open FlowSelect from anywhere."
+          title={t("desktop:settings.shortcut.title")}
+          hint={t("desktop:settings.shortcut.hint")}
         >
           {isRecording ? (
             <div>
@@ -1020,7 +1087,9 @@ function SettingsPage() {
                 boxShadow: `inset 0 0 0 1px ${colors.accentBorder}`,
               }}>
                 <Keyboard size={14} style={{ color: colors.accentText, flexShrink: 0 }} />
-                <span>{formatShortcutForDisplay(recordedKeys, isMacOS) || "Press your shortcut"}</span>
+                <span>
+                  {formatShortcutForDisplay(recordedKeys, isMacOS) || t("desktop:settings.shortcut.press")}
+                </span>
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
                 <NeonButton
@@ -1030,7 +1099,7 @@ function SettingsPage() {
                   disabled={!recordedKeys}
                   className="flex-1"
                 >
-                  Confirm
+                  {t("desktop:settings.shortcut.confirm")}
                 </NeonButton>
                 <NeonButton
                   variant="ghost"
@@ -1038,7 +1107,7 @@ function SettingsPage() {
                   onClick={cancelRecording}
                   className="flex-1"
                 >
-                  Cancel
+                  {t("desktop:settings.shortcut.cancel")}
                 </NeonButton>
               </div>
             </div>
@@ -1047,20 +1116,20 @@ function SettingsPage() {
               onClick={startRecording}
               leadingIcon={<Keyboard size={14} />}
             >
-              {formatShortcutForDisplay(shortcut, isMacOS) || "Click to record shortcut"}
+              {formatShortcutForDisplay(shortcut, isMacOS) || t("desktop:settings.shortcut.clickToRecord")}
             </NeonFieldButton>
           )}
         </NeonSection>
 
         {/* Launch at startup */}
-        <NeonSection title="Launch at startup">
+        <NeonSection title={t("desktop:settings.launchAtStartup.title")}>
           <NeonToggle checked={autostart} onChange={toggleAutostart} />
         </NeonSection>
 
         {/* Media Rename */}
         <NeonSection
-          title="Rename downloaded media"
-          hint="Apply a naming rule to new downloads instead of keeping the source name."
+          title={t("desktop:settings.rename.title")}
+          hint={t("desktop:settings.rename.hint")}
         >
           <NeonToggle checked={renameMediaOnDownload} onChange={toggleRenameMediaOnDownload} />
           {renameMediaOnDownload && (
@@ -1069,13 +1138,13 @@ function SettingsPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <label style={nestedLabelStyle}>
-                      Prefix
+                      {t("desktop:settings.rename.prefix")}
                     </label>
                     <input
                       type="text"
                       value={renamePrefix}
                       onChange={(e) => void handleRenamePrefixChange(e.target.value)}
-                      placeholder="Flow"
+                      placeholder={t("desktop:settings.rename.prefixPlaceholder")}
                       style={compactFieldStyle}
                     />
                   </div>
@@ -1087,19 +1156,19 @@ function SettingsPage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label style={nestedLabelStyle}>
-                  Suffix
+                  {t("desktop:settings.rename.suffix")}
                 </label>
                 <input
                   type="text"
                   value={renameSuffix}
                   onChange={(e) => void handleRenameSuffixChange(e.target.value)}
-                  placeholder="done"
+                  placeholder={t("desktop:settings.rename.suffixPlaceholder")}
                   style={compactFieldStyle}
                 />
               </div>
 
               <div style={{ padding: '2px 0' }}>
-                <NeonHint style={{ marginBottom: 4 }}>Preview</NeonHint>
+                <NeonHint style={{ marginBottom: 4 }}>{t("desktop:settings.rename.preview")}</NeonHint>
                 <div style={{ fontSize: 12, color: colors.textSecondary, opacity: 0.82, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {renamePreview}
                 </div>
@@ -1110,8 +1179,8 @@ function SettingsPage() {
 
         {/* AE Portal */}
         <NeonSection
-          title="After Effects auto-import"
-          hint="Open finished media in After Effects after download."
+          title={t("desktop:settings.aePortal.title")}
+          hint={t("desktop:settings.aePortal.hint")}
         >
           <NeonToggle checked={aePortalEnabled} onChange={toggleAePortal} />
           {aePortalEnabled && (
@@ -1120,12 +1189,12 @@ function SettingsPage() {
               leadingIcon={<FolderOpen size={14} />}
               style={{ marginTop: 8 }}
             >
-              {aeExePath ? truncatePath(aeExePath) : "Choose AfterFX.exe..."}
+              {aeExePath ? truncatePath(aeExePath) : t("desktop:settings.aePortal.chooseExe")}
             </NeonFieldButton>
           )}
         </NeonSection>
 
-        <NeonSection title="External downloaders">
+        <NeonSection title={t("desktop:settings.downloaders.title")}>
           <DownloaderDeck cards={downloaderCards} />
         </NeonSection>
 

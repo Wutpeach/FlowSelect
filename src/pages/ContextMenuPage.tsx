@@ -4,8 +4,10 @@ import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTheme } from "../contexts/ThemeContext";
 import { motion } from "motion/react";
+import { useTranslation } from "react-i18next";
 
 function ContextMenuPage() {
+  const { t } = useTranslation("desktop");
   const { theme, colors } = useTheme();
   const [hoveredItem, setHoveredItem] = useState<"open" | "set" | null>(null);
   const dismissArmedRef = useRef(false);
@@ -180,7 +182,7 @@ function ContextMenuPage() {
             setHoveredItem(null);
           }}
         >
-          Open Folder
+          {t("contextMenu.openFolder")}
         </button>
         <div
           style={{
@@ -199,7 +201,7 @@ function ContextMenuPage() {
             setHoveredItem(null);
           }}
         >
-          Set Output Folder
+          {t("contextMenu.setOutputFolder")}
         </button>
       </motion.div>
     </motion.div>
