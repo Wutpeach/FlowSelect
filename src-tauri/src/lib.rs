@@ -9524,3 +9524,134 @@ pub fn run() {
             _ => {}
         });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn load_pinterest_fixture(name: &str) -> String {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("pinterest")
+            .join(name);
+        fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read fixture {}: {}", path.display(), err))
+    }
+
+    fn load_pinterest_fixture_json(name: &str) -> serde_json::Value {
+        serde_json::from_str(&load_pinterest_fixture(name))
+            .unwrap_or_else(|err| panic!("failed to parse fixture {}: {}", name, err))
+    }
+
+    #[test]
+    fn extract_pinterest_pin_id_accepts_only_canonical_numeric_pin_urls() {
+        assert_eq!(
+            extract_pinterest_pin_id("https://www.pinterest.com/pin/403705554121341216/"),
+            Some("403705554121341216".to_string())
+        );
+        assert_eq!(
+            extract_pinterest_pin_id("https://www.pinterest.com/pin/not-a-number/"),
+            None
+        );
+        assert_eq!(
+            extract_pinterest_pin_id("https://www.pinterest.com/board/123456789/"),
+            None
+        );
+    }
+
+    #[test]
+    fn extract_pinterest_json_blocks_reads_pws_data_scripts() {
+        let fixture_body = load_pinterest_fixture("top-level-video.json");
+        let html = format!(
+            r#"<html><head><script>window.__PWS_DATA__ = {};</script></head></html>"#,
+            fixture_body
+        );
+
+        let blocks = extract_pinterest_json_blocks(&html);
+
+        assert_eq!(blocks.len(), 1);
+        let resolved = resolve_pinterest_pin_media_from_value(
+            &blocks[0],
+            "403705554121341216",
+            "https://www.pinterest.com/pin/403705554121341216/",
+            None,
+            None,
+        )
+        .expect("expected top-level fixture to resolve");
+
+        assert_eq!(
+            resolved.video.expect("expected top-level video").url,
+            "https://v1.pinimg.com/videos/iht/expmp4/top-level-720.mp4"
+        );
+    }
+
+    #[test]
+    fn resolve_pinterest_pin_media_prefers_top_level_video_fixture() {
+        let fixture = load_pinterest_fixture_json("top-level-video.json");
+
+        let resolved = resolve_pinterest_pin_media_from_value(
+            &fixture,
+            "403705554121341216",
+            "https://www.pinterest.com/pin/403705554121341216/",
+            None,
+            None,
+        )
+        .expect("expected top-level fixture to resolve");
+
+        assert_eq!(resolved.pin_id, "403705554121341216");
+        assert_eq!(
+            resolved.image.url,
+            "https://i.pinimg.com/originals/top-level-video.jpg"
+        );
+        assert_eq!(
+            resolved.video.expect("expected top-level video").url,
+            "https://v1.pinimg.com/videos/iht/expmp4/top-level-720.mp4"
+        );
+    }
+
+    #[test]
+    fn resolve_pinterest_pin_media_prefers_matching_carousel_slot() {
+        let fixture = load_pinterest_fixture_json("carousel-video.json");
+
+        let resolved = resolve_pinterest_pin_media_from_value(
+            &fixture,
+            "987654321012345678",
+            "https://www.pinterest.com/pin/987654321012345678/",
+            None,
+            None,
+        )
+        .expect("expected carousel fixture to resolve");
+
+        let video = resolved.video.expect("expected carousel video");
+        assert_eq!(
+            video.url,
+            "https://v1.pinimg.com/videos/iht/expmp4/carousel-current-720.mp4"
+        );
+        assert_eq!(
+            video.poster_url,
+            Some("https://i.pinimg.com/originals/carousel-current.jpg".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_pinterest_pin_media_returns_image_only_fixture_without_video() {
+        let fixture = load_pinterest_fixture_json("image-only.json");
+
+        let resolved = resolve_pinterest_pin_media_from_value(
+            &fixture,
+            "551122334455667788",
+            "https://www.pinterest.com/pin/551122334455667788/",
+            None,
+            None,
+        )
+        .expect("expected image-only fixture to resolve");
+
+        assert_eq!(resolved.pin_id, "551122334455667788");
+        assert_eq!(
+            resolved.image.url,
+            "https://i.pinimg.com/originals/image-only.jpg"
+        );
+        assert!(resolved.video.is_none());
+    }
+}

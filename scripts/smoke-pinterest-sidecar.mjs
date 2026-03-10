@@ -10,9 +10,11 @@ const sidecarDir = join(repoRoot, "src-tauri", "pinterest-sidecar");
 
 function parseArgs(argv) {
   const parsed = {};
+  const positional = [];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (!arg.startsWith("--")) {
+      positional.push(arg);
       continue;
     }
     const key = arg.slice(2);
@@ -23,6 +25,16 @@ function parseArgs(argv) {
     }
     parsed[key] = next;
     index += 1;
+  }
+  if (!parsed.mode && positional[0] && (positional[0] === "source" || positional[0] === "binary")) {
+    parsed.mode = positional[0];
+  }
+  if (!parsed.target) {
+    const positionalTarget =
+      parsed.mode && positional[0] === parsed.mode ? positional[1] : positional[0];
+    if (positionalTarget) {
+      parsed.target = positionalTarget;
+    }
   }
   return parsed;
 }

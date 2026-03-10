@@ -108,9 +108,15 @@ try {
 
   if (-not $SkipBuild) {
     Write-Host ">>> Building Pinterest sidecar..."
-    npm run build:pinterest-sidecar -- --target x86_64-pc-windows-msvc
+    node ./scripts/build-pinterest-sidecar.mjs --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) {
       throw "Pinterest sidecar build failed with exit code $LASTEXITCODE"
+    }
+
+    Write-Host ">>> Smoke testing Pinterest sidecar..."
+    node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) {
+      throw "Pinterest sidecar smoke test failed with exit code $LASTEXITCODE"
     }
 
     Write-Host ">>> Building Tauri app (no bundle)..."

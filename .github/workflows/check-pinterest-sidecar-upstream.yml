@@ -1,0 +1,146 @@
+name: Check Pinterest Sidecar Upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check pinned pinterest-dl version
+        id: check
+        run: npm run check:pinterest-sidecar-upstream -- --github-output "$GITHUB_OUTPUT"
+
+      - name: Write workflow summary
+        run: |
+          {
+            echo "## Pinterest sidecar upstream check"
+            echo ""
+            echo "- Package: \`${{ steps.check.outputs.package_name }}\`"
+            echo "- Locked version: \`${{ steps.check.outputs.locked_version }}\`"
+            echo "- Latest PyPI stable version: \`${{ steps.check.outputs.latest_version }}\`"
+            echo "- Comparison: \`${{ steps.check.outputs.comparison }}\`"
+            echo "- Update available: \`${{ steps.check.outputs.update_available }}\`"
+            if [[ -n "${{ steps.check.outputs.latest_published_at }}" ]]; then
+              echo "- Latest published at: \`${{ steps.check.outputs.latest_published_at }}\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create, update, or close tracking issue
+        uses: actions/github-script@v7
+        env:
+          ISSUE_MARKER: '<!-- flowselect:pinterest-sidecar-upstream -->'
+          PACKAGE_NAME: ${{ steps.check.outputs.package_name }}
+          PACKAGE_URL: ${{ steps.check.outputs.package_url }}
+          LOCKED_VERSION: ${{ steps.check.outputs.locked_version }}
+          LATEST_VERSION: ${{ steps.check.outputs.latest_version }}
+          LATEST_PUBLISHED_AT: ${{ steps.check.outputs.latest_published_at }}
+          UPDATE_AVAILABLE: ${{ steps.check.outputs.update_available }}
+          COMPARISON: ${{ steps.check.outputs.comparison }}
+        with:
+          script: |
+            const marker = process.env.ISSUE_MARKER;
+            const packageName = process.env.PACKAGE_NAME;
+            const packageUrl = process.env.PACKAGE_URL;
+            const lockedVersion = process.env.LOCKED_VERSION;
+            const latestVersion = process.env.LATEST_VERSION;
+            const latestPublishedAt = process.env.LATEST_PUBLISHED_AT;
+            const updateAvailable = process.env.UPDATE_AVAILABLE === "true";
+            const comparison = process.env.COMPARISON;
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+            const title = updateAvailable
+              ? `Pinterest sidecar update available: ${lockedVersion} -> ${latestVersion}`
+              : `Pinterest sidecar upstream check`;
+
+            const body = [
+              marker,
+              "",
+              `Pinned package: [${packageName}](${packageUrl})`,
+              `Locked version: \`${lockedVersion}\``,
+              `Latest PyPI stable version: \`${latestVersion}\``,
+              `Comparison: \`${comparison}\``,
+              latestPublishedAt ? `Latest published at: \`${latestPublishedAt}\`` : null,
+              "",
+              updateAvailable ? "Action required:" : "Current state:",
+              updateAvailable
+                ? "- Review the upstream release notes and decide whether to bump `src-tauri/pinterest-sidecar/lock.json`."
+                : "- The lockfile already matches or exceeds the latest stable PyPI release.",
+              updateAvailable ? "- Run the Pinterest sidecar build, smoke, and regression checks before shipping the next app release." : null,
+              "",
+              "Required verification commands:",
+              "- `node ./scripts/build-pinterest-sidecar.mjs --target x86_64-pc-windows-msvc`",
+              "- `npm run smoke:pinterest-sidecar -- --mode binary --target x86_64-pc-windows-msvc`",
+              "- `npm test`",
+              "- `cargo test --manifest-path src-tauri/Cargo.toml`",
+              "",
+              `Workflow run: ${runUrl}`,
+            ].filter(Boolean).join("\n");
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "all",
+              per_page: 100,
+            });
+
+            const trackingIssue = issues
+              .filter((issue) => !issue.pull_request)
+              .find((issue) => (issue.body ?? "").includes(marker));
+
+            if (updateAvailable) {
+              if (trackingIssue) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: trackingIssue.number,
+                  title,
+                  body,
+                  state: "open",
+                });
+                core.notice(`Updated tracking issue #${trackingIssue.number}`);
+              } else {
+                const created = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title,
+                  body,
+                });
+                core.notice(`Created tracking issue #${created.data.number}`);
+              }
+              return;
+            }
+
+            if (trackingIssue?.state === "open") {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: trackingIssue.number,
+                body: `Closing automatically: pinned \`${packageName}\` version \`${lockedVersion}\` is no longer behind PyPI stable \`${latestVersion}\`.\n\nWorkflow run: ${runUrl}`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: trackingIssue.number,
+                state: "closed",
+              });
+              core.notice(`Closed tracking issue #${trackingIssue.number}`);
+              return;
+            }
+
+            core.notice("No update available and no open tracking issue needed.");

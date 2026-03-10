@@ -376,7 +376,12 @@ export function extractPinterestVideoSelectionFromHtml(html: string): PinterestV
   const videoCandidates = candidates
     .sort((left, right) => right.score - left.score)
     .slice(0, 12)
-    .map(({ score, ...candidate }) => candidate);
+    .map((candidate) => ({
+      url: candidate.url,
+      type: candidate.type,
+      source: candidate.source,
+      confidence: candidate.confidence,
+    }));
 
   const preferredVideoUrl =
     videoCandidates.find((candidate) => isPinterestDirectMp4Url(candidate.url))?.url ??

@@ -124,7 +124,7 @@ jobs:
           python-version: '3.13'
 
       - name: Build Pinterest sidecar
-        run: npm run build:pinterest-sidecar -- --target x86_64-pc-windows-msvc
+        run: node ./scripts/build-pinterest-sidecar.mjs --target x86_64-pc-windows-msvc
 
       - name: Smoke test Pinterest sidecar
         run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target x86_64-pc-windows-msvc
@@ -135,36 +135,7 @@ jobs:
       - name: Package Windows portable ZIP
         shell: pwsh
         run: |
-          $version = "${{ steps.version.outputs.version }}"
-          $portableRoot = "src-tauri/target/release/bundle/portable"
-          $portableDir = Join-Path $portableRoot "FlowSelect_portable"
-          $portableZip = Join-Path $portableRoot "FlowSelect_${version}_x64_portable.zip"
-
-          New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $portableDir "binaries") | Out-Null
-
-          $exeCandidates = @(
-            "src-tauri/target/release/flowselect.exe",
-            "src-tauri/target/release/FlowSelect.exe"
-          )
-
-          $appExe = $exeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $appExe) {
-            throw "Cannot find app executable in src-tauri/target/release/"
-          }
-
-          Copy-Item $appExe (Join-Path $portableDir "FlowSelect.exe") -Force
-          Copy-Item "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "binaries/yt-dlp-x86_64-pc-windows-msvc.exe") -Force
-          Copy-Item "src-tauri/binaries/pinterest-dl-x86_64-pc-windows-msvc.exe" (Join-Path $portableDir "binaries/pinterest-dl-x86_64-pc-windows-msvc.exe") -Force
-          Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $portableDir "binaries/deno.exe") -Force
-          Copy-Item "src-tauri/binaries/ffmpeg.exe" (Join-Path $portableDir "binaries/ffmpeg.exe") -Force
-
-          if (Test-Path $portableZip) {
-            Remove-Item $portableZip -Force
-          }
-          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $portableZip -CompressionLevel Optimal
-
-          Write-Host "Created portable package: $portableZip"
+          powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1 -Version "${{ steps.version.outputs.version }}" -SkipBuild -SkipYtdlpUpdate
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
@@ -269,7 +240,7 @@ jobs:
           python-version: '3.13'
 
       - name: Build Pinterest sidecar
-        run: npm run build:pinterest-sidecar -- --target ${{ matrix.target }}
+        run: node ./scripts/build-pinterest-sidecar.mjs --target ${{ matrix.target }}
 
       - name: Smoke test Pinterest sidecar
         run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target ${{ matrix.target }}

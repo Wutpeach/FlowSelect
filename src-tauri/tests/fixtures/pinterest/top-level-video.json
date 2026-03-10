@@ -1,0 +1,35 @@
+{
+  "props": {
+    "initialReduxState": {
+      "pins": {
+        "403705554121341216": {
+          "id": "403705554121341216",
+          "grid_title": "Top-level video fixture",
+          "images": {
+            "orig": {
+              "url": "https://i.pinimg.com/originals/top-level-video.jpg",
+              "width": 720,
+              "height": 1280
+            }
+          },
+          "videos": {
+            "video_list": {
+              "V_720P": {
+                "url": "https://v1.pinimg.com/videos/iht/expmp4/top-level-720.mp4",
+                "width": 720,
+                "height": 1280,
+                "duration": 12
+              },
+              "HLS": {
+                "url": "https://v1.pinimg.com/videos/iht/hls/top-level.m3u8",
+                "width": 720,
+                "height": 1280,
+                "duration": 12
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -14,9 +14,11 @@ const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 
 function parseArgs(argv) {
   const parsed = {};
+  const positional = [];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (!arg.startsWith("--")) {
+      positional.push(arg);
       continue;
     }
     const key = arg.slice(2);
@@ -27,6 +29,9 @@ function parseArgs(argv) {
     }
     parsed[key] = next;
     index += 1;
+  }
+  if (!parsed.target && positional[0]) {
+    parsed.target = positional[0];
   }
   return parsed;
 }

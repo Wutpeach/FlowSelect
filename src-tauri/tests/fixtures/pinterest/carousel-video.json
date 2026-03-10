@@ -1,0 +1,70 @@
+{
+  "props": {
+    "initialReduxState": {
+      "pins": {
+        "987654321012345678": {
+          "id": "987654321012345678",
+          "grid_title": "Carousel video fixture",
+          "images": {
+            "orig": {
+              "url": "https://i.pinimg.com/originals/carousel-root.jpg",
+              "width": 720,
+              "height": 1280
+            }
+          },
+          "carousel_data": {
+            "carousel_slots": [
+              {
+                "id": "222222222222222222",
+                "images": {
+                  "orig": {
+                    "url": "https://i.pinimg.com/originals/carousel-other.jpg",
+                    "width": 1080,
+                    "height": 1080
+                  }
+                },
+                "videos": {
+                  "video_list": {
+                    "V_EXP": {
+                      "url": "https://v1.pinimg.com/videos/iht/expmp4/carousel-other-1080.mp4",
+                      "width": 1080,
+                      "height": 1080,
+                      "duration": 18
+                    }
+                  }
+                }
+              },
+              {
+                "id": "987654321012345678",
+                "pin_id": "987654321012345678",
+                "images": {
+                  "orig": {
+                    "url": "https://i.pinimg.com/originals/carousel-current.jpg",
+                    "width": 720,
+                    "height": 1280
+                  }
+                },
+                "videos": {
+                  "video_list": {
+                    "V_EXP": {
+                      "url": "https://v1.pinimg.com/videos/iht/expmp4/carousel-current-720.mp4",
+                      "width": 720,
+                      "height": 1280,
+                      "duration": 11
+                    },
+                    "HLS": {
+                      "url": "https://v1.pinimg.com/videos/iht/hls/carousel-current.m3u8",
+                      "width": 720,
+                      "height": 1280,
+                      "duration": 11
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
