@@ -7,10 +7,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
 import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
-import { NeonCard, NeonFieldButton, NeonHint, NeonSection } from "../components/ui";
+import { NeonFieldButton, NeonHint, NeonSection } from "../components/ui";
 import { useTheme } from "../contexts/ThemeContext";
 import { saveOutputPath } from "../utils/outputPath";
 import { APP_VERSION } from "../constants/appVersion";
+import { DownloaderDeck } from "./settings/DownloaderDeck";
 import type { PinterestDownloaderInfo } from "../types/pinterestDownloader";
 import type { YtdlpVersionInfo } from "../types/ytdlp";
 
@@ -203,42 +204,40 @@ function SettingsPage() {
     if (!ytdlpInfo) {
       return {
         color: colors.textSecondary,
-        message: "Version check unavailable.",
+        message: "Check unavailable.",
       };
     }
 
     if (ytdlpInfo.updateAvailable === true && ytdlpInfo.latest) {
       return {
         color: colors.dangerText,
-        message: `Update available: ${ytdlpInfo.latest}`,
+        message: `Update: ${ytdlpInfo.latest}`,
       };
     }
 
     if (ytdlpInfo.latest) {
       return {
         color: colors.textSecondary,
-        message: "Already up to date.",
+        message: "Up to date.",
       };
     }
 
     return {
       color: colors.textSecondary,
-      message: "Latest version check unavailable. Showing local version only.",
+      message: "Local version only.",
     };
   })();
-  const pinterestPackageName = pinterestInfo?.packageName ?? "pinterest-dl";
   const pinterestCurrentVersion = pinterestInfo?.current ?? "Unknown";
-  const pinterestSidecarVersion = pinterestInfo?.flowselectSidecarVersion ?? "Unknown";
   const pinterestStatusMessage = (() => {
     if (!pinterestInfo) {
-      return "Bundled downloader details unavailable. Restart FlowSelect if this persists.";
+      return "Details unavailable.";
     }
 
     if (pinterestInfo.updateChannel === "app_release") {
-      return "Pinterest downloader updates ship with FlowSelect app releases. There is no separate in-app updater.";
+      return "Updates ship with app releases.";
     }
 
-    return "Pinterest downloader updates are managed by FlowSelect.";
+    return "Managed by FlowSelect.";
   })();
 
   // Load config on mount
@@ -705,6 +704,126 @@ function SettingsPage() {
     boxShadow: `0 0 6px ${colors.dangerGlow}`,
     flexShrink: 0,
   };
+  const downloaderCards = [
+    {
+      id: "ytdlp",
+      title: "yt-dlp",
+      body: (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ fontSize: 12, color: colors.textPrimary }}>
+              Version {ytdlpCurrentVersion}
+            </span>
+            {ytdlpInfo?.updateAvailable ? (
+              <span
+                style={statusDotStyle}
+                title={ytdlpStatus.message}
+              />
+            ) : null}
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              color: ytdlpHint ? colors.accentText : colors.textSecondary,
+              opacity: 0.94,
+              lineHeight: 1.2,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {ytdlpHint || "General-purpose video downloader."}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: 10,
+                color: ytdlpStatus.color,
+                opacity: 0.85,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {ytdlpStatus.message}
+            </span>
+            <NeonButton
+              type="button"
+              variant={isUpdatingYtdlp ? "outline" : "ghost"}
+              size="sm"
+              onClick={handleYtdlpUpdate}
+              disabled={isUpdatingYtdlp}
+              style={{
+                minWidth: 78,
+                fontSize: 11,
+                gap: 6,
+                padding: '5px 10px',
+                cursor: isUpdatingYtdlp ? 'wait' : 'pointer',
+              }}
+            >
+              {isUpdatingYtdlp ? (
+                <span style={spinnerStyle} />
+              ) : null}
+              {isUpdatingYtdlp ? "Updating..." : "Update"}
+            </NeonButton>
+          </div>
+        </>
+      ),
+    },
+    {
+      id: "pinterest",
+      title: "pin-dlp",
+      body: (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: colors.textPrimary }}>
+              Version {pinterestCurrentVersion}
+            </span>
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              color: pinterestHint ? colors.accentText : colors.textSecondary,
+              opacity: 0.94,
+              lineHeight: 1.2,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {pinterestHint || "Pinterest video downloader."}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: 10,
+                color: colors.textSecondary,
+                opacity: 0.85,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {pinterestStatusMessage}
+            </span>
+            <NeonButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void openFlowSelectReleases()}
+              style={{ minWidth: 78, fontSize: 11, padding: '5px 10px' }}
+            >
+              Releases
+            </NeonButton>
+          </div>
+        </>
+      ),
+    },
+  ];
 
   const renderRenamePresetField = () => (
     <div
@@ -1006,108 +1125,8 @@ function SettingsPage() {
           )}
         </NeonSection>
 
-        {/* yt-dlp Version */}
-        <NeonSection title="yt-dlp version">
-          <NeonCard
-            className="grid gap-2 rounded-lg p-0"
-            style={{ padding: '10px 12px', borderRadius: 8 }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontSize: 12, color: colors.textPrimary }}>
-                Installed: {ytdlpCurrentVersion}
-              </span>
-              {ytdlpInfo?.updateAvailable ? (
-                <span
-                  style={statusDotStyle}
-                  title="Update available"
-                />
-              ) : null}
-            </div>
-            <NeonHint
-              size="sm"
-              tone={ytdlpInfo?.updateAvailable ? "accent" : "default"}
-              style={{ color: ytdlpStatus.color, opacity: 1 }}
-            >
-              {ytdlpStatus.message}
-            </NeonHint>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button
-                onClick={handleYtdlpUpdate}
-                disabled={isUpdatingYtdlp}
-                style={{
-                  minWidth: 96,
-                  height: 30,
-                  padding: '0 10px',
-                  borderRadius: 6,
-                  border: `1px solid ${isUpdatingYtdlp ? colors.accentBorder : colors.fieldBorder}`,
-                  backgroundColor: isUpdatingYtdlp ? colors.accentSurface : 'transparent',
-                  color: isUpdatingYtdlp ? colors.accentText : colors.textSecondary,
-                  cursor: isUpdatingYtdlp ? 'wait' : 'pointer',
-                  fontSize: 11,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  boxShadow: isUpdatingYtdlp ? `inset 0 0 0 1px ${colors.accentBorder}` : `inset 0 1px 0 ${colors.fieldInset}`,
-                  transition: 'border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease',
-                }}
-              >
-                {isUpdatingYtdlp ? (
-                  <span style={spinnerStyle} />
-                ) : null}
-                {isUpdatingYtdlp ? "Updating..." : "Update yt-dlp"}
-              </button>
-              <NeonHint style={{ opacity: 0.85 }}>
-                You can also start this update from the red badge in the main window.
-              </NeonHint>
-            </div>
-            {ytdlpHint ? (
-              <NeonHint style={{ opacity: 0.85 }}>
-                {ytdlpHint}
-              </NeonHint>
-            ) : null}
-          </NeonCard>
-        </NeonSection>
-
-        <NeonSection
-          title="Pinterest downloader"
-          hint="Bundled for Pinterest video support and updated with the app."
-        >
-          <NeonCard
-            className="grid gap-2 rounded-lg p-0"
-            style={{ padding: '10px 12px', borderRadius: 8 }}
-          >
-            <div style={{ display: 'grid', gap: 4 }}>
-              <span style={{ fontSize: 12, color: colors.textPrimary }}>
-                Bundled: {pinterestPackageName} {pinterestCurrentVersion}
-              </span>
-              <NeonHint size="sm" style={{ opacity: 0.9 }}>
-                FlowSelect sidecar: {pinterestSidecarVersion}
-              </NeonHint>
-            </div>
-            <NeonHint size="sm" style={{ color: colors.textSecondary, opacity: 1 }}>
-              {pinterestStatusMessage}
-            </NeonHint>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <NeonButton
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => void openFlowSelectReleases()}
-                style={{ minWidth: 120, fontSize: 11, padding: '6px 10px' }}
-              >
-                View app releases
-              </NeonButton>
-              <NeonHint style={{ opacity: 0.85 }}>
-                Current app: v{APP_VERSION}
-              </NeonHint>
-            </div>
-            {pinterestHint ? (
-              <NeonHint style={{ opacity: 0.85 }}>
-                {pinterestHint}
-              </NeonHint>
-            ) : null}
-          </NeonCard>
+        <NeonSection title="External downloaders">
+          <DownloaderDeck cards={downloaderCards} />
         </NeonSection>
 
       </div>
