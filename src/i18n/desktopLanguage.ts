@@ -9,12 +9,16 @@ import {
 type AppConfig = Record<string, unknown>;
 
 const parseConfig = (configStr: string): AppConfig => {
-  const parsed = JSON.parse(configStr) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+  try {
+    const parsed = JSON.parse(configStr) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return parsed as AppConfig;
+  } catch {
     return {};
   }
-
-  return parsed as AppConfig;
 };
 
 export async function changeDesktopLanguage(nextLanguage: AppLanguage): Promise<void> {
