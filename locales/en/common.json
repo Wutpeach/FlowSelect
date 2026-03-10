@@ -1,0 +1,9 @@
+{
+  "app": {
+    "name": "FlowSelect"
+  },
+  "language": {
+    "en": "English",
+    "zh-CN": "Simplified Chinese"
+  }
+}
