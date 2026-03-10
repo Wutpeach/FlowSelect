@@ -1,5 +1,53 @@
 {
   "_meta": {
     "surface": "extension"
+  },
+  "popup": {
+    "subtitle": "扩展",
+    "status": {
+      "connected": {
+        "label": "已连接",
+        "hint": "桌面应用已就绪。"
+      },
+      "connecting": {
+        "label": "连接中",
+        "hint": "正在尝试连接桌面应用..."
+      },
+      "offline": {
+        "label": "离线",
+        "hint": "打开桌面应用以连接。"
+      }
+    },
+    "sections": {
+      "quality": "画质",
+      "aeFormat": "AE 格式"
+    },
+    "preferences": {
+      "ae": {
+        "toggleLabelOn": "AE",
+        "toggleLabelOff": "原始",
+        "stateOn": "导出更慢",
+        "stateOff": "保持原始文件",
+        "toggleAriaLabel": "切换 AE 格式"
+      }
+    }
+  },
+  "preferences": {
+    "downloadQuality": {
+      "options": {
+        "best": {
+          "label": "最高",
+          "description": "优先选择可用的最高画质；若实际画质相同，则避免更慢的兼容处理。"
+        },
+        "balanced": {
+          "label": "平衡",
+          "description": "优先选择更适合 AE 的 1080p MP4/H.264/AAC 路径，再回退到更广泛的格式。"
+        },
+        "data_saver": {
+          "label": "省流",
+          "description": "尽可能优先选择更轻量的下载，减少带宽占用。"
+        }
+      }
+    }
   }
 }

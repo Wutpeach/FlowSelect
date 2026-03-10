@@ -1,5 +1,53 @@
 {
   "_meta": {
     "surface": "extension"
+  },
+  "popup": {
+    "subtitle": "Extension",
+    "status": {
+      "connected": {
+        "label": "Connected",
+        "hint": "Desktop app ready."
+      },
+      "connecting": {
+        "label": "Connecting",
+        "hint": "Trying desktop app..."
+      },
+      "offline": {
+        "label": "Offline",
+        "hint": "Open desktop app to connect."
+      }
+    },
+    "sections": {
+      "quality": "Quality",
+      "aeFormat": "AE Format"
+    },
+    "preferences": {
+      "ae": {
+        "toggleLabelOn": "AE",
+        "toggleLabelOff": "Original",
+        "stateOn": "Slower finish",
+        "stateOff": "Keep original file",
+        "toggleAriaLabel": "Toggle AE format"
+      }
+    }
+  },
+  "preferences": {
+    "downloadQuality": {
+      "options": {
+        "best": {
+          "label": "Highest",
+          "description": "Prefer the highest available tier, but avoid slower compatibility work when formats tie at the same practical quality."
+        },
+        "balanced": {
+          "label": "Balanced",
+          "description": "Prefer AE-friendlier 1080p MP4/H.264/AAC paths before broader fallback."
+        },
+        "data_saver": {
+          "label": "Saver",
+          "description": "Prefer lighter downloads and lower bandwidth usage when possible."
+        }
+      }
+    }
   }
 }

@@ -9,18 +9,18 @@
   const QUALITY_PREFERENCE_OPTIONS = Object.freeze([
     {
       value: "best",
-      label: "Highest",
-      description: "Prefer the highest available tier, but avoid slower compatibility work when formats tie at the same practical quality.",
+      labelKey: "preferences.downloadQuality.options.best.label",
+      descriptionKey: "preferences.downloadQuality.options.best.description",
     },
     {
       value: "balanced",
-      label: "Balanced",
-      description: "Prefer AE-friendlier 1080p MP4/H.264/AAC paths before broader fallback.",
+      labelKey: "preferences.downloadQuality.options.balanced.label",
+      descriptionKey: "preferences.downloadQuality.options.balanced.description",
     },
     {
       value: "data_saver",
-      label: "Saver",
-      description: "Prefer lighter downloads and lower bandwidth usage when possible.",
+      labelKey: "preferences.downloadQuality.options.data_saver.label",
+      descriptionKey: "preferences.downloadQuality.options.data_saver.description",
     },
   ]);
 
