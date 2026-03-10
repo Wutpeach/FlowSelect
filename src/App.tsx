@@ -8,9 +8,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Check, X } from "lucide-react";
 import type { YtdlpVersionInfo } from "./types/ytdlp";
 import {
+  extractPinterestVideoSelectionFromHtml,
   extractPinterestImageUrlFromHtml,
   isPinterestPinUrl,
   looksLikePinterestVideoHtml,
+  type PinterestVideoCandidate,
 } from "./utils/pinterest";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
@@ -91,6 +93,13 @@ type VideoQueueDetailPayload = {
 type QueuedVideoDownloadAck = {
   accepted: boolean;
   traceId: string;
+};
+
+type QueuedVideoDownloadRequest = {
+  url: string;
+  pageUrl?: string;
+  videoUrl?: string;
+  videoCandidates?: PinterestVideoCandidate[];
 };
 
 const DOWNLOAD_STAGE_LABEL: Record<DownloadStage, string> = {
@@ -473,9 +482,10 @@ function App() {
     }
   }, []);
 
-  const enqueueVideoDownload = useCallback((url: string) => {
+  const enqueueVideoDownload = useCallback((request: string | QueuedVideoDownloadRequest) => {
     resetDownloadOutcome();
-    void invoke<QueuedVideoDownloadAck>("queue_video_download", { url }).catch((err) => {
+    const payload = typeof request === "string" ? { url: request } : request;
+    void invoke<QueuedVideoDownloadAck>("queue_video_download", payload).catch((err) => {
       console.error("Failed to queue video download:", err);
       checkSequenceOverflow(err);
       setDownloadCancelled(true);
@@ -1059,9 +1069,19 @@ function App() {
         }
       }
 
-      console.log("Detected Pinterest pin URL, queueing Pinterest media resolution:", url);
+      const videoSelection = extractPinterestVideoSelectionFromHtml(html);
+      console.log("Detected Pinterest video pin, queueing Pinterest media resolution:", {
+        pageUrl: url,
+        hasVideoUrl: Boolean(videoSelection.videoUrl),
+        videoCandidatesCount: videoSelection.videoCandidates.length,
+      });
       resetDownloadOutcome();
-      enqueueVideoDownload(url);
+      enqueueVideoDownload({
+        url,
+        pageUrl: url,
+        videoUrl: videoSelection.videoUrl ?? undefined,
+        videoCandidates: videoSelection.videoCandidates,
+      });
       return;
     }
 

@@ -95,6 +95,15 @@ struct ExtensionVideoCandidate {
     confidence: Option<String>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize)]
+struct QueueVideoCandidateInput {
+    url: String,
+    #[serde(rename = "type")]
+    candidate_type: Option<String>,
+    source: Option<String>,
+    confidence: Option<String>,
+}
+
 #[derive(Clone, Copy)]
 enum DirectPlatform {
     Douyin,
@@ -4110,28 +4119,72 @@ async fn download_pinterest_video(
         "",
     );
 
-    let resolved = resolve_pinterest_pin_media(
+    let hinted_video_url =
+        select_pinterest_hint_video_url(video_url_hint.as_deref(), &video_candidates);
+    let resolved_result = resolve_pinterest_pin_media(
         page_url.as_str(),
         cookies_header.as_deref(),
         trace_id.as_str(),
     )
-    .await
-    .map_err(|err| {
-        clear_runtime_progress_log_state(trace_id.as_str());
-        stage_error("resolve", err.as_str())
-    })?;
+    .await;
+
+    let mut used_hint_only_fallback = false;
+    let resolved = match resolved_result {
+        Ok(resolved) => resolved,
+        Err(resolve_err) => {
+            let Some(fallback_video_url) = hinted_video_url.clone() else {
+                clear_runtime_progress_log_state(trace_id.as_str());
+                return Err(stage_error("resolve", resolve_err.as_str()));
+            };
+
+            let fallback_title = title
+                .clone()
+                .filter(|value| !value.trim().is_empty());
+            let fallback_media = build_minimal_pinterest_media_from_hint(
+                page_url.as_str(),
+                fallback_title,
+                fallback_video_url.clone(),
+            )
+            .map_err(|err| {
+                clear_runtime_progress_log_state(trace_id.as_str());
+                stage_error("resolve", err.as_str())
+            })?;
+
+            used_hint_only_fallback = true;
+            log_download_trace(
+                &trace_id,
+                "pinterest_hint_fallback_selected",
+                serde_json::json!({
+                    "pinId": fallback_media.pin_id,
+                    "videoUrl": summarize_url_for_log(&fallback_video_url),
+                    "reason": "resolver_failed",
+                    "resolverError": resolve_err,
+                    "videoCandidatesCount": video_candidates.len(),
+                }),
+            );
+            fallback_media
+        }
+    };
 
     let resolved_title = title
         .filter(|value| !value.trim().is_empty())
         .or_else(|| resolved.title.clone());
-    let hinted_video_url =
-        select_pinterest_hint_video_url(video_url_hint.as_deref(), &video_candidates);
     let prefer_hint_video = hinted_video_url
         .as_deref()
         .is_some_and(|video_url| {
+            !used_hint_only_fallback
+                &&
             should_prefer_pinterest_hint_video_url(video_url, resolved.video.as_ref())
         });
-    let video_asset = if prefer_hint_video {
+    let video_asset = if used_hint_only_fallback {
+        resolved.video.clone().unwrap_or(PinterestVideoAsset {
+            url: hinted_video_url.clone().unwrap_or_default(),
+            width: None,
+            height: None,
+            duration_seconds: None,
+            poster_url: None,
+        })
+    } else if prefer_hint_video {
         let video_url = hinted_video_url.clone().unwrap_or_default();
         log_download_trace(
             &trace_id,
@@ -5356,17 +5409,30 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
 async fn queue_video_download(
     app: AppHandle,
     url: String,
+    page_url: Option<String>,
+    video_url: Option<String>,
+    video_candidates: Option<Vec<QueueVideoCandidateInput>>,
 ) -> Result<QueuedVideoDownloadAck, String> {
     let trace_id = next_download_trace_id();
     let preferences = resolve_video_download_preferences(&app)?;
-    let queued_task = if is_pinterest_url(&url) {
+    let pinterest_page_url = page_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| url.clone());
+    let normalized_video_url_hint = video_url
+        .as_deref()
+        .and_then(normalize_video_candidate_url);
+    let normalized_video_candidates = normalize_command_video_candidates(video_candidates);
+    let queued_task = if is_pinterest_url(&pinterest_page_url) || is_pinterest_url(&url) {
         QueuedVideoTask::Pinterest {
-            page_url: url,
+            page_url: pinterest_page_url,
             title: None,
             cookies_header: None,
             cookies_path: None,
-            video_url_hint: None,
-            video_candidates: Vec::new(),
+            video_url_hint: normalized_video_url_hint,
+            video_candidates: normalized_video_candidates,
             trace_id: trace_id.clone(),
         }
     } else {
@@ -5720,11 +5786,40 @@ fn build_pinterest_hint_video_asset(
     }
 }
 
+fn build_minimal_pinterest_media_from_hint(
+    page_url: &str,
+    title: Option<String>,
+    hint_url: String,
+) -> Result<PinterestResolvedMedia, String> {
+    let pin_id = extract_pinterest_pin_id(page_url)
+        .ok_or_else(|| format!("Failed to extract Pinterest pin id from {}", page_url))?;
+
+    Ok(PinterestResolvedMedia {
+        pin_id,
+        origin: page_url.to_string(),
+        title,
+        image: PinterestImageAsset {
+            // Sidecar requires an image asset in the payload shape, but the downloader
+            // uses the video stream path when `video` is present.
+            url: page_url.to_string(),
+            width: None,
+            height: None,
+        },
+        video: Some(PinterestVideoAsset {
+            url: hint_url,
+            width: None,
+            height: None,
+            duration_seconds: None,
+            poster_url: None,
+        }),
+    })
+}
+
 fn should_prefer_pinterest_hint_video_url(
     hint_url: &str,
     resolved_video: Option<&PinterestVideoAsset>,
 ) -> bool {
-    if !is_valid_pinterest_hint_video_url(hint_url) {
+    if !is_usable_pinterest_hint_video_url(hint_url) {
         return false;
     }
 
@@ -5738,7 +5833,8 @@ fn should_prefer_pinterest_hint_video_url(
         return false;
     }
 
-    !is_pinterest_manifest_hint_url(hint_url)
+    is_valid_pinterest_hint_video_url(hint_url)
+        && !is_pinterest_manifest_hint_url(hint_url)
         && is_pinterest_manifest_like_url(resolved_video.url.as_str())
 }
 
@@ -6292,6 +6388,10 @@ fn is_valid_pinterest_hint_video_url(url: &str) -> bool {
     is_pinterest_manifest_hint_url(url) || is_pinterest_direct_mp4_url(url) || is_mp4_video_url(url)
 }
 
+fn is_usable_pinterest_hint_video_url(url: &str) -> bool {
+    is_valid_pinterest_hint_video_url(url) || is_pinterest_manifest_like_url(url)
+}
+
 fn normalize_page_url_for_direct_cache(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -6493,36 +6593,78 @@ fn parse_extension_video_candidates(data: &serde_json::Value) -> Vec<ExtensionVi
     candidates
 }
 
+fn normalize_command_video_candidates(
+    raw_candidates: Option<Vec<QueueVideoCandidateInput>>,
+) -> Vec<ExtensionVideoCandidate> {
+    let mut candidates: Vec<ExtensionVideoCandidate> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for candidate in raw_candidates.unwrap_or_default() {
+        let Some(url) = normalize_video_candidate_url(&candidate.url) else {
+            continue;
+        };
+
+        if !seen.insert(url.clone()) {
+            continue;
+        }
+
+        candidates.push(ExtensionVideoCandidate {
+            url,
+            candidate_type: candidate
+                .candidate_type
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            source: candidate
+                .source
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            confidence: candidate
+                .confidence
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+        });
+    }
+
+    candidates
+}
+
 fn select_pinterest_hint_video_url(
     video_url_hint: Option<&str>,
     video_candidates: &[ExtensionVideoCandidate],
 ) -> Option<String> {
     let normalized_hint = video_url_hint
         .and_then(normalize_video_candidate_url)
-        .filter(|url| is_valid_pinterest_hint_video_url(url));
+        .filter(|url| is_usable_pinterest_hint_video_url(url));
     let mut manifest_fallback = normalized_hint
         .clone()
         .filter(|url| is_pinterest_manifest_hint_url(url));
+    let mut manifest_like_fallback = normalized_hint
+        .clone()
+        .filter(|url| is_pinterest_manifest_like_url(url));
 
-    if let Some(url) = normalized_hint.filter(|url| !is_pinterest_manifest_hint_url(url)) {
+    if let Some(url) = normalized_hint.filter(|url| !is_pinterest_manifest_like_url(url)) {
         return Some(url);
     }
 
     for candidate in video_candidates {
-        if !is_valid_pinterest_hint_video_url(&candidate.url) {
+        if !is_usable_pinterest_hint_video_url(&candidate.url) {
             continue;
         }
 
-        if !is_pinterest_manifest_hint_url(&candidate.url) {
+        if !is_pinterest_manifest_like_url(&candidate.url) {
             return Some(candidate.url.clone());
         }
 
-        if manifest_fallback.is_none() {
+        if manifest_fallback.is_none() && is_pinterest_manifest_hint_url(&candidate.url) {
             manifest_fallback = Some(candidate.url.clone());
+        }
+
+        if manifest_like_fallback.is_none() && is_pinterest_manifest_like_url(&candidate.url) {
+            manifest_like_fallback = Some(candidate.url.clone());
         }
     }
 
-    manifest_fallback
+    manifest_fallback.or(manifest_like_fallback)
 }
 
 fn is_direct_candidate_for_platform(platform: DirectPlatform, url: &str) -> bool {
