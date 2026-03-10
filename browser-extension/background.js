@@ -12,13 +12,158 @@ const CONNECTING_WAIT_TIMEOUT_MS = 500;
 const VIDEO_SELECTION_CONNECT_TIMEOUT_MS = 2500;
 const CONNECTING_STATUS_TEXT = 'Connecting';
 const OFFLINE_STATUS_TEXT = 'Offline';
+const FALLBACK_LANGUAGE = 'en';
+const LANGUAGE_STORAGE_KEY = 'flowselectCurrentLanguage';
+const WS_ACTION_GET_LANGUAGE = 'get_language';
+const WS_ACTION_LANGUAGE_INFO = 'language_info';
+const WS_ACTION_LANGUAGE_CHANGED = 'language_changed';
 const pendingRequests = new Map();
 let requestCounter = 0;
 let lastConnectionIssue = OFFLINE_STATUS_TEXT;
 
 // Store current theme from desktop app
 let currentTheme = 'black';
+let currentLanguage = resolvePreferredLanguage(undefined, self.navigator?.language);
 const directDownloadQuality = self.FlowSelectDirectDownloadQuality;
+const languageInitializationPromise = initializeLanguageState();
+
+function isEnglishVariant(normalized) {
+  return normalized === 'en' || normalized.startsWith('en-');
+}
+
+function isChineseVariant(normalized) {
+  return normalized === 'zh' || normalized.startsWith('zh-');
+}
+
+function normalizeAppLanguage(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().replace(/_/g, '-').toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (isEnglishVariant(normalized)) {
+    return 'en';
+  }
+
+  if (isChineseVariant(normalized)) {
+    return 'zh-CN';
+  }
+
+  return null;
+}
+
+function resolvePreferredLanguage(cachedLanguage, navigatorLanguage) {
+  return (
+    normalizeAppLanguage(cachedLanguage) ||
+    normalizeAppLanguage(navigatorLanguage) ||
+    FALLBACK_LANGUAGE
+  );
+}
+
+function storageGet(keys) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get(keys, (result) => {
+      if (chrome.runtime?.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      resolve(result);
+    });
+  });
+}
+
+function storageSet(payload) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(payload, () => {
+      if (chrome.runtime?.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function getCachedLanguage() {
+  if (!chrome?.storage?.local) {
+    return null;
+  }
+
+  try {
+    const result = await storageGet(LANGUAGE_STORAGE_KEY);
+    return normalizeAppLanguage(result?.[LANGUAGE_STORAGE_KEY]);
+  } catch (error) {
+    console.error('[FlowSelect] Failed to load cached language:', error);
+    return null;
+  }
+}
+
+async function cacheLanguage(language) {
+  if (!chrome?.storage?.local) {
+    return;
+  }
+
+  try {
+    await storageSet({ [LANGUAGE_STORAGE_KEY]: language });
+  } catch (error) {
+    console.error('[FlowSelect] Failed to cache language:', error);
+  }
+}
+
+function notifyLanguageUpdate() {
+  chrome.runtime.sendMessage({
+    type: 'language_update',
+    language: currentLanguage,
+  }).catch(() => {});
+}
+
+function setCurrentLanguage(nextLanguage, options = {}) {
+  const normalized = normalizeAppLanguage(nextLanguage);
+  if (!normalized) {
+    return currentLanguage;
+  }
+
+  const changed = normalized !== currentLanguage;
+  currentLanguage = normalized;
+
+  if (options.persist !== false) {
+    void cacheLanguage(normalized);
+  }
+
+  if (options.broadcast !== false && changed) {
+    notifyLanguageUpdate();
+  }
+
+  return currentLanguage;
+}
+
+async function initializeLanguageState() {
+  const cachedLanguage = await getCachedLanguage();
+  const initialLanguage = resolvePreferredLanguage(cachedLanguage, self.navigator?.language);
+  setCurrentLanguage(initialLanguage, {
+    persist: cachedLanguage !== initialLanguage,
+    broadcast: false,
+  });
+  return currentLanguage;
+}
+
+function requestLanguageFromApp() {
+  if (!isConnected()) {
+    return false;
+  }
+
+  try {
+    ws.send(JSON.stringify({ action: WS_ACTION_GET_LANGUAGE }));
+    return true;
+  } catch (error) {
+    console.error('[FlowSelect] Failed to request language from desktop app:', error);
+    return false;
+  }
+}
 
 function isConnected() {
   return ws && ws.readyState === WebSocket.OPEN;
@@ -34,6 +179,18 @@ function unavailableStatusText() {
 
 function hasUnavailableIssue() {
   return lastConnectionIssue === OFFLINE_STATUS_TEXT;
+}
+
+function connectionState() {
+  if (isConnected()) {
+    return 'connected';
+  }
+
+  if (lastConnectionIssue === CONNECTING_STATUS_TEXT && !hasUnavailableIssue()) {
+    return 'connecting';
+  }
+
+  return 'offline';
 }
 
 function connectionStatusText() {
@@ -57,6 +214,7 @@ function notifyConnectionStatus() {
     type: 'connection_update',
     connected: isConnected(),
     connecting: Boolean(isConnecting() || reconnectTimer !== null),
+    state: connectionState(),
     statusText: connectionStatusText(),
   }).catch(() => {});
 }
@@ -99,6 +257,7 @@ function connect(options = {}) {
     notifyConnectionStatus();
     // Query current theme after connection
     ws.send(JSON.stringify({ action: 'get_theme' }));
+    requestLanguageFromApp();
     void syncDownloadPreferencesToApp();
   };
 
@@ -192,6 +351,12 @@ function handleMessage(message) {
       currentTheme = message.data?.theme || message.theme || 'black';
       chrome.runtime.sendMessage({ type: 'theme_update', theme: currentTheme }).catch(() => {});
       break;
+    case WS_ACTION_LANGUAGE_CHANGED:
+    case WS_ACTION_LANGUAGE_INFO: {
+      const nextLanguage = message.data?.language || message.language;
+      setCurrentLanguage(nextLanguage);
+      break;
+    }
     case 'start_picker':
       startPicker(message.tabId);
       break;
@@ -508,10 +673,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({
       connected: isConnected(),
       connecting: isConnecting() || reconnectTimer !== null,
+      state: connectionState(),
       statusText: connectionStatusText(),
     });
   } else if (message.type === 'get_theme') {
     sendResponse({ theme: currentTheme });
+  } else if (message.type === 'get_language') {
+    Promise.resolve(languageInitializationPromise)
+      .catch(() => currentLanguage)
+      .then(() => {
+        sendResponse({ language: currentLanguage });
+      });
+    return true;
   }
   return true;
 });
