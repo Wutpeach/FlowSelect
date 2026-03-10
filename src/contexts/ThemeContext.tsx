@@ -2,7 +2,8 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 
-type Theme = 'black' | 'white';
+export type Theme = 'black' | 'white';
+const DEFAULT_THEME: Theme = 'black';
 
 interface ThemeColors {
   // 背景
@@ -183,6 +184,17 @@ const themes: Record<Theme, ThemeColors> = {
   },
 };
 
+const isTheme = (value: unknown): value is Theme => value === 'black' || value === 'white';
+
+const getThemeFromConfigString = (configStr: string): Theme => {
+  try {
+    const cfg = JSON.parse(configStr) as { theme?: unknown };
+    return isTheme(cfg.theme) ? cfg.theme : DEFAULT_THEME;
+  } catch {
+    return DEFAULT_THEME;
+  }
+};
+
 const ThemeContext = createContext<{
   theme: Theme;
   colors: ThemeColors;
@@ -196,23 +208,42 @@ export const useTheme = () => {
   return ctx;
 };
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('black');
+export function ThemeProvider({
+  children,
+  initialTheme,
+}: {
+  children: ReactNode;
+  initialTheme?: Theme;
+}) {
+  const [theme, setThemeState] = useState<Theme>(initialTheme ?? DEFAULT_THEME);
 
   useEffect(() => {
     // 启动时从配置读取
-    invoke<string>('get_config').then(cfgStr => {
-      const cfg = JSON.parse(cfgStr);
-      if (cfg.theme) setThemeState(cfg.theme);
-    });
+    let isDisposed = false;
+
+    if (initialTheme === undefined) {
+      void invoke<string>('get_config')
+        .then((cfgStr) => {
+          if (isDisposed) {
+            return;
+          }
+          setThemeState(getThemeFromConfigString(cfgStr));
+        })
+        .catch((err) => {
+          console.error('Failed to load theme config:', err);
+        });
+    }
 
     // 监听其他窗口的主题变更
     const unlisten = listen<Theme>('theme-changed', (event) => {
       setThemeState(event.payload);
     });
 
-    return () => { unlisten.then(fn => fn()); };
-  }, []);
+    return () => {
+      isDisposed = true;
+      unlisten.then(fn => fn());
+    };
+  }, [initialTheme]);
 
   const setTheme = async (t: Theme) => {
     setThemeState(t);

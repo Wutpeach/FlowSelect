@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { motion } from "framer-motion";
 import { useTheme } from "../contexts/ThemeContext";
+import { motion } from "motion/react";
 
 function ContextMenuPage() {
   const { theme, colors } = useTheme();
@@ -149,9 +149,7 @@ function ContextMenuPage() {
   return (
     <motion.div
       onContextMenu={(event) => event.preventDefault()}
-      initial={{ opacity: 0, scale: 0.92, y: -4 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+      initial={false}
       style={{
         width: "100%",
         height: "100%",
@@ -160,7 +158,18 @@ function ContextMenuPage() {
         background: "transparent",
       }}
     >
-      <div style={panelStyle}>
+      <motion.div
+        initial={{ scale: 0.965, y: -2 }}
+        animate={{ scale: 1, y: 0 }}
+        transition={{
+          duration: 0.16,
+          ease: [0.22, 1, 0.36, 1],
+        }}
+        style={{
+          ...panelStyle,
+          transformOrigin: "top left",
+        }}
+      >
         <button
           onClick={openOutputFolder}
           style={getMenuButtonStyle("open")}
@@ -192,7 +201,7 @@ function ContextMenuPage() {
         >
           Set Output Folder
         </button>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }

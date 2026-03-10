@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 import { Check, X } from "lucide-react";
 import type { YtdlpVersionInfo } from "./types/ytdlp";
 import {
