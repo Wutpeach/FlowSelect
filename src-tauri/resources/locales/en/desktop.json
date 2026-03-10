@@ -1,5 +1,134 @@
 {
   "_meta": {
     "surface": "desktop"
+  },
+  "app": {
+    "sequenceOverflowMessage": "Sequence number is exhausted. Please clean up the folder and try again.",
+    "downloadStage": {
+      "preparing": "Preparing...",
+      "downloading": "Downloading...",
+      "merging": "Merging...",
+      "postProcessing": "Post-processing..."
+    },
+    "downloadStatus": {
+      "eta": "ETA {{eta}}"
+    },
+    "drop": {
+      "directoryDialogTitle": "Confirm media export folder"
+    },
+    "queue": {
+      "label": "Queue",
+      "title": "Video queue",
+      "meta": "{{active}} active · {{queued}} queued",
+      "percentStatus": "{{percent}}% · {{status}}",
+      "cancelling": "Cancelling...",
+      "waiting": "Waiting...",
+      "cancellingCurrent": "Cancelling current task...",
+      "queuedNext": "{{count}} queued next",
+      "tasksInQueue": "{{count}} tasks in queue",
+      "currentTasksAria": "Current video tasks: {{count}}",
+      "closeList": "Close download list",
+      "showList": "Show current video tasks",
+      "cancelTask": "Cancel task",
+      "cancellingTask": "Cancelling task"
+    },
+    "actions": {
+      "hideWindow": "Hide window",
+      "cancelCurrentTask": "Cancel current task",
+      "updateYtdlp": "Update yt-dlp: {{current}} → {{latest}}",
+      "updating": "Updating...",
+      "resetRenameCounter": "Reset rename counter",
+      "settings": "Settings"
+    },
+    "windows": {
+      "settingsTitle": "Settings",
+      "contextMenuTitle": "Context Menu"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "theme": {
+      "title": "Theme",
+      "black": "Black",
+      "white": "White"
+    },
+    "language": {
+      "title": "Language",
+      "hint": "Apply to the main window, settings, and context menu immediately."
+    },
+    "outputFolder": {
+      "title": "Output Folder",
+      "choose": "Choose a folder...",
+      "dialogTitle": "Select Output Folder"
+    },
+    "shortcut": {
+      "title": "Global Shortcut",
+      "hint": "Use one shortcut to open FlowSelect from anywhere.",
+      "press": "Press your shortcut",
+      "clickToRecord": "Click to record shortcut",
+      "confirm": "Confirm",
+      "cancel": "Cancel"
+    },
+    "launchAtStartup": {
+      "title": "Launch at startup"
+    },
+    "rename": {
+      "title": "Rename downloaded media",
+      "hint": "Apply a naming rule to new downloads instead of keeping the source name.",
+      "preset": "Rename Preset",
+      "prefix": "Prefix",
+      "prefixPlaceholder": "Flow",
+      "suffix": "Suffix",
+      "suffixPlaceholder": "done",
+      "preview": "Preview",
+      "options": {
+        "descending": "Descending",
+        "ascending": "Ascending",
+        "prefixSequence": "Prefix + Sequence"
+      }
+    },
+    "aePortal": {
+      "title": "After Effects auto-import",
+      "hint": "Open finished media in After Effects after download.",
+      "chooseExe": "Choose AfterFX.exe...",
+      "dialogTitle": "Select AfterFX.exe",
+      "executableFilter": "Executable"
+    },
+    "downloaders": {
+      "title": "External downloaders",
+      "unknown": "Unknown",
+      "ytdlp": {
+        "version": "Version {{version}}",
+        "description": "General-purpose video downloader.",
+        "checkUnavailable": "Check unavailable.",
+        "updateAvailable": "Update: {{version}}",
+        "upToDate": "Up to date.",
+        "localVersionOnly": "Local version only.",
+        "updatedFromMain": "yt-dlp updated from main window",
+        "updatedTo": "yt-dlp updated to {{version}}",
+        "updateFailed": "Failed to update yt-dlp",
+        "button": "Update",
+        "updating": "Updating..."
+      },
+      "pinterest": {
+        "version": "Version {{version}}",
+        "description": "Pinterest video downloader.",
+        "detailsUnavailable": "Details unavailable.",
+        "updatesShipWithApp": "Updates ship with app releases.",
+        "managedByApp": "Managed by FlowSelect.",
+        "releasesButton": "Releases",
+        "openReleasesFailed": "Failed to open FlowSelect releases"
+      }
+    },
+    "supportLog": {
+      "exportReady": "Tap once more to export a diagnostic log",
+      "exportedAndOpened": "Diagnostic log ready. Opened folder: {{fileName}}",
+      "exported": "Diagnostic log ready: {{fileName}}",
+      "failed": "Failed to export diagnostic log"
+    }
+  },
+  "contextMenu": {
+    "openFolder": "Open Folder",
+    "setOutputFolder": "Set Output Folder"
   }
 }
