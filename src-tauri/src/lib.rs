@@ -36,6 +36,7 @@ use tauri_plugin_shell::ShellExt;
 const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.flowselect.app"];
 const YTDLP_LATEST_CACHE_FILE_NAME: &str = "ytdlp-latest-cache.json";
 const YTDLP_LATEST_CACHE_TTL_MS: u128 = 60 * 60 * 1000;
+const PINTEREST_SIDECAR_LOCK_JSON: &str = include_str!("../pinterest-sidecar/lock.json");
 
 // Store current registered shortcut
 struct RegisteredShortcut {
@@ -7805,6 +7806,56 @@ pub struct YtdlpVersionInfo {
     pub latest_error: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct EmbeddedPinterestSidecarLock {
+    #[serde(rename = "flowselectSidecarVersion")]
+    flowselect_sidecar_version: String,
+    upstream: EmbeddedPinterestSidecarUpstream,
+}
+
+#[derive(serde::Deserialize)]
+struct EmbeddedPinterestSidecarUpstream {
+    package: String,
+    version: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct PinterestDownloaderInfo {
+    pub current: String,
+    #[serde(rename = "packageName")]
+    pub package_name: String,
+    #[serde(rename = "flowselectSidecarVersion")]
+    pub flowselect_sidecar_version: String,
+    #[serde(rename = "updateChannel")]
+    pub update_channel: String,
+}
+
+fn pinterest_downloader_info_from_lock_json(
+    lock_json: &str,
+) -> Result<PinterestDownloaderInfo, String> {
+    let lock: EmbeddedPinterestSidecarLock = serde_json::from_str(lock_json)
+        .map_err(|err| format!("Failed to parse bundled Pinterest downloader metadata: {}", err))?;
+
+    if lock.upstream.package.trim().is_empty() {
+        return Err("Bundled Pinterest downloader metadata is missing upstream.package".to_string());
+    }
+    if lock.upstream.version.trim().is_empty() {
+        return Err("Bundled Pinterest downloader metadata is missing upstream.version".to_string());
+    }
+    if lock.flowselect_sidecar_version.trim().is_empty() {
+        return Err(
+            "Bundled Pinterest downloader metadata is missing flowselectSidecarVersion".to_string(),
+        );
+    }
+
+    Ok(PinterestDownloaderInfo {
+        current: lock.upstream.version,
+        package_name: lock.upstream.package,
+        flowselect_sidecar_version: lock.flowselect_sidecar_version,
+        update_channel: "app_release".to_string(),
+    })
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct YtdlpLatestCacheEntry {
     latest: String,
@@ -7906,6 +7957,11 @@ async fn check_ytdlp_version(app: AppHandle) -> Result<YtdlpVersionInfo, String>
         update_available,
         latest_error,
     })
+}
+
+#[tauri::command]
+fn get_pinterest_downloader_info() -> Result<PinterestDownloaderInfo, String> {
+    pinterest_downloader_info_from_lock_json(PINTEREST_SIDECAR_LOCK_JSON)
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -9359,6 +9415,7 @@ pub fn run() {
             cancel_download,
             send_to_ae,
             check_ytdlp_version,
+            get_pinterest_downloader_info,
             update_ytdlp,
             is_directory,
             open_folder,
@@ -9653,5 +9710,35 @@ mod tests {
             "https://i.pinimg.com/originals/image-only.jpg"
         );
         assert!(resolved.video.is_none());
+    }
+
+    #[test]
+    fn pinterest_downloader_info_matches_embedded_lock_metadata() {
+        let info = pinterest_downloader_info_from_lock_json(PINTEREST_SIDECAR_LOCK_JSON)
+            .expect("expected embedded lock metadata to parse");
+        let lock: serde_json::Value = serde_json::from_str(PINTEREST_SIDECAR_LOCK_JSON)
+            .expect("expected embedded lock JSON to decode");
+
+        assert_eq!(
+            info.package_name,
+            lock.get("upstream")
+                .and_then(|upstream| upstream.get("package"))
+                .and_then(|value| value.as_str())
+                .expect("expected upstream.package in embedded lock")
+        );
+        assert_eq!(
+            info.current,
+            lock.get("upstream")
+                .and_then(|upstream| upstream.get("version"))
+                .and_then(|value| value.as_str())
+                .expect("expected upstream.version in embedded lock")
+        );
+        assert_eq!(
+            info.flowselect_sidecar_version,
+            lock.get("flowselectSidecarVersion")
+                .and_then(|value| value.as_str())
+                .expect("expected flowselectSidecarVersion in embedded lock")
+        );
+        assert_eq!(info.update_channel, "app_release");
     }
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, type CSSProperties } from "re
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
 import { NeonToggle } from "../components/ui/neon-toggle";
@@ -10,6 +11,7 @@ import { NeonCard, NeonFieldButton, NeonHint, NeonSection } from "../components/
 import { useTheme } from "../contexts/ThemeContext";
 import { saveOutputPath } from "../utils/outputPath";
 import { APP_VERSION } from "../constants/appVersion";
+import type { PinterestDownloaderInfo } from "../types/pinterestDownloader";
 import type { YtdlpVersionInfo } from "../types/ytdlp";
 
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
@@ -139,8 +141,10 @@ function SettingsPage() {
   const [aeExePath, setAeExePath] = useState("");
   const [versionTapHint, setVersionTapHint] = useState("");
   const [ytdlpInfo, setYtdlpInfo] = useState<YtdlpVersionInfo | null>(null);
+  const [pinterestInfo, setPinterestInfo] = useState<PinterestDownloaderInfo | null>(null);
   const [isUpdatingYtdlp, setIsUpdatingYtdlp] = useState(false);
   const [ytdlpHint, setYtdlpHint] = useState("");
+  const [pinterestHint, setPinterestHint] = useState("");
   const [renamePresetMenuOpen, setRenamePresetMenuOpen] = useState(false);
   const [hoveredRenamePreset, setHoveredRenamePreset] = useState<RenameRulePreset | null>(null);
   const [isCloseHovered, setIsCloseHovered] = useState(false);
@@ -148,6 +152,7 @@ function SettingsPage() {
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ytdlpHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pinterestHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const supportLogExportInFlightRef = useRef(false);
   const renamePresetMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -162,6 +167,17 @@ function SettingsPage() {
     }, 2000);
   }, []);
 
+  const showPinterestHint = useCallback((message: string) => {
+    setPinterestHint(message);
+    if (pinterestHintTimerRef.current) {
+      clearTimeout(pinterestHintTimerRef.current);
+    }
+    pinterestHintTimerRef.current = setTimeout(() => {
+      setPinterestHint("");
+      pinterestHintTimerRef.current = null;
+    }, 2200);
+  }, []);
+
   const refreshYtdlpVersion = useCallback(async () => {
     try {
       const versionInfo = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
@@ -169,6 +185,16 @@ function SettingsPage() {
     } catch (err) {
       console.error("Failed to check yt-dlp version:", err);
       setYtdlpInfo(null);
+    }
+  }, []);
+
+  const refreshPinterestDownloaderInfo = useCallback(async () => {
+    try {
+      const info = await invoke<PinterestDownloaderInfo>("get_pinterest_downloader_info");
+      setPinterestInfo(info);
+    } catch (err) {
+      console.error("Failed to load Pinterest downloader info:", err);
+      setPinterestInfo(null);
     }
   }, []);
 
@@ -199,6 +225,20 @@ function SettingsPage() {
       color: colors.textSecondary,
       message: "Latest version check unavailable. Showing local version only.",
     };
+  })();
+  const pinterestPackageName = pinterestInfo?.packageName ?? "pinterest-dl";
+  const pinterestCurrentVersion = pinterestInfo?.current ?? "Unknown";
+  const pinterestSidecarVersion = pinterestInfo?.flowselectSidecarVersion ?? "Unknown";
+  const pinterestStatusMessage = (() => {
+    if (!pinterestInfo) {
+      return "Bundled downloader details unavailable. Restart FlowSelect if this persists.";
+    }
+
+    if (pinterestInfo.updateChannel === "app_release") {
+      return "Pinterest downloader updates ship with FlowSelect app releases. There is no separate in-app updater.";
+    }
+
+    return "Pinterest downloader updates are managed by FlowSelect.";
   })();
 
   // Load config on mount
@@ -250,6 +290,7 @@ function SettingsPage() {
     loadConfig();
     loadAutostart();
     void refreshYtdlpVersion();
+    void refreshPinterestDownloaderInfo();
 
     const loadShortcut = async () => {
       try {
@@ -260,7 +301,7 @@ function SettingsPage() {
       }
     };
     loadShortcut();
-  }, [refreshYtdlpVersion]);
+  }, [refreshPinterestDownloaderInfo, refreshYtdlpVersion]);
 
   useEffect(() => {
     const unlisten = listen<{ path: string }>("output-path-changed", (event) => {
@@ -316,6 +357,10 @@ function SettingsPage() {
       if (ytdlpHintTimerRef.current) {
         clearTimeout(ytdlpHintTimerRef.current);
         ytdlpHintTimerRef.current = null;
+      }
+      if (pinterestHintTimerRef.current) {
+        clearTimeout(pinterestHintTimerRef.current);
+        pinterestHintTimerRef.current = null;
       }
     };
   }, []);
@@ -421,6 +466,15 @@ function SettingsPage() {
       showYtdlpHint("Failed to update yt-dlp");
     } finally {
       setIsUpdatingYtdlp(false);
+    }
+  };
+
+  const openFlowSelectReleases = async () => {
+    try {
+      await openUrl("https://github.com/Wutpeach/FlowSelect/releases");
+    } catch (err) {
+      console.error("Failed to open FlowSelect releases:", err);
+      showPinterestHint("Failed to open FlowSelect releases");
     }
   };
 
@@ -1010,6 +1064,47 @@ function SettingsPage() {
             {ytdlpHint ? (
               <NeonHint style={{ opacity: 0.85 }}>
                 {ytdlpHint}
+              </NeonHint>
+            ) : null}
+          </NeonCard>
+        </NeonSection>
+
+        <NeonSection
+          title="Pinterest downloader"
+          hint="Bundled for Pinterest video support and updated with the app."
+        >
+          <NeonCard
+            className="grid gap-2 rounded-lg p-0"
+            style={{ padding: '10px 12px', borderRadius: 8 }}
+          >
+            <div style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontSize: 12, color: colors.textPrimary }}>
+                Bundled: {pinterestPackageName} {pinterestCurrentVersion}
+              </span>
+              <NeonHint size="sm" style={{ opacity: 0.9 }}>
+                FlowSelect sidecar: {pinterestSidecarVersion}
+              </NeonHint>
+            </div>
+            <NeonHint size="sm" style={{ color: colors.textSecondary, opacity: 1 }}>
+              {pinterestStatusMessage}
+            </NeonHint>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <NeonButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void openFlowSelectReleases()}
+                style={{ minWidth: 120, fontSize: 11, padding: '6px 10px' }}
+              >
+                View app releases
+              </NeonButton>
+              <NeonHint style={{ opacity: 0.85 }}>
+                Current app: v{APP_VERSION}
+              </NeonHint>
+            </div>
+            {pinterestHint ? (
+              <NeonHint style={{ opacity: 0.85 }}>
+                {pinterestHint}
               </NeonHint>
             ) : null}
           </NeonCard>
