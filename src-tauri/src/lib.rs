@@ -2966,6 +2966,8 @@ async fn download_full_source_to_slice_cache(
         "--no-keep-video".to_string(),
         "--newline".to_string(),
         "--progress".to_string(),
+        "--encoding".to_string(),
+        "utf-8".to_string(),
         "--extractor-args".to_string(),
         "youtube:player_js_variant=tv".to_string(),
         "--js-runtimes".to_string(),
@@ -4932,10 +4934,14 @@ async fn download_video_internal(
     let ytdlp_temp_dir = std::env::temp_dir().join(YTDLP_TEMP_DIR_NAME);
     fs::create_dir_all(&ytdlp_temp_dir)
         .map_err(|e| format!("Failed to create yt-dlp temp directory: {}", e))?;
+    let reported_output_path_file =
+        ytdlp_temp_dir.join(format!("{}-reported-output-path.txt", trace_id));
+    let _ = fs::remove_file(&reported_output_path_file);
     let ffmpeg_location = match ffmpeg_location_for_ytdlp(&app) {
         Ok(location) => location,
         Err(err) => {
             cleanup_extension_cookies_file(&extension_cookies_path);
+            let _ = fs::remove_file(&reported_output_path_file);
             return Err(err);
         }
     };
@@ -4962,6 +4968,11 @@ async fn download_video_internal(
         // Let yt-dlp fetch EJS solver assets for better YouTube compatibility.
         "--remote-components".to_string(),
         "ejs:github".to_string(),
+        "--encoding".to_string(),
+        "utf-8".to_string(),
+        "--print-to-file".to_string(),
+        "after_move:filepath".to_string(),
+        reported_output_path_file.to_string_lossy().to_string(),
         "-o".to_string(),
         output_template.to_string_lossy().to_string(),
     ];
@@ -5045,6 +5056,7 @@ async fn download_video_internal(
         Err(resolve_err) => {
             cleanup_extension_cookies_file(&extension_cookies_path);
             cleanup_part_files_for_output_root(&output_dir);
+            let _ = fs::remove_file(&reported_output_path_file);
             let result = emit_download_terminal_failure(
                 &app,
                 trace_id.as_str(),
@@ -5067,6 +5079,7 @@ async fn download_video_internal(
         Err(spawn_err) => {
             cleanup_extension_cookies_file(&extension_cookies_path);
             cleanup_part_files_for_output_root(&output_dir);
+            let _ = fs::remove_file(&reported_output_path_file);
             let result = emit_download_terminal_failure(
                 &app,
                 trace_id.as_str(),
@@ -5182,6 +5195,7 @@ async fn download_video_internal(
                             let _ = std::fs::remove_file(final_path);
                         }
                         cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
+                        let _ = fs::remove_file(&reported_output_path_file);
                         return Box::pin(download_video_internal(
                             app.clone(),
                             url.clone(),
@@ -5221,6 +5235,7 @@ async fn download_video_internal(
                             let _ = std::fs::remove_file(final_path);
                         }
                         cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
+                        let _ = fs::remove_file(&reported_output_path_file);
                         return Box::pin(download_video_internal(
                             app.clone(),
                             url.clone(),
@@ -5269,7 +5284,13 @@ async fn download_video_internal(
                         },
                     };
                     if success {
-                        let Some(ref path) = last_file_path else {
+                        let final_output_path = last_file_path
+                            .clone()
+                            .filter(|path| Path::new(path).exists())
+                            .or_else(|| read_ytdlp_reported_output_path(&reported_output_path_file))
+                            .or_else(|| last_file_path.clone());
+                        let Some(ref path) = final_output_path else {
+                            let _ = fs::remove_file(&reported_output_path_file);
                             let result = emit_download_terminal_failure(
                                 &app,
                                 trace_id.as_str(),
@@ -5287,10 +5308,17 @@ async fn download_video_internal(
                             );
                             return Ok(result);
                         };
+                        if last_file_path.as_deref() != Some(path.as_str()) {
+                            println!(
+                                ">>> [Rust] Recovered yt-dlp final output path from report file: {}",
+                                path
+                            );
+                        }
                         cleanup_captured_ytdlp_artifacts(
                             &captured_artifact_paths,
                             Some(Path::new(path)),
                         );
+                        let _ = fs::remove_file(&reported_output_path_file);
                         let result = finalize_ytdlp_success(
                             &app,
                             trace_id.as_str(),
@@ -5312,6 +5340,7 @@ async fn download_video_internal(
                         return Ok(result);
                     }
 
+                    let _ = fs::remove_file(&reported_output_path_file);
                     let _ = app.emit("video-download-complete", result.clone());
                     append_runtime_log_event(
                         "download",
@@ -5361,6 +5390,7 @@ async fn download_video_internal(
             cleanup_extension_cookies_file(&extension_cookies_path);
             cleanup_part_files_for_output_root(&output_dir);
             cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
+            let _ = fs::remove_file(&reported_output_path_file);
             let was_cancelled = is_download_cancelled(trace_id.as_str());
             let result = DownloadResult {
                 trace_id: trace_id.clone(),
@@ -5412,6 +5442,7 @@ async fn download_video_internal(
     cleanup_extension_cookies_file(&extension_cookies_path);
     cleanup_part_files_for_output_root(&output_dir);
     cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
+    let _ = fs::remove_file(&reported_output_path_file);
     clear_download_child(trace_id.as_str());
     let was_cancelled = is_download_cancelled(trace_id.as_str());
     let result = DownloadResult {
@@ -7768,8 +7799,13 @@ fn infer_ytdlp_stage(line: &str) -> Option<DownloadProgressStage> {
 fn capture_ytdlp_file_path(line: &str) -> Option<String> {
     // Format 1: [Merger] Merging formats into "/path/file.mkv" or "D:\path\file.mp4"
     // Format 2: [download] Destination: /path/file.mkv or D:\path\file.mp4
+    // Format 3: [download] /path/file.mkv has already been downloaded
     static YTDLP_QUOTED_PATH_RE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r#""([^"]+)""#).expect("invalid merge path regex"));
+    static YTDLP_ALREADY_DOWNLOADED_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"^\[download\]\s+(?P<path>.+?)\s+has already been downloaded(?:\s|$)"#)
+            .expect("invalid already-downloaded path regex")
+    });
 
     if line.contains("[Merger]") {
         return YTDLP_QUOTED_PATH_RE
@@ -7785,7 +7821,33 @@ fn capture_ytdlp_file_path(line: &str) -> Option<String> {
         }
     }
 
+    if let Some(captures) = YTDLP_ALREADY_DOWNLOADED_RE.captures(line) {
+        let path = captures
+            .name("path")
+            .map(|value| value.as_str().trim().trim_matches('"'))
+            .unwrap_or_default();
+        if !path.is_empty() {
+            return Some(path.to_string());
+        }
+    }
+
     None
+}
+
+fn read_ytdlp_reported_output_path(report_path: &Path) -> Option<String> {
+    let bytes = fs::read(report_path).ok()?;
+    let contents = String::from_utf8_lossy(&bytes);
+    contents
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| {
+            line.trim_start_matches('\u{feff}')
+                .trim_matches('"')
+                .to_string()
+        })
+        .filter(|line| !line.is_empty())
 }
 
 #[derive(Default)]
@@ -10006,5 +10068,35 @@ mod tests {
                 .expect("expected flowselectSidecarVersion in embedded lock")
         );
         assert_eq!(info.update_channel, "app_release");
+    }
+
+    #[test]
+    fn capture_ytdlp_file_path_reads_destination_lines() {
+        let line = r#"[download] Destination: C:\Users\10\Downloads\sample.mp4"#;
+
+        assert_eq!(
+            capture_ytdlp_file_path(line),
+            Some(r#"C:\Users\10\Downloads\sample.mp4"#.to_string())
+        );
+    }
+
+    #[test]
+    fn capture_ytdlp_file_path_reads_merger_lines() {
+        let line = r#"[Merger] Merging formats into "C:\Users\10\Downloads\sample.mkv""#;
+
+        assert_eq!(
+            capture_ytdlp_file_path(line),
+            Some(r#"C:\Users\10\Downloads\sample.mkv"#.to_string())
+        );
+    }
+
+    #[test]
+    fn capture_ytdlp_file_path_reads_already_downloaded_lines() {
+        let line = r#"[download] C:\Users\10\Downloads\sample.mkv has already been downloaded"#;
+
+        assert_eq!(
+            capture_ytdlp_file_path(line),
+            Some(r#"C:\Users\10\Downloads\sample.mkv"#.to_string())
+        );
     }
 }
