@@ -10003,6 +10003,12 @@ fn close_context_menu_window(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn open_current_output_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let path = resolve_current_output_folder_path(&app)?;
+    open_folder(path.to_string_lossy().to_string())
+}
+
 #[derive(Clone, Copy, Debug)]
 struct VideoDownloadPreferences {
     ytdlp_quality: YtdlpQualityPreference,
@@ -10055,8 +10061,7 @@ impl VideoDownloadPreferences {
 #[tauri::command]
 fn begin_open_output_folder_from_context_menu(app: tauri::AppHandle) -> Result<(), String> {
     close_context_menu_window(&app);
-    let path = resolve_current_output_folder_path(&app)?;
-    open_folder(path.to_string_lossy().to_string())
+    open_current_output_folder(app)
 }
 
 #[tauri::command]
@@ -11170,6 +11175,7 @@ pub fn run() {
             get_clipboard_files,
             get_config,
             save_config,
+            open_current_output_folder,
             begin_open_output_folder_from_context_menu,
             begin_pick_output_folder_from_context_menu,
             export_support_log,

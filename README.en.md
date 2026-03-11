@@ -186,7 +186,7 @@ npm run test
 2. Drag files, image URLs, or video URLs into the floating window.
 3. Paste with `Ctrl+V` or `Cmd+V` to submit a URL.
 4. On Windows, copied files in the clipboard can also be pasted into FlowSelect.
-5. Right-click the window to open the current output folder or choose a new one.
+5. Double-click the empty area of the window to quickly open the current output folder; right-click still lets you open the current output folder or choose a new one.
 6. Open Settings to manage theme, shortcut, startup behavior, rename rules, After Effects integration, and `yt-dlp` updates.
 
 ## Typical workflow

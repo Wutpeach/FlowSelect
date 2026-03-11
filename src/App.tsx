@@ -209,6 +209,12 @@ const EMPTY_VIDEO_QUEUE_DETAIL: VideoQueueDetailPayload = {
   tasks: [],
 };
 
+const PANEL_DOUBLE_CLICK_IGNORE_SELECTOR = "button, [data-panel-double-click='ignore']";
+const WINDOW_DRAG_START_THRESHOLD = 6;
+
+const shouldIgnorePanelDoubleClickTarget = (target: EventTarget | null): boolean =>
+  target instanceof Element && target.closest(PANEL_DOUBLE_CLICK_IGNORE_SELECTOR) !== null;
+
 const normalizeVideoQueueState = (
   payload: Partial<VideoQueueStatePayload> | null | undefined,
 ): VideoQueueStatePayload => {
@@ -315,6 +321,7 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanelHoveredRef = useRef(false);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
+  const pendingDragStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Window size constants
   const FULL_SIZE = 200;
@@ -383,6 +390,14 @@ function App() {
   const clearCancellingTraceIds = useCallback(() => {
     cancellingTraceIdsRef.current = new Set();
     setCancellingTraceIds([]);
+  }, []);
+
+  const openCurrentOutputFolder = useCallback(async () => {
+    try {
+      await invoke<void>("open_current_output_folder");
+    } catch (err) {
+      console.error("Failed to open current output folder:", err);
+    }
   }, []);
 
   const closeContextMenuWindow = useCallback(async () => {
@@ -888,20 +903,19 @@ function App() {
     };
   }, [closeContextMenuWindow, isContextMenuOpen]);
 
-  // Handle window drag start - prevents minimize during drag
-  const handleDragStart = async (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // 只响应左键
+  useEffect(() => {
+    const handleWindowMouseUp = () => {
+      pendingDragStartRef.current = null;
+    };
 
-    if (isContextMenuOpen) {
-      await closeContextMenuWindow();
-      return;
-    }
+    window.addEventListener("mouseup", handleWindowMouseUp);
+    return () => {
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, []);
 
-    if (isMinimized) {
-      resetIdleTimer();
-      return;
-    }
-
+  const startWindowDrag = async () => {
+    pendingDragStartRef.current = null;
     isDraggingRef.current = true;
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
@@ -917,6 +931,73 @@ function App() {
     }
   };
 
+  const handlePanelMouseDown = async (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return; // 只响应左键
+    if (isContextMenuOpen) {
+      await closeContextMenuWindow();
+      return;
+    }
+    if (isMinimized) {
+      resetIdleTimer();
+      return;
+    }
+    if (shouldIgnorePanelDoubleClickTarget(e.target)) {
+      pendingDragStartRef.current = null;
+      return;
+    }
+    pendingDragStartRef.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handlePanelMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMousePos({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+
+    const pendingDragStart = pendingDragStartRef.current;
+    if (!pendingDragStart || e.buttons !== 1 || isDraggingRef.current || isMinimized) {
+      return;
+    }
+
+    const dragDistance = Math.hypot(
+      e.clientX - pendingDragStart.x,
+      e.clientY - pendingDragStart.y,
+    );
+    if (dragDistance < WINDOW_DRAG_START_THRESHOLD) {
+      return;
+    }
+
+    void startWindowDrag();
+  };
+
+  const handlePanelMouseUp = () => {
+    pendingDragStartRef.current = null;
+    resetIdleTimer();
+  };
+
+  const canDoubleClickOpenOutputFolder =
+    !isMinimized &&
+    !isProcessing &&
+    !downloadProgress &&
+    videoQueueState.totalCount === 0 &&
+    !isQueuePopoverOpen;
+
+  const handlePanelDoubleClick = async (e: React.MouseEvent<HTMLDivElement>) => {
+    pendingDragStartRef.current = null;
+
+    if (e.button !== 0 || !canDoubleClickOpenOutputFolder) {
+      return;
+    }
+    if (shouldIgnorePanelDoubleClickTarget(e.target)) {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    resetIdleTimer();
+    await openCurrentOutputFolder();
+  };
 
   // Handle paste event - check for video URL first, then image URL, then clipboard files
   const handlePaste = async (e: React.ClipboardEvent) => {
@@ -1446,6 +1527,7 @@ function App() {
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    pendingDragStartRef.current = null;
     resetIdleTimer();
 
     try {
@@ -1616,17 +1698,10 @@ function App() {
         setIsPanelHovered(false);
         resetIdleTimer({ expandIfMinimized: false });
       }}
-      onMouseDown={handleDragStart}
-      onMouseUp={() => {
-        resetIdleTimer();
-      }}
-      onMouseMove={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        setMousePos({
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top
-        });
-      }}
+      onMouseDown={handlePanelMouseDown}
+      onMouseUp={handlePanelMouseUp}
+      onMouseMove={handlePanelMouseMove}
+      onDoubleClick={handlePanelDoubleClick}
       onContextMenu={handleContextMenu}
       initial={false}
       animate={{
@@ -1779,6 +1854,7 @@ function App() {
                   backdropFilter: 'blur(16px)',
                   zIndex: 25,
                 }}
+                data-panel-double-click="ignore"
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 <div
