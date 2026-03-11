@@ -200,6 +200,14 @@
     }
   }
 
+  function getClipPointButtonTitle(pointLabel, seconds) {
+    if (seconds == null) {
+      return `Set ${pointLabel} point`;
+    }
+
+    return `${pointLabel}: ${formatPlaybackTime(seconds)} (right-click to clear)`;
+  }
+
   function sendVideoSelectedMessage(payload) {
     chrome.runtime.sendMessage(payload, (response) => {
       if (chrome.runtime.lastError) {
@@ -212,6 +220,25 @@
         notify('FlowSelect desktop app is not connected. Please open FlowSelect and try again.');
       }
     });
+  }
+
+  function clearClipPoint(pointKey) {
+    if (clipState[pointKey] == null) {
+      return;
+    }
+
+    clipState[pointKey] = null;
+    updateClipButtonsState();
+  }
+
+  function handleClipPointContextMenu(event, pointKey) {
+    if (clipState[pointKey] == null) {
+      return;
+    }
+
+    event.stopPropagation();
+    event.preventDefault();
+    clearClipPoint(pointKey);
   }
 
   function updateClipButtonsState() {
@@ -227,21 +254,21 @@
 
     if (clipState.startSec == null) {
       inBtn.removeAttribute('data-selected');
-      inBtn.title = 'Set IN point';
-      inBtn.setAttribute('aria-label', 'Set IN point');
+      inBtn.title = getClipPointButtonTitle('IN', null);
+      inBtn.setAttribute('aria-label', inBtn.title);
     } else {
       inBtn.setAttribute('data-selected', 'true');
-      inBtn.title = `IN: ${formatPlaybackTime(clipState.startSec)}`;
+      inBtn.title = getClipPointButtonTitle('IN', clipState.startSec);
       inBtn.setAttribute('aria-label', inBtn.title);
     }
 
     if (clipState.endSec == null) {
       outBtn.removeAttribute('data-selected');
-      outBtn.title = 'Set OUT point';
-      outBtn.setAttribute('aria-label', 'Set OUT point');
+      outBtn.title = getClipPointButtonTitle('OUT', null);
+      outBtn.setAttribute('aria-label', outBtn.title);
     } else {
       outBtn.setAttribute('data-selected', 'true');
-      outBtn.title = `OUT: ${formatPlaybackTime(clipState.endSec)}`;
+      outBtn.title = getClipPointButtonTitle('OUT', clipState.endSec);
       outBtn.setAttribute('aria-label', outBtn.title);
     }
 
@@ -337,6 +364,7 @@
       icon: CLIP_POINT_ICON_SVG,
       nativeBaseClass,
       onClick: setInPoint,
+      onContextMenu: (event) => handleClipPointContextMenu(event, 'startSec'),
     });
     const outButton = createControlButton({
       className: 'flowselect-bilibili-set-out-btn',
@@ -344,6 +372,7 @@
       icon: CLIP_POINT_ICON_SVG,
       nativeBaseClass,
       onClick: setOutPoint,
+      onContextMenu: (event) => handleClipPointContextMenu(event, 'endSec'),
     });
 
     const buttons = [outButton, inButton, downloadButton, screenshotButton];
@@ -406,7 +435,7 @@
     }
   }
 
-  function createControlButton({ className, title, icon, nativeBaseClass, onClick }) {
+  function createControlButton({ className, title, icon, nativeBaseClass, onClick, onContextMenu }) {
     const button = document.createElement('div');
     button.className = className;
     if (nativeBaseClass) {
@@ -430,6 +459,11 @@
         clickHandler(e);
       }
     });
+    if (typeof onContextMenu === 'function') {
+      button.addEventListener('contextmenu', (e) => {
+        onContextMenu(e);
+      });
+    }
 
     return button;
   }

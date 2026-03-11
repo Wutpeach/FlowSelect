@@ -127,7 +127,7 @@
     }
   }
 
-  function createButton({ className, title, html, text, onClick }) {
+  function createButton({ className, title, html, text, onClick, onContextMenu }) {
     const btn = document.createElement('button');
     btn.className = `ytp-button ${className}`;
     btn.type = 'button';
@@ -145,7 +145,20 @@
       e.preventDefault();
       onClick();
     });
+    if (typeof onContextMenu === 'function') {
+      btn.addEventListener('contextmenu', (e) => {
+        onContextMenu(e);
+      });
+    }
     return btn;
+  }
+
+  function getClipPointButtonTitle(pointLabel, seconds) {
+    if (seconds == null) {
+      return `Set ${pointLabel} point`;
+    }
+
+    return `${pointLabel}: ${formatTimestamp(seconds)} (right-click to clear)`;
   }
 
   function sendVideoSelectedMessage(payload) {
@@ -162,6 +175,25 @@
     });
   }
 
+  function clearClipPoint(pointKey) {
+    if (clipState[pointKey] == null) {
+      return;
+    }
+
+    clipState[pointKey] = null;
+    updateClipButtonsState();
+  }
+
+  function handleClipPointContextMenu(event, pointKey) {
+    if (clipState[pointKey] == null) {
+      return;
+    }
+
+    event.stopPropagation();
+    event.preventDefault();
+    clearClipPoint(pointKey);
+  }
+
   function updateClipButtonsState() {
     const fullBtn = document.querySelector('.flowselect-youtube-btn');
     const inBtn = document.querySelector('.flowselect-youtube-set-in-btn');
@@ -171,18 +203,18 @@
 
     if (clipState.startSec == null) {
       inBtn.removeAttribute('data-selected');
-      inBtn.title = 'Set IN point';
+      inBtn.title = getClipPointButtonTitle('IN', null);
     } else {
       inBtn.setAttribute('data-selected', 'true');
-      inBtn.title = `IN: ${formatTimestamp(clipState.startSec)}`;
+      inBtn.title = getClipPointButtonTitle('IN', clipState.startSec);
     }
 
     if (clipState.endSec == null) {
       outBtn.removeAttribute('data-selected');
-      outBtn.title = 'Set OUT point';
+      outBtn.title = getClipPointButtonTitle('OUT', null);
     } else {
       outBtn.setAttribute('data-selected', 'true');
-      outBtn.title = `OUT: ${formatTimestamp(clipState.endSec)}`;
+      outBtn.title = getClipPointButtonTitle('OUT', clipState.endSec);
     }
 
     if (hasValidClipRange()) {
@@ -272,12 +304,14 @@
       title: 'Set IN point',
       html: CLIP_POINT_ICON_SVG,
       onClick: setInPoint,
+      onContextMenu: (event) => handleClipPointContextMenu(event, 'startSec'),
     });
     const outBtn = createButton({
       className: 'flowselect-youtube-set-out-btn',
       title: 'Set OUT point',
       html: CLIP_POINT_ICON_SVG,
       onClick: setOutPoint,
+      onContextMenu: (event) => handleClipPointContextMenu(event, 'endSec'),
     });
 
     const buttons = [outBtn, inBtn, fullBtn, screenshotBtn];
