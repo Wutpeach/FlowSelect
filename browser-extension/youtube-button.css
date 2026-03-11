@@ -67,19 +67,19 @@
 
 .flowselect-youtube-set-in-btn svg,
 .flowselect-youtube-set-out-btn svg {
-  width: 24px !important;
-  height: 24px !important;
+  width: 20px !important;
+  height: 20px !important;
   display: block;
 }
 
 .flowselect-youtube-set-in-btn svg *,
 .flowselect-youtube-set-out-btn svg * {
   fill: currentColor !important;
-  stroke: none !important;
+  stroke: currentColor !important;
 }
 
-.flowselect-youtube-set-in-btn svg {
-  transform: rotate(180deg);
+.flowselect-youtube-set-out-btn svg {
+  transform: scaleX(-1);
 }
 
 .flowselect-youtube-set-in-btn[data-selected="true"],
