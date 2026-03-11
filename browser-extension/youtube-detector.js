@@ -68,6 +68,23 @@
     return params.get('v');
   }
 
+  function buildCurrentItemDownloadUrl() {
+    const pageUrl = window.location.href;
+    const videoId = getVideoId();
+    if (!videoId) {
+      return pageUrl;
+    }
+
+    try {
+      const currentUrl = new URL(pageUrl);
+      const canonicalUrl = new URL('/watch', currentUrl.origin);
+      canonicalUrl.searchParams.set('v', videoId);
+      return canonicalUrl.toString();
+    } catch (error) {
+      return pageUrl;
+    }
+  }
+
   function getCurrentVideoKey() {
     if (!isVideoPage()) {
       return window.location.pathname;
@@ -347,6 +364,7 @@
 
   function downloadSelectedClip() {
     const pageUrl = window.location.href;
+    const downloadUrl = buildCurrentItemDownloadUrl();
     const title = extractVideoTitle();
     const startSec = clipState.startSec;
     const endSec = clipState.endSec;
@@ -375,9 +393,10 @@
 
     sendVideoSelectedMessage({
       type: 'video_selected',
-      url: pageUrl,
+      url: downloadUrl,
       pageUrl,
       title,
+      selectionScope: 'current_item',
       clipStartSec: startSec,
       clipEndSec: endSec,
     });
@@ -750,17 +769,20 @@
   function downloadVideo() {
     const videoId = getVideoId();
     const pageUrl = window.location.href;
+    const downloadUrl = buildCurrentItemDownloadUrl();
     const title = extractVideoTitle();
 
     console.log('[FlowSelect YouTube] Video ID:', videoId);
     console.log('[FlowSelect YouTube] Page URL:', pageUrl);
+    console.log('[FlowSelect YouTube] Download URL:', downloadUrl);
     console.log('[FlowSelect YouTube] Title:', title);
 
     sendVideoSelectedMessage({
       type: 'video_selected',
-      url: pageUrl,
+      url: downloadUrl,
       pageUrl,
       title,
+      selectionScope: 'current_item',
     });
   }
 

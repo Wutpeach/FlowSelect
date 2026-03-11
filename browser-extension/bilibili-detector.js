@@ -77,6 +77,72 @@
     return null;
   }
 
+  function getCurrentBangumiEpisodeId() {
+    const pathMatch = window.location.pathname.match(/\/bangumi\/play\/(ep\d+)/i);
+    if (pathMatch) {
+      return pathMatch[1];
+    }
+
+    const initialState = window.__INITIAL_STATE__;
+    const episodeCandidates = [
+      initialState?.epInfo?.id,
+      initialState?.epInfo?.ep_id,
+      initialState?.epInfo?.epId,
+      initialState?.epId,
+    ];
+
+    for (const candidate of episodeCandidates) {
+      if (typeof candidate === 'string' && /^ep\d+$/i.test(candidate)) {
+        return candidate.toLowerCase();
+      }
+
+      const episodeNumber = Number(candidate);
+      if (Number.isFinite(episodeNumber) && episodeNumber > 0) {
+        return `ep${episodeNumber}`;
+      }
+    }
+
+    const currentEpisodeLink = document.querySelector(
+      'a[href*="/bangumi/play/ep"][aria-current="page"], a[href*="/bangumi/play/ep"].active, a[href*="/bangumi/play/ep"].is-active',
+    );
+    if (currentEpisodeLink instanceof HTMLAnchorElement) {
+      const match = currentEpisodeLink.href.match(/\/bangumi\/play\/(ep\d+)/i);
+      if (match) {
+        return match[1];
+      }
+    }
+
+    return null;
+  }
+
+  function buildCurrentItemDownloadUrl() {
+    const pageUrl = window.location.href;
+
+    try {
+      const currentUrl = new URL(pageUrl);
+
+      if (currentUrl.pathname.startsWith('/video/')) {
+        const canonicalUrl = new URL(currentUrl.pathname, currentUrl.origin);
+        const currentPart = currentUrl.searchParams.get('p');
+        if (currentPart) {
+          canonicalUrl.searchParams.set('p', currentPart);
+        }
+        return canonicalUrl.toString();
+      }
+
+      if (currentUrl.pathname.startsWith('/bangumi/play/')) {
+        const currentEpisodeId = getCurrentBangumiEpisodeId();
+        if (currentEpisodeId) {
+          return new URL(`/bangumi/play/${currentEpisodeId}`, currentUrl.origin).toString();
+        }
+      }
+
+      return new URL(currentUrl.pathname, currentUrl.origin).toString();
+    } catch (error) {
+      return pageUrl;
+    }
+  }
+
   function getCurrentVideoKey() {
     if (!isVideoPage()) {
       return window.location.pathname;
@@ -397,6 +463,7 @@
 
   function downloadSelectedClip() {
     const pageUrl = window.location.href;
+    const downloadUrl = buildCurrentItemDownloadUrl();
     const title = extractVideoTitle();
     const startSec = clipState.startSec;
     const endSec = clipState.endSec;
@@ -423,9 +490,10 @@
 
     sendVideoSelectedMessage({
       type: 'video_selected',
-      url: pageUrl,
+      url: downloadUrl,
       pageUrl,
       title,
+      selectionScope: 'current_item',
       clipStartSec: startSec,
       clipEndSec: endSec,
     });
@@ -948,17 +1016,20 @@
   function downloadVideo() {
     const videoId = getVideoId();
     const pageUrl = window.location.href;
+    const downloadUrl = buildCurrentItemDownloadUrl();
     const title = extractVideoTitle();
 
     console.log('[FlowSelect Bilibili] Video ID:', videoId);
     console.log('[FlowSelect Bilibili] Page URL:', pageUrl);
+    console.log('[FlowSelect Bilibili] Download URL:', downloadUrl);
     console.log('[FlowSelect Bilibili] Title:', title);
 
     sendVideoSelectedMessage({
       type: 'video_selected',
-      url: pageUrl,
+      url: downloadUrl,
       pageUrl,
       title,
+      selectionScope: 'current_item',
     });
   }
 

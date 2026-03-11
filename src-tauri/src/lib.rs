@@ -609,6 +609,7 @@ enum QueuedVideoTask {
         title: Option<String>,
         cookies_path: Option<PathBuf>,
         clip_range: Option<ClipTimeRange>,
+        selection_scope: VideoSelectionScope,
         ytdlp_quality: YtdlpQualityPreference,
         ae_friendly_conversion_enabled: bool,
         trace_id: String,
@@ -651,6 +652,35 @@ impl QueuedVideoTask {
         } else {
             trimmed.to_string()
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VideoSelectionScope {
+    Auto,
+    CurrentItem,
+    Playlist,
+}
+
+impl VideoSelectionScope {
+    fn from_payload(data: &serde_json::Value) -> Self {
+        match data.get("selectionScope").and_then(|value| value.as_str()) {
+            Some("current_item") => Self::CurrentItem,
+            Some("playlist") => Self::Playlist,
+            _ => Self::Auto,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::CurrentItem => "current_item",
+            Self::Playlist => "playlist",
+        }
+    }
+
+    fn should_force_single_item(self) -> bool {
+        matches!(self, Self::CurrentItem)
     }
 }
 
@@ -4370,6 +4400,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
             title,
             cookies_path,
             clip_range,
+            selection_scope,
             ytdlp_quality,
             ae_friendly_conversion_enabled,
             trace_id,
@@ -4380,6 +4411,7 @@ async fn execute_queued_video_task(app: AppHandle, task: QueuedVideoTask) {
                 title,
                 cookies_path,
                 clip_range,
+                selection_scope,
                 ytdlp_quality,
                 ae_friendly_conversion_enabled,
                 Some(trace_id.clone()),
@@ -4517,6 +4549,7 @@ async fn download_platform_direct_with_retry(
             title,
             extension_cookies_path,
             None,
+            VideoSelectionScope::Auto,
             ytdlp_quality,
             ae_friendly_conversion_enabled,
             Some(trace_id),
@@ -4671,6 +4704,7 @@ async fn download_platform_direct_with_retry(
         title,
         extension_cookies_path,
         None,
+        VideoSelectionScope::Auto,
         ytdlp_quality,
         ae_friendly_conversion_enabled,
         Some(trace_id),
@@ -5241,6 +5275,7 @@ async fn download_video_internal(
     extension_cookies_path: Option<PathBuf>,
     clip_range: Option<ClipTimeRange>,
     source_title: Option<String>,
+    selection_scope: VideoSelectionScope,
     ytdlp_quality: YtdlpQualityPreference,
     ae_friendly_conversion_enabled: bool,
     trace_id: String,
@@ -5288,12 +5323,14 @@ async fn download_video_internal(
         serde_json::json!({
             "mode": "yt-dlp",
             "url": summarize_url_for_log(&url),
+            "selectionScope": selection_scope.as_str(),
             "quality": ytdlp_quality.as_str(),
             "aeFriendlyConversionEnabled": ae_friendly_conversion_enabled,
             "clipMode": clip_download_mode.as_str(),
             "hasClipRange": clip_range.is_some(),
             "renameEnabled": rename_media_on_download,
             "ignoreConfig": true,
+            "forceSingleItem": selection_scope.should_force_single_item(),
             "resumeArtifactsDisabled": policy.disable_resume_artifacts,
             "outputDir": output_dir.to_string_lossy().to_string(),
         }),
@@ -5412,6 +5449,13 @@ async fn download_video_internal(
         output_template.to_string_lossy().to_string(),
     ];
     append_ytdlp_runtime_guard_args(&mut args, policy.disable_resume_artifacts);
+    if selection_scope.should_force_single_item() {
+        println!(
+            ">>> [Rust] Forcing yt-dlp single-item mode for selection scope={}",
+            selection_scope.as_str()
+        );
+        args.push("--no-playlist".to_string());
+    }
     if let Some(format_sort) = ytdlp_quality.format_sort() {
         args.push("-S".to_string());
         args.push(format_sort.to_string());
@@ -5637,6 +5681,7 @@ async fn download_video_internal(
                             extension_cookies_path.clone(),
                             clip_range.clone(),
                             source_title.clone(),
+                            selection_scope,
                             ytdlp_quality,
                             ae_friendly_conversion_enabled,
                             trace_id.clone(),
@@ -5677,6 +5722,7 @@ async fn download_video_internal(
                             None,
                             clip_range.clone(),
                             source_title.clone(),
+                            selection_scope,
                             ytdlp_quality,
                             ae_friendly_conversion_enabled,
                             trace_id.clone(),
@@ -6065,6 +6111,7 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         title: None,
         cookies_path: None,
         clip_range: None,
+        selection_scope: VideoSelectionScope::Auto,
         ytdlp_quality: preferences.ytdlp_quality,
         ae_friendly_conversion_enabled: preferences.ae_friendly_conversion_enabled,
         trace_id: trace_id.clone(),
@@ -6076,6 +6123,7 @@ async fn download_video(app: AppHandle, url: String) -> Result<DownloadResult, S
         None,
         None,
         None,
+        VideoSelectionScope::Auto,
         preferences.ytdlp_quality,
         preferences.ae_friendly_conversion_enabled,
         trace_id.clone(),
@@ -6161,6 +6209,7 @@ async fn queue_video_download(
             title: None,
             cookies_path: None,
             clip_range: None,
+            selection_scope: VideoSelectionScope::Auto,
             ytdlp_quality: preferences.ytdlp_quality,
             ae_friendly_conversion_enabled: preferences.ae_friendly_conversion_enabled,
             trace_id: trace_id.clone(),
@@ -7567,6 +7616,7 @@ async fn download_video_smart(
     title: Option<String>,
     extension_cookies_path: Option<PathBuf>,
     clip_range: Option<ClipTimeRange>,
+    selection_scope: VideoSelectionScope,
     ytdlp_quality: YtdlpQualityPreference,
     ae_friendly_conversion_enabled: bool,
     trace_id: Option<String>,
@@ -7584,6 +7634,7 @@ async fn download_video_smart(
             "hasTitle": title.is_some(),
             "hasExtensionCookies": extension_cookies_path.as_ref().is_some_and(|path| path.exists()),
             "hasClipRange": clip_range.is_some(),
+            "selectionScope": selection_scope.as_str(),
             "ytdlpQuality": ytdlp_quality.as_str(),
             "aeFriendlyConversionEnabled": ae_friendly_conversion_enabled,
         }),
@@ -7731,6 +7782,7 @@ async fn download_video_smart(
         extension_cookies_path.clone(),
         clip_range.clone(),
         title.clone(),
+        selection_scope,
         ytdlp_quality,
         ae_friendly_conversion_enabled,
         trace_id.clone(),
@@ -10866,6 +10918,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     let cookies = data.get("cookies").and_then(|v| v.as_str());
                     let video_url = data.get("videoUrl").and_then(|v| v.as_str());
                     let page_url = data.get("pageUrl").and_then(|v| v.as_str()).unwrap_or(url);
+                    let selection_scope = VideoSelectionScope::from_payload(&data);
                     let title = data.get("title").and_then(|v| v.as_str());
                     let trace_id = next_download_trace_id();
                     let persisted_preferences = match resolve_video_download_preferences(app) {
@@ -10937,6 +10990,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                         serde_json::json!({
                             "url": url,
                             "pageUrl": page_url,
+                            "selectionScope": selection_scope.as_str(),
                             "hasVideoUrl": video_url.is_some_and(|value| !value.is_empty()),
                             "videoCandidatesCount": video_candidates.len(),
                             "douyinDirectCandidateCount": douyin_direct_candidates.len(),
@@ -10999,6 +11053,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                 .filter(|value| !value.is_empty())
                                 .and_then(|value| save_extension_cookies(value).ok()),
                             clip_range: clip_range.clone(),
+                            selection_scope,
                             ytdlp_quality,
                             ae_friendly_conversion_enabled,
                             trace_id: trace_id.clone(),

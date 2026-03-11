@@ -255,6 +255,17 @@ function normalizeHttpUrl(raw) {
   }
 }
 
+function selectFirstHttpUrl(...values) {
+  for (const value of values) {
+    const normalized = normalizeHttpUrl(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
 function cleanupProtectedImageDragRegistry() {
   const now = Date.now();
   for (const [token, entry] of protectedImageDragRegistry.entries()) {
@@ -738,6 +749,12 @@ function normalizeClipTimeSeconds(value) {
   return num;
 }
 
+function normalizeSelectionScope(value) {
+  if (value === 'current_item') return 'current_item';
+  if (value === 'playlist') return 'playlist';
+  return null;
+}
+
 // Convert cookies to Netscape format for yt-dlp
 function cookiesToNetscape(cookies) {
   // Netscape cookie file header is required
@@ -789,9 +806,12 @@ async function getCookiesForUrl(url) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'video_selected') {
     // Get cookies and send to app
-    const pageUrl = message.pageUrl || sender.tab?.url || message.url;
+    const pageUrl = selectFirstHttpUrl(message.pageUrl, sender.tab?.url, message.url);
+    const requestedUrl = selectFirstHttpUrl(message.url, pageUrl);
+    const selectionScope = normalizeSelectionScope(message.selectionScope);
     const platform = directDownloadQuality.getDirectPlatform([
       pageUrl,
+      requestedUrl,
       message.pageUrl,
       message.videoUrl,
       message.url,
@@ -800,7 +820,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const clipStartSec = normalizeClipTimeSeconds(message.clipStartSec);
     const clipEndSec = normalizeClipTimeSeconds(message.clipEndSec);
     Promise.all([
-      getCookiesForUrl(pageUrl),
+      getCookiesForUrl(pageUrl || requestedUrl || ''),
       directDownloadQuality.getQualityPreference(),
       directDownloadQuality.getAeFriendlyConversionEnabled(),
     ]).then(([cookies, qualityPreference, aeFriendlyConversionEnabled]) => {
@@ -815,11 +835,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         message.videoUrl
       );
       return queueVideoSelectionToApp({
-        url: preferredVideoUrl || message.url,
-        pageUrl: pageUrl,
+        url: preferredVideoUrl || requestedUrl || message.url,
+        pageUrl: pageUrl || requestedUrl || message.pageUrl || sender.tab?.url || message.url,
         title: message.title,
         videoUrl: preferredVideoUrl,
         videoCandidates: prioritizedCandidates,
+        selectionScope,
         clipStartSec: clipStartSec,
         clipEndSec: clipEndSec,
         ytdlpQualityPreference: qualityPreference,
