@@ -19,6 +19,7 @@ import {
   type PinterestVideoCandidate,
 } from "./utils/pinterest";
 import { extractImageUrlFromHtml } from "./utils/imageDrag";
+import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImageDrag";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
@@ -1060,10 +1061,16 @@ function App() {
     const html = e.dataTransfer.getData("text/html");
     const rawUriList = e.dataTransfer.getData("text/uri-list");
     const rawPlain = e.dataTransfer.getData("text/plain");
+    const rawProtectedImageDrag = e.dataTransfer.getData("application/x-flowselect-protected-image-drag");
     const embeddedPinterestDragPayload =
       extractEmbeddedPinterestDragPayload(html) ??
       extractEmbeddedPinterestDragPayload(rawPlain) ??
       extractEmbeddedPinterestDragPayload(rawUriList);
+    const protectedImageDragPayload =
+      extractEmbeddedProtectedImageDragPayload(rawProtectedImageDrag) ??
+      extractEmbeddedProtectedImageDragPayload(rawPlain) ??
+      extractEmbeddedProtectedImageDragPayload(rawUriList) ??
+      extractEmbeddedProtectedImageDragPayload(html);
 
     // Check for URL in dataTransfer
     // Note: text/uri-list may return "about:blank#blocked" due to security policy
@@ -1186,6 +1193,20 @@ function App() {
       setIsProcessing(true);
 
       try {
+        const protectedImageFallback =
+          protectedImageDragPayload &&
+          (!protectedImageDragPayload.imageUrl || protectedImageDragPayload.imageUrl === resolvedImageUrl)
+            ? {
+                token: protectedImageDragPayload.token,
+                pageUrl: protectedImageDragPayload.pageUrl,
+                imageUrl: protectedImageDragPayload.imageUrl ?? resolvedImageUrl,
+              }
+            : null;
+
+        if (protectedImageFallback) {
+          console.log("Protected image drag payload detected:", protectedImageFallback);
+        }
+
         // Distinguish between Data URL, file:// URL, and HTTP URL
         if (resolvedImageUrl.startsWith("data:image/")) {
           const result = await invoke<string>("save_data_url", {
@@ -1235,6 +1256,7 @@ function App() {
           const result = await invoke<string>("download_image", {
             url: resolvedImageUrl,
             targetDir: outputPath || null,
+            protectedImageFallback,
           });
           console.log("Download result:", result);
         }

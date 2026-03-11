@@ -10,6 +10,8 @@ const WS_URL = 'ws://127.0.0.1:39527';
 const REQUEST_TIMEOUT_MS = 7000;
 const CONNECTING_WAIT_TIMEOUT_MS = 500;
 const VIDEO_SELECTION_CONNECT_TIMEOUT_MS = 2500;
+const PROTECTED_IMAGE_DRAG_TTL_MS = 2 * 60 * 1000;
+const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15000;
 const CONNECTING_STATUS_TEXT = 'Connecting';
 const OFFLINE_STATUS_TEXT = 'Offline';
 const FALLBACK_LANGUAGE = 'en';
@@ -18,6 +20,7 @@ const WS_ACTION_GET_LANGUAGE = 'get_language';
 const WS_ACTION_LANGUAGE_INFO = 'language_info';
 const WS_ACTION_LANGUAGE_CHANGED = 'language_changed';
 const pendingRequests = new Map();
+const protectedImageDragRegistry = new Map();
 let requestCounter = 0;
 let lastConnectionIssue = OFFLINE_STATUS_TEXT;
 
@@ -232,6 +235,212 @@ function buildRequestFailure(code, requestId = null) {
   };
 }
 
+function normalizeHttpUrl(raw) {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const resolved = new URL(trimmed).toString();
+    return resolved.startsWith('http://') || resolved.startsWith('https://')
+      ? resolved
+      : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function cleanupProtectedImageDragRegistry() {
+  const now = Date.now();
+  for (const [token, entry] of protectedImageDragRegistry.entries()) {
+    if (!entry || typeof entry.createdAt !== 'number' || now - entry.createdAt > PROTECTED_IMAGE_DRAG_TTL_MS) {
+      protectedImageDragRegistry.delete(token);
+    }
+  }
+}
+
+function deriveFilenameFromUrl(rawUrl) {
+  const normalized = normalizeHttpUrl(rawUrl);
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const rawName = parsed.pathname.split('/').filter(Boolean).pop() || '';
+    return rawName ? decodeURIComponent(rawName) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function sendMessageToTab(tabId, message, options = {}) {
+  return new Promise((resolve, reject) => {
+    const callback = (response) => {
+      if (chrome.runtime?.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response);
+    };
+
+    try {
+      if (typeof options.frameId === 'number' && options.frameId >= 0) {
+        chrome.tabs.sendMessage(tabId, message, { frameId: options.frameId }, callback);
+      } else {
+        chrome.tabs.sendMessage(tabId, message, callback);
+      }
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+async function reportProtectedImageResolutionResult(requestId, result) {
+  if (!requestId) {
+    return;
+  }
+
+  const response = await sendRequestToApp(
+    'protected_image_resolution_result',
+    {
+      correlationRequestId: requestId,
+      success: result?.success === true,
+      filePath: typeof result?.filePath === 'string' ? result.filePath : undefined,
+      code: typeof result?.code === 'string' ? result.code : undefined,
+      error: typeof result?.error === 'string' ? result.error : undefined,
+    },
+    PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS,
+  );
+
+  if (!response?.success) {
+    console.warn(
+      '[FlowSelect] protected_image_resolution_result was not acknowledged:',
+      response?.data?.code || response?.message || 'unknown'
+    );
+  }
+}
+
+async function handleProtectedImageResolveRequest(data) {
+  cleanupProtectedImageDragRegistry();
+
+  const requestId = typeof data?.requestId === 'string' ? data.requestId : '';
+  const token = typeof data?.token === 'string' ? data.token.trim() : '';
+  if (!requestId || !token) {
+    await reportProtectedImageResolutionResult(requestId, {
+      success: false,
+      code: 'protected_image_missing_request',
+      error: 'Missing protected image request metadata',
+    });
+    return;
+  }
+
+  const entry = protectedImageDragRegistry.get(token);
+  if (!entry) {
+    await reportProtectedImageResolutionResult(requestId, {
+      success: false,
+      code: 'protected_image_token_missing',
+      error: 'Protected image drag token was missing or expired',
+    });
+    return;
+  }
+  protectedImageDragRegistry.delete(token);
+
+  const imageUrl = normalizeHttpUrl(data?.imageUrl) || entry.imageUrl;
+  const pageUrl = normalizeHttpUrl(data?.pageUrl) || entry.pageUrl;
+  const targetDir = typeof data?.targetDir === 'string' && data.targetDir.trim()
+    ? data.targetDir
+    : undefined;
+
+  console.info('[FlowSelect] Resolving protected image fallback:', {
+    requestId,
+    token,
+    tabId: entry.tabId,
+    frameId: entry.frameId,
+    imageUrl,
+    pageUrl,
+  });
+
+  if (!imageUrl) {
+    await reportProtectedImageResolutionResult(requestId, {
+      success: false,
+      code: 'protected_image_invalid_url',
+      error: 'Protected image URL was missing or invalid',
+    });
+    return;
+  }
+
+  try {
+    const resolution = await sendMessageToTab(
+      entry.tabId,
+      {
+        type: 'resolve_protected_image',
+        token,
+        imageUrl,
+        pageUrl,
+      },
+      { frameId: entry.frameId },
+    );
+
+    if (!resolution?.success || typeof resolution?.dataUrl !== 'string') {
+      await reportProtectedImageResolutionResult(requestId, {
+        success: false,
+        code: typeof resolution?.code === 'string'
+          ? resolution.code
+          : 'protected_image_resolution_failed',
+        error: typeof resolution?.error === 'string'
+          ? resolution.error
+          : 'Protected image resolver did not return image bytes',
+      });
+      return;
+    }
+
+    const saveResult = await sendRequestToApp(
+      'save_data_url',
+      {
+        dataUrl: resolution.dataUrl,
+        originalFilename:
+          typeof resolution.filename === 'string' && resolution.filename.trim()
+            ? resolution.filename.trim()
+            : deriveFilenameFromUrl(imageUrl) || undefined,
+        targetDir,
+      },
+      PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS,
+    );
+
+    if (saveResult?.success && typeof saveResult.message === 'string' && saveResult.message.trim()) {
+      console.info('[FlowSelect] Protected image fallback saved via FlowSelect:', saveResult.message.trim());
+      await reportProtectedImageResolutionResult(requestId, {
+        success: true,
+        filePath: saveResult.message.trim(),
+      });
+      return;
+    }
+
+    await reportProtectedImageResolutionResult(requestId, {
+      success: false,
+      code: typeof saveResult?.data?.code === 'string'
+        ? saveResult.data.code
+        : 'save_data_url_failed',
+      error: typeof saveResult?.message === 'string'
+        ? saveResult.message
+        : 'Protected image save_data_url fallback failed',
+    });
+  } catch (error) {
+    console.warn('[FlowSelect] Protected image fallback failed:', error);
+    await reportProtectedImageResolutionResult(requestId, {
+      success: false,
+      code: 'protected_image_resolution_failed',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function connect(options = {}) {
   const force = options.force === true;
 
@@ -362,6 +571,9 @@ function handleMessage(message) {
       break;
     case 'stop_picker':
       stopPicker(message.tabId);
+      break;
+    case 'resolve_protected_image':
+      void handleProtectedImageResolveRequest(message.data || {});
       break;
   }
 }
@@ -641,6 +853,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       success: true,
       connected: isConnected()
     });
+  } else if (message.type === 'register_protected_image_drag') {
+    const token = typeof message.token === 'string' ? message.token.trim() : '';
+    const imageUrl = normalizeHttpUrl(message.imageUrl);
+    const pageUrl = normalizeHttpUrl(message.pageUrl || sender.tab?.url);
+    const tabId = sender.tab?.id;
+
+    if (!token || !imageUrl || typeof tabId !== 'number') {
+      sendResponse({
+        success: false,
+        reason: 'invalid_protected_image_drag',
+      });
+      return true;
+    }
+
+    cleanupProtectedImageDragRegistry();
+    protectedImageDragRegistry.set(token, {
+      tabId,
+      frameId: typeof sender.frameId === 'number' ? sender.frameId : undefined,
+      imageUrl,
+      pageUrl,
+      createdAt: Date.now(),
+    });
+    console.info('[FlowSelect] Registered protected image drag token:', {
+      token,
+      tabId,
+      frameId: sender.frameId,
+      imageUrl,
+      pageUrl,
+    });
+    sendResponse({
+      success: true,
+    });
+    return true;
   } else if (message.type === 'save_screenshot') {
     const dataUrl = typeof message.dataUrl === 'string' ? message.dataUrl : '';
     const filename = typeof message.filename === 'string' ? message.filename : null;

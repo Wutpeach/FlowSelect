@@ -18,7 +18,7 @@ use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use std::time::Duration;
 
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 
 #[cfg(windows)]
 use clipboard_win::{formats, get_clipboard};
@@ -82,6 +82,22 @@ struct WsResponse {
     success: bool,
     message: Option<String>,
     data: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProtectedImageFallbackInput {
+    token: String,
+    page_url: Option<String>,
+    image_url: Option<String>,
+}
+
+#[derive(Debug)]
+struct ProtectedImageResolutionResult {
+    success: bool,
+    file_path: Option<String>,
+    code: Option<String>,
+    error: Option<String>,
 }
 
 fn resolve_current_app_language(app: &tauri::AppHandle) -> Result<&'static str, String> {
@@ -199,6 +215,76 @@ fn build_ws_request_data(
             "requestId": rid
         }),
     })
+}
+
+fn next_protected_image_ws_request_id() -> String {
+    format!(
+        "protected-image-{}",
+        PROTECTED_IMAGE_WS_REQUEST_SEQ.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+fn normalize_optional_http_url(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| {
+            if value.starts_with("http://") || value.starts_with("https://") {
+                Some(value.to_string())
+            } else {
+                None
+            }
+        })
+}
+
+fn normalize_optional_nonempty_string(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn broadcast_ws_action(
+    app: &tauri::AppHandle,
+    action: &str,
+    data: serde_json::Value,
+) -> Result<(), String> {
+    let state = app.state::<WsServerState>();
+    let broadcast_tx = state
+        .broadcast_tx
+        .lock()
+        .map_err(|_| "Failed to lock WebSocket broadcast state".to_string())?;
+    let tx = broadcast_tx
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "WebSocket server not running".to_string())?;
+    let msg = serde_json::json!({
+        "action": action,
+        "data": data,
+    });
+    tx.send(msg.to_string()).map_err(|_| {
+        format!(
+            "No connected browser extension client for action: {}",
+            action
+        )
+    })?;
+    println!(">>> [WS] Broadcasted action: {}", action);
+    Ok(())
+}
+
+fn take_pending_protected_image_request(
+    request_id: &str,
+) -> Option<oneshot::Sender<ProtectedImageResolutionResult>> {
+    WS_PENDING_PROTECTED_IMAGE_REQUESTS
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.remove(request_id))
+}
+
+fn is_hotlink_like_image_download_error(error: &str) -> bool {
+    let lowered = error.to_ascii_lowercase();
+    lowered.contains("http error: 401")
+        || lowered.contains("http error: 403")
+        || lowered.contains("content-type: text/html")
+        || lowered.contains("unexpected non-image response content-type: text/html")
 }
 
 #[derive(Clone, Debug)]
@@ -580,8 +666,12 @@ static DOWNLOAD_CANCELLED: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 // Incremental sequence for download trace ids.
 static DOWNLOAD_TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
+static PROTECTED_IMAGE_WS_REQUEST_SEQ: AtomicU64 = AtomicU64::new(1);
 static DIRECT_CANDIDATE_CACHE: LazyLock<Mutex<HashMap<String, DirectCandidateCacheEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static WS_PENDING_PROTECTED_IMAGE_REQUESTS: LazyLock<
+    Mutex<HashMap<String, oneshot::Sender<ProtectedImageResolutionResult>>>,
+> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static VIDEO_TASK_QUEUE_STATE: LazyLock<Mutex<VideoTaskQueueState>> =
     LazyLock::new(|| Mutex::new(VideoTaskQueueState::default()));
 static SLICE_SOURCE_CACHE: LazyLock<Mutex<HashMap<String, SliceSourceCacheEntry>>> =
@@ -616,6 +706,7 @@ const RUNTIME_LOG_PROGRESS_BUCKET_PERCENT: f32 = 5.0;
 const RUNTIME_LOG_PROGRESS_MIN_INTERVAL_MS: u128 = 1500;
 const SUPPORT_LOG_RUNTIME_EVIDENCE_LINE_LIMIT: usize = 24;
 const SUPPORT_LOG_TEXT_PREVIEW_LIMIT: usize = 220;
+const PROTECTED_IMAGE_FALLBACK_TIMEOUT_MS: u64 = 15_000;
 // `best` should follow the highest tier available to the current account, even when
 // that requires mixed containers/codecs. We merge to mkv in that tier so yt-dlp can
 // keep 1440p/2160p streams instead of collapsing to MP4-compatible 1080p.
@@ -1574,11 +1665,264 @@ fn process_files(paths: Vec<String>, target_dir: Option<String>) -> Result<Strin
     ))
 }
 
+async fn attempt_direct_image_download(
+    app: &AppHandle,
+    resolved_url: &str,
+    final_target_dir: &Path,
+    rename_media_on_download: bool,
+    config: &mut serde_json::Value,
+) -> Result<(String, String, Option<String>), String> {
+    if !final_target_dir.exists() {
+        fs::create_dir_all(final_target_dir)
+            .map_err(|e| format!("Failed to create target directory: {}", e))?;
+    }
+
+    let response = reqwest::Client::new()
+        .get(resolved_url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download: {}", e))?;
+
+    let status = response.status();
+    let response_content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|ct| ct.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if !status.is_success() {
+        return Err(if response_content_type.is_empty() {
+            format!("HTTP error: {}", status)
+        } else {
+            format!(
+                "HTTP error: {} (content-type: {})",
+                status, response_content_type
+            )
+        });
+    }
+
+    let content_type = response_content_type;
+    if content_type.starts_with("text/") {
+        return Err(format!(
+            "Unexpected non-image response content-type: {}",
+            content_type
+        ));
+    }
+
+    let ext = if content_type.contains("image/png") {
+        "png"
+    } else if content_type.contains("image/gif") {
+        "gif"
+    } else if content_type.contains("image/webp") {
+        "webp"
+    } else if content_type.contains("image/bmp") {
+        "bmp"
+    } else if content_type.contains("image/svg+xml") {
+        "svg"
+    } else {
+        "jpg"
+    };
+
+    let source_filename = response
+        .headers()
+        .get("content-disposition")
+        .and_then(|value| value.to_str().ok())
+        .and_then(extract_filename_from_content_disposition)
+        .or_else(|| extract_filename_from_url(resolved_url));
+
+    let dest_path = if rename_media_on_download {
+        build_rename_sequence_file_path(app, config, final_target_dir, ext)?
+    } else if let Some(source_name) = source_filename.as_deref() {
+        if let Some(path) = build_source_name_file_path(final_target_dir, source_name, ext) {
+            path
+        } else {
+            build_sequence_file_path(final_target_dir, ext)?
+        }
+    } else {
+        build_sequence_file_path(final_target_dir, ext)?
+    };
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    let mut file =
+        fs::File::create(&dest_path).map_err(|e| format!("Failed to create file: {}", e))?;
+
+    file.write_all(&bytes)
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+
+    println!(">>> [Rust] Saved to: {:?}", dest_path);
+
+    let app_for_ae = app.clone();
+    let path_for_ae = dest_path.to_string_lossy().to_string();
+    tokio::spawn(async move {
+        let _ = send_to_ae(app_for_ae, path_for_ae).await;
+    });
+
+    Ok((
+        dest_path.to_string_lossy().to_string(),
+        content_type,
+        source_filename,
+    ))
+}
+
+async fn resolve_protected_image_with_extension(
+    app: &AppHandle,
+    resolved_url: &str,
+    final_target_dir: &Path,
+    fallback: &ProtectedImageFallbackInput,
+) -> Result<String, String> {
+    let request_id = next_protected_image_ws_request_id();
+    let image_url = normalize_optional_http_url(fallback.image_url.as_deref())
+        .unwrap_or_else(|| resolved_url.to_string());
+    let page_url = normalize_optional_http_url(fallback.page_url.as_deref());
+    let (tx, rx) = oneshot::channel::<ProtectedImageResolutionResult>();
+
+    {
+        let mut pending = WS_PENDING_PROTECTED_IMAGE_REQUESTS
+            .lock()
+            .map_err(|_| "Failed to lock protected image request state".to_string())?;
+        pending.insert(request_id.clone(), tx);
+    }
+
+    append_runtime_log_event(
+        "download",
+        "protected_image_fallback_requested",
+        None,
+        serde_json::json!({
+            "mode": "protected_image_fallback",
+            "resolvedUrl": resolved_url,
+            "imageUrl": image_url,
+            "pageUrl": page_url,
+            "outputDir": final_target_dir.to_string_lossy().to_string(),
+        }),
+    );
+
+    if let Err(err) = broadcast_ws_action(
+        app,
+        "resolve_protected_image",
+        serde_json::json!({
+            "requestId": request_id,
+            "token": fallback.token.trim(),
+            "imageUrl": image_url,
+            "pageUrl": page_url,
+            "targetDir": final_target_dir.to_string_lossy().to_string(),
+        }),
+    ) {
+        let _ = take_pending_protected_image_request(request_id.as_str());
+        append_runtime_log_event(
+            "download",
+            "protected_image_fallback_complete",
+            None,
+            serde_json::json!({
+                "mode": "protected_image_fallback",
+                "resolvedUrl": resolved_url,
+                "pageUrl": page_url,
+                "success": false,
+                "code": "extension_unavailable",
+                "error": err.as_str(),
+            }),
+        );
+        return Err(err);
+    }
+
+    let outcome = match tokio::time::timeout(
+        std::time::Duration::from_millis(PROTECTED_IMAGE_FALLBACK_TIMEOUT_MS),
+        rx,
+    )
+    .await
+    {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => {
+            let _ = take_pending_protected_image_request(request_id.as_str());
+            append_runtime_log_event(
+                "download",
+                "protected_image_fallback_complete",
+                None,
+                serde_json::json!({
+                    "mode": "protected_image_fallback",
+                    "resolvedUrl": resolved_url,
+                    "pageUrl": page_url,
+                    "success": false,
+                    "code": "protected_image_resolution_channel_closed",
+                    "error": "Protected image fallback channel closed unexpectedly",
+                }),
+            );
+            return Err("Protected image fallback channel closed unexpectedly".to_string());
+        }
+        Err(_) => {
+            let _ = take_pending_protected_image_request(request_id.as_str());
+            append_runtime_log_event(
+                "download",
+                "protected_image_fallback_complete",
+                None,
+                serde_json::json!({
+                    "mode": "protected_image_fallback",
+                    "resolvedUrl": resolved_url,
+                    "pageUrl": page_url,
+                    "success": false,
+                    "code": "protected_image_resolution_timeout",
+                    "error": "Protected image fallback timed out",
+                }),
+            );
+            return Err("Protected image fallback timed out".to_string());
+        }
+    };
+
+    if outcome.success {
+        let file_path = outcome
+            .file_path
+            .clone()
+            .ok_or_else(|| "Protected image fallback succeeded without a file path".to_string())?;
+        append_runtime_log_event(
+            "download",
+            "protected_image_fallback_complete",
+            None,
+            serde_json::json!({
+                "mode": "protected_image_fallback",
+                "resolvedUrl": resolved_url,
+                "pageUrl": page_url,
+                "success": true,
+                "filePath": file_path.clone(),
+            }),
+        );
+        return Ok(file_path);
+    }
+
+    let fallback_error = outcome
+        .error
+        .clone()
+        .or_else(|| outcome.code.clone())
+        .unwrap_or_else(|| "Protected image fallback failed".to_string());
+    append_runtime_log_event(
+        "download",
+        "protected_image_fallback_complete",
+        None,
+        serde_json::json!({
+            "mode": "protected_image_fallback",
+            "resolvedUrl": resolved_url,
+            "pageUrl": page_url,
+            "success": false,
+            "code": outcome.code,
+            "error": fallback_error.as_str(),
+        }),
+    );
+    Err(fallback_error)
+}
+
 #[tauri::command]
 async fn download_image(
     app: AppHandle,
     url: String,
     target_dir: Option<String>,
+    protected_image_fallback: Option<ProtectedImageFallbackInput>,
 ) -> Result<String, String> {
     println!(">>> [Rust] Downloading image from: {}", url);
     let resolved_url = resolve_image_download_url(&url);
@@ -1594,21 +1938,33 @@ async fn download_image(
         serde_json::from_str(&config_str).map_err(|e| format!("Failed to parse config: {}", e))?;
     let rename_media_on_download = is_rename_media_enabled(&config);
 
-    // Determine target directory (read from config if not provided)
     let final_target_dir = if let Some(dir) = target_dir {
-        std::path::PathBuf::from(dir)
+        PathBuf::from(dir)
     } else {
         config
             .get("outputPath")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .map(|s| std::path::PathBuf::from(s))
+            .map(PathBuf::from)
             .unwrap_or_else(|| {
                 desktop_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .unwrap_or_else(|| PathBuf::from("."))
                     .join("FlowSelect_Received")
             })
     };
+
+    let fallback_context = protected_image_fallback.and_then(|fallback| {
+        let token = fallback.token.trim().to_string();
+        if token.is_empty() {
+            return None;
+        }
+
+        Some(ProtectedImageFallbackInput {
+            token,
+            page_url: normalize_optional_http_url(fallback.page_url.as_deref()),
+            image_url: normalize_optional_http_url(fallback.image_url.as_deref()),
+        })
+    });
 
     append_runtime_log_event(
         "download",
@@ -1618,121 +1974,23 @@ async fn download_image(
             "mode": "image",
             "url": url.as_str(),
             "resolvedUrl": resolved_url.as_str(),
+            "pageUrl": fallback_context.as_ref().and_then(|value| value.page_url.as_deref()),
             "renameEnabled": rename_media_on_download,
+            "hasProtectedImageFallback": fallback_context.is_some(),
             "outputDir": final_target_dir.to_string_lossy().to_string(),
         }),
     );
 
-    let result: Result<(String, String, Option<String>), String> = async {
-        // Create directory if not exists
-        if !final_target_dir.exists() {
-            fs::create_dir_all(&final_target_dir)
-                .map_err(|e| format!("Failed to create target directory: {}", e))?;
-        }
-
-        // Download image
-        let response = reqwest::Client::new()
-            .get(&resolved_url)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            )
-            .send()
-            .await
-            .map_err(|e| format!("Failed to download: {}", e))?;
-
-        let status = response.status();
-        let response_content_type = response
-            .headers()
-            .get("content-type")
-            .and_then(|ct| ct.to_str().ok())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-
-        if !status.is_success() {
-            return Err(if response_content_type.is_empty() {
-                format!("HTTP error: {}", status)
-            } else {
-                format!(
-                    "HTTP error: {} (content-type: {})",
-                    status, response_content_type
-                )
-            });
-        }
-
-        // Reject obvious HTML/text payloads to avoid saving pages as image files.
-        let content_type = response_content_type;
-        if content_type.starts_with("text/") {
-            return Err(format!(
-                "Unexpected non-image response content-type: {}",
-                content_type
-            ));
-        }
-
-        // Get extension from Content-Type.
-        let ext = if content_type.contains("image/png") {
-            "png"
-        } else if content_type.contains("image/gif") {
-            "gif"
-        } else if content_type.contains("image/webp") {
-            "webp"
-        } else if content_type.contains("image/bmp") {
-            "bmp"
-        } else if content_type.contains("image/svg+xml") {
-            "svg"
-        } else {
-            "jpg"
-        };
-
-        let source_filename = response
-            .headers()
-            .get("content-disposition")
-            .and_then(|value| value.to_str().ok())
-            .and_then(extract_filename_from_content_disposition)
-            .or_else(|| extract_filename_from_url(&resolved_url));
-
-        let dest_path = if rename_media_on_download {
-            build_rename_sequence_file_path(&app, &mut config, &final_target_dir, ext)?
-        } else if let Some(source_name) = source_filename.as_deref() {
-            if let Some(path) = build_source_name_file_path(&final_target_dir, source_name, ext) {
-                path
-            } else {
-                build_sequence_file_path(&final_target_dir, ext)?
-            }
-        } else {
-            build_sequence_file_path(&final_target_dir, ext)?
-        };
-
-        // Write to file
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read response: {}", e))?;
-
-        let mut file =
-            fs::File::create(&dest_path).map_err(|e| format!("Failed to create file: {}", e))?;
-
-        file.write_all(&bytes)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
-
-        println!(">>> [Rust] Saved to: {:?}", dest_path);
-
-        // AE Portal
-        let app_for_ae = app.clone();
-        let path_for_ae = dest_path.to_string_lossy().to_string();
-        tokio::spawn(async move {
-            let _ = send_to_ae(app_for_ae, path_for_ae).await;
-        });
-
-        Ok((
-            dest_path.to_string_lossy().to_string(),
-            content_type,
-            source_filename,
-        ))
-    }
+    let direct_result = attempt_direct_image_download(
+        &app,
+        resolved_url.as_str(),
+        final_target_dir.as_path(),
+        rename_media_on_download,
+        &mut config,
+    )
     .await;
 
-    match &result {
+    match &direct_result {
         Ok((file_path, content_type, source_filename)) => {
             println!(
                 ">>> [Rust] Image download complete: {} -> {}",
@@ -1752,7 +2010,8 @@ async fn download_image(
                     "sourceFilename": source_filename,
                     "filePath": file_path,
                 }),
-            )
+            );
+            return Ok(file_path.clone());
         }
         Err(error) => {
             println!(
@@ -1771,11 +2030,33 @@ async fn download_image(
                     "resolvedUrl": resolved_url.as_str(),
                     "error": error,
                 }),
-            )
+            );
+
+            if let Some(fallback) = fallback_context.as_ref() {
+                if is_hotlink_like_image_download_error(error.as_str()) {
+                    println!(
+                        ">>> [Rust] Attempting protected image browser-context fallback: {}",
+                        summarize_url_for_log(resolved_url.as_str())
+                    );
+                    return resolve_protected_image_with_extension(
+                        &app,
+                        resolved_url.as_str(),
+                        final_target_dir.as_path(),
+                        fallback,
+                    )
+                    .await
+                    .map_err(|fallback_error| {
+                        format!(
+                            "{} | Browser-context fallback failed: {}",
+                            error, fallback_error
+                        )
+                    });
+                }
+            }
+
+            return Err(error.clone());
         }
     }
-
-    result.map(|(file_path, _, _)| file_path)
 }
 
 fn resolve_image_download_url(raw_url: &str) -> String {
@@ -9008,6 +9289,89 @@ fn render_support_log_download_event(
                 ts_ms, trace_id, "terminal", event, details,
             ))
         }
+        "protected_image_fallback_requested" => {
+            let mut details = vec!["mode=protected_image_fallback".to_string()];
+            push_support_log_detail(
+                &mut details,
+                "resolved_url",
+                payload
+                    .get("resolvedUrl")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "page_url",
+                payload
+                    .get("pageUrl")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "output_dir",
+                payload
+                    .get("outputDir")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "route", event, details,
+            ))
+        }
+        "protected_image_fallback_complete" => {
+            let mut details = vec!["mode=protected_image_fallback".to_string()];
+            push_support_log_detail(
+                &mut details,
+                "resolved_url",
+                payload
+                    .get("resolvedUrl")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "page_url",
+                payload
+                    .get("pageUrl")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "success",
+                payload
+                    .get("success")
+                    .and_then(|value| value.as_bool())
+                    .map(|value| support_log_bool_value(value).to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "file",
+                summarize_support_log_file_path(
+                    payload.get("filePath").and_then(|value| value.as_str()),
+                ),
+            );
+            push_support_log_detail(
+                &mut details,
+                "code",
+                payload
+                    .get("code")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "error",
+                payload
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .map(|value| summarize_support_log_text(value, SUPPORT_LOG_TEXT_PREVIEW_LIMIT)),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "terminal", event, details,
+            ))
+        }
         "http_416_retry"
         | "youtube_cookie_retry"
         | "ae_safe_probe_warning"
@@ -10291,7 +10655,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
             if let Some(data) = msg.data {
                 let url = data.get("url").and_then(|v| v.as_str());
                 if let Some(url) = url {
-                    match download_image(app.clone(), url.to_string(), None).await {
+                    match download_image(app.clone(), url.to_string(), None, None).await {
                         Ok(path) => WsResponse {
                             success: true,
                             message: Some(path),
@@ -10390,6 +10754,67 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                         success: false,
                         message: Some("Missing dataUrl".to_string()),
                         data: with_request_id(Some("missing_data_url")),
+                    }
+                }
+            } else {
+                WsResponse {
+                    success: false,
+                    message: Some("Missing data".to_string()),
+                    data: None,
+                }
+            }
+        }
+        "protected_image_resolution_result" => {
+            if let Some(data) = msg.data {
+                let request_id = extract_ws_request_id(&data);
+                let with_request_id = |code: Option<&str>| build_ws_request_data(&request_id, code);
+                let correlation_request_id = data
+                    .get("correlationRequestId")
+                    .or_else(|| data.get("correlation_request_id"))
+                    .and_then(|value| value.as_str());
+
+                if let Some(correlation_request_id) = correlation_request_id {
+                    let result = ProtectedImageResolutionResult {
+                        success: data
+                            .get("success")
+                            .and_then(|value| value.as_bool())
+                            .unwrap_or(false),
+                        file_path: normalize_optional_nonempty_string(
+                            data.get("filePath")
+                                .or_else(|| data.get("file_path"))
+                                .and_then(|value| value.as_str()),
+                        ),
+                        code: normalize_optional_nonempty_string(
+                            data.get("code").and_then(|value| value.as_str()),
+                        ),
+                        error: normalize_optional_nonempty_string(
+                            data.get("error").and_then(|value| value.as_str()),
+                        ),
+                    };
+
+                    if let Some(sender) =
+                        take_pending_protected_image_request(correlation_request_id)
+                    {
+                        let _ = sender.send(result);
+                        WsResponse {
+                            success: true,
+                            message: Some("protected_image_resolution_received".to_string()),
+                            data: with_request_id(None),
+                        }
+                    } else {
+                        WsResponse {
+                            success: false,
+                            message: Some(
+                                "Unknown protected image correlation request".to_string(),
+                            ),
+                            data: with_request_id(Some("unknown_correlation_request")),
+                        }
+                    }
+                } else {
+                    WsResponse {
+                        success: false,
+                        message: Some("Missing correlationRequestId".to_string()),
+                        data: with_request_id(Some("missing_correlation_request_id")),
                     }
                 }
             } else {
@@ -11219,6 +11644,66 @@ mod tests {
         assert!(rendered.contains("original_filename=capture.png"));
         assert!(rendered.contains("kind=terminal event=complete mode=data_url mime_type=image/png"));
         assert!(rendered.contains("file=capture.png"));
+    }
+
+    #[test]
+    fn support_log_runtime_evidence_keeps_protected_image_fallback_breadcrumbs() {
+        let lines = vec![
+            serde_json::json!({
+                "tsMs": 30,
+                "scope": "download",
+                "event": "complete",
+                "payload": {
+                    "mode": "image",
+                    "success": false,
+                    "resolvedUrl": "https://www.solarsystemscope.com/textures/download/2k_earth_nightmap.jpg",
+                    "error": "HTTP error: 403 (content-type: text/html)"
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "tsMs": 31,
+                "scope": "download",
+                "event": "protected_image_fallback_requested",
+                "payload": {
+                    "mode": "protected_image_fallback",
+                    "resolvedUrl": "https://www.solarsystemscope.com/textures/download/2k_earth_nightmap.jpg",
+                    "pageUrl": "https://www.solarsystemscope.com/textures/earth.html",
+                    "outputDir": r"D:\Downloads"
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "tsMs": 32,
+                "scope": "download",
+                "event": "protected_image_fallback_complete",
+                "payload": {
+                    "mode": "protected_image_fallback",
+                    "resolvedUrl": "https://www.solarsystemscope.com/textures/download/2k_earth_nightmap.jpg",
+                    "pageUrl": "https://www.solarsystemscope.com/textures/earth.html",
+                    "success": true,
+                    "filePath": r"D:\Downloads\2k_earth_nightmap.jpg"
+                }
+            })
+            .to_string(),
+        ];
+
+        let evidence = build_support_log_runtime_evidence_lines(&lines);
+        let rendered = evidence.join("\n");
+
+        assert_eq!(evidence.len(), 3);
+        assert!(rendered.contains(
+            "kind=terminal event=complete mode=image resolved_url=https://www.solarsystemscope.com/textures/download/2k_earth_nightmap.jpg success=false"
+        ));
+        assert!(rendered.contains(
+            "kind=route event=protected_image_fallback_requested mode=protected_image_fallback"
+        ));
+        assert!(rendered.contains("page_url=https://www.solarsystemscope.com/textures/earth.html"));
+        assert!(rendered.contains(
+            "kind=terminal event=protected_image_fallback_complete mode=protected_image_fallback"
+        ));
+        assert!(rendered.contains("success=true"));
+        assert!(rendered.contains("file=2k_earth_nightmap.jpg"));
     }
 
     #[test]
