@@ -12,7 +12,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "macos")]
@@ -655,6 +655,52 @@ impl QueuedVideoTask {
     }
 }
 
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum VideoTranscodeTaskStatus {
+    Pending,
+    Active,
+    Failed,
+}
+
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum VideoTranscodeStage {
+    Analyzing,
+    Transcoding,
+    FinalizingMp4,
+    Failed,
+}
+
+#[derive(Clone, Debug)]
+struct VideoTranscodeTask {
+    trace_id: String,
+    label: String,
+    source_path: String,
+    source_format: Option<String>,
+    target_format: String,
+    status: VideoTranscodeTaskStatus,
+    stage: Option<VideoTranscodeStage>,
+    progress_percent: Option<f32>,
+    error: Option<String>,
+}
+
+impl VideoTranscodeTask {
+    fn detail_payload(&self) -> VideoTranscodeTaskPayload {
+        VideoTranscodeTaskPayload {
+            trace_id: self.trace_id.clone(),
+            label: self.label.clone(),
+            status: self.status,
+            stage: self.stage,
+            progress_percent: self.progress_percent,
+            source_path: Some(self.source_path.clone()),
+            source_format: self.source_format.clone(),
+            target_format: Some(self.target_format.clone()),
+            error: self.error.clone(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum VideoSelectionScope {
     Auto,
@@ -693,6 +739,14 @@ struct VideoTaskQueueState {
 }
 
 #[derive(Default)]
+struct VideoTranscodeQueueState {
+    pending: VecDeque<VideoTranscodeTask>,
+    active: Option<VideoTranscodeTask>,
+    failed: VecDeque<VideoTranscodeTask>,
+    pump_scheduled: bool,
+}
+
+#[derive(Default)]
 struct RuntimeProgressLogState {
     last_stage: Option<&'static str>,
     last_percent_bucket: Option<i32>,
@@ -716,6 +770,8 @@ static WS_PENDING_PROTECTED_IMAGE_REQUESTS: LazyLock<
 > = LazyLock::new(|| Mutex::new(HashMap::new()));
 static VIDEO_TASK_QUEUE_STATE: LazyLock<Mutex<VideoTaskQueueState>> =
     LazyLock::new(|| Mutex::new(VideoTaskQueueState::default()));
+static VIDEO_TRANSCODE_QUEUE_STATE: LazyLock<Mutex<VideoTranscodeQueueState>> =
+    LazyLock::new(|| Mutex::new(VideoTranscodeQueueState::default()));
 static SLICE_SOURCE_CACHE: LazyLock<Mutex<HashMap<String, SliceSourceCacheEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static SLICE_REQUEST_HISTORY: LazyLock<Mutex<HashMap<String, u128>>> =
@@ -727,6 +783,7 @@ static RUNTIME_LOG_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new
 static RUNTIME_LOG_PROGRESS_STATE: LazyLock<Mutex<HashMap<String, RuntimeProgressLogState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const MAX_CONCURRENT_VIDEO_DOWNLOADS: usize = 3;
+const MAX_CONCURRENT_VIDEO_TRANSCODES: usize = 1;
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
 const DIRECT_CANDIDATE_CACHE_MAX_ENTRIES: usize = 256;
 const SLICE_SOURCE_CACHE_TRIGGER_WINDOW_MS: u128 = 8 * 60 * 1000;
@@ -2439,6 +2496,58 @@ struct VideoQueueDetailPayload {
 }
 
 #[derive(serde::Serialize, Clone)]
+struct VideoTranscodeQueueCountPayload {
+    #[serde(rename = "activeCount")]
+    active_count: usize,
+    #[serde(rename = "pendingCount")]
+    pending_count: usize,
+    #[serde(rename = "failedCount")]
+    failed_count: usize,
+    #[serde(rename = "totalCount")]
+    total_count: usize,
+    #[serde(rename = "maxConcurrent")]
+    max_concurrent: usize,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct VideoTranscodeTaskPayload {
+    #[serde(rename = "traceId")]
+    trace_id: String,
+    label: String,
+    status: VideoTranscodeTaskStatus,
+    stage: Option<VideoTranscodeStage>,
+    #[serde(rename = "progressPercent")]
+    progress_percent: Option<f32>,
+    #[serde(rename = "sourcePath")]
+    source_path: Option<String>,
+    #[serde(rename = "sourceFormat")]
+    source_format: Option<String>,
+    #[serde(rename = "targetFormat")]
+    target_format: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct VideoTranscodeQueueDetailPayload {
+    tasks: Vec<VideoTranscodeTaskPayload>,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct VideoTranscodeCompletePayload {
+    #[serde(rename = "traceId")]
+    trace_id: String,
+    label: String,
+    #[serde(rename = "sourcePath")]
+    source_path: String,
+    #[serde(rename = "filePath")]
+    file_path: String,
+    #[serde(rename = "sourceFormat")]
+    source_format: Option<String>,
+    #[serde(rename = "targetFormat")]
+    target_format: String,
+}
+
+#[derive(serde::Serialize, Clone)]
 struct QueuedVideoDownloadAck {
     accepted: bool,
     #[serde(rename = "traceId")]
@@ -2797,26 +2906,6 @@ fn extract_process_failure_message(stderr: &[u8], status: std::process::ExitStat
         .unwrap_or_else(|| format!("process exited with status {}", status))
 }
 
-fn emit_post_processing_status(app: &AppHandle, trace_id: &str, status: &str) {
-    let _ = app.emit(
-        "video-download-progress",
-        DownloadProgress {
-            trace_id: trace_id.to_string(),
-            percent: -1.0,
-            stage: DownloadProgressStage::PostProcessing,
-            speed: status.to_string(),
-            eta: "".to_string(),
-        },
-    );
-    maybe_log_runtime_progress(
-        trace_id,
-        DownloadProgressStage::PostProcessing,
-        -1.0,
-        status,
-        "",
-    );
-}
-
 async fn probe_media_summary(path: &Path) -> Result<MediaProbeSummary, String> {
     let target_path = path.to_path_buf();
     tokio::task::spawn_blocking(move || {
@@ -2889,6 +2978,99 @@ async fn probe_media_summary(path: &Path) -> Result<MediaProbeSummary, String> {
     })
     .await
     .map_err(|e| format!("Failed to await ffprobe task: {}", e))?
+}
+
+async fn prepare_transcode_task_from_download(
+    trace_id: &str,
+    preferred_label: Option<&str>,
+    source_path: &str,
+) -> Result<Option<VideoTranscodeTask>, String> {
+    let source_path_buf = PathBuf::from(source_path);
+    if !source_path_buf.exists() {
+        return Err(format!(
+            "Downloaded source file disappeared before transcode queue evaluation: {}",
+            source_path
+        ));
+    }
+
+    let mut source_format = infer_media_format_from_path(&source_path_buf);
+    match probe_media_summary(&source_path_buf).await {
+        Ok(summary) => {
+            if summary.is_ae_safe() {
+                return Ok(None);
+            }
+            if source_format.is_none() {
+                source_format = summary.container_names.first().cloned();
+            }
+        }
+        Err(err) => {
+            println!(
+                ">>> [Rust] Transcode probe failed for {:?}, queueing fallback transcode: {}",
+                source_path_buf, err
+            );
+            append_runtime_log_event(
+                "transcode",
+                "probe_warning",
+                Some(trace_id),
+                serde_json::json!({
+                    "path": source_path,
+                    "error": err,
+                }),
+            );
+        }
+    }
+
+    Ok(Some(VideoTranscodeTask {
+        trace_id: trace_id.to_string(),
+        label: derive_transcode_task_label(preferred_label, source_path, trace_id),
+        source_path: source_path.to_string(),
+        source_format,
+        target_format: "mp4".to_string(),
+        status: VideoTranscodeTaskStatus::Pending,
+        stage: None,
+        progress_percent: None,
+        error: None,
+    }))
+}
+
+async fn handle_completed_video_source(
+    app: &AppHandle,
+    trace_id: &str,
+    preferred_label: Option<&str>,
+    source_path: &str,
+) {
+    match prepare_transcode_task_from_download(trace_id, preferred_label, source_path).await {
+        Ok(Some(task)) => {
+            enqueue_video_transcode_task(app, task);
+            schedule_video_transcode_queue_pump(app.clone());
+        }
+        Ok(None) => {
+            append_runtime_log_event(
+                "transcode",
+                "not_required",
+                Some(trace_id),
+                serde_json::json!({
+                    "path": source_path,
+                }),
+            );
+            spawn_send_to_ae(app, source_path.to_string());
+        }
+        Err(err) => {
+            println!(
+                ">>> [Rust] Failed to evaluate transcode follow-up for trace_id={}: {}",
+                trace_id, err
+            );
+            append_runtime_log_event(
+                "transcode",
+                "follow_up_error",
+                Some(trace_id),
+                serde_json::json!({
+                    "path": source_path,
+                    "error": err,
+                }),
+            );
+        }
+    }
 }
 
 fn sibling_path_with_suffix(path: &Path, suffix: &str, extension: &str) -> PathBuf {
@@ -3043,6 +3225,14 @@ async fn normalize_video_output_for_ae(
         ));
     }
 
+    set_active_video_transcode_stage(
+        app,
+        trace_id,
+        VideoTranscodeStage::Analyzing,
+        None,
+        "Analyzing source media...",
+    );
+
     let probe_summary = match probe_media_summary(source_path).await {
         Ok(summary) => Some(summary),
         Err(err) => {
@@ -3051,8 +3241,8 @@ async fn normalize_video_output_for_ae(
                 source_path, err
             );
             append_runtime_log_event(
-                "download",
-                "ae_safe_probe_warning",
+                "transcode",
+                "probe_warning",
                 Some(trace_id),
                 serde_json::json!({
                     "path": source_path.to_string_lossy().to_string(),
@@ -3090,10 +3280,15 @@ async fn normalize_video_output_for_ae(
         return Ok(source_path.to_string_lossy().to_string());
     }
 
-    emit_post_processing_status(app, trace_id, plan.status_text());
+    let initial_stage = if plan == AeSafeNormalizationPlan::RemuxOnly {
+        VideoTranscodeStage::FinalizingMp4
+    } else {
+        VideoTranscodeStage::Transcoding
+    };
+    set_active_video_transcode_stage(app, trace_id, initial_stage, None, plan.status_text());
     append_runtime_log_event(
-        "download",
-        "ae_safe_normalize_start",
+        "transcode",
+        "start",
         Some(trace_id),
         serde_json::json!({
             "path": source_path.to_string_lossy().to_string(),
@@ -3193,8 +3388,8 @@ async fn normalize_video_output_for_ae(
                             gpu_encoder, err
                         );
                         append_runtime_log_event(
-                            "download",
-                            "ae_safe_gpu_fallback",
+                            "transcode",
+                            "gpu_fallback",
                             Some(trace_id),
                             serde_json::json!({
                                 "path": source_path.to_string_lossy().to_string(),
@@ -3228,6 +3423,13 @@ async fn normalize_video_output_for_ae(
         return Err(err);
     }
 
+    set_active_video_transcode_stage(
+        app,
+        trace_id,
+        VideoTranscodeStage::FinalizingMp4,
+        None,
+        "Replacing original file with AE-safe MP4...",
+    );
     replace_file_preserving_backup(&temp_output_path, &visible_output_path)?;
     if visible_output_path != source_path {
         if let Err(err) = fs::remove_file(source_path) {
@@ -3239,8 +3441,8 @@ async fn normalize_video_output_for_ae(
     }
 
     append_runtime_log_event(
-        "download",
-        "ae_safe_normalize_complete",
+        "transcode",
+        "complete_replace",
         Some(trace_id),
         serde_json::json!({
             "path": visible_output_path.to_string_lossy().to_string(),
@@ -3315,43 +3517,15 @@ async fn finalize_ytdlp_success(
     app: &AppHandle,
     trace_id: &str,
     final_path: String,
-    ae_friendly_conversion_enabled: bool,
+    preferred_label: Option<&str>,
+    _ae_friendly_conversion_enabled: bool,
 ) -> DownloadResult {
-    let normalized_path = if ae_friendly_conversion_enabled {
-        match normalize_video_output_for_ae(app, Path::new(&final_path), trace_id).await {
-            Ok(path) => path,
-            Err(err) => {
-                return emit_download_terminal_failure(
-                    app,
-                    trace_id,
-                    DownloadTerminalErrorCode::OutputNormalizationFailed,
-                    err.as_str(),
-                );
-            }
-        }
-    } else {
-        println!(
-            ">>> [Rust] Skipping AE-friendly normalization for trace_id={} path={}",
-            trace_id, final_path
-        );
-        append_runtime_log_event(
-            "download",
-            "ae_safe_normalize_skipped",
-            Some(trace_id),
-            serde_json::json!({
-                "path": final_path,
-                "reason": "preference_disabled",
-            }),
-        );
-        final_path
-    };
-
-    cleanup_residual_audio_artifacts(&normalized_path);
+    cleanup_residual_audio_artifacts(&final_path);
 
     let result = DownloadResult {
         trace_id: trace_id.to_string(),
         success: true,
-        file_path: Some(normalized_path.clone()),
+        file_path: Some(final_path.clone()),
         error: None,
     };
     let _ = app.emit("video-download-complete", result.clone());
@@ -3367,10 +3541,7 @@ async fn finalize_ytdlp_success(
     );
     clear_runtime_progress_log_state(trace_id);
 
-    let app_for_ae = app.clone();
-    tokio::spawn(async move {
-        let _ = send_to_ae(app_for_ae, normalized_path).await;
-    });
+    handle_completed_video_source(app, trace_id, preferred_label, final_path.as_str()).await;
 
     result
 }
@@ -4163,6 +4334,120 @@ fn emit_video_queue_state(
     let _ = app.emit("video-queue-detail", detail_payload);
 }
 
+fn lock_mutex_or_recover<'a, T>(mutex: &'a Mutex<T>, context: &str) -> MutexGuard<'a, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            println!(
+                ">>> [Rust] Warning: Recovering poisoned mutex for {}",
+                context
+            );
+            poisoned.into_inner()
+        }
+    }
+}
+
+fn count_active_video_downloads() -> usize {
+    lock_mutex_or_recover(&VIDEO_TASK_QUEUE_STATE, "video task queue active count")
+        .active_trace_ids
+        .len()
+}
+
+fn count_pending_video_downloads() -> usize {
+    lock_mutex_or_recover(&VIDEO_TASK_QUEUE_STATE, "video task queue pending count")
+        .pending
+        .len()
+}
+
+fn has_blocking_video_downloads() -> bool {
+    count_active_video_downloads() > 0 || count_pending_video_downloads() > 0
+}
+
+fn video_transcode_task_total_count(state: &VideoTranscodeQueueState) -> usize {
+    state.pending.len() + usize::from(state.active.is_some()) + state.failed.len()
+}
+
+fn build_video_transcode_queue_count_payload(
+    state: &VideoTranscodeQueueState,
+) -> VideoTranscodeQueueCountPayload {
+    VideoTranscodeQueueCountPayload {
+        active_count: usize::from(state.active.is_some()),
+        pending_count: state.pending.len(),
+        failed_count: state.failed.len(),
+        total_count: video_transcode_task_total_count(state),
+        max_concurrent: MAX_CONCURRENT_VIDEO_TRANSCODES,
+    }
+}
+
+fn build_video_transcode_queue_detail_payload(
+    state: &VideoTranscodeQueueState,
+) -> VideoTranscodeQueueDetailPayload {
+    let mut tasks = Vec::with_capacity(video_transcode_task_total_count(state));
+
+    if let Some(task) = state.active.as_ref() {
+        tasks.push(task.detail_payload());
+    }
+
+    tasks.extend(state.pending.iter().map(VideoTranscodeTask::detail_payload));
+    tasks.extend(state.failed.iter().map(VideoTranscodeTask::detail_payload));
+
+    VideoTranscodeQueueDetailPayload { tasks }
+}
+
+fn emit_video_transcode_queue_state(
+    app: &AppHandle,
+    count_payload: VideoTranscodeQueueCountPayload,
+    detail_payload: VideoTranscodeQueueDetailPayload,
+) {
+    println!(
+        ">>> [Rust] Video transcode queue updated: active={}, pending={}, failed={}, total={}, max={}",
+        count_payload.active_count,
+        count_payload.pending_count,
+        count_payload.failed_count,
+        count_payload.total_count,
+        count_payload.max_concurrent
+    );
+    let _ = app.emit("video-transcode-queue-count", count_payload);
+    let _ = app.emit("video-transcode-queue-detail", detail_payload);
+}
+
+fn spawn_send_to_ae(app: &AppHandle, file_path: String) {
+    let app_for_ae = app.clone();
+    tokio::spawn(async move {
+        let _ = send_to_ae(app_for_ae, file_path).await;
+    });
+}
+
+fn derive_transcode_task_label(
+    preferred_label: Option<&str>,
+    source_path: &str,
+    trace_id: &str,
+) -> String {
+    let preferred = preferred_label
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(label) = preferred {
+        return label;
+    }
+
+    let path = Path::new(source_path);
+    path.file_stem()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| trace_id.to_string())
+}
+
+fn infer_media_format_from_path(path: &Path) -> Option<String> {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+}
+
 fn mark_video_task_active(app: &AppHandle, task: QueuedVideoTask) {
     let (count_payload, detail_payload) = {
         let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
@@ -4189,6 +4474,8 @@ fn mark_video_task_complete(app: &AppHandle, trace_id: &str) {
         )
     };
     emit_video_queue_state(app, count_payload, detail_payload);
+    schedule_video_task_queue_pump(app.clone());
+    schedule_video_transcode_queue_pump(app.clone());
 }
 
 fn enqueue_video_task(app: &AppHandle, task: QueuedVideoTask) {
@@ -4289,6 +4576,357 @@ fn remove_pending_video_task(app: &AppHandle, trace_id: &str) -> bool {
         true
     } else {
         false
+    }
+}
+
+fn enqueue_video_transcode_task(app: &AppHandle, task: VideoTranscodeTask) {
+    let queued_payload = task.detail_payload();
+    let payloads = {
+        let mut state =
+            lock_mutex_or_recover(&VIDEO_TRANSCODE_QUEUE_STATE, "transcode queue enqueue");
+        let already_present = state
+            .pending
+            .iter()
+            .any(|existing| existing.trace_id == task.trace_id)
+            || state
+                .active
+                .as_ref()
+                .map(|existing| existing.trace_id == task.trace_id)
+                .unwrap_or(false)
+            || state
+                .failed
+                .iter()
+                .any(|existing| existing.trace_id == task.trace_id);
+        if already_present {
+            None
+        } else {
+            state.pending.push_back(task);
+            Some((
+                build_video_transcode_queue_count_payload(&state),
+                build_video_transcode_queue_detail_payload(&state),
+            ))
+        }
+    };
+
+    if let Some((count_payload, detail_payload)) = payloads {
+        emit_video_transcode_queue_state(app, count_payload, detail_payload);
+        let _ = app.emit("video-transcode-queued", queued_payload.clone());
+        append_runtime_log_event(
+            "transcode",
+            "queued",
+            Some(queued_payload.trace_id.as_str()),
+            serde_json::json!({
+                "label": queued_payload.label,
+                "sourcePath": queued_payload.source_path,
+                "sourceFormat": queued_payload.source_format,
+                "targetFormat": queued_payload.target_format,
+            }),
+        );
+    }
+}
+
+fn schedule_video_transcode_queue_pump(app: AppHandle) {
+    let should_spawn = {
+        let mut state =
+            lock_mutex_or_recover(&VIDEO_TRANSCODE_QUEUE_STATE, "transcode queue schedule");
+        if state.pump_scheduled {
+            false
+        } else {
+            state.pump_scheduled = true;
+            true
+        }
+    };
+
+    if should_spawn {
+        tokio::spawn(async move {
+            process_video_transcode_queue(app).await;
+        });
+    }
+}
+
+fn try_start_next_video_transcode_task(app: &AppHandle) -> Option<VideoTranscodeTask> {
+    let queued = {
+        let mut state =
+            lock_mutex_or_recover(&VIDEO_TRANSCODE_QUEUE_STATE, "transcode queue start");
+        if state.pending.is_empty() || state.active.is_some() || has_blocking_video_downloads() {
+            state.pump_scheduled = false;
+            None
+        } else {
+            let mut task = state.pending.pop_front()?;
+            task.status = VideoTranscodeTaskStatus::Active;
+            task.stage = None;
+            task.progress_percent = None;
+            task.error = None;
+            state.active = Some(task.clone());
+            Some((
+                task,
+                build_video_transcode_queue_count_payload(&state),
+                build_video_transcode_queue_detail_payload(&state),
+            ))
+        }
+    };
+
+    if let Some((task, count_payload, detail_payload)) = queued {
+        emit_video_transcode_queue_state(app, count_payload, detail_payload);
+        Some(task)
+    } else {
+        None
+    }
+}
+
+fn set_active_video_transcode_stage(
+    app: &AppHandle,
+    trace_id: &str,
+    stage: VideoTranscodeStage,
+    progress_percent: Option<f32>,
+    status_text: &str,
+) {
+    let updated = {
+        let mut state =
+            lock_mutex_or_recover(&VIDEO_TRANSCODE_QUEUE_STATE, "transcode queue progress");
+        if let Some(active) = state
+            .active
+            .as_mut()
+            .filter(|task| task.trace_id == trace_id)
+        {
+            active.status = VideoTranscodeTaskStatus::Active;
+            active.stage = Some(stage);
+            active.progress_percent = progress_percent;
+            active.error = None;
+            let payload = active.detail_payload();
+            Some((
+                payload,
+                build_video_transcode_queue_count_payload(&state),
+                build_video_transcode_queue_detail_payload(&state),
+            ))
+        } else {
+            None
+        }
+    };
+
+    if let Some((payload, count_payload, detail_payload)) = updated {
+        emit_video_transcode_queue_state(app, count_payload, detail_payload);
+        let _ = app.emit("video-transcode-progress", payload);
+        append_runtime_log_event(
+            "transcode",
+            "progress",
+            Some(trace_id),
+            serde_json::json!({
+                "stage": stage,
+                "progressPercent": progress_percent,
+                "status": sanitize_runtime_text(status_text),
+            }),
+        );
+    }
+}
+
+fn mark_video_transcode_complete(
+    app: &AppHandle,
+    trace_id: &str,
+    final_path: String,
+) -> Option<VideoTranscodeCompletePayload> {
+    let completed = {
+        let mut state =
+            lock_mutex_or_recover(&VIDEO_TRANSCODE_QUEUE_STATE, "transcode queue complete");
+        let active = state
+            .active
+            .take()
+            .filter(|task| task.trace_id == trace_id)?;
+        let completion_payload = VideoTranscodeCompletePayload {
+            trace_id: active.trace_id.clone(),
+            label: active.label.clone(),
+            source_path: active.source_path.clone(),
+            file_path: final_path,
+            source_format: active.source_format.clone(),
+            target_format: active.target_format.clone(),
+        };
+        Some((
+            completion_payload,
+            build_video_transcode_queue_count_payload(&state),
+            build_video_transcode_queue_detail_payload(&state),
+        ))
+    };
+
+    if let Some((payload, count_payload, detail_payload)) = completed {
+        emit_video_transcode_queue_state(app, count_payload, detail_payload);
+        let _ = app.emit("video-transcode-complete", payload.clone());
+        append_runtime_log_event(
+            "transcode",
+            "complete",
+            Some(trace_id),
+            serde_json::json!({
+                "label": payload.label.clone(),
+                "sourcePath": payload.source_path.clone(),
+                "filePath": payload.file_path.clone(),
+                "sourceFormat": payload.source_format.clone(),
+                "targetFormat": payload.target_format.clone(),
+            }),
+        );
+        Some(payload)
+    } else {
+        None
+    }
+}
+
+fn mark_video_transcode_failed(
+    app: &AppHandle,
+    trace_id: &str,
+    error: String,
+) -> Option<VideoTranscodeTaskPayload> {
+    let failed = {
+        let mut state = lock_mutex_or_recover(&VIDEO_TRANSCODE_QUEUE_STATE, "transcode queue fail");
+        let mut active = state
+            .active
+            .take()
+            .filter(|task| task.trace_id == trace_id)?;
+        active.status = VideoTranscodeTaskStatus::Failed;
+        active.stage = Some(VideoTranscodeStage::Failed);
+        active.progress_percent = None;
+        active.error = Some(error);
+        state.failed.push_back(active.clone());
+        Some((
+            active.detail_payload(),
+            build_video_transcode_queue_count_payload(&state),
+            build_video_transcode_queue_detail_payload(&state),
+        ))
+    };
+
+    if let Some((payload, count_payload, detail_payload)) = failed {
+        emit_video_transcode_queue_state(app, count_payload, detail_payload);
+        let _ = app.emit("video-transcode-failed", payload.clone());
+        append_runtime_log_event(
+            "transcode",
+            "failed",
+            Some(trace_id),
+            serde_json::json!({
+                "label": payload.label.clone(),
+                "sourcePath": payload.source_path.clone(),
+                "sourceFormat": payload.source_format.clone(),
+                "targetFormat": payload.target_format.clone(),
+                "error": payload.error.clone(),
+            }),
+        );
+        Some(payload)
+    } else {
+        None
+    }
+}
+
+fn retry_failed_video_transcode_task(app: &AppHandle, trace_id: &str) -> Result<bool, String> {
+    let retried = {
+        let mut state =
+            lock_mutex_or_recover(&VIDEO_TRANSCODE_QUEUE_STATE, "transcode queue retry");
+        let index = state
+            .failed
+            .iter()
+            .position(|task| task.trace_id == trace_id);
+        let Some(index) = index else {
+            return Ok(false);
+        };
+        let mut task = state
+            .failed
+            .remove(index)
+            .ok_or_else(|| format!("Failed to remove transcode task for retry: {}", trace_id))?;
+        if !Path::new(task.source_path.as_str()).exists() {
+            state.failed.insert(index, task);
+            return Err(format!(
+                "Cannot retry transcode because the local source file is missing: {}",
+                trace_id
+            ));
+        }
+        task.status = VideoTranscodeTaskStatus::Pending;
+        task.stage = None;
+        task.progress_percent = None;
+        task.error = None;
+        state.pending.push_front(task.clone());
+        (
+            task.detail_payload(),
+            build_video_transcode_queue_count_payload(&state),
+            build_video_transcode_queue_detail_payload(&state),
+        )
+    };
+
+    let (payload, count_payload, detail_payload) = retried;
+    emit_video_transcode_queue_state(app, count_payload, detail_payload);
+    let _ = app.emit("video-transcode-retried", payload.clone());
+    append_runtime_log_event(
+        "transcode",
+        "retried",
+        Some(trace_id),
+        serde_json::json!({
+            "label": payload.label,
+            "sourcePath": payload.source_path,
+            "sourceFormat": payload.source_format,
+            "targetFormat": payload.target_format,
+        }),
+    );
+    schedule_video_transcode_queue_pump(app.clone());
+    Ok(true)
+}
+
+fn remove_failed_video_transcode_task(app: &AppHandle, trace_id: &str) -> bool {
+    let removed = {
+        let mut state =
+            lock_mutex_or_recover(&VIDEO_TRANSCODE_QUEUE_STATE, "transcode queue remove");
+        let index = state
+            .failed
+            .iter()
+            .position(|task| task.trace_id == trace_id);
+        let Some(index) = index else {
+            return false;
+        };
+        let task = state.failed.remove(index);
+        task.map(|task| {
+            (
+                task.detail_payload(),
+                build_video_transcode_queue_count_payload(&state),
+                build_video_transcode_queue_detail_payload(&state),
+            )
+        })
+    };
+
+    if let Some((payload, count_payload, detail_payload)) = removed {
+        emit_video_transcode_queue_state(app, count_payload, detail_payload);
+        let _ = app.emit("video-transcode-removed", payload.clone());
+        append_runtime_log_event(
+            "transcode",
+            "removed",
+            Some(trace_id),
+            serde_json::json!({
+                "label": payload.label,
+                "sourcePath": payload.source_path,
+                "sourceFormat": payload.source_format,
+                "targetFormat": payload.target_format,
+            }),
+        );
+        true
+    } else {
+        false
+    }
+}
+
+async fn execute_video_transcode_task(
+    app: AppHandle,
+    task: VideoTranscodeTask,
+) -> Result<String, String> {
+    normalize_video_output_for_ae(&app, Path::new(&task.source_path), task.trace_id.as_str()).await
+}
+
+async fn process_video_transcode_queue(app: AppHandle) {
+    while let Some(task) = try_start_next_video_transcode_task(&app) {
+        let trace_id = task.trace_id.clone();
+        match execute_video_transcode_task(app.clone(), task).await {
+            Ok(final_path) => {
+                if let Some(payload) =
+                    mark_video_transcode_complete(&app, trace_id.as_str(), final_path.clone())
+                {
+                    spawn_send_to_ae(&app, payload.file_path);
+                }
+            }
+            Err(err) => {
+                let _ = mark_video_transcode_failed(&app, trace_id.as_str(), err);
+            }
+        }
     }
 }
 
@@ -4809,7 +5447,9 @@ async fn download_pinterest_video(
     };
 
     let resolved_title = title
+        .as_deref()
         .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
         .or_else(|| resolved.title.clone());
     let prefer_hint_video = hinted_video_url.as_deref().is_some_and(|video_url| {
         !used_hint_only_fallback
@@ -5160,12 +5800,13 @@ async fn download_pinterest_video(
                                 }),
                             );
                             clear_runtime_progress_log_state(trace_id.as_str());
-
-                            let app_for_ae = app.clone();
-                            let file_path_for_ae = result.file_path.clone().unwrap_or_default();
-                            tokio::spawn(async move {
-                                let _ = send_to_ae(app_for_ae, file_path_for_ae).await;
-                            });
+                            handle_completed_video_source(
+                                &app,
+                                trace_id.as_str(),
+                                resolved_title.as_deref().or(title.as_deref()),
+                                file_path.as_str(),
+                            )
+                            .await;
 
                             return Ok(result);
                         }
@@ -5362,6 +6003,7 @@ async fn download_video_internal(
                         &app,
                         trace_id.as_str(),
                         file_path,
+                        source_title.as_deref(),
                         ae_friendly_conversion_enabled,
                     )
                     .await;
@@ -5804,6 +6446,7 @@ async fn download_video_internal(
                             &app,
                             trace_id.as_str(),
                             path.clone(),
+                            source_title.as_deref(),
                             ae_friendly_conversion_enabled,
                         )
                         .await;
@@ -6271,6 +6914,26 @@ async fn cancel_download(app: AppHandle, trace_id: String) -> Result<bool, Strin
 
     // 3. 清理临时文件
     Ok(true)
+}
+
+#[tauri::command]
+async fn retry_transcode(app: AppHandle, trace_id: String) -> Result<bool, String> {
+    let target_trace_id = trace_id.trim();
+    if target_trace_id.is_empty() {
+        return Ok(false);
+    }
+
+    retry_failed_video_transcode_task(&app, target_trace_id)
+}
+
+#[tauri::command]
+async fn remove_transcode(app: AppHandle, trace_id: String) -> Result<bool, String> {
+    let target_trace_id = trace_id.trim();
+    if target_trace_id.is_empty() {
+        return Ok(false);
+    }
+
+    Ok(remove_failed_video_transcode_task(&app, target_trace_id))
 }
 
 /// Get browser cookies database path (Windows)
@@ -8158,12 +8821,13 @@ async fn download_video_direct(
         }),
     );
     clear_runtime_progress_log_state(result.trace_id.as_str());
-
-    // AE Portal
-    let app_for_ae = app.clone();
-    tokio::spawn(async move {
-        let _ = send_to_ae(app_for_ae, file_path).await;
-    });
+    handle_completed_video_source(
+        &app,
+        result.trace_id.as_str(),
+        title.as_deref(),
+        file_path.as_str(),
+    )
+    .await;
 
     Ok(result)
 }
@@ -11190,6 +11854,8 @@ pub fn run() {
             download_video,
             queue_video_download,
             cancel_download,
+            retry_transcode,
+            remove_transcode,
             send_to_ae,
             check_ytdlp_version,
             get_pinterest_downloader_info,
