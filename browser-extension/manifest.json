@@ -5,6 +5,12 @@
   "description": "Pick video elements from web pages for FlowSelect",
   "permissions": ["activeTab", "scripting", "cookies", "storage"],
   "host_permissions": ["<all_urls>"],
+  "web_accessible_resources": [
+    {
+      "resources": ["locales/*/*.json"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -28,13 +34,13 @@
     },
     {
       "matches": ["https://www.youtube.com/*", "https://youtube.com/*"],
-      "js": ["youtube-detector.js"],
+      "js": ["locale-utils.js", "youtube-detector.js"],
       "css": ["flowselect-shared.css", "youtube-button.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.bilibili.com/*", "https://bilibili.com/*"],
-      "js": ["control-style-utils.js", "bilibili-detector.js"],
+      "js": ["locale-utils.js", "control-style-utils.js", "bilibili-detector.js"],
       "css": ["flowselect-shared.css", "bilibili-button.css"],
       "run_at": "document_idle"
     },

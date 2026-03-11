@@ -20,6 +20,14 @@
     endSec: null,
   };
   const controlStyleUtils = window.FlowSelectControlStyleUtils || null;
+  const localeUtils = window.FlowSelectLocaleUtils || null;
+  const FALLBACK_LANGUAGE = localeUtils?.FALLBACK_LANGUAGE || 'en';
+  let currentBundle = {
+    language: FALLBACK_LANGUAGE,
+    common: {},
+    extension: {},
+    _namespaces: ['extension', 'common'],
+  };
 
   const CAT_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" fill-rule="evenodd" d="M11.75 6.406c-1.48 0-1.628.157-2.394.157C8.718 6.563 6.802 5 5.845 5S3.77 5.563 3.77 7.188v1.875c.002.492.18 2 .88 1.597c-.827.978-.91 2.119-.899 3.223c-.223.064-.45.137-.671.212c-.684.234-1.41.532-1.737.744a.75.75 0 0 0 .814 1.26c.156-.101.721-.35 1.408-.585l.228-.075c.046.433.161.83.332 1.19l-.024.013c-.41.216-.79.465-1.032.623l-.113.074a.75.75 0 1 0 .814 1.26l.131-.086c.245-.16.559-.365.901-.545q.12-.064.231-.116C6.763 19.475 9.87 20 11.75 20s4.987-.525 6.717-2.148q.11.052.231.116c.342.18.656.385.901.545l.131.086a.75.75 0 0 0 .814-1.26l-.113-.074a13 13 0 0 0-1.032-.623l-.024-.013c.171-.36.286-.757.332-1.19l.228.075c.687.235 1.252.484 1.409.585a.75.75 0 0 0 .813-1.26c-.327-.212-1.053-.51-1.736-.744a16 16 0 0 0-.672-.213c.012-1.104-.072-2.244-.9-3.222c.7.403.88-1.105.881-1.598V7.188C19.73 5.563 18.613 5 17.655 5c-.957 0-2.873 1.563-3.51 1.563c-.767 0-.915-.157-2.395-.157m-.675 9.194c.202-.069.441-.1.675-.1s.473.031.676.1c.1.034.22.088.328.174a.62.62 0 0 1 .246.476c0 .23-.139.39-.246.476s-.229.14-.328.174c-.203.069-.442.1-.676.1s-.473-.031-.675-.1a1.1 1.1 0 0 1-.329-.174a.62.62 0 0 1-.246-.476c0-.23.139-.39.246-.476s.23-.14.329-.174m2.845-3.1c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812m-5.96 0c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812" clip-rule="evenodd"/>
@@ -104,6 +112,48 @@
 
   function notify(message) {
     window.alert(message);
+  }
+
+  function t(key, fallback) {
+    return localeUtils?.translate(currentBundle, key, fallback) || fallback || key;
+  }
+
+  function tt(key, values, fallback) {
+    return localeUtils?.translateTemplate(currentBundle, key, values, fallback) || fallback || key;
+  }
+
+  async function applyLanguage(nextLanguage) {
+    if (!localeUtils?.loadLocaleBundle) {
+      return;
+    }
+
+    currentBundle = await localeUtils.loadLocaleBundle(nextLanguage);
+    refreshLocalizedUi();
+  }
+
+  function setButtonTitle(button, title) {
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+
+    button.title = title;
+    button.setAttribute('aria-label', title);
+  }
+
+  function updateStaticControlLabels() {
+    const screenshotBtn = document.querySelector('.flowselect-bilibili-screenshot-btn');
+    setButtonTitle(
+      screenshotBtn,
+      t('injected.playerControls.buttons.screenshot', 'Screenshot'),
+    );
+  }
+
+  function refreshLocalizedUi() {
+    updateStaticControlLabels();
+    updateClipButtonsState();
+    if (document.getElementById(SCREENSHOT_PANEL_ID)) {
+      renderScreenshotPanel();
+    }
   }
 
   function detectVideoPlayer() {
@@ -202,22 +252,45 @@
 
   function getClipPointButtonTitle(pointLabel, seconds) {
     if (seconds == null) {
-      return `Set ${pointLabel} point`;
+      return pointLabel === 'IN'
+        ? t('injected.playerControls.buttons.setIn', 'Set IN point')
+        : t('injected.playerControls.buttons.setOut', 'Set OUT point');
     }
 
-    return `${pointLabel}: ${formatPlaybackTime(seconds)} (right-click to clear)`;
+    const formattedTime = formatPlaybackTime(seconds);
+    return pointLabel === 'IN'
+      ? tt(
+        'injected.playerControls.clip.inSelected',
+        { time: formattedTime },
+        `IN: ${formattedTime} (right-click to clear)`,
+      )
+      : tt(
+        'injected.playerControls.clip.outSelected',
+        { time: formattedTime },
+        `OUT: ${formattedTime} (right-click to clear)`,
+      );
   }
 
   function sendVideoSelectedMessage(payload) {
     chrome.runtime.sendMessage(payload, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[FlowSelect Bilibili] Failed to contact background:', chrome.runtime.lastError.message);
-        notify('FlowSelect extension background is unavailable. Please reload extension.');
+        notify(
+          t(
+            'injected.playerControls.alerts.backgroundUnavailable',
+            'FlowSelect extension background is unavailable. Please reload the extension.',
+          ),
+        );
         return;
       }
 
       if (!response?.success) {
-        notify('FlowSelect desktop app is not connected. Please open FlowSelect and try again.');
+        notify(
+          t(
+            'injected.playerControls.alerts.desktopUnavailable',
+            'FlowSelect desktop app is not connected. Please open FlowSelect and try again.',
+          ),
+        );
       }
     });
   }
@@ -254,39 +327,51 @@
 
     if (clipState.startSec == null) {
       inBtn.removeAttribute('data-selected');
-      inBtn.title = getClipPointButtonTitle('IN', null);
-      inBtn.setAttribute('aria-label', inBtn.title);
+      setButtonTitle(inBtn, getClipPointButtonTitle('IN', null));
     } else {
       inBtn.setAttribute('data-selected', 'true');
-      inBtn.title = getClipPointButtonTitle('IN', clipState.startSec);
-      inBtn.setAttribute('aria-label', inBtn.title);
+      setButtonTitle(inBtn, getClipPointButtonTitle('IN', clipState.startSec));
     }
 
     if (clipState.endSec == null) {
       outBtn.removeAttribute('data-selected');
-      outBtn.title = getClipPointButtonTitle('OUT', null);
-      outBtn.setAttribute('aria-label', outBtn.title);
+      setButtonTitle(outBtn, getClipPointButtonTitle('OUT', null));
     } else {
       outBtn.setAttribute('data-selected', 'true');
-      outBtn.title = getClipPointButtonTitle('OUT', clipState.endSec);
-      outBtn.setAttribute('aria-label', outBtn.title);
+      setButtonTitle(outBtn, getClipPointButtonTitle('OUT', clipState.endSec));
     }
 
     if (hasValidClipRange()) {
       fullBtn.setAttribute('data-clip-ready', 'true');
-      fullBtn.title = `Download clip ${formatPlaybackTime(clipState.startSec)} -> ${formatPlaybackTime(clipState.endSec)}`;
-      fullBtn.setAttribute('aria-label', fullBtn.title);
+      setButtonTitle(
+        fullBtn,
+        tt(
+          'injected.playerControls.clip.downloadSelection',
+          {
+            start: formatPlaybackTime(clipState.startSec),
+            end: formatPlaybackTime(clipState.endSec),
+          },
+          `Download clip ${formatPlaybackTime(clipState.startSec)} -> ${formatPlaybackTime(clipState.endSec)}`,
+        ),
+      );
     } else {
       fullBtn.removeAttribute('data-clip-ready');
-      fullBtn.title = 'Download with FlowSelect';
-      fullBtn.setAttribute('aria-label', 'Download with FlowSelect');
+      setButtonTitle(
+        fullBtn,
+        t('injected.playerControls.buttons.download', 'Download with FlowSelect'),
+      );
     }
   }
 
   function setInPoint() {
     const current = getCurrentPlaybackSeconds();
     if (current == null) {
-      notify('Unable to read current playback time.');
+      notify(
+        t(
+          'injected.playerControls.alerts.playbackTimeUnavailable',
+          'Unable to read current playback time.',
+        ),
+      );
       return;
     }
 
@@ -297,7 +382,12 @@
   function setOutPoint() {
     const current = getCurrentPlaybackSeconds();
     if (current == null) {
-      notify('Unable to read current playback time.');
+      notify(
+        t(
+          'injected.playerControls.alerts.playbackTimeUnavailable',
+          'Unable to read current playback time.',
+        ),
+      );
       return;
     }
 
@@ -312,12 +402,22 @@
     const endSec = clipState.endSec;
 
     if (startSec == null || endSec == null) {
-      notify('Please set both IN and OUT points first.');
+      notify(
+        t(
+          'injected.playerControls.alerts.clipPointsRequired',
+          'Please set both IN and OUT points first.',
+        ),
+      );
       return;
     }
 
     if (endSec <= startSec) {
-      notify('OUT must be later than IN.');
+      notify(
+        t(
+          'injected.playerControls.alerts.clipRangeInvalid',
+          'OUT must be later than IN.',
+        ),
+      );
       return;
     }
 
@@ -346,21 +446,21 @@
     const nativeBaseClass = resolvedNativeBaseClass || getNativeControlButtonBaseClass(container);
     const screenshotButton = createControlButton({
       className: 'flowselect-bilibili-screenshot-btn',
-      title: 'Screenshot',
+      title: t('injected.playerControls.buttons.screenshot', 'Screenshot'),
       icon: CAMERA_ICON_SVG,
       nativeBaseClass,
       onClick: takeScreenshot,
     });
     const downloadButton = createControlButton({
       className: 'flowselect-bilibili-btn',
-      title: 'Download with FlowSelect',
+      title: t('injected.playerControls.buttons.download', 'Download with FlowSelect'),
       icon: CAT_ICON_SVG,
       nativeBaseClass,
       onClick: handlePrimaryDownload,
     });
     const inButton = createControlButton({
       className: 'flowselect-bilibili-set-in-btn',
-      title: 'Set IN point',
+      title: t('injected.playerControls.buttons.setIn', 'Set IN point'),
       icon: CLIP_POINT_ICON_SVG,
       nativeBaseClass,
       onClick: setInPoint,
@@ -368,7 +468,7 @@
     });
     const outButton = createControlButton({
       className: 'flowselect-bilibili-set-out-btn',
-      title: 'Set OUT point',
+      title: t('injected.playerControls.buttons.setOut', 'Set OUT point'),
       icon: CLIP_POINT_ICON_SVG,
       nativeBaseClass,
       onClick: setOutPoint,
@@ -546,17 +646,17 @@
     timestamp.textContent = screenshot.playbackLabel;
 
     const saveButton = createOverlayActionButton({
-      title: '保存',
+      title: t('injected.playerControls.overlayActions.save', 'Save'),
       icon: SCREENSHOT_SAVE_ICON_SVG,
       onClick: () => saveScreenshot(screenshot),
     });
     const copyButton = createOverlayActionButton({
-      title: '复制',
+      title: t('injected.playerControls.overlayActions.copy', 'Copy'),
       icon: SCREENSHOT_COPY_ICON_SVG,
       onClick: () => copyScreenshot(screenshot, copyButton),
     });
     const deleteButton = createOverlayActionButton({
-      title: '删除',
+      title: t('injected.playerControls.overlayActions.delete', 'Delete'),
       icon: SCREENSHOT_DELETE_ICON_SVG,
       onClick: () => removeScreenshot(screenshot.id),
     });
@@ -595,20 +695,29 @@
   async function takeScreenshot() {
     const video = getActiveVideoElement();
     if (!(video instanceof HTMLVideoElement)) {
-      window.alert('未找到可截图的视频元素');
+      notify(
+        t(
+          'injected.playerControls.alerts.videoElementUnavailable',
+          'Unable to locate a video element.',
+        ),
+      );
       return;
     }
 
     try {
       const screenshot = await captureVideoFrame(video);
       if (!screenshot) {
-        window.alert('截图失败，请稍后重试');
+        notify(
+          t('injected.playerControls.alerts.screenshotFailed', 'Screenshot failed. Please try again.'),
+        );
         return;
       }
       addScreenshot(screenshot);
     } catch (error) {
       console.error('[FlowSelect Bilibili] Screenshot failed:', error);
-      window.alert('截图失败，请稍后重试');
+      notify(
+        t('injected.playerControls.alerts.screenshotFailed', 'Screenshot failed. Please try again.'),
+      );
     }
   }
 
@@ -752,7 +861,12 @@
   async function copyScreenshot(screenshot, button) {
     const clipboardItem = window.ClipboardItem;
     if (!navigator.clipboard?.write || typeof clipboardItem === 'undefined') {
-      window.alert('当前浏览器不支持复制图片');
+      notify(
+        t(
+          'injected.playerControls.alerts.copyUnsupported',
+          'Current browser does not support image copy.',
+        ),
+      );
       return;
     }
 
@@ -760,10 +874,11 @@
       await navigator.clipboard.write([new clipboardItem({
         [screenshot.blob.type]: screenshot.blob,
       })]);
-      const defaultLabel = '复制';
+      const defaultLabel = t('injected.playerControls.overlayActions.copy', 'Copy');
+      const copiedLabel = t('injected.playerControls.overlayActions.copied', 'Copied');
       button.dataset.copied = 'true';
-      button.title = '已复制';
-      button.setAttribute('aria-label', '已复制');
+      button.title = copiedLabel;
+      button.setAttribute('aria-label', copiedLabel);
       button.innerHTML = SCREENSHOT_COPIED_ICON_SVG;
       window.setTimeout(() => {
         button.dataset.copied = 'false';
@@ -773,7 +888,12 @@
       }, 1200);
     } catch (error) {
       console.error('[FlowSelect Bilibili] Copy screenshot failed:', error);
-      window.alert('复制失败，请检查浏览器权限');
+      notify(
+        t(
+          'injected.playerControls.alerts.copyFailed',
+          'Copy failed. Please check clipboard permission.',
+        ),
+      );
     }
   }
 
@@ -865,8 +985,27 @@
     }
   }
 
-  function init() {
+  if (chrome?.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type !== 'language_update') {
+        return;
+      }
+
+      const nextLanguage = localeUtils?.normalizeAppLanguage?.(message.language);
+      if (nextLanguage) {
+        void applyLanguage(nextLanguage);
+      }
+    });
+  }
+
+  async function init() {
     console.log('[FlowSelect Bilibili] Detector initialized');
+
+    if (localeUtils?.resolveCurrentLanguage) {
+      const initialLanguage = await localeUtils.resolveCurrentLanguage(navigator.language);
+      await applyLanguage(initialLanguage);
+    }
+
     detectVideoPlayer();
     observer.observe(document.body, { childList: true, subtree: true });
     window.setInterval(checkUrlChange, 500);
@@ -874,8 +1013,10 @@
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => {
+      void init();
+    });
   } else {
-    init();
+    void init();
   }
 })();

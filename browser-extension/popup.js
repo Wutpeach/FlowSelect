@@ -1,8 +1,8 @@
 // FlowSelect Browser Extension - Popup Script
 
 const directDownloadQuality = window.FlowSelectDirectDownloadQuality;
-const FALLBACK_LANGUAGE = "en";
-const LANGUAGE_STORAGE_KEY = "flowselectCurrentLanguage";
+const localeUtils = window.FlowSelectLocaleUtils;
+const FALLBACK_LANGUAGE = localeUtils?.FALLBACK_LANGUAGE || "en";
 const STATUS_STATE_CONNECTED = "connected";
 const STATUS_STATE_CONNECTING = "connecting";
 const STATUS_STATE_OFFLINE = "offline";
@@ -10,55 +10,6 @@ const STATUS_STATE_OFFLINE = "offline";
 function applyTheme(theme) {
   document.body.classList.toggle("flowselect-theme-white", theme === "white");
   document.body.classList.toggle("flowselect-theme-black", theme !== "white");
-}
-
-function isEnglishVariant(normalized) {
-  return normalized === "en" || normalized.startsWith("en-");
-}
-
-function isChineseVariant(normalized) {
-  return normalized === "zh" || normalized.startsWith("zh-");
-}
-
-function normalizeAppLanguage(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalized = value.trim().replace(/_/g, "-").toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-
-  if (isEnglishVariant(normalized)) {
-    return "en";
-  }
-
-  if (isChineseVariant(normalized)) {
-    return "zh-CN";
-  }
-
-  return null;
-}
-
-function resolvePreferredLanguage(cachedLanguage, navigatorLanguage) {
-  return (
-    normalizeAppLanguage(cachedLanguage) ||
-    normalizeAppLanguage(navigatorLanguage) ||
-    FALLBACK_LANGUAGE
-  );
-}
-
-function storageGet(keys) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.get(keys, (result) => {
-      if (chrome.runtime?.lastError) {
-        reject(chrome.runtime.lastError);
-        return;
-      }
-      resolve(result);
-    });
-  });
 }
 
 function sendRuntimeMessage(message) {
@@ -76,87 +27,6 @@ function sendRuntimeMessage(message) {
       resolve(null);
     }
   });
-}
-
-async function getCachedLanguage() {
-  if (!chrome?.storage?.local) {
-    return null;
-  }
-
-  try {
-    const result = await storageGet(LANGUAGE_STORAGE_KEY);
-    return normalizeAppLanguage(result?.[LANGUAGE_STORAGE_KEY]);
-  } catch (error) {
-    console.error("[FlowSelect] Failed to load cached popup language:", error);
-    return null;
-  }
-}
-
-async function loadLocaleNamespace(language, namespace) {
-  const url = chrome.runtime.getURL(`locales/${language}/${namespace}.json`);
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load locale namespace: ${namespace}`);
-  }
-
-  return response.json();
-}
-
-async function loadLocaleBundle(language) {
-  const normalizedLanguage = resolvePreferredLanguage(language, navigator.language);
-
-  try {
-    const [common, extension] = await Promise.all([
-      loadLocaleNamespace(normalizedLanguage, "common"),
-      loadLocaleNamespace(normalizedLanguage, "extension"),
-    ]);
-
-    return {
-      language: normalizedLanguage,
-      common,
-      extension,
-    };
-  } catch (error) {
-    console.error("[FlowSelect] Failed to load locale bundle:", error);
-
-    if (normalizedLanguage !== FALLBACK_LANGUAGE) {
-      return loadLocaleBundle(FALLBACK_LANGUAGE);
-    }
-
-    return {
-      language: FALLBACK_LANGUAGE,
-      common: {},
-      extension: {},
-    };
-  }
-}
-
-function readPath(source, path) {
-  if (!source || typeof source !== "object") {
-    return null;
-  }
-
-  const segments = path.split(".");
-  let current = source;
-
-  for (const segment of segments) {
-    if (!current || typeof current !== "object" || !(segment in current)) {
-      return null;
-    }
-    current = current[segment];
-  }
-
-  return typeof current === "string" ? current : null;
-}
-
-function translate(bundle, key, fallback = "") {
-  return (
-    readPath(bundle.extension, key) ||
-    readPath(bundle.common, key) ||
-    fallback ||
-    key
-  );
 }
 
 function normalizeConnectionState(response) {
@@ -207,7 +77,7 @@ document.addEventListener("DOMContentLoaded", () => {
     directDownloadQuality.DEFAULT_AE_FRIENDLY_CONVERSION_ENABLED;
 
   function t(key, fallback) {
-    return translate(currentBundle, key, fallback);
+    return localeUtils?.translate(currentBundle, key, fallback) || fallback || key;
   }
 
   function renderStaticCopy() {
@@ -306,7 +176,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function applyLanguage(nextLanguage) {
-    currentBundle = await loadLocaleBundle(nextLanguage);
+    currentBundle = await localeUtils.loadLocaleBundle(nextLanguage);
     document.documentElement.lang = currentBundle.language;
     renderStaticCopy();
     renderQualityOptions(currentQualityPreference);
@@ -315,14 +185,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function resolveInitialLanguage() {
-    const backgroundResponse = await sendRuntimeMessage({ type: "get_language" });
-    const backgroundLanguage = normalizeAppLanguage(backgroundResponse?.language);
-    if (backgroundLanguage) {
-      return backgroundLanguage;
-    }
-
-    const cachedLanguage = await getCachedLanguage();
-    return resolvePreferredLanguage(cachedLanguage, navigator.language);
+    return localeUtils.resolveCurrentLanguage(navigator.language);
   }
 
   chrome.runtime.onMessage.addListener((message) => {
@@ -337,7 +200,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (message.type === "language_update") {
-      const nextLanguage = normalizeAppLanguage(message.language);
+      const nextLanguage = localeUtils.normalizeAppLanguage(message.language);
       if (nextLanguage) {
         void applyLanguage(nextLanguage);
       }
