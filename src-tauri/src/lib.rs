@@ -445,6 +445,14 @@ impl YtdlpQualityPreference {
         }
     }
 
+    fn output_filename_quality_suffix(self) -> &'static str {
+        match self {
+            Self::Best => "highest",
+            Self::Balanced => "balanced",
+            Self::DataSaver => "data-saver",
+        }
+    }
+
     fn format_sort(self) -> Option<&'static str> {
         match self {
             // Preserve highest resolution preference, but for ties at the same practical
@@ -1554,6 +1562,13 @@ fn build_clip_range_ms_prefix(clip_range: &ClipTimeRange) -> String {
     let start_ms = clip_seconds_to_millis(clip_range.start_seconds);
     let end_ms = clip_seconds_to_millis(clip_range.end_seconds);
     format!("{}-{}", start_ms, end_ms)
+}
+
+fn build_non_rename_ytdlp_full_video_template(quality: YtdlpQualityPreference) -> String {
+    format!(
+        "%(title)s[%(width)sx%(height)s][{}].%(ext)s",
+        quality.output_filename_quality_suffix()
+    )
 }
 
 fn build_clip_title_file_path(
@@ -5346,7 +5361,7 @@ async fn download_video_internal(
         let prefix = build_clip_range_ms_prefix(range);
         output_dir.join(format!("{}_%(title)s.%(ext)s", prefix))
     } else {
-        output_dir.join("%(title)s.%(ext)s")
+        output_dir.join(build_non_rename_ytdlp_full_video_template(ytdlp_quality))
     };
 
     let ytdlp_temp_dir = std::env::temp_dir().join(YTDLP_TEMP_DIR_NAME);
@@ -5391,6 +5406,8 @@ async fn download_video_internal(
         "--print-to-file".to_string(),
         "after_move:filepath".to_string(),
         reported_output_path_file.to_string_lossy().to_string(),
+        "--output-na-placeholder".to_string(),
+        "unknown".to_string(),
         "-o".to_string(),
         output_template.to_string_lossy().to_string(),
     ];
@@ -11755,6 +11772,22 @@ mod tests {
         assert_eq!(
             capture_ytdlp_file_path(line),
             Some(r#"C:\Users\10\Downloads\sample.mkv"#.to_string())
+        );
+    }
+
+    #[test]
+    fn non_rename_ytdlp_full_video_template_includes_resolution_and_quality_suffix() {
+        assert_eq!(
+            build_non_rename_ytdlp_full_video_template(YtdlpQualityPreference::Best),
+            "%(title)s[%(width)sx%(height)s][highest].%(ext)s"
+        );
+        assert_eq!(
+            build_non_rename_ytdlp_full_video_template(YtdlpQualityPreference::Balanced),
+            "%(title)s[%(width)sx%(height)s][balanced].%(ext)s"
+        );
+        assert_eq!(
+            build_non_rename_ytdlp_full_video_template(YtdlpQualityPreference::DataSaver),
+            "%(title)s[%(width)sx%(height)s][data-saver].%(ext)s"
         );
     }
 }
