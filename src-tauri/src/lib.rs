@@ -612,9 +612,10 @@ const YTDLP_TEMP_DIR_NAME: &str = "flowselect-ytdlp-temp";
 const RUNTIME_LOG_FILE_NAME: &str = "runtime.log";
 const RUNTIME_LOG_ROTATED_FILE_NAME: &str = "runtime.log.1";
 const RUNTIME_LOG_MAX_BYTES: u64 = 512 * 1024;
-const RUNTIME_LOG_TAIL_LINE_LIMIT: usize = 180;
 const RUNTIME_LOG_PROGRESS_BUCKET_PERCENT: f32 = 5.0;
 const RUNTIME_LOG_PROGRESS_MIN_INTERVAL_MS: u128 = 1500;
+const SUPPORT_LOG_RUNTIME_EVIDENCE_LINE_LIMIT: usize = 24;
+const SUPPORT_LOG_TEXT_PREVIEW_LIMIT: usize = 220;
 // `best` should follow the highest tier available to the current account, even when
 // that requires mixed containers/codecs. We merge to mkv in that tier so yt-dlp can
 // keep 1440p/2160p streams instead of collapsing to MP4-compatible 1080p.
@@ -3631,7 +3632,7 @@ fn excerpt_runtime_lines(raw: &str, max_lines: usize) -> Vec<String> {
     lines
 }
 
-fn read_recent_runtime_log_excerpt(log_dir: &Path) -> String {
+fn read_runtime_log_lines(log_dir: &Path) -> Vec<String> {
     let mut lines = Vec::new();
 
     for path in [runtime_log_rotated_path(log_dir), runtime_log_path(log_dir)] {
@@ -3640,12 +3641,7 @@ fn read_recent_runtime_log_excerpt(log_dir: &Path) -> String {
         }
     }
 
-    if lines.is_empty() {
-        return "unavailable (runtime log not found)".to_string();
-    }
-
-    let start = lines.len().saturating_sub(RUNTIME_LOG_TAIL_LINE_LIMIT);
-    lines[start..].join("\n")
+    lines
 }
 
 fn next_download_trace_id() -> String {
@@ -8563,13 +8559,714 @@ async fn resolve_latest_ytdlp_version(app: &tauri::AppHandle) -> (Option<String>
     }
 }
 
-fn format_support_log_config(config_raw: &str) -> String {
-    match serde_json::from_str::<serde_json::Value>(config_raw) {
-        Ok(value) => {
-            serde_json::to_string_pretty(&value).unwrap_or_else(|_| config_raw.to_string())
-        }
-        Err(err) => format!("Invalid config JSON: {}\n\n{}", err, config_raw),
+fn support_log_unavailable(reason: &str) -> String {
+    format!("unavailable ({})", sanitize_support_log_field(reason))
+}
+
+fn sanitize_support_log_field(value: &str) -> String {
+    value.replace(['\r', '\n'], " ").trim().to_string()
+}
+
+fn summarize_support_log_text(value: &str, limit: usize) -> String {
+    let sanitized = sanitize_runtime_text(value);
+    let mut chars = sanitized.chars();
+    let preview: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_some() {
+        format!("{}...", preview)
+    } else {
+        preview
     }
+}
+
+fn support_log_optional_setting(value: Option<&str>) -> String {
+    value
+        .map(sanitize_support_log_field)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unset".to_string())
+}
+
+fn support_log_bool_value(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn default_flowselect_output_dir() -> PathBuf {
+    desktop_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("FlowSelect_Received")
+}
+
+fn resolve_support_log_output_path(
+    config: Option<&serde_json::Value>,
+    config_parse_error: Option<&str>,
+) -> String {
+    match config {
+        Some(config) => config
+            .get("outputPath")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(default_flowselect_output_dir)
+            .to_string_lossy()
+            .to_string(),
+        None => support_log_unavailable(config_parse_error.unwrap_or("invalid config JSON")),
+    }
+}
+
+fn summarize_support_log_file_path(raw: Option<&str>) -> Option<String> {
+    let sanitized = sanitize_support_log_field(raw?);
+    if sanitized.is_empty() {
+        return None;
+    }
+    Some(
+        Path::new(&sanitized)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(sanitize_support_log_field)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(sanitized),
+    )
+}
+
+fn push_support_log_detail(parts: &mut Vec<String>, key: &str, value: Option<String>) {
+    if let Some(value) = value.filter(|value| !value.is_empty()) {
+        parts.push(format!("{}={}", key, value));
+    }
+}
+
+fn build_support_log_runtime_line(
+    ts_ms: Option<u64>,
+    trace_id: Option<&str>,
+    kind: &str,
+    event: &str,
+    details: Vec<String>,
+) -> String {
+    let mut parts = Vec::with_capacity(details.len() + 4);
+    parts.push(format!(
+        "ts_ms={}",
+        ts_ms
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    ));
+    if let Some(trace_id) = trace_id.filter(|value| !value.is_empty()) {
+        parts.push(format!("trace_id={}", trace_id));
+    }
+    parts.push(format!("kind={}", kind));
+    parts.push(format!("event={}", event));
+    parts.extend(details);
+    parts.join(" ")
+}
+
+fn render_support_log_download_event(
+    ts_ms: Option<u64>,
+    trace_id: Option<&str>,
+    event: &str,
+    payload: Option<&serde_json::Value>,
+) -> Option<String> {
+    let null_payload = serde_json::Value::Null;
+    let payload = payload.unwrap_or(&null_payload);
+
+    match event {
+        "start" => {
+            let mode = payload.get("mode").and_then(|value| value.as_str())?;
+            let mut details = vec![format!("mode={}", sanitize_support_log_field(mode))];
+            push_support_log_detail(
+                &mut details,
+                "platform",
+                payload
+                    .get("platform")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "url",
+                payload
+                    .get("url")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "page_url",
+                payload
+                    .get("pageUrl")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "pin_id",
+                payload
+                    .get("pinId")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "quality",
+                payload
+                    .get("quality")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "clip_mode",
+                payload
+                    .get("clipMode")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "has_clip_range",
+                payload
+                    .get("hasClipRange")
+                    .and_then(|value| value.as_bool())
+                    .map(|value| support_log_bool_value(value).to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "rename_enabled",
+                payload
+                    .get("renameEnabled")
+                    .and_then(|value| value.as_bool())
+                    .map(|value| support_log_bool_value(value).to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "ae_friendly_conversion_enabled",
+                payload
+                    .get("aeFriendlyConversionEnabled")
+                    .and_then(|value| value.as_bool())
+                    .map(|value| support_log_bool_value(value).to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "output_dir",
+                payload
+                    .get("outputDir")
+                    .or_else(|| payload.get("outputPath"))
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms,
+                trace_id,
+                "lifecycle",
+                event,
+                details,
+            ))
+        }
+        "complete" => {
+            let mut details = Vec::new();
+            push_support_log_detail(
+                &mut details,
+                "mode",
+                payload
+                    .get("mode")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "platform",
+                payload
+                    .get("platform")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "success",
+                payload
+                    .get("success")
+                    .and_then(|value| value.as_bool())
+                    .map(|value| support_log_bool_value(value).to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "file",
+                summarize_support_log_file_path(
+                    payload.get("filePath").and_then(|value| value.as_str()),
+                ),
+            );
+            push_support_log_detail(
+                &mut details,
+                "exit_code",
+                payload
+                    .get("exitCode")
+                    .and_then(|value| value.as_i64())
+                    .map(|value| value.to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "error",
+                payload
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .map(|value| summarize_support_log_text(value, SUPPORT_LOG_TEXT_PREVIEW_LIMIT)),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "terminal", event, details,
+            ))
+        }
+        "http_416_retry"
+        | "youtube_cookie_retry"
+        | "ae_safe_probe_warning"
+        | "ae_safe_gpu_fallback" => {
+            let mut details = Vec::new();
+            push_support_log_detail(
+                &mut details,
+                "reason",
+                payload
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "disable_resume_artifacts",
+                payload
+                    .get("disableResumeArtifacts")
+                    .and_then(|value| value.as_bool())
+                    .map(|value| support_log_bool_value(value).to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "gpu_encoder",
+                payload
+                    .get("gpuEncoder")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "path",
+                summarize_support_log_file_path(
+                    payload.get("path").and_then(|value| value.as_str()),
+                ),
+            );
+            push_support_log_detail(
+                &mut details,
+                "error",
+                payload
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .map(|value| summarize_support_log_text(value, SUPPORT_LOG_TEXT_PREVIEW_LIMIT)),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "warning", event, details,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn render_support_log_download_trace_event(
+    ts_ms: Option<u64>,
+    trace_id: Option<&str>,
+    event: &str,
+    payload: Option<&serde_json::Value>,
+) -> Option<String> {
+    let null_payload = serde_json::Value::Null;
+    let payload = payload.unwrap_or(&null_payload);
+    let nested_payload = payload.get("payload").unwrap_or(payload);
+
+    match event {
+        "route_policy" => {
+            let mut details = Vec::new();
+            push_support_log_detail(
+                &mut details,
+                "policy",
+                nested_payload
+                    .get("policy")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "route", event, details,
+            ))
+        }
+        "route_selected" => {
+            let mut details = Vec::new();
+            push_support_log_detail(
+                &mut details,
+                "route",
+                nested_payload
+                    .get("route")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "platform",
+                nested_payload
+                    .get("platform")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "attempt",
+                nested_payload
+                    .get("attempt")
+                    .and_then(|value| value.as_u64())
+                    .map(|value| value.to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "reason",
+                nested_payload
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "source",
+                nested_payload
+                    .get("source")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "route", event, details,
+            ))
+        }
+        "attempt_start" => {
+            let mut details = Vec::new();
+            push_support_log_detail(
+                &mut details,
+                "attempt",
+                nested_payload
+                    .get("attempt")
+                    .and_then(|value| value.as_u64())
+                    .map(|value| value.to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "route",
+                nested_payload
+                    .get("route")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms,
+                trace_id,
+                "lifecycle",
+                event,
+                details,
+            ))
+        }
+        "attempt_failed" | "pinterest_hint_fallback_selected" => {
+            let mut details = Vec::new();
+            push_support_log_detail(
+                &mut details,
+                "attempt",
+                nested_payload
+                    .get("attempt")
+                    .and_then(|value| value.as_u64())
+                    .map(|value| value.to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "route",
+                nested_payload
+                    .get("route")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "reason",
+                nested_payload
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "pin_id",
+                nested_payload
+                    .get("pinId")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "video_url",
+                nested_payload
+                    .get("videoUrl")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "error",
+                nested_payload
+                    .get("error")
+                    .or_else(|| nested_payload.get("resolverError"))
+                    .and_then(|value| value.as_str())
+                    .map(|value| summarize_support_log_text(value, SUPPORT_LOG_TEXT_PREVIEW_LIMIT)),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "warning", event, details,
+            ))
+        }
+        "fallback_selected" => {
+            let mut details = Vec::new();
+            push_support_log_detail(
+                &mut details,
+                "from_route",
+                nested_payload
+                    .get("fromRoute")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "reason",
+                nested_payload
+                    .get("reason")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "error",
+                nested_payload
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .map(|value| summarize_support_log_text(value, SUPPORT_LOG_TEXT_PREVIEW_LIMIT)),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "route", event, details,
+            ))
+        }
+        "terminal" => {
+            let mut details = Vec::new();
+            push_support_log_detail(
+                &mut details,
+                "outcome",
+                nested_payload
+                    .get("outcome")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "final_route",
+                nested_payload
+                    .get("finalRoute")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "route_chain",
+                nested_payload
+                    .get("routeChain")
+                    .and_then(|value| value.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item.as_str())
+                            .map(sanitize_support_log_field)
+                            .collect::<Vec<_>>()
+                            .join(">")
+                    })
+                    .filter(|value| !value.is_empty()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "duration_ms",
+                nested_payload
+                    .get("durationMs")
+                    .and_then(|value| value.as_u64())
+                    .map(|value| value.to_string()),
+            );
+            push_support_log_detail(
+                &mut details,
+                "error",
+                nested_payload
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .map(|value| summarize_support_log_text(value, SUPPORT_LOG_TEXT_PREVIEW_LIMIT)),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "terminal", event, details,
+            ))
+        }
+        "pinterest_candidate_selected" => {
+            let mut details = Vec::new();
+            push_support_log_detail(
+                &mut details,
+                "pin_id",
+                nested_payload
+                    .get("pinId")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "video_url",
+                nested_payload
+                    .get("videoUrl")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            Some(build_support_log_runtime_line(
+                ts_ms, trace_id, "route", event, details,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn build_support_log_runtime_evidence_lines(raw_lines: &[String]) -> Vec<String> {
+    let mut evidence_lines = raw_lines
+        .iter()
+        .filter_map(|raw_line| {
+            let parsed = match serde_json::from_str::<serde_json::Value>(raw_line) {
+                Ok(parsed) => parsed,
+                Err(_) => {
+                    let preview =
+                        summarize_support_log_text(raw_line, SUPPORT_LOG_TEXT_PREVIEW_LIMIT);
+                    let lowered = preview.to_ascii_lowercase();
+                    return if lowered.contains("error") || lowered.contains("warning") {
+                        Some(build_support_log_runtime_line(
+                            None,
+                            None,
+                            "warning",
+                            "raw_line",
+                            vec![format!("message={}", preview)],
+                        ))
+                    } else {
+                        None
+                    };
+                }
+            };
+
+            let scope = parsed.get("scope").and_then(|value| value.as_str())?;
+            let event = parsed.get("event").and_then(|value| value.as_str())?;
+            let ts_ms = parsed.get("tsMs").and_then(|value| value.as_u64());
+            let trace_id = parsed.get("traceId").and_then(|value| value.as_str());
+            let payload = parsed.get("payload");
+
+            match scope {
+                "download" => render_support_log_download_event(ts_ms, trace_id, event, payload),
+                "download_trace" => {
+                    render_support_log_download_trace_event(ts_ms, trace_id, event, payload)
+                }
+                _ => None,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if evidence_lines.len() > SUPPORT_LOG_RUNTIME_EVIDENCE_LINE_LIMIT {
+        evidence_lines.drain(..evidence_lines.len() - SUPPORT_LOG_RUNTIME_EVIDENCE_LINE_LIMIT);
+    }
+
+    evidence_lines
+}
+
+fn build_support_log_settings_lines(
+    config: Option<&serde_json::Value>,
+    output_path: &str,
+    autostart: &str,
+    shortcut: &str,
+    config_parse_error: Option<&str>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    if let Some(err) = config_parse_error {
+        lines.push(format!(
+            "config_parse_error={}",
+            summarize_support_log_text(err, SUPPORT_LOG_TEXT_PREVIEW_LIMIT)
+        ));
+    }
+
+    lines.push(format!(
+        "output_path={}",
+        sanitize_support_log_field(output_path)
+    ));
+    lines.push(format!(
+        "autostart={}",
+        sanitize_support_log_field(autostart)
+    ));
+    lines.push(format!(
+        "shortcut={}",
+        support_log_optional_setting(Some(shortcut))
+    ));
+
+    if let Some(config) = config {
+        let rename_rule = get_rename_rule_config(config);
+        let preferences = VideoDownloadPreferences::from_config(config);
+        lines.push(format!(
+            "rename_media_on_download={}",
+            support_log_bool_value(is_rename_media_enabled(config))
+        ));
+        lines.push(format!(
+            "rename_rule_preset={}",
+            rename_rule.preset.as_counter_key()
+        ));
+        lines.push(format!(
+            "rename_prefix={}",
+            support_log_optional_setting(Some(rename_rule.prefix.as_str()))
+        ));
+        lines.push(format!(
+            "rename_suffix={}",
+            support_log_optional_setting(Some(rename_rule.suffix.as_str()))
+        ));
+        lines.push(format!(
+            "ae_portal_enabled={}",
+            support_log_bool_value(
+                config
+                    .get("aePortalEnabled")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+            )
+        ));
+        lines.push(format!(
+            "ae_exe_path={}",
+            support_log_optional_setting(config.get("aeExePath").and_then(|value| value.as_str()))
+        ));
+        lines.push(format!(
+            "video_download_quality={}",
+            preferences.ytdlp_quality.as_str()
+        ));
+        lines.push(format!(
+            "ae_friendly_conversion_enabled={}",
+            support_log_bool_value(preferences.ae_friendly_conversion_enabled)
+        ));
+    } else {
+        let unavailable = support_log_unavailable("invalid config JSON");
+        lines.push(format!("rename_media_on_download={}", unavailable));
+        lines.push(format!("rename_rule_preset={}", unavailable));
+        lines.push(format!("rename_prefix={}", unavailable));
+        lines.push(format!("rename_suffix={}", unavailable));
+        lines.push(format!("ae_portal_enabled={}", unavailable));
+        lines.push(format!("ae_exe_path={}", unavailable));
+        lines.push(format!("video_download_quality={}", unavailable));
+        lines.push(format!("ae_friendly_conversion_enabled={}", unavailable));
+    }
+
+    lines
+}
+
+fn render_support_log_section(title: &str, lines: &[String]) -> String {
+    let mut rendered = format!("[{}]\n", title);
+    for line in lines {
+        rendered.push_str(line);
+        rendered.push('\n');
+    }
+    rendered
 }
 
 #[tauri::command]
@@ -8784,54 +9481,114 @@ async fn export_support_log(app: AppHandle) -> Result<String, String> {
         .as_millis();
     let log_path = log_dir.join(format!("flowselect-support-{}.log", generated_unix_ms));
     let runtime_log_path = runtime_log_path(&log_dir);
-    let runtime_log_tail = read_recent_runtime_log_excerpt(&log_dir);
+    let runtime_log_lines = read_runtime_log_lines(&log_dir);
 
     let config_raw = get_config(app.clone())?;
-    let config_snapshot = format_support_log_config(&config_raw);
+    let (config_value, config_parse_error) =
+        match serde_json::from_str::<serde_json::Value>(&config_raw) {
+            Ok(value) => (Some(value), None),
+            Err(err) => (None, Some(err.to_string())),
+        };
     let current_exe = std::env::current_exe()
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|err| format!("unavailable ({})", err));
     let ytdlp_path = ytdlp_binary_path(&app)
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|err| format!("unavailable ({})", err));
+    let ffmpeg_path = ffmpeg_binary_path(&app)
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|err| format!("unavailable ({})", err));
+    let pinterest_path = pinterest_downloader_binary_path(&app)
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|err| format!("unavailable ({})", err));
     let ytdlp_version = match get_local_ytdlp_version(&app).await {
         Ok(version) => version,
         Err(err) => format!("unavailable ({})", err),
     };
+    let pinterest_info = get_pinterest_downloader_info();
+    let output_path =
+        resolve_support_log_output_path(config_value.as_ref(), config_parse_error.as_deref());
+    let autostart = match get_autostart(app.clone()) {
+        Ok(enabled) => support_log_bool_value(enabled).to_string(),
+        Err(err) => support_log_unavailable(err.as_str()),
+    };
+    let shortcut = match config_value.as_ref() {
+        Some(config) => config
+            .get("shortcut")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+        None => support_log_unavailable(
+            config_parse_error
+                .as_deref()
+                .unwrap_or("invalid config JSON"),
+        ),
+    };
+    let runtime_evidence_lines = build_support_log_runtime_evidence_lines(&runtime_log_lines);
+
+    let environment_lines = vec![
+        format!("app_version={}", env!("CARGO_PKG_VERSION")),
+        format!("generated_unix_ms={}", generated_unix_ms),
+        format!("os={}", std::env::consts::OS),
+        format!("arch={}", std::env::consts::ARCH),
+        format!("current_exe={}", current_exe),
+        format!("config_path={}", config_path.display()),
+        format!("log_path={}", log_path.display()),
+        format!("runtime_log_path={}", runtime_log_path.display()),
+    ];
+    let settings_lines = build_support_log_settings_lines(
+        config_value.as_ref(),
+        output_path.as_str(),
+        autostart.as_str(),
+        shortcut.as_str(),
+        config_parse_error.as_deref(),
+    );
+    let mut downloader_lines = vec![
+        format!("yt_dlp_path={}", ytdlp_path),
+        format!("yt_dlp_version={}", ytdlp_version),
+        format!("pin_dlp_path={}", pinterest_path),
+        format!("ffmpeg_path={}", ffmpeg_path),
+    ];
+    match pinterest_info {
+        Ok(info) => {
+            downloader_lines.push(format!("pin_dlp_version={}", info.current));
+            downloader_lines.push(format!("pin_dlp_package_name={}", info.package_name));
+            downloader_lines.push(format!(
+                "pin_dlp_flowselect_sidecar_version={}",
+                info.flowselect_sidecar_version
+            ));
+            downloader_lines.push(format!("pin_dlp_update_channel={}", info.update_channel));
+        }
+        Err(err) => {
+            let unavailable = support_log_unavailable(err.as_str());
+            downloader_lines.push(format!("pin_dlp_version={}", unavailable));
+            downloader_lines.push(format!("pin_dlp_package_name={}", unavailable));
+            downloader_lines.push(format!(
+                "pin_dlp_flowselect_sidecar_version={}",
+                unavailable
+            ));
+            downloader_lines.push(format!("pin_dlp_update_channel={}", unavailable));
+        }
+    }
+    let runtime_section_lines = if runtime_evidence_lines.is_empty() {
+        vec!["unavailable (no relevant runtime evidence found)".to_string()]
+    } else {
+        runtime_evidence_lines
+    };
 
     let log_contents = format!(
         concat!(
-            "FlowSelect Support Log\n",
-            "======================\n",
-            "app_version={}\n",
-            "generated_unix_ms={}\n",
-            "os={}\n",
-            "arch={}\n",
-            "current_exe={}\n",
-            "config_path={}\n",
-            "log_path={}\n",
-            "runtime_log_path={}\n",
-            "ytdlp_path={}\n",
-            "ytdlp_version={}\n",
-            "\n",
-            "[config]\n",
+            "FlowSelect Diagnostic Log\n",
+            "=========================\n\n",
             "{}\n",
-            "\n",
-            "[runtime_log_tail]\n",
-            "{}\n"
+            "{}\n",
+            "{}\n",
+            "{}"
         ),
-        env!("CARGO_PKG_VERSION"),
-        generated_unix_ms,
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-        current_exe,
-        config_path.display(),
-        log_path.display(),
-        runtime_log_path.display(),
-        ytdlp_path,
-        ytdlp_version,
-        config_snapshot,
-        runtime_log_tail
+        render_support_log_section("environment", &environment_lines),
+        render_support_log_section("settings", &settings_lines),
+        render_support_log_section("downloaders", &downloader_lines),
+        render_support_log_section("runtime_evidence", &runtime_section_lines)
     );
 
     fs::write(&log_path, log_contents)
@@ -10068,6 +10825,132 @@ mod tests {
                 .expect("expected flowselectSidecarVersion in embedded lock")
         );
         assert_eq!(info.update_channel, "app_release");
+    }
+
+    #[test]
+    fn support_log_settings_summary_stays_download_diagnostic_focused() {
+        let config = serde_json::json!({
+            "outputPath": r"D:\Downloads",
+            "theme": "black",
+            "language": "zh-CN",
+            "renameMediaOnDownload": true,
+            "renameRulePreset": "prefix_number",
+            "renamePrefix": "Flow",
+            "renameSuffix": "done",
+            "aePortalEnabled": true,
+            "aeExePath": r"C:\Program Files\Adobe\AfterFX.exe",
+            "defaultVideoDownloadQuality": "best",
+            "aeFriendlyConversionEnabled": true
+        });
+
+        let lines = build_support_log_settings_lines(
+            Some(&config),
+            r"D:\Downloads",
+            "true",
+            "Ctrl+Shift+Y",
+            None,
+        );
+        let rendered = lines.join("\n");
+
+        assert!(rendered.contains("output_path=D:\\Downloads"));
+        assert!(rendered.contains("autostart=true"));
+        assert!(rendered.contains("shortcut=Ctrl+Shift+Y"));
+        assert!(rendered.contains("rename_media_on_download=true"));
+        assert!(rendered.contains("rename_rule_preset=prefix_number"));
+        assert!(rendered.contains("rename_prefix=Flow"));
+        assert!(rendered.contains("rename_suffix=done"));
+        assert!(rendered.contains("ae_portal_enabled=true"));
+        assert!(rendered.contains(r"ae_exe_path=C:\Program Files\Adobe\AfterFX.exe"));
+        assert!(rendered.contains("video_download_quality=best"));
+        assert!(rendered.contains("ae_friendly_conversion_enabled=true"));
+        assert!(!rendered.contains("theme="));
+        assert!(!rendered.contains("language="));
+    }
+
+    #[test]
+    fn support_log_runtime_evidence_filters_noise_and_keeps_key_transitions() {
+        let lines = vec![
+            serde_json::json!({
+                "tsMs": 10,
+                "scope": "download",
+                "event": "progress",
+                "traceId": "dl-1",
+                "payload": {
+                    "stage": "downloading",
+                    "percent": 42.0
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "tsMs": 12,
+                "scope": "download_trace",
+                "event": "route_selected",
+                "traceId": "dl-1",
+                "payload": {
+                    "traceId": "dl-1",
+                    "stage": "route_selected",
+                    "tsMs": 12,
+                    "payload": {
+                        "route": "yt-dlp",
+                        "reason": "yt_dlp_first"
+                    }
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "tsMs": 13,
+                "scope": "download",
+                "event": "youtube_cookie_retry",
+                "traceId": "dl-1",
+                "payload": {
+                    "reason": "challenge_or_format_failure"
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "tsMs": 14,
+                "scope": "download",
+                "event": "complete",
+                "traceId": "dl-1",
+                "payload": {
+                    "mode": "yt-dlp",
+                    "success": false,
+                    "error": "first line\nsecond line"
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "tsMs": 15,
+                "scope": "download_trace",
+                "event": "terminal",
+                "traceId": "dl-1",
+                "payload": {
+                    "traceId": "dl-1",
+                    "stage": "terminal",
+                    "tsMs": 15,
+                    "payload": {
+                        "outcome": "all_failed",
+                        "finalRoute": "yt-dlp",
+                        "routeChain": ["yt-dlp"],
+                        "durationMs": 1234,
+                        "error": "extractor failed"
+                    }
+                }
+            })
+            .to_string(),
+        ];
+
+        let evidence = build_support_log_runtime_evidence_lines(&lines);
+        let rendered = evidence.join("\n");
+
+        assert_eq!(evidence.len(), 4);
+        assert!(!rendered.contains("event=progress"));
+        assert!(rendered.contains("kind=route event=route_selected route=yt-dlp"));
+        assert!(rendered.contains("kind=warning event=youtube_cookie_retry"));
+        assert!(rendered.contains("kind=terminal event=complete mode=yt-dlp success=false"));
+        assert!(rendered.contains("error=first line | second line"));
+        assert!(rendered.contains("kind=terminal event=terminal outcome=all_failed"));
+        assert!(rendered.contains("route_chain=yt-dlp"));
     }
 
     #[test]
