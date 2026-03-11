@@ -6,10 +6,14 @@
 }
 
 /* Button wrapper - matches Bilibili's control bar item pattern */
-.flowselect-bilibili-btn {
+.flowselect-bilibili-btn,
+.flowselect-bilibili-set-in-btn,
+.flowselect-bilibili-set-out-btn {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 30px !important;
+  min-width: 30px !important;
   position: relative;
   cursor: pointer;
   line-height: 0;
@@ -27,22 +31,15 @@
 }
 
 /* For squirtle player (old player) */
-.squirtle-controller-wrap .flowselect-bilibili-btn {
+.squirtle-controller-wrap .flowselect-bilibili-btn,
+.squirtle-controller-wrap .flowselect-bilibili-set-in-btn,
+.squirtle-controller-wrap .flowselect-bilibili-set-out-btn {
   align-items: center;
   padding-top: 0;
 }
 
 /* Icon container */
-.flowselect-bilibili-btn svg {
-  display: block;
-  width: 22px;
-  height: 22px;
-  color: currentColor;
-  fill: currentColor;
-  transition: transform 0.2s ease-out;
-  pointer-events: none;
-}
-
+.flowselect-bilibili-btn svg,
 .flowselect-bilibili-screenshot-btn svg {
   display: block;
   width: 22px;
@@ -53,8 +50,30 @@
   pointer-events: none;
 }
 
+.flowselect-bilibili-set-in-btn svg,
+.flowselect-bilibili-set-out-btn svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  color: currentColor;
+  transition: transform 0.2s ease-out;
+  pointer-events: none;
+}
+
+.flowselect-bilibili-set-in-btn svg *,
+.flowselect-bilibili-set-out-btn svg * {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.flowselect-bilibili-set-out-btn svg {
+  transform: scaleX(-1);
+}
+
 /* Hover effect */
-.flowselect-bilibili-btn:hover svg {
+.flowselect-bilibili-btn:hover svg,
+.flowselect-bilibili-set-in-btn:hover svg,
+.flowselect-bilibili-set-out-btn:hover svg {
   color: var(--flowselect-site-accent);
   fill: var(--flowselect-site-accent);
 }
@@ -65,8 +84,13 @@
 }
 
 /* Active effect */
-.flowselect-bilibili-btn:active svg {
+.flowselect-bilibili-btn:active svg,
+.flowselect-bilibili-set-in-btn:active svg {
   transform: scale(0.95);
+}
+
+.flowselect-bilibili-set-out-btn:active svg {
+  transform: scaleX(-1) scale(0.95);
 }
 
 .flowselect-bilibili-screenshot-btn:active svg {
@@ -80,6 +104,18 @@ body.player-mode-web .flowselect-bilibili-btn svg,
 body.player-full-win .flowselect-bilibili-btn svg {
   width: 28px;
   height: 28px;
+}
+
+body.player-mode-full .flowselect-bilibili-set-in-btn svg,
+body.player-mode-full .flowselect-bilibili-set-out-btn svg,
+body.player-fullscreen-fix .flowselect-bilibili-set-in-btn svg,
+body.player-fullscreen-fix .flowselect-bilibili-set-out-btn svg,
+body.player-mode-web .flowselect-bilibili-set-in-btn svg,
+body.player-mode-web .flowselect-bilibili-set-out-btn svg,
+body.player-full-win .flowselect-bilibili-set-in-btn svg,
+body.player-full-win .flowselect-bilibili-set-out-btn svg {
+  width: 24px;
+  height: 24px;
 }
 
 body.player-mode-full .flowselect-bilibili-screenshot-btn svg,
@@ -98,9 +134,29 @@ body.player-full-win .bpx-player-control-wrap .flowselect-bilibili-btn {
   padding-top: 2px;
 }
 
+body.player-mode-full .bpx-player-control-wrap .flowselect-bilibili-set-in-btn,
+body.player-mode-full .bpx-player-control-wrap .flowselect-bilibili-set-out-btn,
+body.player-fullscreen-fix .bpx-player-control-wrap .flowselect-bilibili-set-in-btn,
+body.player-fullscreen-fix .bpx-player-control-wrap .flowselect-bilibili-set-out-btn,
+body.player-mode-web .bpx-player-control-wrap .flowselect-bilibili-set-in-btn,
+body.player-mode-web .bpx-player-control-wrap .flowselect-bilibili-set-out-btn,
+body.player-full-win .bpx-player-control-wrap .flowselect-bilibili-set-in-btn,
+body.player-full-win .bpx-player-control-wrap .flowselect-bilibili-set-out-btn {
+  padding-top: 2px;
+}
+
 body.player-mode-full .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn,
 body.player-fullscreen-fix .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn,
 body.player-mode-web .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn,
 body.player-full-win .bpx-player-control-wrap .flowselect-bilibili-screenshot-btn {
   padding-top: 2px;
+}
+
+.flowselect-bilibili-set-in-btn[data-selected="true"],
+.flowselect-bilibili-set-out-btn[data-selected="true"] {
+  color: #8fc0ff;
+}
+
+.flowselect-bilibili-btn[data-clip-ready="true"] {
+  color: #7dd3fc;
 }

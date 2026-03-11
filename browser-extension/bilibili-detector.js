@@ -5,15 +5,27 @@
   'use strict';
 
   const PROCESSED_ATTR = 'data-flowselect-processed';
-  const BUTTON_CLASSES = ['flowselect-bilibili-btn', 'flowselect-bilibili-screenshot-btn'];
+  const BUTTON_CLASSES = [
+    'flowselect-bilibili-btn',
+    'flowselect-bilibili-set-in-btn',
+    'flowselect-bilibili-set-out-btn',
+    'flowselect-bilibili-screenshot-btn',
+  ];
   const SCREENSHOT_PANEL_ID = 'flowselect-bilibili-screenshot-panel';
   const SCREENSHOT_LIST_ID = 'flowselect-bilibili-screenshot-list';
   const MAX_SCREENSHOTS = 20;
   const screenshots = [];
+  const clipState = {
+    startSec: null,
+    endSec: null,
+  };
   const controlStyleUtils = window.FlowSelectControlStyleUtils || null;
 
   const CAT_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" fill-rule="evenodd" d="M11.75 6.406c-1.48 0-1.628.157-2.394.157C8.718 6.563 6.802 5 5.845 5S3.77 5.563 3.77 7.188v1.875c.002.492.18 2 .88 1.597c-.827.978-.91 2.119-.899 3.223c-.223.064-.45.137-.671.212c-.684.234-1.41.532-1.737.744a.75.75 0 0 0 .814 1.26c.156-.101.721-.35 1.408-.585l.228-.075c.046.433.161.83.332 1.19l-.024.013c-.41.216-.79.465-1.032.623l-.113.074a.75.75 0 1 0 .814 1.26l.131-.086c.245-.16.559-.365.901-.545q.12-.064.231-.116C6.763 19.475 9.87 20 11.75 20s4.987-.525 6.717-2.148q.11.052.231.116c.342.18.656.385.901.545l.131.086a.75.75 0 0 0 .814-1.26l-.113-.074a13 13 0 0 0-1.032-.623l-.024-.013c.171-.36.286-.757.332-1.19l.228.075c.687.235 1.252.484 1.409.585a.75.75 0 0 0 .813-1.26c-.327-.212-1.053-.51-1.736-.744a16 16 0 0 0-.672-.213c.012-1.104-.072-2.244-.9-3.222c.7.403.88-1.105.881-1.598V7.188C19.73 5.563 18.613 5 17.655 5c-.957 0-2.873 1.563-3.51 1.563c-.767 0-.915-.157-2.395-.157m-.675 9.194c.202-.069.441-.1.675-.1s.473.031.676.1c.1.034.22.088.328.174a.62.62 0 0 1 .246.476c0 .23-.139.39-.246.476s-.229.14-.328.174c-.203.069-.442.1-.676.1s-.473-.031-.675-.1a1.1 1.1 0 0 1-.329-.174a.62.62 0 0 1-.246-.476c0-.23.139-.39.246-.476s.23-.14.329-.174m2.845-3.1c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812m-5.96 0c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812" clip-rule="evenodd"/>
+  </svg>`;
+  const CLIP_POINT_ICON_SVG = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;">
+    <path d="M8.5796 16.3287C8.20841 16.019 7.99992 15.5989 8 15.161V4.99686C8.00201 4.46777 8.25488 3.96084 8.70341 3.58672C9.15193 3.2126 9.75969 3.00168 10.394 3H15L15 21C14.4749 21 13.9713 20.826 13.6 20.5163L8.5796 16.3287Z" fill="black" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>`;
   const CAMERA_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" d="M9 4.5a2 2 0 0 0-1.79 1.11l-.47.94H5.5A3.5 3.5 0 0 0 2 10.05v7.45A3.5 3.5 0 0 0 5.5 21h13a3.5 3.5 0 0 0 3.5-3.5v-7.45A3.5 3.5 0 0 0 18.5 6.5h-1.24l-.47-.94A2 2 0 0 0 15 4.5H9Zm3 13a4.5 4.5 0 1 1 0-9a4.5 4.5 0 0 1 0 9Zm0-1.75a2.75 2.75 0 1 0 0-5.5a2.75 2.75 0 0 0 0 5.5Z"/>
@@ -63,6 +75,35 @@
     }
     const videoId = getVideoId() || '';
     return `${window.location.pathname}?v=${videoId}`;
+  }
+
+  function resetClipState() {
+    clipState.startSec = null;
+    clipState.endSec = null;
+  }
+
+  function hasValidClipRange() {
+    return clipState.startSec != null &&
+      clipState.endSec != null &&
+      clipState.endSec > clipState.startSec;
+  }
+
+  function getCurrentPlaybackSeconds() {
+    const video = getActiveVideoElement();
+    if (!(video instanceof HTMLVideoElement)) {
+      return null;
+    }
+
+    const current = Number(video.currentTime);
+    if (!Number.isFinite(current) || current < 0) {
+      return null;
+    }
+
+    return current;
+  }
+
+  function notify(message) {
+    window.alert(message);
   }
 
   function detectVideoPlayer() {
@@ -159,6 +200,119 @@
     }
   }
 
+  function sendVideoSelectedMessage(payload) {
+    chrome.runtime.sendMessage(payload, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('[FlowSelect Bilibili] Failed to contact background:', chrome.runtime.lastError.message);
+        notify('FlowSelect extension background is unavailable. Please reload extension.');
+        return;
+      }
+
+      if (!response?.success) {
+        notify('FlowSelect desktop app is not connected. Please open FlowSelect and try again.');
+      }
+    });
+  }
+
+  function updateClipButtonsState() {
+    const fullBtn = document.querySelector('.flowselect-bilibili-btn');
+    const inBtn = document.querySelector('.flowselect-bilibili-set-in-btn');
+    const outBtn = document.querySelector('.flowselect-bilibili-set-out-btn');
+
+    if (!(fullBtn instanceof HTMLElement) ||
+        !(inBtn instanceof HTMLElement) ||
+        !(outBtn instanceof HTMLElement)) {
+      return;
+    }
+
+    if (clipState.startSec == null) {
+      inBtn.removeAttribute('data-selected');
+      inBtn.title = 'Set IN point';
+      inBtn.setAttribute('aria-label', 'Set IN point');
+    } else {
+      inBtn.setAttribute('data-selected', 'true');
+      inBtn.title = `IN: ${formatPlaybackTime(clipState.startSec)}`;
+      inBtn.setAttribute('aria-label', inBtn.title);
+    }
+
+    if (clipState.endSec == null) {
+      outBtn.removeAttribute('data-selected');
+      outBtn.title = 'Set OUT point';
+      outBtn.setAttribute('aria-label', 'Set OUT point');
+    } else {
+      outBtn.setAttribute('data-selected', 'true');
+      outBtn.title = `OUT: ${formatPlaybackTime(clipState.endSec)}`;
+      outBtn.setAttribute('aria-label', outBtn.title);
+    }
+
+    if (hasValidClipRange()) {
+      fullBtn.setAttribute('data-clip-ready', 'true');
+      fullBtn.title = `Download clip ${formatPlaybackTime(clipState.startSec)} -> ${formatPlaybackTime(clipState.endSec)}`;
+      fullBtn.setAttribute('aria-label', fullBtn.title);
+    } else {
+      fullBtn.removeAttribute('data-clip-ready');
+      fullBtn.title = 'Download with FlowSelect';
+      fullBtn.setAttribute('aria-label', 'Download with FlowSelect');
+    }
+  }
+
+  function setInPoint() {
+    const current = getCurrentPlaybackSeconds();
+    if (current == null) {
+      notify('Unable to read current playback time.');
+      return;
+    }
+
+    clipState.startSec = current;
+    updateClipButtonsState();
+  }
+
+  function setOutPoint() {
+    const current = getCurrentPlaybackSeconds();
+    if (current == null) {
+      notify('Unable to read current playback time.');
+      return;
+    }
+
+    clipState.endSec = current;
+    updateClipButtonsState();
+  }
+
+  function downloadSelectedClip() {
+    const pageUrl = window.location.href;
+    const title = extractVideoTitle();
+    const startSec = clipState.startSec;
+    const endSec = clipState.endSec;
+
+    if (startSec == null || endSec == null) {
+      notify('Please set both IN and OUT points first.');
+      return;
+    }
+
+    if (endSec <= startSec) {
+      notify('OUT must be later than IN.');
+      return;
+    }
+
+    sendVideoSelectedMessage({
+      type: 'video_selected',
+      url: pageUrl,
+      pageUrl,
+      title,
+      clipStartSec: startSec,
+      clipEndSec: endSec,
+    });
+  }
+
+  function handlePrimaryDownload() {
+    if (hasValidClipRange()) {
+      downloadSelectedClip();
+      return;
+    }
+
+    downloadVideo();
+  }
+
   function injectControlButtons(container, resolvedNativeBaseClass = null) {
     removeInjectedButtons();
 
@@ -175,12 +329,29 @@
       title: 'Download with FlowSelect',
       icon: CAT_ICON_SVG,
       nativeBaseClass,
-      onClick: downloadVideo,
+      onClick: handlePrimaryDownload,
+    });
+    const inButton = createControlButton({
+      className: 'flowselect-bilibili-set-in-btn',
+      title: 'Set IN point',
+      icon: CLIP_POINT_ICON_SVG,
+      nativeBaseClass,
+      onClick: setInPoint,
+    });
+    const outButton = createControlButton({
+      className: 'flowselect-bilibili-set-out-btn',
+      title: 'Set OUT point',
+      icon: CLIP_POINT_ICON_SVG,
+      nativeBaseClass,
+      onClick: setOutPoint,
     });
 
-    syncButtonSpacingWithNative(container, [screenshotButton, downloadButton], nativeBaseClass);
-    container.insertBefore(downloadButton, container.firstChild);
-    container.insertBefore(screenshotButton, container.firstChild);
+    const buttons = [outButton, inButton, downloadButton, screenshotButton];
+    syncButtonSpacingWithNative(container, buttons, nativeBaseClass);
+    for (const button of buttons) {
+      container.insertBefore(button, container.firstChild);
+    }
+    updateClipButtonsState();
     console.log('[FlowSelect Bilibili] Control buttons injected');
   }
 
@@ -220,10 +391,18 @@
     });
     const reference = withSpacing || nativeButtons[0];
     const referenceStyle = window.getComputedStyle(reference);
+    const referenceMarginLeft = Number.parseFloat(referenceStyle.marginLeft) || 0;
+    const referenceMarginRight = Number.parseFloat(referenceStyle.marginRight) || 0;
 
     for (const button of customButtons) {
-      button.style.marginLeft = referenceStyle.marginLeft;
-      button.style.marginRight = referenceStyle.marginRight;
+      const isSetInButton = button.classList.contains('flowselect-bilibili-set-in-btn');
+      const isSetOutButton = button.classList.contains('flowselect-bilibili-set-out-btn');
+      button.style.marginLeft = isSetOutButton
+        ? `${Math.min(referenceMarginLeft, 2)}px`
+        : referenceStyle.marginLeft;
+      button.style.marginRight = isSetInButton
+        ? `${Math.min(referenceMarginRight, 2)}px`
+        : referenceStyle.marginRight;
     }
   }
 
@@ -237,6 +416,7 @@
     button.setAttribute('role', 'button');
     button.setAttribute('tabindex', '0');
     button.title = title;
+    button.setAttribute('aria-label', title);
     button.innerHTML = icon;
 
     const clickHandler = (e) => {
@@ -620,7 +800,7 @@
     console.log('[FlowSelect Bilibili] Page URL:', pageUrl);
     console.log('[FlowSelect Bilibili] Title:', title);
 
-    chrome.runtime.sendMessage({
+    sendVideoSelectedMessage({
       type: 'video_selected',
       url: pageUrl,
       pageUrl,
@@ -641,6 +821,7 @@
       if (currentVideoKey !== lastVideoKey) {
         console.log('[FlowSelect Bilibili] Video changed:', lastUrl);
         lastVideoKey = currentVideoKey;
+        resetClipState();
         const processed = document.querySelectorAll(`[${PROCESSED_ATTR}]`);
         processed.forEach((el) => el.removeAttribute(PROCESSED_ATTR));
         removeInjectedButtons();

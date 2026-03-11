@@ -78,8 +78,12 @@
   stroke: currentColor !important;
 }
 
+.flowselect-youtube-set-in-btn svg {
+  transform: translateX(4px);
+}
+
 .flowselect-youtube-set-out-btn svg {
-  transform: scaleX(-1);
+  transform: translateX(-4px) scaleX(-1);
 }
 
 .flowselect-youtube-set-in-btn[data-selected="true"],
