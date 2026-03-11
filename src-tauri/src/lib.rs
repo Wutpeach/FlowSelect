@@ -1610,97 +1610,172 @@ async fn download_image(
             })
     };
 
-    // Create directory if not exists
-    if !final_target_dir.exists() {
-        fs::create_dir_all(&final_target_dir)
-            .map_err(|e| format!("Failed to create target directory: {}", e))?;
-    }
+    append_runtime_log_event(
+        "download",
+        "start",
+        None,
+        serde_json::json!({
+            "mode": "image",
+            "url": url.as_str(),
+            "resolvedUrl": resolved_url.as_str(),
+            "renameEnabled": rename_media_on_download,
+            "outputDir": final_target_dir.to_string_lossy().to_string(),
+        }),
+    );
 
-    // Download image
-    let response = reqwest::Client::new()
-        .get(&resolved_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        .send()
-        .await
-        .map_err(|e| format!("Failed to download: {}", e))?;
+    let result: Result<(String, String, Option<String>), String> = async {
+        // Create directory if not exists
+        if !final_target_dir.exists() {
+            fs::create_dir_all(&final_target_dir)
+                .map_err(|e| format!("Failed to create target directory: {}", e))?;
+        }
 
-    if !response.status().is_success() {
-        return Err(format!("HTTP error: {}", response.status()));
-    }
+        // Download image
+        let response = reqwest::Client::new()
+            .get(&resolved_url)
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            )
+            .send()
+            .await
+            .map_err(|e| format!("Failed to download: {}", e))?;
 
-    // Reject obvious HTML/text payloads to avoid saving pages as image files.
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|ct| ct.to_str().ok())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if content_type.starts_with("text/") {
-        return Err(format!(
-            "Unexpected non-image response content-type: {}",
-            content_type
-        ));
-    }
+        let status = response.status();
+        let response_content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|ct| ct.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
 
-    // Get extension from Content-Type.
-    let ext = if content_type.contains("image/png") {
-        "png"
-    } else if content_type.contains("image/gif") {
-        "gif"
-    } else if content_type.contains("image/webp") {
-        "webp"
-    } else if content_type.contains("image/bmp") {
-        "bmp"
-    } else if content_type.contains("image/svg+xml") {
-        "svg"
-    } else {
-        "jpg"
-    };
+        if !status.is_success() {
+            return Err(if response_content_type.is_empty() {
+                format!("HTTP error: {}", status)
+            } else {
+                format!(
+                    "HTTP error: {} (content-type: {})",
+                    status, response_content_type
+                )
+            });
+        }
 
-    let source_filename = response
-        .headers()
-        .get("content-disposition")
-        .and_then(|value| value.to_str().ok())
-        .and_then(extract_filename_from_content_disposition)
-        .or_else(|| extract_filename_from_url(&resolved_url));
+        // Reject obvious HTML/text payloads to avoid saving pages as image files.
+        let content_type = response_content_type;
+        if content_type.starts_with("text/") {
+            return Err(format!(
+                "Unexpected non-image response content-type: {}",
+                content_type
+            ));
+        }
 
-    let dest_path = if rename_media_on_download {
-        build_rename_sequence_file_path(&app, &mut config, &final_target_dir, ext)?
-    } else if let Some(source_name) = source_filename {
-        if let Some(path) = build_source_name_file_path(&final_target_dir, &source_name, ext) {
-            path
+        // Get extension from Content-Type.
+        let ext = if content_type.contains("image/png") {
+            "png"
+        } else if content_type.contains("image/gif") {
+            "gif"
+        } else if content_type.contains("image/webp") {
+            "webp"
+        } else if content_type.contains("image/bmp") {
+            "bmp"
+        } else if content_type.contains("image/svg+xml") {
+            "svg"
+        } else {
+            "jpg"
+        };
+
+        let source_filename = response
+            .headers()
+            .get("content-disposition")
+            .and_then(|value| value.to_str().ok())
+            .and_then(extract_filename_from_content_disposition)
+            .or_else(|| extract_filename_from_url(&resolved_url));
+
+        let dest_path = if rename_media_on_download {
+            build_rename_sequence_file_path(&app, &mut config, &final_target_dir, ext)?
+        } else if let Some(source_name) = source_filename.as_deref() {
+            if let Some(path) = build_source_name_file_path(&final_target_dir, source_name, ext) {
+                path
+            } else {
+                build_sequence_file_path(&final_target_dir, ext)?
+            }
         } else {
             build_sequence_file_path(&final_target_dir, ext)?
+        };
+
+        // Write to file
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        let mut file =
+            fs::File::create(&dest_path).map_err(|e| format!("Failed to create file: {}", e))?;
+
+        file.write_all(&bytes)
+            .map_err(|e| format!("Failed to write file: {}", e))?;
+
+        println!(">>> [Rust] Saved to: {:?}", dest_path);
+
+        // AE Portal
+        let app_for_ae = app.clone();
+        let path_for_ae = dest_path.to_string_lossy().to_string();
+        tokio::spawn(async move {
+            let _ = send_to_ae(app_for_ae, path_for_ae).await;
+        });
+
+        Ok((
+            dest_path.to_string_lossy().to_string(),
+            content_type,
+            source_filename,
+        ))
+    }
+    .await;
+
+    match &result {
+        Ok((file_path, content_type, source_filename)) => {
+            println!(
+                ">>> [Rust] Image download complete: {} -> {}",
+                summarize_url_for_log(resolved_url.as_str()),
+                file_path
+            );
+            append_runtime_log_event(
+                "download",
+                "complete",
+                None,
+                serde_json::json!({
+                    "mode": "image",
+                    "success": true,
+                    "url": url.as_str(),
+                    "resolvedUrl": resolved_url.as_str(),
+                    "contentType": content_type,
+                    "sourceFilename": source_filename,
+                    "filePath": file_path,
+                }),
+            )
         }
-    } else {
-        build_sequence_file_path(&final_target_dir, ext)?
-    };
+        Err(error) => {
+            println!(
+                ">>> [Rust] Image download failed: {} ({})",
+                summarize_url_for_log(resolved_url.as_str()),
+                error
+            );
+            append_runtime_log_event(
+                "download",
+                "complete",
+                None,
+                serde_json::json!({
+                    "mode": "image",
+                    "success": false,
+                    "url": url.as_str(),
+                    "resolvedUrl": resolved_url.as_str(),
+                    "error": error,
+                }),
+            )
+        }
+    }
 
-    // Write to file
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
-
-    let mut file =
-        fs::File::create(&dest_path).map_err(|e| format!("Failed to create file: {}", e))?;
-
-    file.write_all(&bytes)
-        .map_err(|e| format!("Failed to write file: {}", e))?;
-
-    println!(">>> [Rust] Saved to: {:?}", dest_path);
-
-    // AE Portal
-    let app_for_ae = app.clone();
-    let path_for_ae = dest_path.to_string_lossy().to_string();
-    tokio::spawn(async move {
-        let _ = send_to_ae(app_for_ae, path_for_ae).await;
-    });
-
-    Ok(dest_path.to_string_lossy().to_string())
+    result.map(|(file_path, _, _)| file_path)
 }
 
 fn resolve_image_download_url(raw_url: &str) -> String {
@@ -1800,41 +1875,92 @@ async fn save_data_url(
             })
     };
 
-    // Create directory if not exists
-    if !final_target_dir.exists() {
-        fs::create_dir_all(&final_target_dir)
-            .map_err(|e| format!("Failed to create target directory: {}", e))?;
-    }
+    append_runtime_log_event(
+        "download",
+        "start",
+        None,
+        serde_json::json!({
+            "mode": "data_url",
+            "mimeType": mime_type,
+            "originalFilename": original_filename.as_deref(),
+            "renameEnabled": rename_media_on_download,
+            "outputDir": final_target_dir.to_string_lossy().to_string(),
+        }),
+    );
 
-    let dest_path = if rename_media_on_download {
-        build_rename_sequence_file_path(&app, &mut config, &final_target_dir, ext)?
-    } else if let Some(source_name) = original_filename.as_deref() {
-        if let Some(path) = build_source_name_file_path(&final_target_dir, source_name, ext) {
-            path
+    let result: Result<String, String> = async {
+        // Create directory if not exists
+        if !final_target_dir.exists() {
+            fs::create_dir_all(&final_target_dir)
+                .map_err(|e| format!("Failed to create target directory: {}", e))?;
+        }
+
+        let dest_path = if rename_media_on_download {
+            build_rename_sequence_file_path(&app, &mut config, &final_target_dir, ext)?
+        } else if let Some(source_name) = original_filename.as_deref() {
+            if let Some(path) = build_source_name_file_path(&final_target_dir, source_name, ext) {
+                path
+            } else {
+                build_sequence_file_path(&final_target_dir, ext)?
+            }
         } else {
             build_sequence_file_path(&final_target_dir, ext)?
+        };
+
+        // Write to file
+        let mut file =
+            fs::File::create(&dest_path).map_err(|e| format!("Failed to create file: {}", e))?;
+
+        file.write_all(&bytes)
+            .map_err(|e| format!("Failed to write file: {}", e))?;
+
+        println!(">>> [Rust] Saved to: {:?}", dest_path);
+
+        // AE Portal
+        let app_for_ae = app.clone();
+        let path_for_ae = dest_path.to_string_lossy().to_string();
+        tokio::spawn(async move {
+            let _ = send_to_ae(app_for_ae, path_for_ae).await;
+        });
+
+        Ok(dest_path.to_string_lossy().to_string())
+    }
+    .await;
+
+    match &result {
+        Ok(file_path) => {
+            println!(">>> [Rust] Data URL save complete: {}", file_path);
+            append_runtime_log_event(
+                "download",
+                "complete",
+                None,
+                serde_json::json!({
+                    "mode": "data_url",
+                    "success": true,
+                    "mimeType": mime_type,
+                    "originalFilename": original_filename.as_deref(),
+                    "filePath": file_path,
+                }),
+            )
         }
-    } else {
-        build_sequence_file_path(&final_target_dir, ext)?
-    };
+        Err(error) => {
+            println!(">>> [Rust] Data URL save failed: {}", error);
+            append_runtime_log_event(
+                "download",
+                "complete",
+                None,
+                serde_json::json!({
+                    "mode": "data_url",
+                    "success": false,
+                    "mimeType": mime_type,
+                    "originalFilename": original_filename.as_deref(),
+                    "error": error,
+                }),
+            )
+        }
+    }
 
-    // Write to file
-    let mut file =
-        fs::File::create(&dest_path).map_err(|e| format!("Failed to create file: {}", e))?;
-
-    file.write_all(&bytes)
-        .map_err(|e| format!("Failed to write file: {}", e))?;
-
-    println!(">>> [Rust] Saved to: {:?}", dest_path);
-
-    // AE Portal
-    let app_for_ae = app.clone();
-    let path_for_ae = dest_path.to_string_lossy().to_string();
-    tokio::spawn(async move {
-        let _ = send_to_ae(app_for_ae, path_for_ae).await;
-    });
-
-    Ok(dest_path.to_string_lossy().to_string())
+    result
 }
 
 /// 生成 AE 导入脚本
@@ -8691,6 +8817,14 @@ fn render_support_log_download_event(
             );
             push_support_log_detail(
                 &mut details,
+                "resolved_url",
+                payload
+                    .get("resolvedUrl")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
                 "page_url",
                 payload
                     .get("pageUrl")
@@ -8712,6 +8846,23 @@ fn render_support_log_download_event(
                     .get("quality")
                     .and_then(|value| value.as_str())
                     .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "mime_type",
+                payload
+                    .get("mimeType")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "original_filename",
+                summarize_support_log_file_path(
+                    payload
+                        .get("originalFilename")
+                        .and_then(|value| value.as_str()),
+                ),
             );
             push_support_log_detail(
                 &mut details,
@@ -8779,6 +8930,48 @@ fn render_support_log_download_event(
                     .get("platform")
                     .and_then(|value| value.as_str())
                     .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "resolved_url",
+                payload
+                    .get("resolvedUrl")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "mime_type",
+                payload
+                    .get("mimeType")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "content_type",
+                payload
+                    .get("contentType")
+                    .and_then(|value| value.as_str())
+                    .map(sanitize_support_log_field),
+            );
+            push_support_log_detail(
+                &mut details,
+                "original_filename",
+                summarize_support_log_file_path(
+                    payload
+                        .get("originalFilename")
+                        .and_then(|value| value.as_str()),
+                ),
+            );
+            push_support_log_detail(
+                &mut details,
+                "source_filename",
+                summarize_support_log_file_path(
+                    payload
+                        .get("sourceFilename")
+                        .and_then(|value| value.as_str()),
+                ),
             );
             push_support_log_detail(
                 &mut details,
@@ -10951,6 +11144,81 @@ mod tests {
         assert!(rendered.contains("error=first line | second line"));
         assert!(rendered.contains("kind=terminal event=terminal outcome=all_failed"));
         assert!(rendered.contains("route_chain=yt-dlp"));
+    }
+
+    #[test]
+    fn support_log_runtime_evidence_keeps_image_download_breadcrumbs() {
+        let lines = vec![
+            serde_json::json!({
+                "tsMs": 20,
+                "scope": "download",
+                "event": "start",
+                "payload": {
+                    "mode": "image",
+                    "url": "https://www.solarsystemscope.com/textures/earth.html",
+                    "resolvedUrl": "https://www.solarsystemscope.com/textures/download/2k_earth_nightmap.jpg",
+                    "renameEnabled": false,
+                    "outputDir": r"D:\Downloads"
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "tsMs": 21,
+                "scope": "download",
+                "event": "complete",
+                "payload": {
+                    "mode": "image",
+                    "success": false,
+                    "url": "https://www.solarsystemscope.com/textures/earth.html",
+                    "resolvedUrl": "https://www.solarsystemscope.com/textures/download/2k_earth_nightmap.jpg",
+                    "error": "Unexpected non-image response content-type: text/html"
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "tsMs": 22,
+                "scope": "download",
+                "event": "start",
+                "payload": {
+                    "mode": "data_url",
+                    "mimeType": "image/png",
+                    "originalFilename": "capture.png",
+                    "renameEnabled": false,
+                    "outputDir": r"D:\Downloads"
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "tsMs": 23,
+                "scope": "download",
+                "event": "complete",
+                "payload": {
+                    "mode": "data_url",
+                    "success": true,
+                    "mimeType": "image/png",
+                    "originalFilename": "capture.png",
+                    "filePath": r"D:\Downloads\capture.png"
+                }
+            })
+            .to_string(),
+        ];
+
+        let evidence = build_support_log_runtime_evidence_lines(&lines);
+        let rendered = evidence.join("\n");
+
+        assert_eq!(evidence.len(), 4);
+        assert!(rendered.contains("kind=lifecycle event=start mode=image"));
+        assert!(rendered.contains(
+            "resolved_url=https://www.solarsystemscope.com/textures/download/2k_earth_nightmap.jpg"
+        ));
+        assert!(rendered.contains(
+            "kind=terminal event=complete mode=image resolved_url=https://www.solarsystemscope.com/textures/download/2k_earth_nightmap.jpg success=false"
+        ));
+        assert!(rendered.contains("error=Unexpected non-image response content-type: text/html"));
+        assert!(rendered.contains("kind=lifecycle event=start mode=data_url mime_type=image/png"));
+        assert!(rendered.contains("original_filename=capture.png"));
+        assert!(rendered.contains("kind=terminal event=complete mode=data_url mime_type=image/png"));
+        assert!(rendered.contains("file=capture.png"));
     }
 
     #[test]

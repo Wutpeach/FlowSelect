@@ -18,6 +18,7 @@ import {
   type PinterestDragDiagnostic,
   type PinterestVideoCandidate,
 } from "./utils/pinterest";
+import { extractImageUrlFromHtml } from "./utils/imageDrag";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
@@ -1157,6 +1158,12 @@ function App() {
       return;
     }
 
+    const htmlImageUrl = extractImageUrlFromHtml(html, {
+      baseUrl: /^https?:\/\//i.test(url) ? url : null,
+    });
+    const resolvedImageUrl =
+      url && isImageUrl(url) ? url : (!url || !isVideoUrl(url) ? htmlImageUrl : null);
+
     // Check if it's a video URL (highest priority)
     if (url && isVideoUrl(url)) {
       console.log("Detected video URL:", url);
@@ -1166,22 +1173,29 @@ function App() {
     }
 
     // Check if it's an image URL
-    if (url && isImageUrl(url)) {
-      console.log("Detected image URL:", url);
+    if (resolvedImageUrl && isImageUrl(resolvedImageUrl)) {
+      if (resolvedImageUrl !== url) {
+        console.log("Detected image URL from HTML fallback:", {
+          pageUrl: url || null,
+          imageUrl: resolvedImageUrl,
+        });
+      } else {
+        console.log("Detected image URL:", resolvedImageUrl);
+      }
       resetDownloadOutcome();
       setIsProcessing(true);
 
       try {
         // Distinguish between Data URL, file:// URL, and HTTP URL
-        if (url.startsWith("data:image/")) {
+        if (resolvedImageUrl.startsWith("data:image/")) {
           const result = await invoke<string>("save_data_url", {
-            dataUrl: url,
+            dataUrl: resolvedImageUrl,
             targetDir: outputPath || null,
           });
           console.log("Save data URL result:", result);
-        } else if (url.startsWith("file://")) {
+        } else if (resolvedImageUrl.startsWith("file://")) {
           // Convert file:// URL to local path
-          const localPath = decodeURIComponent(url.replace("file:///", ""));
+          const localPath = decodeURIComponent(resolvedImageUrl.replace("file:///", ""));
           console.log("Detected local file:", localPath);
 
           // First try to copy from local path
@@ -1219,7 +1233,7 @@ function App() {
           }
         } else {
           const result = await invoke<string>("download_image", {
-            url,
+            url: resolvedImageUrl,
             targetDir: outputPath || null,
           });
           console.log("Download result:", result);
