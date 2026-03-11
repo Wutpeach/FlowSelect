@@ -8,6 +8,8 @@ use std::io::Write;
 use std::net::SocketAddr;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -44,6 +46,8 @@ const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.flowselect.app"];
 const YTDLP_LATEST_CACHE_FILE_NAME: &str = "ytdlp-latest-cache.json";
 const YTDLP_LATEST_CACHE_TTL_MS: u128 = 60 * 60 * 1000;
 const PINTEREST_SIDECAR_LOCK_JSON: &str = include_str!("../pinterest-sidecar/lock.json");
+#[cfg(windows)]
+const WINDOWS_CREATE_NO_WINDOW: u32 = 0x08000000;
 
 // Store current registered shortcut
 struct RegisteredShortcut {
@@ -2680,10 +2684,9 @@ fn detect_precise_clip_hw_encoder(app: &AppHandle) -> Option<String> {
         }
     };
 
-    let output = match std::process::Command::new(&ffmpeg_path)
-        .args(["-hide_banner", "-encoders"])
-        .output()
-    {
+    let mut command = std::process::Command::new(&ffmpeg_path);
+    command.args(["-hide_banner", "-encoders"]);
+    let output = match configure_hidden_cli_command(&mut command).output() {
         Ok(output) => output,
         Err(err) => {
             println!(">>> [Rust] Precise mode encoder probe skipped: {}", err);
@@ -2732,6 +2735,14 @@ fn resolve_precise_clip_hw_encoder(app: &AppHandle) -> Option<String> {
     detected
 }
 
+fn configure_hidden_cli_command(command: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        command.creation_flags(WINDOWS_CREATE_NO_WINDOW);
+    }
+    command
+}
+
 fn extract_process_failure_message(stderr: &[u8], status: std::process::ExitStatus) -> String {
     String::from_utf8_lossy(stderr)
         .lines()
@@ -2764,7 +2775,8 @@ fn emit_post_processing_status(app: &AppHandle, trace_id: &str, status: &str) {
 async fn probe_media_summary(path: &Path) -> Result<MediaProbeSummary, String> {
     let target_path = path.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let output = std::process::Command::new("ffprobe")
+        let mut command = std::process::Command::new("ffprobe");
+        command
             .args([
                 "-v",
                 "error",
@@ -2773,7 +2785,8 @@ async fn probe_media_summary(path: &Path) -> Result<MediaProbeSummary, String> {
                 "-show_entries",
                 "format=format_name:stream=codec_type,codec_name",
             ])
-            .arg(&target_path)
+            .arg(&target_path);
+        let output = configure_hidden_cli_command(&mut command)
             .output()
             .map_err(|e| format!("Failed to spawn ffprobe: {}", e))?;
 
@@ -2944,7 +2957,9 @@ async fn run_ffmpeg_capture_output(
     let ffmpeg_path = ffmpeg_binary_path(app)?;
     let ffmpeg_path_display = ffmpeg_path.to_string_lossy().to_string();
     let output = tokio::task::spawn_blocking(move || {
-        std::process::Command::new(&ffmpeg_path).args(args).output()
+        let mut command = std::process::Command::new(&ffmpeg_path);
+        command.args(args);
+        configure_hidden_cli_command(&mut command).output()
     })
     .await
     .map_err(|e| format!("Failed to await {}: {}", context, e))?
