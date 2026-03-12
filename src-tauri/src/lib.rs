@@ -806,10 +806,13 @@ const RUNTIME_LOG_PROGRESS_MIN_INTERVAL_MS: u128 = 1500;
 const SUPPORT_LOG_RUNTIME_EVIDENCE_LINE_LIMIT: usize = 24;
 const SUPPORT_LOG_TEXT_PREVIEW_LIMIT: usize = 220;
 const PROTECTED_IMAGE_FALLBACK_TIMEOUT_MS: u64 = 15_000;
-// `best` should follow the highest tier available to the current account, even when
-// that requires mixed containers/codecs. We merge to mkv in that tier so yt-dlp can
-// keep 1440p/2160p streams instead of collapsing to MP4-compatible 1080p.
-const YTDLP_FORMAT_SELECTOR_BEST: &str = "bestvideo*+bestaudio/best";
+const YTDLP_SELECTED_FORMAT_MARKER: &str = "__FLOWSELECT_SELECTED_FORMAT__=";
+// `best` should prefer adaptive video-only + audio-only formats first. Allowing
+// combined `bestvideo*` inputs lets YouTube HLS mp4 variants like 96-6 win early,
+// which collapses Highest into 1080p/360p premerged streams instead of 1440p/2160p
+// DASH selections. Keep `/best` only as the final fallback when adaptive formats
+// are unavailable for the current session.
+const YTDLP_FORMAT_SELECTOR_BEST: &str = "bestvideo+bestaudio/best";
 const YTDLP_FORMAT_SELECTOR_BALANCED: &str = concat!(
     "bv*[height=1080][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/",
     "bv*[height=1080][ext=mp4]+ba[ext=m4a]/",
@@ -1230,6 +1233,16 @@ fn ffmpeg_executable_name() -> &'static str {
     "ffmpeg"
 }
 
+#[cfg(target_os = "windows")]
+fn ffprobe_executable_name() -> &'static str {
+    "ffprobe.exe"
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ffprobe_executable_name() -> &'static str {
+    "ffprobe"
+}
+
 fn resolve_binary_from_env_path(file_name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|raw_path| {
         std::env::split_paths(&raw_path)
@@ -1253,6 +1266,38 @@ fn ffmpeg_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
 
     Err(format!(
         "Failed to resolve ffmpeg runtime. Looked for {:?} in bundled candidates {:?} and system PATH",
+        file_name, candidates
+    ))
+}
+
+fn ffprobe_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let file_name = ffprobe_executable_name();
+    let candidates = binary_candidate_paths(app, file_name);
+    if let Some(path) = candidates.iter().find(|path| path.exists()) {
+        println!(">>> [Rust] Using bundled ffprobe from: {:?}", path);
+        return Ok(path.clone());
+    }
+
+    if let Ok(ffmpeg_path) = ffmpeg_binary_path(app) {
+        if let Some(parent) = ffmpeg_path.parent() {
+            let sibling_path = parent.join(file_name);
+            if sibling_path.exists() {
+                println!(
+                    ">>> [Rust] Using ffprobe next to resolved ffmpeg: {:?}",
+                    sibling_path
+                );
+                return Ok(sibling_path);
+            }
+        }
+    }
+
+    if let Some(path) = resolve_binary_from_env_path(file_name) {
+        println!(">>> [Rust] Using system ffprobe from PATH: {:?}", path);
+        return Ok(path);
+    }
+
+    Err(format!(
+        "Failed to resolve ffprobe runtime. Looked for {:?} in bundled candidates {:?}, alongside resolved ffmpeg, and system PATH",
         file_name, candidates
     ))
 }
@@ -2906,81 +2951,196 @@ fn extract_process_failure_message(stderr: &[u8], status: std::process::ExitStat
         .unwrap_or_else(|| format!("process exited with status {}", status))
 }
 
-async fn probe_media_summary(path: &Path) -> Result<MediaProbeSummary, String> {
-    let target_path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        let mut command = std::process::Command::new("ffprobe");
-        command
-            .args([
-                "-v",
-                "error",
-                "-print_format",
-                "json",
-                "-show_entries",
-                "format=format_name:stream=codec_type,codec_name",
-            ])
-            .arg(&target_path);
-        let output = configure_hidden_cli_command(&mut command)
-            .output()
-            .map_err(|e| format!("Failed to spawn ffprobe: {}", e))?;
+fn parse_ffmpeg_probe_container_names(line: &str) -> Option<Vec<String>> {
+    let input_prefix = "Input #0, ";
+    let rest = line.strip_prefix(input_prefix)?;
+    let container_section = rest.splitn(2, ", from ").next()?;
+    let container_names = container_section
+        .split(',')
+        .map(|item| item.trim().to_ascii_lowercase())
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
 
-        if !output.status.success() {
-            return Err(format!(
-                "ffprobe failed for {:?}: {}",
-                target_path,
-                extract_process_failure_message(&output.stderr, output.status)
-            ));
-        }
+    if container_names.is_empty() {
+        return None;
+    }
 
-        let probe: MediaProbeResult = serde_json::from_slice(&output.stdout)
-            .map_err(|e| format!("Failed to parse ffprobe JSON: {}", e))?;
-        let container_names = probe
-            .format
-            .and_then(|format| format.format_name)
-            .map(|value| {
-                value
-                    .split(',')
-                    .map(|item| item.trim().to_ascii_lowercase())
-                    .filter(|item| !item.is_empty())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let mut has_video_stream = false;
-        let mut has_audio_stream = false;
-        let mut video_codec = None;
-        let mut audio_codec = None;
+    Some(container_names)
+}
 
-        for stream in probe.streams {
-            match stream.codec_type.to_ascii_lowercase().as_str() {
-                "video" => {
-                    has_video_stream = true;
-                    if video_codec.is_none() {
-                        video_codec = stream.codec_name.map(|value| value.to_ascii_lowercase());
-                    }
-                }
-                "audio" => {
-                    has_audio_stream = true;
-                    if audio_codec.is_none() {
-                        audio_codec = stream.codec_name.map(|value| value.to_ascii_lowercase());
-                    }
-                }
-                _ => {}
+fn parse_ffmpeg_probe_codec_name(line: &str, stream_label: &str) -> Option<String> {
+    let (_, tail) = line.split_once(stream_label)?;
+    tail.trim()
+        .split(|ch: char| ch == ',' || ch.is_whitespace())
+        .find(|token| !token.is_empty())
+        .map(|token| token.to_ascii_lowercase())
+}
+
+fn parse_ffmpeg_probe_summary_output(
+    target_path: &Path,
+    stderr: &str,
+) -> Result<MediaProbeSummary, String> {
+    let mut container_names = Vec::new();
+    let mut has_video_stream = false;
+    let mut has_audio_stream = false;
+    let mut video_codec = None;
+    let mut audio_codec = None;
+
+    for line in stderr.lines().map(str::trim) {
+        if container_names.is_empty() {
+            if let Some(parsed_containers) = parse_ffmpeg_probe_container_names(line) {
+                container_names = parsed_containers;
+                continue;
             }
         }
 
-        Ok(MediaProbeSummary {
-            container_names,
-            has_video_stream,
-            has_audio_stream,
-            video_codec,
-            audio_codec,
+        if line.contains("Video:") {
+            has_video_stream = true;
+            if video_codec.is_none() {
+                video_codec = parse_ffmpeg_probe_codec_name(line, "Video:");
+            }
+        }
+
+        if line.contains("Audio:") {
+            has_audio_stream = true;
+            if audio_codec.is_none() {
+                audio_codec = parse_ffmpeg_probe_codec_name(line, "Audio:");
+            }
+        }
+    }
+
+    if container_names.is_empty() && !has_video_stream && !has_audio_stream {
+        let failure = stderr
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("ffmpeg probe produced no recognizable metadata");
+        return Err(format!(
+            "ffmpeg probe failed for {:?}: {}",
+            target_path, failure
+        ));
+    }
+
+    Ok(MediaProbeSummary {
+        container_names,
+        has_video_stream,
+        has_audio_stream,
+        video_codec,
+        audio_codec,
+    })
+}
+
+fn probe_media_summary_with_ffprobe(
+    ffprobe_path: &Path,
+    target_path: &Path,
+) -> Result<MediaProbeSummary, String> {
+    let mut command = std::process::Command::new(ffprobe_path);
+    command
+        .args([
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_entries",
+            "format=format_name:stream=codec_type,codec_name",
+        ])
+        .arg(target_path);
+    let output = configure_hidden_cli_command(&mut command)
+        .output()
+        .map_err(|e| format!("Failed to spawn ffprobe at {:?}: {}", ffprobe_path, e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "ffprobe failed for {:?}: {}",
+            target_path,
+            extract_process_failure_message(&output.stderr, output.status)
+        ));
+    }
+
+    let probe: MediaProbeResult = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse ffprobe JSON: {}", e))?;
+    let container_names = probe
+        .format
+        .and_then(|format| format.format_name)
+        .map(|value| {
+            value
+                .split(',')
+                .map(|item| item.trim().to_ascii_lowercase())
+                .filter(|item| !item.is_empty())
+                .collect::<Vec<_>>()
         })
+        .unwrap_or_default();
+    let mut has_video_stream = false;
+    let mut has_audio_stream = false;
+    let mut video_codec = None;
+    let mut audio_codec = None;
+
+    for stream in probe.streams {
+        match stream.codec_type.to_ascii_lowercase().as_str() {
+            "video" => {
+                has_video_stream = true;
+                if video_codec.is_none() {
+                    video_codec = stream.codec_name.map(|value| value.to_ascii_lowercase());
+                }
+            }
+            "audio" => {
+                has_audio_stream = true;
+                if audio_codec.is_none() {
+                    audio_codec = stream.codec_name.map(|value| value.to_ascii_lowercase());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(MediaProbeSummary {
+        container_names,
+        has_video_stream,
+        has_audio_stream,
+        video_codec,
+        audio_codec,
+    })
+}
+
+fn probe_media_summary_with_ffmpeg(
+    ffmpeg_path: &Path,
+    target_path: &Path,
+) -> Result<MediaProbeSummary, String> {
+    let mut command = std::process::Command::new(ffmpeg_path);
+    command.args(["-hide_banner", "-i"]).arg(target_path);
+    let output = configure_hidden_cli_command(&mut command)
+        .output()
+        .map_err(|e| format!("Failed to spawn ffmpeg probe at {:?}: {}", ffmpeg_path, e))?;
+
+    parse_ffmpeg_probe_summary_output(target_path, &String::from_utf8_lossy(&output.stderr))
+}
+
+async fn probe_media_summary(app: &AppHandle, path: &Path) -> Result<MediaProbeSummary, String> {
+    let app = app.clone();
+    let target_path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || match ffprobe_binary_path(&app) {
+        Ok(ffprobe_path) => probe_media_summary_with_ffprobe(&ffprobe_path, &target_path),
+        Err(ffprobe_err) => {
+            println!(
+                ">>> [Rust] ffprobe unavailable, falling back to ffmpeg header probe: {}",
+                ffprobe_err
+            );
+            let ffmpeg_path = ffmpeg_binary_path(&app).map_err(|ffmpeg_err| {
+                format!(
+                    "Failed to resolve media probe runtime: ffprobe: {}; ffmpeg: {}",
+                    ffprobe_err, ffmpeg_err
+                )
+            })?;
+            probe_media_summary_with_ffmpeg(&ffmpeg_path, &target_path)
+                .map_err(|err| format!("{} (ffprobe unavailable: {})", err, ffprobe_err))
+        }
     })
     .await
     .map_err(|e| format!("Failed to await ffprobe task: {}", e))?
 }
 
 async fn prepare_transcode_task_from_download(
+    app: &AppHandle,
     trace_id: &str,
     preferred_label: Option<&str>,
     source_path: &str,
@@ -2994,7 +3154,7 @@ async fn prepare_transcode_task_from_download(
     }
 
     let mut source_format = infer_media_format_from_path(&source_path_buf);
-    match probe_media_summary(&source_path_buf).await {
+    match probe_media_summary(app, &source_path_buf).await {
         Ok(summary) => {
             if summary.is_ae_safe() {
                 return Ok(None);
@@ -3039,7 +3199,7 @@ async fn handle_completed_video_source(
     preferred_label: Option<&str>,
     source_path: &str,
 ) {
-    match prepare_transcode_task_from_download(trace_id, preferred_label, source_path).await {
+    match prepare_transcode_task_from_download(app, trace_id, preferred_label, source_path).await {
         Ok(Some(task)) => {
             enqueue_video_transcode_task(app, task);
             schedule_video_transcode_queue_pump(app.clone());
@@ -3233,7 +3393,7 @@ async fn normalize_video_output_for_ae(
         "Analyzing source media...",
     );
 
-    let probe_summary = match probe_media_summary(source_path).await {
+    let probe_summary = match probe_media_summary(app, source_path).await {
         Ok(summary) => Some(summary),
         Err(err) => {
             println!(
@@ -3619,6 +3779,7 @@ async fn download_full_source_to_slice_cache(
         cache_path.to_string_lossy().to_string(),
     ];
     append_ytdlp_runtime_guard_args(&mut args, disable_resume_artifacts);
+    append_ytdlp_selected_format_print_arg(&mut args);
     if let Some(format_sort) = ytdlp_quality.format_sort() {
         args.push("-S".to_string());
         args.push(format_sort.to_string());
@@ -6091,6 +6252,7 @@ async fn download_video_internal(
         output_template.to_string_lossy().to_string(),
     ];
     append_ytdlp_runtime_guard_args(&mut args, policy.disable_resume_artifacts);
+    append_ytdlp_selected_format_print_arg(&mut args);
     if selection_scope.should_force_single_item() {
         println!(
             ">>> [Rust] Forcing yt-dlp single-item mode for selection scope={}",
@@ -6136,6 +6298,30 @@ async fn download_video_internal(
     }
 
     args.push(url.clone());
+    println!(
+        ">>> [Rust] yt-dlp invocation selector={}, sort={}, cookies_enabled={}, cookie_retry_allowed={}",
+        ytdlp_quality.format_selector(),
+        ytdlp_quality.format_sort().unwrap_or("(none)"),
+        extension_cookies_path
+            .as_ref()
+            .is_some_and(|path| path.exists()),
+        policy.allow_youtube_cookie_retry
+    );
+    append_runtime_log_event(
+        "download",
+        "yt_dlp_invocation",
+        Some(trace_id.as_str()),
+        serde_json::json!({
+            "selector": ytdlp_quality.format_selector(),
+            "sort": ytdlp_quality.format_sort(),
+            "cookiesEnabled": extension_cookies_path
+                .as_ref()
+                .is_some_and(|path| path.exists()),
+            "cookieRetryAllowed": policy.allow_youtube_cookie_retry,
+            "selectionScope": selection_scope.as_str(),
+            "quality": ytdlp_quality.as_str(),
+        }),
+    );
 
     // 构建环境变量，将 Deno 目录添加到 PATH
     let mut env_path = std::env::var("PATH").unwrap_or_default();
@@ -6254,6 +6440,27 @@ async fn download_video_internal(
                     if heartbeat_event.soft_heartbeat {
                         last_soft_heartbeat_at = Some(now);
                     }
+                    if let Some(retried_result) = maybe_retry_youtube_highest_without_cookies(
+                        &app,
+                        &url,
+                        &clip_range,
+                        &extension_cookies_path,
+                        ytdlp_quality,
+                        policy,
+                        heartbeat_state.selected_format.as_ref(),
+                        &mut heartbeat_state.youtube_highest_probe_attempted,
+                        selection_scope,
+                        &source_title,
+                        ae_friendly_conversion_enabled,
+                        &trace_id,
+                        &captured_artifact_paths,
+                        &output_dir,
+                        &reported_output_path_file,
+                    )
+                    .await?
+                    {
+                        return Ok(retried_result);
+                    }
                 }
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
@@ -6276,6 +6483,27 @@ async fn download_video_internal(
                     }
                     if heartbeat_event.soft_heartbeat {
                         last_soft_heartbeat_at = Some(now);
+                    }
+                    if let Some(retried_result) = maybe_retry_youtube_highest_without_cookies(
+                        &app,
+                        &url,
+                        &clip_range,
+                        &extension_cookies_path,
+                        ytdlp_quality,
+                        policy,
+                        heartbeat_state.selected_format.as_ref(),
+                        &mut heartbeat_state.youtube_highest_probe_attempted,
+                        selection_scope,
+                        &source_title,
+                        ae_friendly_conversion_enabled,
+                        &trace_id,
+                        &captured_artifact_paths,
+                        &output_dir,
+                        &reported_output_path_file,
+                    )
+                    .await?
+                    {
+                        return Ok(retried_result);
                     }
                 }
                 CommandEvent::Terminated(payload) => {
@@ -8985,6 +9213,314 @@ fn capture_ytdlp_file_path(line: &str) -> Option<String> {
     None
 }
 
+fn append_ytdlp_selected_format_print_arg(args: &mut Vec<String>) {
+    args.push("--print".to_string());
+    args.push(format!(
+        "before_dl:{}%(format_id)s|%(format)s|%(resolution)s|%(protocol)s|%(vcodec)s|%(acodec)s|%(ext)s",
+        YTDLP_SELECTED_FORMAT_MARKER
+    ));
+}
+
+fn parse_ytdlp_selected_format_line(line: &str) -> Option<YtdlpSelectedFormatInfo> {
+    let payload = line.strip_prefix(YTDLP_SELECTED_FORMAT_MARKER)?.trim();
+    if payload.is_empty() {
+        return None;
+    }
+
+    let fields: Vec<&str> = payload.split('|').collect();
+    let get_field = |index: usize| -> Option<String> {
+        fields
+            .get(index)
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+    };
+
+    Some(YtdlpSelectedFormatInfo {
+        raw: payload.to_string(),
+        format_id: get_field(0),
+        format_note: get_field(1),
+        resolution: get_field(2),
+        protocol: get_field(3),
+        video_codec: get_field(4),
+        audio_codec: get_field(5),
+        ext: get_field(6),
+    })
+}
+
+fn should_probe_youtube_highest_without_cookies(
+    url: &str,
+    clip_range: &Option<ClipTimeRange>,
+    extension_cookies_path: &Option<PathBuf>,
+    ytdlp_quality: YtdlpQualityPreference,
+    policy: YtdlpInvocationPolicy,
+    selected_format: Option<&YtdlpSelectedFormatInfo>,
+) -> bool {
+    if !policy.allow_youtube_cookie_retry
+        || !is_youtube_url(url)
+        || clip_range.is_some()
+        || ytdlp_quality != YtdlpQualityPreference::Best
+    {
+        return false;
+    }
+
+    if !extension_cookies_path
+        .as_ref()
+        .is_some_and(|path| path.exists())
+    {
+        return false;
+    }
+
+    let Some(selected_format) = selected_format else {
+        return false;
+    };
+
+    selected_format.protocol.as_deref() == Some("m3u8_native")
+        && selected_format
+            .resolution_height()
+            .is_some_and(|height| height <= 1080)
+}
+
+fn is_selected_format_strictly_better_than(
+    candidate: &YtdlpSelectedFormatInfo,
+    baseline: &YtdlpSelectedFormatInfo,
+) -> bool {
+    match (candidate.resolution_height(), baseline.resolution_height()) {
+        (Some(candidate_height), Some(baseline_height)) => candidate_height > baseline_height,
+        _ => false,
+    }
+}
+
+async fn probe_ytdlp_selected_format(
+    app: &AppHandle,
+    url: &str,
+    selection_scope: VideoSelectionScope,
+    ytdlp_quality: YtdlpQualityPreference,
+    cookies_path: Option<&PathBuf>,
+) -> Result<Option<YtdlpSelectedFormatInfo>, String> {
+    use tauri_plugin_shell::process::CommandEvent;
+
+    let ytdlp_path = ytdlp_binary_path(app)?;
+    let mut args = vec![
+        "--skip-download".to_string(),
+        "-f".to_string(),
+        ytdlp_quality.format_selector().to_string(),
+        "--merge-output-format".to_string(),
+        ytdlp_quality.merge_output_format().to_string(),
+        "--extractor-args".to_string(),
+        "youtube:player_js_variant=tv".to_string(),
+        "--js-runtimes".to_string(),
+        "node".to_string(),
+        "--js-runtimes".to_string(),
+        "deno".to_string(),
+        "--remote-components".to_string(),
+        "ejs:github".to_string(),
+        "--encoding".to_string(),
+        "utf-8".to_string(),
+    ];
+    append_ytdlp_runtime_guard_args(&mut args, false);
+    append_ytdlp_selected_format_print_arg(&mut args);
+    if selection_scope.should_force_single_item() {
+        args.push("--no-playlist".to_string());
+    }
+    if let Some(format_sort) = ytdlp_quality.format_sort() {
+        args.push("-S".to_string());
+        args.push(format_sort.to_string());
+    }
+    if let Some(cookies_path) = cookies_path.filter(|path| path.exists()) {
+        args.push("--cookies".to_string());
+        args.push(cookies_path.to_string_lossy().to_string());
+    }
+    args.push(url.to_string());
+
+    let env_path = build_env_path_with_deno(app);
+    let shell = app.shell();
+    let (mut rx, _child) = shell
+        .command(ytdlp_path.to_string_lossy().to_string())
+        .args(&args)
+        .env("PATH", &env_path)
+        .spawn()
+        .map_err(|spawn_err| {
+            format!(
+                "Failed to spawn yt-dlp selection probe at {:?}: {}",
+                ytdlp_path, spawn_err
+            )
+        })?;
+
+    let mut selected_format: Option<YtdlpSelectedFormatInfo> = None;
+    let mut stderr_buffer = String::new();
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                let line_str = String::from_utf8_lossy(&line);
+                for raw_segment in line_str.replace('\r', "\n").lines() {
+                    let normalized_line = strip_ansi_escape_sequences(raw_segment);
+                    let normalized_line = normalized_line.trim();
+                    if normalized_line.is_empty() {
+                        continue;
+                    }
+                    if let Some(parsed) = parse_ytdlp_selected_format_line(normalized_line) {
+                        selected_format = Some(parsed);
+                    }
+                    stderr_buffer.push_str(normalized_line);
+                    stderr_buffer.push('\n');
+                }
+            }
+            CommandEvent::Terminated(payload) => {
+                if payload.code == Some(0) {
+                    return Ok(selected_format);
+                }
+                let message = stderr_buffer
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+                    .unwrap_or("yt-dlp selection probe failed");
+                return Err(format!(
+                    "yt-dlp selection probe exited with code {:?}: {}",
+                    payload.code, message
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    Ok(selected_format)
+}
+
+async fn maybe_retry_youtube_highest_without_cookies(
+    app: &AppHandle,
+    url: &String,
+    clip_range: &Option<ClipTimeRange>,
+    extension_cookies_path: &Option<PathBuf>,
+    ytdlp_quality: YtdlpQualityPreference,
+    policy: YtdlpInvocationPolicy,
+    selected_format: Option<&YtdlpSelectedFormatInfo>,
+    probe_attempted: &mut bool,
+    selection_scope: VideoSelectionScope,
+    source_title: &Option<String>,
+    ae_friendly_conversion_enabled: bool,
+    trace_id: &String,
+    captured_artifact_paths: &HashSet<PathBuf>,
+    output_dir: &Path,
+    reported_output_path_file: &Path,
+) -> Result<Option<DownloadResult>, String> {
+    if *probe_attempted
+        || !should_probe_youtube_highest_without_cookies(
+            url,
+            clip_range,
+            extension_cookies_path,
+            ytdlp_quality,
+            policy,
+            selected_format,
+        )
+    {
+        return Ok(None);
+    }
+
+    *probe_attempted = true;
+    let Some(current_selection) = selected_format else {
+        return Ok(None);
+    };
+
+    let probe_result =
+        probe_ytdlp_selected_format(app, url, selection_scope, ytdlp_quality, None).await;
+    match probe_result {
+        Ok(Some(probed_selection))
+            if is_selected_format_strictly_better_than(&probed_selection, current_selection) =>
+        {
+            println!(
+                ">>> [Rust] YouTube Highest cookie-free probe selected better format: {}",
+                probed_selection.raw
+            );
+            println!(
+                ">>> [Rust] YouTube Highest probe found better cookie-free format, retrying without cookies"
+            );
+            append_runtime_log_event(
+                "download",
+                "youtube_selected_format_retry",
+                Some(trace_id.as_str()),
+                serde_json::json!({
+                    "reason": "better_cookie_free_selection",
+                    "selectedFormat": current_selection.as_log_payload(),
+                    "probedFormat": probed_selection.as_log_payload(),
+                }),
+            );
+            terminate_download_child_process_with_grace(trace_id.as_str()).await;
+            cleanup_captured_ytdlp_artifacts(captured_artifact_paths, None);
+            cleanup_part_files_for_output_root(output_dir);
+            cleanup_extension_cookies_file(extension_cookies_path);
+            let _ = fs::remove_file(reported_output_path_file);
+            return Box::pin(download_video_internal(
+                app.clone(),
+                url.clone(),
+                None,
+                clip_range.clone(),
+                source_title.clone(),
+                selection_scope,
+                ytdlp_quality,
+                ae_friendly_conversion_enabled,
+                trace_id.clone(),
+                YtdlpInvocationPolicy {
+                    allow_youtube_cookie_retry: false,
+                    allow_http_416_retry: policy.allow_http_416_retry,
+                    disable_resume_artifacts: policy.disable_resume_artifacts,
+                },
+            ))
+            .await
+            .map(Some);
+        }
+        Ok(Some(probed_selection)) => {
+            println!(
+                ">>> [Rust] YouTube Highest cookie-free probe kept cookies path; probe selected {}",
+                probed_selection.raw
+            );
+            append_runtime_log_event(
+                "download",
+                "youtube_selected_format_keep_cookies",
+                Some(trace_id.as_str()),
+                serde_json::json!({
+                    "reason": "cookie_free_not_better",
+                    "selectedFormat": current_selection.as_log_payload(),
+                    "probedFormat": probed_selection.as_log_payload(),
+                }),
+            );
+        }
+        Ok(None) => {
+            println!(
+                ">>> [Rust] YouTube Highest cookie-free probe returned no selected format"
+            );
+            append_runtime_log_event(
+                "download",
+                "youtube_selected_format_keep_cookies",
+                Some(trace_id.as_str()),
+                serde_json::json!({
+                    "reason": "cookie_free_probe_empty",
+                    "selectedFormat": current_selection.as_log_payload(),
+                }),
+            );
+        }
+        Err(err) => {
+            println!(
+                ">>> [Rust] YouTube Highest cookie-free probe failed: {}",
+                err
+            );
+            append_runtime_log_event(
+                "download",
+                "youtube_selected_format_keep_cookies",
+                Some(trace_id.as_str()),
+                serde_json::json!({
+                    "reason": "cookie_free_probe_failed",
+                    "selectedFormat": current_selection.as_log_payload(),
+                    "error": err,
+                }),
+            );
+        }
+    }
+
+    Ok(None)
+}
+
 fn read_ytdlp_reported_output_path(report_path: &Path) -> Option<String> {
     let bytes = fs::read(report_path).ok()?;
     let contents = String::from_utf8_lossy(&bytes);
@@ -9007,6 +9543,41 @@ struct YtdlpHeartbeatState {
     last_ffmpeg_time_seconds: Option<f64>,
     last_output_bytes: Option<u64>,
     last_stage_status: Option<String>,
+    selected_format: Option<YtdlpSelectedFormatInfo>,
+    youtube_highest_probe_attempted: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct YtdlpSelectedFormatInfo {
+    raw: String,
+    format_id: Option<String>,
+    format_note: Option<String>,
+    resolution: Option<String>,
+    protocol: Option<String>,
+    video_codec: Option<String>,
+    audio_codec: Option<String>,
+    ext: Option<String>,
+}
+
+impl YtdlpSelectedFormatInfo {
+    fn as_log_payload(&self) -> serde_json::Value {
+        serde_json::json!({
+            "raw": self.raw,
+            "formatId": self.format_id,
+            "formatNote": self.format_note,
+            "resolution": self.resolution,
+            "protocol": self.protocol,
+            "videoCodec": self.video_codec,
+            "audioCodec": self.audio_codec,
+            "ext": self.ext,
+        })
+    }
+
+    fn resolution_height(&self) -> Option<u32> {
+        let resolution = self.resolution.as_deref()?;
+        let (_, height) = resolution.split_once('x')?;
+        height.trim().parse::<u32>().ok()
+    }
 }
 
 #[derive(Default)]
@@ -9186,6 +9757,17 @@ fn process_ytdlp_output_line(
                 heartbeat_event.hard_heartbeat = true;
             }
             heartbeat_state.last_ffmpeg_time_seconds = Some(ffmpeg_time_seconds);
+        }
+
+        if let Some(selected_format) = parse_ytdlp_selected_format_line(normalized_line) {
+            heartbeat_state.selected_format = Some(selected_format.clone());
+            append_runtime_log_event(
+                "download",
+                "selected_format",
+                Some(trace_id),
+                selected_format.as_log_payload(),
+            );
+            heartbeat_event.soft_heartbeat = true;
         }
 
         if let Some(path) = capture_ytdlp_file_path(normalized_line) {
@@ -11660,6 +12242,8 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             "url": url,
                             "pageUrl": page_url,
                             "selectionScope": selection_scope.as_str(),
+                            "incomingYtdlpQuality": incoming_ytdlp_quality.map(|value| value.as_str()),
+                            "persistedYtdlpQuality": persisted_preferences.ytdlp_quality.as_str(),
                             "hasVideoUrl": video_url.is_some_and(|value| !value.is_empty()),
                             "videoCandidatesCount": video_candidates.len(),
                             "douyinDirectCandidateCount": douyin_direct_candidates.len(),
@@ -11672,6 +12256,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             "clipStartSec": clip_range.as_ref().map(|range| range.start_seconds),
                             "clipEndSec": clip_range.as_ref().map(|range| range.end_seconds),
                             "ytdlpQuality": ytdlp_quality.as_str(),
+                            "downloadPreferencesUpdated": incoming_ytdlp_quality.is_some() || incoming_ae_friendly_conversion_enabled.is_some(),
                             "aeFriendlyConversionEnabled": ae_friendly_conversion_enabled,
                         }),
                     );
@@ -12503,6 +13088,91 @@ mod tests {
     }
 
     #[test]
+    fn parse_ytdlp_selected_format_line_reads_marker_payload() {
+        let line = "__FLOWSELECT_SELECTED_FORMAT__=313+251|3840x1920 (30fps)|3840x1920|https+https|vp9|opus|mkv";
+        let parsed =
+            parse_ytdlp_selected_format_line(line).expect("expected selected-format payload");
+
+        assert_eq!(parsed.format_id.as_deref(), Some("313+251"));
+        assert_eq!(parsed.resolution.as_deref(), Some("3840x1920"));
+        assert_eq!(parsed.protocol.as_deref(), Some("https+https"));
+        assert_eq!(parsed.video_codec.as_deref(), Some("vp9"));
+        assert_eq!(parsed.audio_codec.as_deref(), Some("opus"));
+        assert_eq!(parsed.ext.as_deref(), Some("mkv"));
+    }
+
+    #[test]
+    fn parse_ytdlp_selected_format_line_ignores_non_marker_lines() {
+        assert!(
+            parse_ytdlp_selected_format_line("[info] Downloading 1 format(s): 313+251").is_none()
+        );
+    }
+
+    #[test]
+    fn youtube_highest_retry_triggers_for_cookie_backed_m3u8_1080_selection() {
+        let selected_format = parse_ytdlp_selected_format_line(
+            "__FLOWSELECT_SELECTED_FORMAT__=96-6|96-6 - 1920x960 ((original))|1920x960|m3u8_native|avc1.640028|mp4a.40.2|mp4",
+        )
+        .expect("expected selected-format payload");
+        let cookie_path = std::env::temp_dir().join(format!(
+            "flowselect-test-cookies-{}.txt",
+            std::process::id()
+        ));
+        fs::write(&cookie_path, "# Netscape HTTP Cookie File\n")
+            .expect("expected temp cookie file");
+
+        assert!(should_probe_youtube_highest_without_cookies(
+            "https://www.youtube.com/watch?v=iGeXGdYE7UE",
+            &None,
+            &Some(cookie_path.clone()),
+            YtdlpQualityPreference::Best,
+            YtdlpInvocationPolicy {
+                allow_youtube_cookie_retry: true,
+                allow_http_416_retry: true,
+                disable_resume_artifacts: false,
+            },
+            Some(&selected_format),
+        ));
+        let _ = fs::remove_file(cookie_path);
+    }
+
+    #[test]
+    fn youtube_highest_retry_skips_dash_2160_selection() {
+        let selected_format = parse_ytdlp_selected_format_line(
+            "__FLOWSELECT_SELECTED_FORMAT__=313+251|3840x1920 (30fps)|3840x1920|https+https|vp9|opus|mkv",
+        )
+        .expect("expected selected-format payload");
+
+        assert!(!should_probe_youtube_highest_without_cookies(
+            "https://www.youtube.com/watch?v=iGeXGdYE7UE",
+            &None,
+            &Some(PathBuf::from("D:/Temp/cookies.txt")),
+            YtdlpQualityPreference::Best,
+            YtdlpInvocationPolicy {
+                allow_youtube_cookie_retry: true,
+                allow_http_416_retry: true,
+                disable_resume_artifacts: false,
+            },
+            Some(&selected_format),
+        ));
+    }
+
+    #[test]
+    fn selected_format_better_comparison_prefers_higher_resolution() {
+        let lower = parse_ytdlp_selected_format_line(
+            "__FLOWSELECT_SELECTED_FORMAT__=96-6|96-6 - 1920x960 ((original))|1920x960|m3u8_native|avc1.640028|mp4a.40.2|mp4",
+        )
+        .expect("expected lower selected-format payload");
+        let higher = parse_ytdlp_selected_format_line(
+            "__FLOWSELECT_SELECTED_FORMAT__=313+251|3840x1920 (30fps)|3840x1920|https+https|vp9|opus|mkv",
+        )
+        .expect("expected higher selected-format payload");
+
+        assert!(is_selected_format_strictly_better_than(&higher, &lower));
+        assert!(!is_selected_format_strictly_better_than(&lower, &higher));
+    }
+
+    #[test]
     fn non_rename_ytdlp_full_video_template_includes_resolution_and_quality_suffix() {
         assert_eq!(
             build_non_rename_ytdlp_full_video_template(YtdlpQualityPreference::Best),
@@ -12516,5 +13186,46 @@ mod tests {
             build_non_rename_ytdlp_full_video_template(YtdlpQualityPreference::DataSaver),
             "%(title)s[%(width)sx%(height)s][data-saver].%(ext)s"
         );
+    }
+
+    #[test]
+    fn ffmpeg_probe_fallback_parses_mp4_h264_aac_summary() {
+        let stderr = r#"Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Temp\sample.mp4':
+  Metadata:
+    major_brand     : isom
+  Duration: 00:00:10.00, start: 0.000000, bitrate: 612 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High), yuv420p(progressive), 1920x1080 [SAR 1:1 DAR 16:9], 30 fps
+  Stream #0:1[0x2](und): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s
+At least one output file must be specified"#;
+
+        let summary = parse_ffmpeg_probe_summary_output(Path::new(r"C:\Temp\sample.mp4"), stderr)
+            .expect("expected ffmpeg fallback summary to parse");
+
+        assert_eq!(
+            summary.container_names,
+            vec![
+                "mov".to_string(),
+                "mp4".to_string(),
+                "m4a".to_string(),
+                "3gp".to_string(),
+                "3g2".to_string(),
+                "mj2".to_string(),
+            ]
+        );
+        assert!(summary.has_video_stream);
+        assert!(summary.has_audio_stream);
+        assert_eq!(summary.video_codec.as_deref(), Some("h264"));
+        assert_eq!(summary.audio_codec.as_deref(), Some("aac"));
+        assert!(summary.is_ae_safe());
+    }
+
+    #[test]
+    fn ffmpeg_probe_fallback_returns_error_without_recognizable_metadata() {
+        let stderr = "C:\\Temp\\missing.mp4: No such file or directory";
+        let err = parse_ffmpeg_probe_summary_output(Path::new(r"C:\Temp\missing.mp4"), stderr)
+            .expect_err("expected ffmpeg fallback parse to fail");
+
+        assert!(err.contains("ffmpeg probe failed"));
+        assert!(err.contains("No such file or directory"));
     }
 }

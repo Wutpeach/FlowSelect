@@ -195,7 +195,7 @@ body.flowselect-theme-white {
 }
 
 .flowselect-quality-hint {
-  display: flex;
+  display: none;
   align-items: flex-start;
   gap: 8px;
   margin-top: 8px;
@@ -203,6 +203,10 @@ body.flowselect-theme-white {
   border: 1px solid var(--flowselect-accent-border);
   border-radius: 8px;
   background: linear-gradient(180deg, var(--flowselect-accent-soft) 0%, transparent 100%);
+}
+
+.flowselect-quality-hint[data-visible="true"] {
+  display: flex;
 }
 
 .flowselect-quality-hint-icon {

@@ -31,6 +31,10 @@ if (!isWindows) {
     process.env.FLOWSELECT_AGENTATION_PORT ?? "4747",
     10,
   );
+  const websocketPort = Number.parseInt(
+    process.env.FLOWSELECT_WEBSOCKET_PORT ?? "39527",
+    10,
+  );
   let shuttingDown = false;
   let exitCode = 0;
 
@@ -93,6 +97,15 @@ if (!isWindows) {
     if (port === agentationPort) {
       return normalized.includes("agentation-mcp");
     }
+    if (port === websocketPort) {
+      return (
+        normalized.includes("flowselect") ||
+        normalized.includes("tauri") ||
+        normalized.includes("cargo") ||
+        normalized.includes("\\target\\debug\\") ||
+        normalized.includes("\\src-tauri\\")
+      );
+    }
     return false;
   };
 
@@ -127,8 +140,12 @@ if (!isWindows) {
 
   const frontendReady = await ensurePortAvailable(frontendPort, "frontend");
   const agentationReady = await ensurePortAvailable(agentationPort, "agentation");
+  const websocketReady = await ensurePortAvailable(
+    websocketPort,
+    "desktop websocket",
+  );
 
-  if (!frontendReady || !agentationReady) {
+  if (!frontendReady || !agentationReady || !websocketReady) {
     process.exit(1);
   }
 

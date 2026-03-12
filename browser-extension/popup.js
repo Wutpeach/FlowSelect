@@ -119,7 +119,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderQualityOptions(selectedValue) {
-    currentQualityPreference = selectedValue;
+    const normalizedSelectedValue = directDownloadQuality.normalizeQualityPreference(selectedValue);
+    currentQualityPreference = normalizedSelectedValue;
     qualityGrid.innerHTML = "";
 
     directDownloadQuality.QUALITY_PREFERENCE_OPTIONS.forEach((option) => {
@@ -129,7 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
       button.type = "button";
       button.className = "flowselect-quality-btn";
       button.dataset.quality = option.value;
-      if (option.value === selectedValue) {
+      if (option.value === normalizedSelectedValue) {
         button.classList.add("active");
       }
 
@@ -150,16 +151,20 @@ document.addEventListener("DOMContentLoaded", () => {
       qualityGrid.appendChild(button);
     });
 
-    renderHighestQualityHint(selectedValue);
+    renderHighestQualityHint(normalizedSelectedValue);
   }
 
   function renderHighestQualityHint(selectedValue) {
-    const hintVisible = selectedValue === "best";
+    const normalizedSelectedValue = directDownloadQuality.normalizeQualityPreference(selectedValue);
+    const hintVisible = normalizedSelectedValue === "best";
     highestQualityHintText.textContent = t(
       "popup.preferences.highest.hint",
       "Some high-quality videos may enter the transcode queue after download."
     );
+    highestQualityHint.dataset.visible = hintVisible ? "true" : "false";
     highestQualityHint.hidden = !hintVisible;
+    highestQualityHint.setAttribute("aria-hidden", hintVisible ? "false" : "true");
+    highestQualityHint.style.display = hintVisible ? "flex" : "none";
   }
 
   async function applyLanguage(nextLanguage) {
