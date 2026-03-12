@@ -83,6 +83,36 @@ jobs:
             py --version
 
       - run:
+          name: Ensure dlltool.exe for Rust Windows builds
+          command: |
+            $ErrorActionPreference = "Stop"
+            $env:Path = "C:\ProgramData\chocolatey\bin;$env:Path"
+
+            if (-not (Get-Command dlltool.exe -ErrorAction SilentlyContinue)) {
+              if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+                throw "choco is required on this image to install mingw"
+              }
+              choco install mingw -y --no-progress
+            }
+
+            $dlltool = Get-Command dlltool.exe -ErrorAction SilentlyContinue
+            if (-not $dlltool) {
+              $candidate = Get-ChildItem "C:\ProgramData\chocolatey\lib" -Recurse -Filter "dlltool.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($candidate) {
+                $toolDir = Split-Path $candidate.FullName -Parent
+                $env:Path = "$toolDir;$env:Path"
+                $dlltool = Get-Command dlltool.exe -ErrorAction SilentlyContinue
+              }
+            }
+
+            if (-not $dlltool) {
+              throw "dlltool.exe not found after mingw installation"
+            }
+
+            Write-Host "dlltool path: $($dlltool.Source)"
+            dlltool.exe --version
+
+      - run:
           name: Download yt-dlp
           command: |
             $ErrorActionPreference = "Stop"
@@ -201,6 +231,19 @@ jobs:
             $ErrorActionPreference = "Stop"
             $env:Path = "C:\Program Files\nodejs;C:\ProgramData\chocolatey\bin;$env:USERPROFILE\.cargo\bin;$env:Path"
 
+            function Invoke-Checked {
+              param(
+                [Parameter(Mandatory=$true)][string]$FilePath,
+                [string[]]$Arguments
+              )
+
+              & $FilePath @Arguments
+              if ($LASTEXITCODE -ne 0) {
+                $argText = if ($Arguments) { $Arguments -join " " } else { "" }
+                throw "Command failed ($LASTEXITCODE): $FilePath $argText"
+              }
+            }
+
             if (-not $env:CIRCLE_TAG -or -not $env:CIRCLE_TAG.StartsWith("v")) {
               throw "This workflow must run on release tags like v0.2.6 (CIRCLE_TAG=$env:CIRCLE_TAG)"
             }
@@ -227,12 +270,12 @@ jobs:
             Write-Host "Tag version: $version"
             Write-Host "MSI-safe build version: $buildVersion"
 
-            npm run version:set -- $buildVersion
-            npm ci
-            node ./scripts/build-pinterest-sidecar.mjs --target x86_64-pc-windows-msvc --python py
-            node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target x86_64-pc-windows-msvc
-            npm run tauri build
-            powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1 -Version "$version" -SkipBuild -SkipYtdlpUpdate
+            Invoke-Checked -FilePath "npm" -Arguments @("run", "version:set", "--", $buildVersion)
+            Invoke-Checked -FilePath "npm" -Arguments @("ci")
+            Invoke-Checked -FilePath "node" -Arguments @("./scripts/build-pinterest-sidecar.mjs", "--target", "x86_64-pc-windows-msvc", "--python", "py")
+            Invoke-Checked -FilePath "node" -Arguments @("./scripts/smoke-pinterest-sidecar.mjs", "--mode", "binary", "--target", "x86_64-pc-windows-msvc")
+            Invoke-Checked -FilePath "npm" -Arguments @("run", "tauri", "build")
+            & .\scripts\package-portable.ps1 -Version "$version" -SkipBuild -SkipYtdlpUpdate
 
       - run:
           name: Collect Windows artifacts
