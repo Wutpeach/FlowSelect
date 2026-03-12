@@ -1,0 +1,364 @@
+version: 2.1
+
+jobs:
+  build-windows:
+    machine:
+      image: windows-server-2022-gui:current
+    shell: powershell.exe -ExecutionPolicy Bypass
+    environment:
+      CARGO_TERM_COLOR: always
+    steps:
+      - checkout
+
+      - run:
+          name: Ensure Node.js >= 20
+          command: |
+            $ErrorActionPreference = "Stop"
+
+            function Get-NodeMajor {
+              try {
+                $raw = (node -v).Trim()
+                return [int]($raw.TrimStart("v").Split(".")[0])
+              } catch {
+                return 0
+              }
+            }
+
+            if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+              throw "choco is required on this image to install Node.js"
+            }
+
+            $major = Get-NodeMajor
+            if ($major -lt 20) {
+              choco install nodejs-lts -y --no-progress
+              $env:Path = "C:\Program Files\nodejs;$env:Path"
+              $major = Get-NodeMajor
+            }
+
+            if ($major -lt 20) {
+              throw "Node.js >= 20 is required, current major: $major"
+            }
+
+            node -v
+            npm -v
+
+      - run:
+          name: Ensure Rust stable toolchain
+          command: |
+            $ErrorActionPreference = "Stop"
+
+            if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+              if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+                throw "choco is required on this image to install rustup"
+              }
+              choco install rustup.install -y --no-progress
+            }
+
+            $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+            $env:Path = "$cargoBin;$env:Path"
+            rustup set profile minimal
+            rustup toolchain install stable
+            rustup default stable
+            cargo --version
+            rustc --version
+
+      - run:
+          name: Ensure Python launcher for sidecar build
+          command: |
+            $ErrorActionPreference = "Stop"
+
+            if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
+              if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+                throw "choco is required on this image to install Python"
+              }
+              choco install python -y --no-progress
+              $env:Path = "C:\ProgramData\chocolatey\bin;$env:Path"
+            }
+
+            py --version
+
+      - run:
+          name: Download yt-dlp
+          command: |
+            $ErrorActionPreference = "Stop"
+            $downloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+            New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
+            Invoke-WebRequest -Uri $downloadUrl -OutFile "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" -MaximumRetryCount 3 -RetryIntervalSec 5
+            Write-Host "Downloaded yt-dlp from: $downloadUrl"
+
+      - run:
+          name: Download Deno
+          command: |
+            $ErrorActionPreference = "Stop"
+            $downloadUrl = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+            Invoke-WebRequest -Uri $downloadUrl -OutFile "deno.zip" -MaximumRetryCount 3 -RetryIntervalSec 5
+            Expand-Archive -Path "deno.zip" -DestinationPath "src-tauri/binaries" -Force
+            Remove-Item "deno.zip"
+            Write-Host "Downloaded Deno from: $downloadUrl"
+
+      - run:
+          name: Download FFmpeg
+          command: |
+            $ErrorActionPreference = "Stop"
+
+            $downloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+            $tempRoot = [System.IO.Path]::GetTempPath()
+            $zipPath = Join-Path $tempRoot "ffmpeg-release-essentials.zip"
+            $extractDir = Join-Path $tempRoot "ffmpeg-release-essentials"
+
+            if (Test-Path $extractDir) {
+              Remove-Item $extractDir -Recurse -Force
+            }
+
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -MaximumRetryCount 3 -RetryIntervalSec 5
+            Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+
+            $ffmpegBinary = Get-ChildItem -Path $extractDir -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+            if (-not $ffmpegBinary) {
+              throw "ffmpeg.exe not found in extracted archive"
+            }
+
+            New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
+            Copy-Item $ffmpegBinary.FullName "src-tauri/binaries/ffmpeg.exe" -Force
+            Write-Host "Downloaded FFmpeg from: $downloadUrl"
+
+      - run:
+          name: Build and package Windows artifacts
+          command: |
+            $ErrorActionPreference = "Stop"
+            $env:Path = "C:\Program Files\nodejs;C:\ProgramData\chocolatey\bin;$env:USERPROFILE\.cargo\bin;$env:Path"
+
+            if (-not $env:CIRCLE_TAG -or -not $env:CIRCLE_TAG.StartsWith("v")) {
+              throw "This workflow must run on release tags like v0.2.6 (CIRCLE_TAG=$env:CIRCLE_TAG)"
+            }
+
+            $version = $env:CIRCLE_TAG.Substring(1)
+            $buildVersion = $version
+
+            if ($version.Contains("-")) {
+              $baseVersion, $preRelease = $version.Split("-", 2)
+              $numberMatches = [regex]::Matches($preRelease, "\d+")
+              $preReleaseNumber = if ($numberMatches.Count -gt 0) {
+                [int]$numberMatches[$numberMatches.Count - 1].Value
+              } else {
+                1
+              }
+
+              if ($preReleaseNumber -gt 65535) {
+                throw "MSI pre-release identifier cannot exceed 65535: $preReleaseNumber"
+              }
+
+              $buildVersion = "$baseVersion-$preReleaseNumber"
+            }
+
+            Write-Host "Tag version: $version"
+            Write-Host "MSI-safe build version: $buildVersion"
+
+            npm run version:set -- $buildVersion
+            npm ci
+            node ./scripts/build-pinterest-sidecar.mjs --target x86_64-pc-windows-msvc --python py
+            node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target x86_64-pc-windows-msvc
+            npm run tauri build
+            powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1 -Version "$version" -SkipBuild -SkipYtdlpUpdate
+
+      - run:
+          name: Collect Windows artifacts
+          command: |
+            $ErrorActionPreference = "Stop"
+
+            function Copy-Matching {
+              param(
+                [Parameter(Mandatory=$true)][string]$Pattern,
+                [Parameter(Mandatory=$true)][string]$Destination
+              )
+
+              $matches = Get-ChildItem -Path $Pattern -ErrorAction SilentlyContinue
+              if (-not $matches) {
+                throw "No files matched pattern: $Pattern"
+              }
+
+              New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+              foreach ($item in $matches) {
+                Copy-Item $item.FullName $Destination -Force
+              }
+            }
+
+            Copy-Matching "src-tauri/target/release/bundle/msi/*.msi" "circleci-artifacts/windows/msi"
+            Copy-Matching "src-tauri/target/release/bundle/nsis/*.exe" "circleci-artifacts/windows/nsis"
+            Copy-Matching "src-tauri/target/release/bundle/portable/*.zip" "circleci-artifacts/windows/portable"
+
+      - store_artifacts:
+          path: circleci-artifacts/windows
+
+      - persist_to_workspace:
+          root: circleci-artifacts
+          paths:
+            - windows
+
+  build-macos-arm:
+    macos:
+      xcode: "16.4.0"
+    resource_class: m4pro.medium
+    environment:
+      CARGO_TERM_COLOR: always
+    steps:
+      - checkout
+
+      - run:
+          name: Ensure Node.js >= 20
+          command: |
+            set -eo pipefail
+
+            if ! command -v node >/dev/null 2>&1; then
+              brew install node@20
+              echo 'export PATH="/opt/homebrew/opt/node@20/bin:$PATH"' >> "$BASH_ENV"
+            else
+              NODE_MAJOR="$(node -v | sed -E 's/^v([0-9]+).*/\1/')"
+              if [ "${NODE_MAJOR}" -lt 20 ]; then
+                brew install node@20
+                echo 'export PATH="/opt/homebrew/opt/node@20/bin:$PATH"' >> "$BASH_ENV"
+              fi
+            fi
+
+            # shellcheck disable=SC1090
+            source "$BASH_ENV" || true
+            node -v
+            npm -v
+
+      - run:
+          name: Ensure Rust stable toolchain
+          command: |
+            set -eo pipefail
+
+            if ! command -v rustup >/dev/null 2>&1; then
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+              echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$BASH_ENV"
+            fi
+
+            # shellcheck disable=SC1090
+            source "$BASH_ENV" || true
+            rustup set profile minimal
+            rustup toolchain install stable
+            rustup default stable
+            rustup target add aarch64-apple-darwin
+            cargo --version
+            rustc --version
+
+      - run:
+          name: Download yt-dlp
+          command: |
+            set -eo pipefail
+            mkdir -p src-tauri/binaries
+            DOWNLOAD_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+            curl -fL --retry 3 --retry-delay 5 "$DOWNLOAD_URL" -o "src-tauri/binaries/yt-dlp-aarch64-apple-darwin"
+            chmod +x "src-tauri/binaries/yt-dlp-aarch64-apple-darwin"
+            echo "Downloaded yt-dlp from: $DOWNLOAD_URL"
+
+      - run:
+          name: Download Deno
+          command: |
+            set -eo pipefail
+            DOWNLOAD_URL="https://github.com/denoland/deno/releases/latest/download/deno-aarch64-apple-darwin.zip"
+            curl -fL --retry 3 --retry-delay 5 "$DOWNLOAD_URL" -o deno.zip
+            unzip -o deno.zip -d src-tauri/binaries
+            chmod +x src-tauri/binaries/deno
+            rm deno.zip
+            echo "Downloaded Deno from: $DOWNLOAD_URL"
+
+      - run:
+          name: Build and package macOS ARM artifact
+          command: |
+            set -eo pipefail
+
+            if [ -z "${CIRCLE_TAG:-}" ] || [[ "${CIRCLE_TAG}" != v* ]]; then
+              echo "This workflow must run on release tags like v0.2.6 (CIRCLE_TAG=${CIRCLE_TAG:-})"
+              exit 1
+            fi
+
+            VERSION="${CIRCLE_TAG#v}"
+            echo "Tag version: ${VERSION}"
+
+            npm run version:set -- "${VERSION}"
+            npm ci
+            python3 --version
+            node ./scripts/build-pinterest-sidecar.mjs --target aarch64-apple-darwin --python python3
+            node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target aarch64-apple-darwin
+            npm run tauri build -- --target aarch64-apple-darwin
+
+      - run:
+          name: Collect macOS ARM artifact
+          command: |
+            set -eo pipefail
+
+            mkdir -p circleci-artifacts/macos-arm/dmg
+            DMG_FILES=()
+            while IFS= read -r dmg_path; do
+              DMG_FILES+=("${dmg_path}")
+            done < <(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name "*.dmg" -type f)
+
+            if [ "${#DMG_FILES[@]}" -eq 0 ]; then
+              echo "No DMG artifact found in src-tauri/target/aarch64-apple-darwin/release/bundle/dmg"
+              exit 1
+            fi
+
+            for dmg in "${DMG_FILES[@]}"; do
+              base_name="$(basename "${dmg}" .dmg)"
+              cp "${dmg}" "circleci-artifacts/macos-arm/dmg/${base_name}_arm64.dmg"
+            done
+
+      - store_artifacts:
+          path: circleci-artifacts/macos-arm
+
+      - persist_to_workspace:
+          root: circleci-artifacts
+          paths:
+            - macos-arm
+
+  create-github-release:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/workspace
+
+      - run:
+          name: Ensure GitHub CLI
+          command: |
+            set -eo pipefail
+            if ! command -v gh >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y gh
+            fi
+            gh --version
+
+      - run:
+          name: Create or update GitHub release
+          command: bash ./scripts/circleci-create-github-release.sh /tmp/workspace
+
+workflows:
+  release:
+    jobs:
+      - build-windows:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
+
+      - build-macos-arm:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
+
+      - create-github-release:
+          requires:
+            - build-windows
+            - build-macos-arm
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
