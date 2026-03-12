@@ -53,23 +53,37 @@ jobs:
             $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
             $env:Path = "$cargoBin;C:\ProgramData\chocolatey\bin;$env:Path"
 
+            function Invoke-Checked {
+              param(
+                [Parameter(Mandatory=$true)][string]$FilePath,
+                [string[]]$Arguments
+              )
+
+              & $FilePath @Arguments
+              if ($LASTEXITCODE -ne 0) {
+                $argText = if ($Arguments) { $Arguments -join " " } else { "" }
+                throw "Command failed ($LASTEXITCODE): $FilePath $argText"
+              }
+            }
+
             if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
               if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
                 throw "choco is required on this image to install rustup"
               }
-              choco install rustup.install -y --no-progress
+              Invoke-Checked -FilePath "choco" -Arguments @("install", "rustup.install", "-y", "--no-progress")
             }
 
             $env:RUSTUP_HOME = Join-Path $env:USERPROFILE ".rustup"
             $env:CARGO_HOME = Join-Path $env:USERPROFILE ".cargo"
-            rustup set auto-self-update disable
-            rustup set profile minimal
-            rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
-            rustup target add x86_64-pc-windows-msvc --toolchain stable-x86_64-pc-windows-msvc
-            rustup target list --installed
-            rustup run stable-x86_64-pc-windows-msvc cargo --version
-            rustup run stable-x86_64-pc-windows-msvc rustc --version
-            rustup run stable-x86_64-pc-windows-msvc rustc --print target-libdir --target x86_64-pc-windows-msvc
+            Invoke-Checked -FilePath "rustup" -Arguments @("set", "auto-self-update", "disable")
+            Invoke-Checked -FilePath "rustup" -Arguments @("set", "profile", "minimal")
+            Invoke-Checked -FilePath "rustup" -Arguments @("toolchain", "install", "stable-x86_64-pc-windows-msvc", "--profile", "minimal")
+            Invoke-Checked -FilePath "rustup" -Arguments @("target", "add", "x86_64-pc-windows-msvc", "--toolchain", "stable-x86_64-pc-windows-msvc")
+            Invoke-Checked -FilePath "rustup" -Arguments @("target", "list", "--installed")
+            Invoke-Checked -FilePath "rustup" -Arguments @("show", "active-toolchain")
+            Invoke-Checked -FilePath "rustup" -Arguments @("run", "stable-x86_64-pc-windows-msvc", "cargo", "--version")
+            Invoke-Checked -FilePath "rustup" -Arguments @("run", "stable-x86_64-pc-windows-msvc", "rustc", "--version")
+            Invoke-Checked -FilePath "rustup" -Arguments @("run", "stable-x86_64-pc-windows-msvc", "rustc", "--print", "target-libdir", "--target", "x86_64-pc-windows-msvc")
 
       - run:
           name: Ensure Python launcher for sidecar build
@@ -203,7 +217,10 @@ jobs:
           name: Build and package Windows artifacts
           command: |
             $ErrorActionPreference = "Stop"
-            $env:Path = "C:\Program Files\nodejs;C:\ProgramData\chocolatey\bin;$env:USERPROFILE\.cargo\bin;$env:Path"
+            $env:CARGO_HOME = Join-Path $env:USERPROFILE ".cargo"
+            $env:RUSTUP_HOME = Join-Path $env:USERPROFILE ".rustup"
+            $cargoBin = Join-Path $env:CARGO_HOME "bin"
+            $env:Path = "$cargoBin;C:\Program Files\nodejs;C:\ProgramData\chocolatey\bin;$env:Path"
             $env:CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc"
             $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-msvc"
 
@@ -246,6 +263,10 @@ jobs:
             Write-Host "Tag version: $version"
             Write-Host "MSI-safe build version: $buildVersion"
             Write-Host "Rust target: $env:CARGO_BUILD_TARGET"
+            Write-Host "cargo path: $((Get-Command cargo).Source)"
+            Write-Host "rustup path: $((Get-Command rustup).Source)"
+            Invoke-Checked -FilePath "rustup" -Arguments @("show", "active-toolchain")
+            Invoke-Checked -FilePath "rustup" -Arguments @("target", "list", "--installed")
 
             Invoke-Checked -FilePath "npm" -Arguments @("run", "version:set", "--", $buildVersion)
             Invoke-Checked -FilePath "npm" -Arguments @("ci")
