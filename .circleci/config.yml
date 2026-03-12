@@ -65,8 +65,11 @@ jobs:
             rustup set auto-self-update disable
             rustup set profile minimal
             rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
+            rustup target add x86_64-pc-windows-msvc --toolchain stable-x86_64-pc-windows-msvc
+            rustup target list --installed
             rustup run stable-x86_64-pc-windows-msvc cargo --version
             rustup run stable-x86_64-pc-windows-msvc rustc --version
+            rustup run stable-x86_64-pc-windows-msvc rustc --print target-libdir --target x86_64-pc-windows-msvc
 
       - run:
           name: Ensure Python launcher for sidecar build
