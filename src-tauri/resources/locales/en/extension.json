@@ -19,16 +19,11 @@
       }
     },
     "sections": {
-      "quality": "Quality",
-      "aeFormat": "AE Format"
+      "quality": "Quality"
     },
     "preferences": {
-      "ae": {
-        "toggleLabelOn": "AE",
-        "toggleLabelOff": "Original",
-        "stateOn": "Slower finish",
-        "stateOff": "Keep original file",
-        "toggleAriaLabel": "Toggle AE format"
+      "highest": {
+        "hint": "Some high-quality videos may enter the transcode queue after download."
       }
     }
   },
@@ -37,11 +32,11 @@
       "options": {
         "best": {
           "label": "Highest",
-          "description": "Prefer the highest available tier, but avoid slower compatibility work when formats tie at the same practical quality."
+          "description": "Prefer the highest available tier. Some downloads may enter the transcode queue after download."
         },
         "balanced": {
           "label": "Balanced",
-          "description": "Prefer AE-friendlier 1080p MP4/H.264/AAC paths before broader fallback."
+          "description": "Prefer broadly compatible high-quality downloads before wider fallback."
         },
         "data_saver": {
           "label": "Saver",

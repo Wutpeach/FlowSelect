@@ -31,24 +31,11 @@
         <div class="flowselect-section-title" id="qualitySectionTitle">Quality</div>
       </div>
       <div class="flowselect-quality-grid" id="qualityGrid"></div>
-    </section>
-
-    <section class="flowselect-popup-card">
-      <div class="flowselect-preference-row">
-        <div class="flowselect-preference-copy">
-          <div class="flowselect-section-title" id="aeFormatTitle">AE Format</div>
-          <div class="flowselect-preference-note" id="aeCompatibilityState">For After Effects</div>
-        </div>
-        <button
-          type="button"
-          class="flowselect-toggle-btn"
-          id="aeCompatibilityToggle"
-          role="switch"
-          aria-checked="false"
-          aria-label="Toggle AE format"
-        >
-          <span class="flowselect-toggle-label" id="aeCompatibilityToggleLabel">Off</span>
-        </button>
+      <div class="flowselect-quality-hint" id="highestQualityHint" hidden aria-live="polite">
+        <span class="flowselect-quality-hint-icon" aria-hidden="true">i</span>
+        <span class="flowselect-quality-hint-text" id="highestQualityHintText">
+          Some high-quality videos may enter the transcode queue after download.
+        </span>
       </div>
     </section>
   </main>

@@ -58,13 +58,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const statusCard = document.getElementById("statusCard");
   const statusHint = document.getElementById("statusHint");
   const qualityGrid = document.getElementById("qualityGrid");
-  const aeCompatibilityToggle = document.getElementById("aeCompatibilityToggle");
-  const aeCompatibilityState = document.getElementById("aeCompatibilityState");
-  const aeCompatibilityToggleLabel = document.getElementById("aeCompatibilityToggleLabel");
+  const highestQualityHint = document.getElementById("highestQualityHint");
+  const highestQualityHintText = document.getElementById("highestQualityHintText");
   const popupTitle = document.getElementById("popupTitle");
   const popupSubtitle = document.getElementById("popupSubtitle");
   const qualitySectionTitle = document.getElementById("qualitySectionTitle");
-  const aeFormatTitle = document.getElementById("aeFormatTitle");
   let statusTimer = null;
   let currentBundle = {
     language: FALLBACK_LANGUAGE,
@@ -73,8 +71,6 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   let currentStatusState = STATUS_STATE_OFFLINE;
   let currentQualityPreference = directDownloadQuality.DEFAULT_QUALITY_PREFERENCE;
-  let aeFriendlyConversionEnabled =
-    directDownloadQuality.DEFAULT_AE_FRIENDLY_CONVERSION_ENABLED;
 
   function t(key, fallback) {
     return localeUtils?.translate(currentBundle, key, fallback) || fallback || key;
@@ -84,11 +80,6 @@ document.addEventListener("DOMContentLoaded", () => {
     popupTitle.textContent = t("app.name", "FlowSelect");
     popupSubtitle.textContent = t("popup.subtitle", "Extension");
     qualitySectionTitle.textContent = t("popup.sections.quality", "Quality");
-    aeFormatTitle.textContent = t("popup.sections.aeFormat", "AE Format");
-    aeCompatibilityToggle.setAttribute(
-      "aria-label",
-      t("popup.preferences.ae.toggleAriaLabel", "Toggle AE format")
-    );
     document.title = t("app.name", "FlowSelect");
   }
 
@@ -158,21 +149,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
       qualityGrid.appendChild(button);
     });
+
+    renderHighestQualityHint(selectedValue);
   }
 
-  function renderAeCompatibilityOption(enabled) {
-    aeFriendlyConversionEnabled = enabled === true;
-    aeCompatibilityToggle.dataset.enabled = aeFriendlyConversionEnabled ? "true" : "false";
-    aeCompatibilityToggle.setAttribute(
-      "aria-checked",
-      aeFriendlyConversionEnabled ? "true" : "false"
+  function renderHighestQualityHint(selectedValue) {
+    const hintVisible = selectedValue === "best";
+    highestQualityHintText.textContent = t(
+      "popup.preferences.highest.hint",
+      "Some high-quality videos may enter the transcode queue after download."
     );
-    aeCompatibilityToggleLabel.textContent = aeFriendlyConversionEnabled
-      ? t("popup.preferences.ae.toggleLabelOn", "AE")
-      : t("popup.preferences.ae.toggleLabelOff", "Original");
-    aeCompatibilityState.textContent = aeFriendlyConversionEnabled
-      ? t("popup.preferences.ae.stateOn", "Slower finish")
-      : t("popup.preferences.ae.stateOff", "Keep original file");
+    highestQualityHint.hidden = !hintVisible;
   }
 
   async function applyLanguage(nextLanguage) {
@@ -180,7 +167,6 @@ document.addEventListener("DOMContentLoaded", () => {
     document.documentElement.lang = currentBundle.language;
     renderStaticCopy();
     renderQualityOptions(currentQualityPreference);
-    renderAeCompatibilityOption(aeFriendlyConversionEnabled);
     updateStatus(currentStatusState);
   }
 
@@ -207,20 +193,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  if (aeCompatibilityToggle) {
-    aeCompatibilityToggle.addEventListener("click", async () => {
-      const currentEnabled = aeCompatibilityToggle.dataset.enabled === "true";
-      try {
-        const nextEnabled = await directDownloadQuality.setAeFriendlyConversionEnabled(
-          !currentEnabled
-        );
-        renderAeCompatibilityOption(nextEnabled);
-      } catch (error) {
-        console.error("[FlowSelect] Failed to save AE-friendly conversion preference:", error);
-      }
-    });
-  }
-
   window.addEventListener("beforeunload", () => {
     if (statusTimer !== null) {
       clearInterval(statusTimer);
@@ -236,14 +208,6 @@ document.addEventListener("DOMContentLoaded", () => {
       renderQualityOptions(currentQualityPreference);
     } catch (error) {
       console.error("[FlowSelect] Failed to load quality preference:", error);
-    }
-
-    try {
-      aeFriendlyConversionEnabled =
-        await directDownloadQuality.getAeFriendlyConversionEnabled();
-      renderAeCompatibilityOption(aeFriendlyConversionEnabled);
-    } catch (error) {
-      console.error("[FlowSelect] Failed to load AE-friendly conversion preference:", error);
     }
 
     chrome.runtime.sendMessage({ type: "connect" }, () => {

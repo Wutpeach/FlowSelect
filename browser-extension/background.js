@@ -613,16 +613,13 @@ function sendToApp(data) {
 }
 
 function syncDownloadPreferencesToApp() {
-  return Promise.all([
-    directDownloadQuality.getQualityPreference(),
-    directDownloadQuality.getAeFriendlyConversionEnabled(),
-  ])
-    .then(([qualityPreference, aeFriendlyConversionEnabled]) => {
+  return directDownloadQuality
+    .getQualityPreference()
+    .then((qualityPreference) => {
       return sendToApp({
         action: 'sync_download_preferences',
         data: {
           ytdlpQualityPreference: qualityPreference,
-          aeFriendlyConversionEnabled,
         },
       });
     })
@@ -822,8 +819,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     Promise.all([
       getCookiesForUrl(pageUrl || requestedUrl || ''),
       directDownloadQuality.getQualityPreference(),
-      directDownloadQuality.getAeFriendlyConversionEnabled(),
-    ]).then(([cookies, qualityPreference, aeFriendlyConversionEnabled]) => {
+    ]).then(([cookies, qualityPreference]) => {
       console.info('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
       const prioritizedCandidates = directDownloadQuality.prioritizeCandidatesForHighestQuality(
         videoCandidates,
@@ -844,7 +840,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         clipStartSec: clipStartSec,
         clipEndSec: clipEndSec,
         ytdlpQualityPreference: qualityPreference,
-        aeFriendlyConversionEnabled: aeFriendlyConversionEnabled,
         cookies: cookies
       });
     }).then((result) => {
@@ -964,7 +959,6 @@ if (chrome?.storage?.onChanged) {
     if (
       !changes?.[directDownloadQuality.STORAGE_KEY]
       && !changes?.[directDownloadQuality.LEGACY_STORAGE_KEY]
-      && !changes?.[directDownloadQuality.AE_FRIENDLY_CONVERSION_STORAGE_KEY]
     ) {
       return;
     }
