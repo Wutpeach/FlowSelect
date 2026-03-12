@@ -9,7 +9,8 @@ jobs:
     environment:
       CARGO_TERM_COLOR: always
       RUSTUP_SELF_UPDATE: disable
-      RUSTUP_TOOLCHAIN: stable
+      RUSTUP_TOOLCHAIN: stable-x86_64-pc-windows-msvc
+      CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
     steps:
       - checkout
 
@@ -63,9 +64,9 @@ jobs:
             $env:CARGO_HOME = Join-Path $env:USERPROFILE ".cargo"
             rustup set auto-self-update disable
             rustup set profile minimal
-            rustup toolchain install stable --profile minimal
-            rustup run stable cargo --version
-            rustup run stable rustc --version
+            rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
+            rustup run stable-x86_64-pc-windows-msvc cargo --version
+            rustup run stable-x86_64-pc-windows-msvc rustc --version
 
       - run:
           name: Ensure Python launcher for sidecar build
@@ -81,36 +82,6 @@ jobs:
             }
 
             py --version
-
-      - run:
-          name: Ensure dlltool.exe for Rust Windows builds
-          command: |
-            $ErrorActionPreference = "Stop"
-            $env:Path = "C:\ProgramData\chocolatey\bin;$env:Path"
-
-            if (-not (Get-Command dlltool.exe -ErrorAction SilentlyContinue)) {
-              if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-                throw "choco is required on this image to install mingw"
-              }
-              choco install mingw -y --no-progress
-            }
-
-            $dlltool = Get-Command dlltool.exe -ErrorAction SilentlyContinue
-            if (-not $dlltool) {
-              $candidate = Get-ChildItem "C:\ProgramData\chocolatey\lib" -Recurse -Filter "dlltool.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-              if ($candidate) {
-                $toolDir = Split-Path $candidate.FullName -Parent
-                $env:Path = "$toolDir;$env:Path"
-                $dlltool = Get-Command dlltool.exe -ErrorAction SilentlyContinue
-              }
-            }
-
-            if (-not $dlltool) {
-              throw "dlltool.exe not found after mingw installation"
-            }
-
-            Write-Host "dlltool path: $($dlltool.Source)"
-            dlltool.exe --version
 
       - run:
           name: Download yt-dlp
@@ -230,6 +201,8 @@ jobs:
           command: |
             $ErrorActionPreference = "Stop"
             $env:Path = "C:\Program Files\nodejs;C:\ProgramData\chocolatey\bin;$env:USERPROFILE\.cargo\bin;$env:Path"
+            $env:CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc"
+            $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-msvc"
 
             function Invoke-Checked {
               param(
@@ -269,12 +242,13 @@ jobs:
 
             Write-Host "Tag version: $version"
             Write-Host "MSI-safe build version: $buildVersion"
+            Write-Host "Rust target: $env:CARGO_BUILD_TARGET"
 
             Invoke-Checked -FilePath "npm" -Arguments @("run", "version:set", "--", $buildVersion)
             Invoke-Checked -FilePath "npm" -Arguments @("ci")
             Invoke-Checked -FilePath "node" -Arguments @("./scripts/build-pinterest-sidecar.mjs", "--target", "x86_64-pc-windows-msvc", "--python", "py")
             Invoke-Checked -FilePath "node" -Arguments @("./scripts/smoke-pinterest-sidecar.mjs", "--mode", "binary", "--target", "x86_64-pc-windows-msvc")
-            Invoke-Checked -FilePath "npm" -Arguments @("run", "tauri", "build")
+            Invoke-Checked -FilePath "npm" -Arguments @("run", "tauri", "build", "--", "--target", "x86_64-pc-windows-msvc")
             & .\scripts\package-portable.ps1 -Version "$version" -SkipBuild -SkipYtdlpUpdate
 
       - run:
