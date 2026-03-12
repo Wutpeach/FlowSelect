@@ -227,5 +227,7 @@ FlowSelect/
 ## Maintainer notes
 
 - Use `npm run version:set -- <version>` for version bumps.
-- Add `release-notes/v<version>.md` before pushing a release tag.
+- If the versioned note is missing, that command scaffolds `release-notes/v<version>.md` from `release-notes/TEMPLATE.md`.
+- Fill in and commit `release-notes/v<version>.md` before pushing a release tag.
 - GitHub Releases are created from tags and expect the matching release-note file in the tagged commit.
+- This public repository contains product source and release assets only; private AI and Trellis workflow files are intentionally excluded.

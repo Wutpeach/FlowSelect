@@ -11,11 +11,21 @@ node_modules
 .venv
 dist
 dist-ssr
+build
+src-tauri/target
 *.local
+.env*
+cookiefile*
+gcm-diagnose.log
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea
 .DS_Store
 *.suo
@@ -24,8 +34,18 @@ dist-ssr
 *.sln
 *.sw?
 
-# Claude Code local settings
-.claude/settings.local.json
+# Private maintainer workflow and AI tooling
+.trellis/
+.agents/
+.claude/
+.cursor/
+.codex/
+**/.claude/
+**/.cursor/
+**/.codex/
+.mcp.json
+AGENTS.md
+CLAUDE.md
 
 # Tauri sidecar binaries (downloaded in CI)
 src-tauri/binaries/*.exe

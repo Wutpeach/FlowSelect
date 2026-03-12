@@ -227,5 +227,7 @@ FlowSelect/
 ## 维护说明
 
 - 更新版本号时，使用 `npm run version:set -- <version>`。
-- 发布版本标签前，先新增 `release-notes/v<version>.md`。
+- 该命令会在缺少版本说明时，基于 `release-notes/TEMPLATE.md` 自动生成 `release-notes/v<version>.md` 草稿。
+- 发布版本标签前，先补全并提交 `release-notes/v<version>.md`。
 - GitHub Releases 由标签触发，且要求对应版本的 release note 文件已经存在于被打标签的提交中。
+- 公开仓库只包含产品源码与发布文件；私有 AI / Trellis 工作流配置不会随仓库公开。
