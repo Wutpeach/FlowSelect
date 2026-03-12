@@ -274,6 +274,8 @@ jobs:
     resource_class: m4pro.medium
     environment:
       CARGO_TERM_COLOR: always
+      RUSTUP_SELF_UPDATE: disable
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - checkout
 
@@ -307,12 +309,14 @@ jobs:
             fi
 
             export PATH="${HOME}/.cargo/bin:${PATH}"
+            export RUSTUP_HOME="${HOME}/.rustup"
+            export CARGO_HOME="${HOME}/.cargo"
+            rustup set auto-self-update disable
             rustup set profile minimal
-            rustup toolchain install stable
-            rustup default stable
+            rustup toolchain install stable --profile minimal
             rustup target add aarch64-apple-darwin
-            cargo --version
-            rustc --version
+            rustup run stable cargo --version
+            rustup run stable rustc --version
 
       - run:
           name: Download yt-dlp
