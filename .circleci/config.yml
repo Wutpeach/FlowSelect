@@ -212,17 +212,16 @@ jobs:
 
             if ! command -v node >/dev/null 2>&1; then
               brew install node@20
-              echo 'export PATH="/opt/homebrew/opt/node@20/bin:$PATH"' >> "$BASH_ENV"
             else
               NODE_MAJOR="$(node -v | sed -E 's/^v([0-9]+).*/\1/')"
               if [ "${NODE_MAJOR}" -lt 20 ]; then
                 brew install node@20
-                echo 'export PATH="/opt/homebrew/opt/node@20/bin:$PATH"' >> "$BASH_ENV"
               fi
             fi
 
-            # shellcheck disable=SC1090
-            source "$BASH_ENV" || true
+            if [ -d "/opt/homebrew/opt/node@20/bin" ]; then
+              export PATH="/opt/homebrew/opt/node@20/bin:${PATH}"
+            fi
             node -v
             npm -v
 
@@ -233,11 +232,9 @@ jobs:
 
             if ! command -v rustup >/dev/null 2>&1; then
               curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-              echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$BASH_ENV"
             fi
 
-            # shellcheck disable=SC1090
-            source "$BASH_ENV" || true
+            export PATH="${HOME}/.cargo/bin:${PATH}"
             rustup set profile minimal
             rustup toolchain install stable
             rustup default stable
