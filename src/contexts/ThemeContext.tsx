@@ -56,14 +56,21 @@ interface ThemeColors {
   queueBadgeGlow: string;
   queueBadgeText: string;
   queueBadgeBorder: string;
-  queueBadgeDot: string;
   queueBadgeShadow: string;
-  queueCloseBg: string;
-  queueCloseGlow: string;
-  queueCloseBorder: string;
-  queueCloseIcon: string;
+  queueBadgeOpenBg: string;
+  queueBadgeOpenGlow: string;
+  queueBadgeOpenBorder: string;
+  queueBadgeOpenText: string;
+  queueBadgeOpenShadow: string;
   queueStatusBg: string;
   queueStatusBorder: string;
+  transcodeSolid: string;
+  transcodeText: string;
+  transcodeMutedText: string;
+  transcodeSurface: string;
+  transcodeBorder: string;
+  transcodeGlow: string;
+  transcodeTrack: string;
   // Status icons
   successIcon: string;
   errorIcon: string;
@@ -111,18 +118,25 @@ const themes: Record<Theme, ThemeColors> = {
     progressCancelIcon: '#606060',
     progressCancelHoverBg: 'rgba(239,68,68,0.2)',
     progressCancelHoverIcon: '#f87171',
-    queueBadgeBg: 'rgba(16,185,129,0.86)',
-    queueBadgeGlow: 'rgba(5,150,105,0.98)',
-    queueBadgeText: '#ecfdf5',
-    queueBadgeBorder: 'rgba(167,243,208,0.5)',
-    queueBadgeDot: '#86efac',
-    queueBadgeShadow: 'rgba(5,150,105,0.28)',
-    queueCloseBg: 'rgba(220,38,38,0.88)',
-    queueCloseGlow: 'rgba(239,68,68,0.96)',
-    queueCloseBorder: 'rgba(252,165,165,0.44)',
-    queueCloseIcon: '#fef2f2',
-    queueStatusBg: 'rgba(16,185,129,0.12)',
-    queueStatusBorder: 'rgba(110,231,183,0.28)',
+    queueBadgeBg: 'rgba(51,65,85,0.88)',
+    queueBadgeGlow: 'rgba(71,85,105,0.98)',
+    queueBadgeText: '#f8fafc',
+    queueBadgeBorder: 'rgba(148,163,184,0.34)',
+    queueBadgeShadow: 'rgba(15,23,42,0.34)',
+    queueBadgeOpenBg: 'rgba(63,78,98,0.92)',
+    queueBadgeOpenGlow: 'rgba(90,105,128,0.98)',
+    queueBadgeOpenBorder: 'rgba(148,163,184,0.4)',
+    queueBadgeOpenText: '#f8fafc',
+    queueBadgeOpenShadow: 'rgba(59,130,246,0.18)',
+    queueStatusBg: 'rgba(148,163,184,0.12)',
+    queueStatusBorder: 'rgba(148,163,184,0.24)',
+    transcodeSolid: '#f59e0b',
+    transcodeText: '#fbbf24',
+    transcodeMutedText: '#d7b15a',
+    transcodeSurface: 'rgba(245,158,11,0.12)',
+    transcodeBorder: 'rgba(251,191,36,0.34)',
+    transcodeGlow: 'rgba(245,158,11,0.34)',
+    transcodeTrack: 'rgba(120,73,18,0.44)',
     successIcon: '#707070',
     errorIcon: '#f87171',
   },
@@ -167,18 +181,25 @@ const themes: Record<Theme, ThemeColors> = {
     progressCancelIcon: '#9ca3af',
     progressCancelHoverBg: 'rgba(239,68,68,0.15)',
     progressCancelHoverIcon: '#ef4444',
-    queueBadgeBg: 'rgba(5,150,105,0.9)',
-    queueBadgeGlow: 'rgba(16,185,129,0.98)',
-    queueBadgeText: '#f0fdf4',
-    queueBadgeBorder: 'rgba(16,185,129,0.34)',
-    queueBadgeDot: '#34d399',
-    queueBadgeShadow: 'rgba(5,150,105,0.22)',
-    queueCloseBg: 'rgba(239,68,68,0.9)',
-    queueCloseGlow: 'rgba(248,113,113,0.96)',
-    queueCloseBorder: 'rgba(239,68,68,0.3)',
-    queueCloseIcon: '#fff1f2',
-    queueStatusBg: 'rgba(5,150,105,0.1)',
-    queueStatusBorder: 'rgba(5,150,105,0.22)',
+    queueBadgeBg: 'rgba(226,232,240,0.92)',
+    queueBadgeGlow: 'rgba(203,213,225,0.98)',
+    queueBadgeText: '#1f2937',
+    queueBadgeBorder: 'rgba(100,116,139,0.24)',
+    queueBadgeShadow: 'rgba(148,163,184,0.24)',
+    queueBadgeOpenBg: 'rgba(219,228,239,0.96)',
+    queueBadgeOpenGlow: 'rgba(203,213,225,0.98)',
+    queueBadgeOpenBorder: 'rgba(100,116,139,0.28)',
+    queueBadgeOpenText: '#111827',
+    queueBadgeOpenShadow: 'rgba(37,99,235,0.12)',
+    queueStatusBg: 'rgba(148,163,184,0.12)',
+    queueStatusBorder: 'rgba(100,116,139,0.18)',
+    transcodeSolid: '#d97706',
+    transcodeText: '#b45309',
+    transcodeMutedText: '#a16207',
+    transcodeSurface: 'rgba(245,158,11,0.12)',
+    transcodeBorder: 'rgba(217,119,6,0.26)',
+    transcodeGlow: 'rgba(217,119,6,0.22)',
+    transcodeTrack: 'rgba(251,191,36,0.22)',
     successIcon: '#666666',
     errorIcon: '#ef4444',
   },

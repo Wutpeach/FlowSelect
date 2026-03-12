@@ -13,24 +13,39 @@
     "downloadStatus": {
       "eta": "预计 {{eta}}"
     },
+    "transcodeStage": {
+      "analyzing": "分析格式",
+      "transcoding": "转码中",
+      "finalizingMp4": "生成兼容 MP4",
+      "failed": "转码失败"
+    },
     "drop": {
       "directoryDialogTitle": "确认素材导出路径"
     },
     "queue": {
       "label": "队列",
-      "title": "视频队列",
-      "meta": "{{active}} 个进行中 · {{queued}} 个排队中",
+      "title": "任务队列",
+      "meta": "{{downloadCount}} 个下载 · {{transcodeCount}} 个转码",
+      "downloadCountSummary": "{{count}} 个下载",
+      "transcodeCountSummary": "{{count}} 个转码",
+      "downloadSection": "下载队列",
+      "transcodeSection": "转码队列",
       "percentStatus": "{{percent}}% · {{status}}",
       "cancelling": "取消中...",
       "waiting": "等待中...",
-      "cancellingCurrent": "正在取消当前任务...",
-      "queuedNext": "还有 {{count}} 个排队",
-      "tasksInQueue": "队列中共有 {{count}} 个任务",
-      "currentTasksAria": "当前视频任务：{{count}}",
-      "closeList": "关闭下载列表",
-      "showList": "显示当前视频任务",
-      "cancelTask": "取消任务",
-      "cancellingTask": "任务取消中"
+      "cancellingCurrent": "正在取消当前下载...",
+      "remainingSummary": "剩余 {{downloadCount}} 个下载 · {{transcodeCount}} 个转码",
+      "sourceQueuedForTranscode": "源素材已获取，已加入转码队列",
+      "transcodeCompleted": "兼容 MP4 已就绪",
+      "transcodeFailedNotice": "转码失败",
+      "currentTasksAria": "当前任务：{{count}}",
+      "closeList": "关闭任务列表",
+      "showList": "显示当前任务",
+      "cancelTask": "取消下载",
+      "cancellingTask": "正在取消下载",
+      "retryTranscode": "重试",
+      "removeTranscode": "移除",
+      "removeTranscodeHint": "仅从队列中移除"
     },
     "actions": {
       "hideWindow": "隐藏窗口",

@@ -13,24 +13,39 @@
     "downloadStatus": {
       "eta": "ETA {{eta}}"
     },
+    "transcodeStage": {
+      "analyzing": "Analyzing format",
+      "transcoding": "Transcoding",
+      "finalizingMp4": "Generating compatible MP4",
+      "failed": "Transcode failed"
+    },
     "drop": {
       "directoryDialogTitle": "Confirm media export folder"
     },
     "queue": {
       "label": "Queue",
-      "title": "Video queue",
-      "meta": "{{active}} active · {{queued}} queued",
+      "title": "Task queue",
+      "meta": "{{downloadCount}} downloads · {{transcodeCount}} transcodes",
+      "downloadCountSummary": "{{count}} downloads",
+      "transcodeCountSummary": "{{count}} transcodes",
+      "downloadSection": "Download queue",
+      "transcodeSection": "Transcode queue",
       "percentStatus": "{{percent}}% · {{status}}",
       "cancelling": "Cancelling...",
       "waiting": "Waiting...",
-      "cancellingCurrent": "Cancelling current task...",
-      "queuedNext": "{{count}} queued next",
-      "tasksInQueue": "{{count}} tasks in queue",
-      "currentTasksAria": "Current video tasks: {{count}}",
-      "closeList": "Close download list",
-      "showList": "Show current video tasks",
-      "cancelTask": "Cancel task",
-      "cancellingTask": "Cancelling task"
+      "cancellingCurrent": "Cancelling current download...",
+      "remainingSummary": "{{downloadCount}} downloads · {{transcodeCount}} transcodes remaining",
+      "sourceQueuedForTranscode": "Source media ready, added to transcode queue",
+      "transcodeCompleted": "Compatible MP4 ready",
+      "transcodeFailedNotice": "Transcode failed",
+      "currentTasksAria": "Current tasks: {{count}}",
+      "closeList": "Close task list",
+      "showList": "Show current tasks",
+      "cancelTask": "Cancel download",
+      "cancellingTask": "Cancelling download",
+      "retryTranscode": "Retry",
+      "removeTranscode": "Remove",
+      "removeTranscodeHint": "Remove from queue only"
     },
     "actions": {
       "hideWindow": "Hide window",

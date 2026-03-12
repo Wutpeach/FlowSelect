@@ -97,6 +97,43 @@ type VideoQueueDetailPayload = {
   tasks: VideoQueueTaskPayload[];
 };
 
+type VideoTranscodeTaskStatus = "active" | "pending" | "failed";
+
+type VideoTranscodeStage = "analyzing" | "transcoding" | "finalizing_mp4" | "failed";
+
+type VideoTranscodeQueueStatePayload = {
+  activeCount: number;
+  pendingCount: number;
+  failedCount: number;
+  totalCount: number;
+  maxConcurrent: number;
+};
+
+type VideoTranscodeTaskPayload = {
+  traceId: string;
+  label: string;
+  status: VideoTranscodeTaskStatus;
+  stage?: VideoTranscodeStage | null;
+  progressPercent?: number | null;
+  sourcePath?: string | null;
+  sourceFormat?: string | null;
+  targetFormat?: string | null;
+  error?: string | null;
+};
+
+type VideoTranscodeQueueDetailPayload = {
+  tasks: VideoTranscodeTaskPayload[];
+};
+
+type VideoTranscodeCompletePayload = {
+  traceId: string;
+  label: string;
+  sourcePath: string;
+  filePath: string;
+  sourceFormat?: string | null;
+  targetFormat: string;
+};
+
 type QueuedVideoDownloadAck = {
   accepted: boolean;
   traceId: string;
@@ -150,6 +187,11 @@ const DEFAULT_STAGE_FALLBACK_LABELS: Record<DownloadStage, string> = {
 const getDownloadStageLabel = (stage: DownloadStage): string => {
   const translationKey = stage === "post_processing" ? "postProcessing" : stage;
   return i18n.t(`desktop:app.downloadStage.${translationKey}`);
+};
+
+const getTranscodeStageLabel = (stage: VideoTranscodeStage): string => {
+  const translationKey = stage === "finalizing_mp4" ? "finalizingMp4" : stage;
+  return i18n.t(`desktop:app.transcodeStage.${translationKey}`);
 };
 
 const DOWNLOAD_STAGE_ORDER: Record<DownloadStage, number> = {
@@ -209,6 +251,18 @@ const EMPTY_VIDEO_QUEUE_DETAIL: VideoQueueDetailPayload = {
   tasks: [],
 };
 
+const EMPTY_VIDEO_TRANSCODE_QUEUE_STATE: VideoTranscodeQueueStatePayload = {
+  activeCount: 0,
+  pendingCount: 0,
+  failedCount: 0,
+  totalCount: 0,
+  maxConcurrent: 1,
+};
+
+const EMPTY_VIDEO_TRANSCODE_QUEUE_DETAIL: VideoTranscodeQueueDetailPayload = {
+  tasks: [],
+};
+
 const PANEL_DOUBLE_CLICK_IGNORE_SELECTOR = "button, [data-panel-double-click='ignore']";
 const WINDOW_DRAG_START_THRESHOLD = 6;
 
@@ -254,6 +308,168 @@ const normalizeVideoQueueDetail = (
     : [],
 });
 
+const normalizeVideoTranscodeStage = (
+  stage: unknown,
+  status: VideoTranscodeTaskStatus,
+): VideoTranscodeStage | null => {
+  if (stage === "analyzing" || stage === "transcoding" || stage === "finalizing_mp4" || stage === "failed") {
+    return stage;
+  }
+  return status === "failed" ? "failed" : null;
+};
+
+const normalizeVideoTranscodeTask = (
+  task: Partial<VideoTranscodeTaskPayload> | null | undefined,
+): VideoTranscodeTaskPayload | null => {
+  if (!task || typeof task.traceId !== "string" || typeof task.label !== "string") {
+    return null;
+  }
+
+  const status: VideoTranscodeTaskStatus = task.status === "failed"
+    ? "failed"
+    : task.status === "pending"
+      ? "pending"
+      : "active";
+  const safeProgressPercent = Number.isFinite(task.progressPercent)
+    ? Math.max(0, Math.min(100, Number(task.progressPercent)))
+    : null;
+  const trimOptional = (value: unknown): string | null =>
+    typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+  return {
+    traceId: task.traceId,
+    label: task.label.trim() || task.traceId,
+    status,
+    stage: normalizeVideoTranscodeStage(task.stage, status),
+    progressPercent: safeProgressPercent,
+    sourcePath: trimOptional(task.sourcePath),
+    sourceFormat: trimOptional(task.sourceFormat),
+    targetFormat: trimOptional(task.targetFormat),
+    error: trimOptional(task.error),
+  };
+};
+
+const normalizeVideoTranscodeQueueState = (
+  payload: Partial<VideoTranscodeQueueStatePayload> | null | undefined,
+): VideoTranscodeQueueStatePayload => {
+  const safeActiveCount = Number.isFinite(payload?.activeCount)
+    ? Math.max(0, Math.floor(payload?.activeCount ?? 0))
+    : 0;
+  const safePendingCount = Number.isFinite(payload?.pendingCount)
+    ? Math.max(0, Math.floor(payload?.pendingCount ?? 0))
+    : 0;
+  const safeFailedCount = Number.isFinite(payload?.failedCount)
+    ? Math.max(0, Math.floor(payload?.failedCount ?? 0))
+    : 0;
+  const safeMaxConcurrent = Number.isFinite(payload?.maxConcurrent)
+    ? Math.max(1, Math.floor(payload?.maxConcurrent ?? 1))
+    : 1;
+
+  return {
+    activeCount: safeActiveCount,
+    pendingCount: safePendingCount,
+    failedCount: safeFailedCount,
+    totalCount: safeActiveCount + safePendingCount + safeFailedCount,
+    maxConcurrent: safeMaxConcurrent,
+  };
+};
+
+const sortVideoTranscodeTasks = (tasks: VideoTranscodeTaskPayload[]): VideoTranscodeTaskPayload[] => {
+  const grouped: Record<VideoTranscodeTaskStatus, VideoTranscodeTaskPayload[]> = {
+    active: [],
+    pending: [],
+    failed: [],
+  };
+
+  for (const task of tasks) {
+    grouped[task.status].push(task);
+  }
+
+  return [
+    ...grouped.active,
+    ...grouped.pending,
+    ...grouped.failed,
+  ];
+};
+
+const normalizeVideoTranscodeQueueDetail = (
+  payload: Partial<VideoTranscodeQueueDetailPayload> | null | undefined,
+): VideoTranscodeQueueDetailPayload => ({
+  tasks: Array.isArray(payload?.tasks)
+    ? sortVideoTranscodeTasks(
+        payload.tasks.flatMap((task) => {
+          const normalized = normalizeVideoTranscodeTask(task);
+          return normalized ? [normalized] : [];
+        }),
+      )
+    : [],
+});
+
+const upsertVideoTranscodeTask = (
+  tasks: VideoTranscodeTaskPayload[],
+  incoming: VideoTranscodeTaskPayload,
+): VideoTranscodeTaskPayload[] =>
+  sortVideoTranscodeTasks([
+    ...tasks.filter((task) => task.traceId !== incoming.traceId),
+    incoming,
+  ]);
+
+const removeVideoTranscodeTask = (
+  tasks: VideoTranscodeTaskPayload[],
+  traceId: string,
+): VideoTranscodeTaskPayload[] => tasks.filter((task) => task.traceId !== traceId);
+
+const mergeVideoTranscodeTask = (
+  baseTask: VideoTranscodeTaskPayload,
+  liveTask?: VideoTranscodeTaskPayload | null,
+): VideoTranscodeTaskPayload => ({
+  ...baseTask,
+  ...(liveTask ?? {}),
+  traceId: baseTask.traceId,
+  label: liveTask?.label?.trim() || baseTask.label,
+  status: liveTask?.status ?? baseTask.status,
+});
+
+const getTranscodeTaskStatusText = (task: VideoTranscodeTaskPayload): string => {
+  if (task.status === "pending") {
+    return i18n.t("desktop:app.queue.waiting");
+  }
+
+  const effectiveStage = task.stage ?? (task.status === "failed" ? "failed" : "analyzing");
+  const stageLabel = getTranscodeStageLabel(effectiveStage);
+
+  if (task.status === "failed") {
+    return stageLabel;
+  }
+
+  const progressPercent = task.progressPercent;
+  if (typeof progressPercent === "number" && Number.isFinite(progressPercent) && progressPercent >= 0) {
+    return i18n.t("desktop:app.queue.percentStatus", {
+      percent: Math.round(progressPercent),
+      status: stageLabel,
+    });
+  }
+
+  return stageLabel;
+};
+
+const getVideoTranscodeTaskProgressPercent = (task: VideoTranscodeTaskPayload): number => {
+  if (task.status === "pending") {
+    return 8;
+  }
+  if (typeof task.progressPercent !== "number" || !Number.isFinite(task.progressPercent)) {
+    return task.status === "failed" ? 18 : 22;
+  }
+  return Math.max(8, Math.min(100, task.progressPercent));
+};
+
+const getVideoTranscodeFormatLabel = (task: VideoTranscodeTaskPayload): string | null => {
+  if (!task.sourceFormat || !task.targetFormat) {
+    return null;
+  }
+  return `${task.sourceFormat.toUpperCase()} -> ${task.targetFormat.toUpperCase()}`;
+};
+
 // Cat icon for minimized state
 const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) => (
   <svg
@@ -297,7 +513,12 @@ function App() {
   const [downloadProgressByTrace, setDownloadProgressByTrace] = useState<Record<string, DownloadProgressPayload>>({});
   const [videoQueueState, setVideoQueueState] = useState<VideoQueueStatePayload>(EMPTY_VIDEO_QUEUE_STATE);
   const [videoQueueDetail, setVideoQueueDetail] = useState<VideoQueueDetailPayload>(EMPTY_VIDEO_QUEUE_DETAIL);
+  const [videoTranscodeQueueState, setVideoTranscodeQueueState] = useState<VideoTranscodeQueueStatePayload>(EMPTY_VIDEO_TRANSCODE_QUEUE_STATE);
+  const [videoTranscodeQueueDetail, setVideoTranscodeQueueDetail] = useState<VideoTranscodeQueueDetailPayload>(EMPTY_VIDEO_TRANSCODE_QUEUE_DETAIL);
+  const [transcodeProgressByTrace, setTranscodeProgressByTrace] = useState<Record<string, VideoTranscodeTaskPayload>>({});
   const [cancellingTraceIds, setCancellingTraceIds] = useState<string[]>([]);
+  const [pendingTranscodeActionTraceIds, setPendingTranscodeActionTraceIds] = useState<string[]>([]);
+  const [queueNoticeMessage, setQueueNoticeMessage] = useState<string | null>(null);
   const [isQueuePopoverOpen, setIsQueuePopoverOpen] = useState(false);
   const [ytdlpUpdate, setYtdlpUpdate] = useState<YtdlpVersionInfo | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -315,6 +536,8 @@ function App() {
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
   const resetCounterFeedbackTimerRef = useRef<number | null>(null);
+  const queueNoticeTimerRef = useRef<number | null>(null);
+  const queueIdleDelayTimerRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
   const isDraggingRef = useRef(false);
   const cancellingTraceIdsRef = useRef<Set<string>>(new Set());
@@ -337,27 +560,74 @@ function App() {
   const SETTINGS_WINDOW_WIDTH = 320;
   const SETTINGS_WINDOW_HEIGHT = 400;
   const SETTINGS_WINDOW_GAP = 16;
-  const hasActiveDownloads = videoQueueState.activeCount > 0;
-  const queueTasks = videoQueueDetail.tasks;
-  const activeQueueTasks = queueTasks.filter((task) => task.status === "active");
-  const primaryQueueTask = activeQueueTasks[0] ?? null;
-  const primaryDownloadProgress = primaryQueueTask
-    ? downloadProgressByTrace[primaryQueueTask.traceId] ?? null
+  const downloadQueueTasks = videoQueueDetail.tasks;
+  const activeDownloadQueueTasks = downloadQueueTasks.filter((task) => task.status === "active");
+  const primaryDownloadTask = activeDownloadQueueTasks[0] ?? null;
+  const primaryDownloadProgress = primaryDownloadTask
+    ? downloadProgressByTrace[primaryDownloadTask.traceId] ?? null
     : null;
-  const downloadProgress = primaryQueueTask
+  const downloadProgress = primaryDownloadTask
     ? primaryDownloadProgress ?? {
-        traceId: primaryQueueTask.traceId,
+        traceId: primaryDownloadTask.traceId,
         percent: -1,
         stage: "preparing" as DownloadStage,
         speed: getDownloadStageLabel("preparing"),
         eta: "",
       }
     : null;
-  const downloadStage = primaryDownloadProgress?.stage ?? (primaryQueueTask ? "preparing" : null);
+  const downloadStage = primaryDownloadProgress?.stage ?? (primaryDownloadTask ? "preparing" : null);
+  const transcodeQueueTasks = videoTranscodeQueueDetail.tasks.map((task) =>
+    mergeVideoTranscodeTask(task, transcodeProgressByTrace[task.traceId]),
+  );
+  const activeTranscodeProgressTask = Object.values(transcodeProgressByTrace).find((task) => task.status === "active") ?? null;
+  const activeTranscodeQueueTasks = transcodeQueueTasks.filter((task) => task.status === "active");
+  const primaryTranscodeTask = activeTranscodeQueueTasks[0] ?? activeTranscodeProgressTask;
+  const totalDownloadTaskCount = videoQueueState.totalCount;
+  const totalTranscodeTaskCount = videoTranscodeQueueState.totalCount;
+  const totalTaskCount = totalDownloadTaskCount + totalTranscodeTaskCount;
+  const primaryTask = downloadProgress && primaryDownloadTask
+    ? {
+        kind: "download" as const,
+        task: primaryDownloadTask,
+        percent: downloadProgress.percent,
+        statusText: getDownloadStatusText(downloadProgress, downloadStage),
+        indeterminate: downloadProgress.percent < 0,
+      }
+    : primaryTranscodeTask
+      ? {
+          kind: "transcode" as const,
+          task: primaryTranscodeTask,
+          percent: primaryTranscodeTask.progressPercent ?? -1,
+          statusText: getTranscodeStageLabel(primaryTranscodeTask.stage ?? "analyzing"),
+          indeterminate:
+            typeof primaryTranscodeTask.progressPercent !== "number"
+            || !Number.isFinite(primaryTranscodeTask.progressPercent),
+        }
+      : null;
+  const hasPrimaryTask = primaryTask !== null;
+  const remainingDownloadCount = Math.max(
+    0,
+    totalDownloadTaskCount - (primaryTask?.kind === "download" ? 1 : 0),
+  );
+  const remainingTranscodeCount = Math.max(
+    0,
+    totalTranscodeTaskCount - (primaryTask?.kind === "transcode" ? 1 : 0),
+  );
 
   const resetDownloadOutcome = useCallback(() => {
     setDownloadCancelled(false);
     setDownloadErrorMessage(null);
+  }, []);
+
+  const showQueueNotice = useCallback((message: string) => {
+    setQueueNoticeMessage(message);
+    if (queueNoticeTimerRef.current !== null) {
+      clearTimeout(queueNoticeTimerRef.current);
+    }
+    queueNoticeTimerRef.current = window.setTimeout(() => {
+      setQueueNoticeMessage(null);
+      queueNoticeTimerRef.current = null;
+    }, 2400);
   }, []);
 
   const addCancellingTraceId = useCallback((traceId: string) => {
@@ -392,12 +662,43 @@ function App() {
     setCancellingTraceIds([]);
   }, []);
 
+  const addPendingTranscodeActionTraceId = useCallback((traceId: string) => {
+    setPendingTranscodeActionTraceIds((current) => (
+      current.includes(traceId) ? current : [...current, traceId]
+    ));
+  }, []);
+
+  const removePendingTranscodeActionTraceId = useCallback((traceId: string) => {
+    setPendingTranscodeActionTraceIds((current) => current.filter((item) => item !== traceId));
+  }, []);
+
   const openCurrentOutputFolder = useCallback(async () => {
     try {
       await invoke<void>("open_current_output_folder");
     } catch (err) {
       console.error("Failed to open current output folder:", err);
     }
+  }, []);
+
+  const scheduleIdleAfterTaskSettlement = useCallback((delayMs = 5000) => {
+    if (queueIdleDelayTimerRef.current !== null) {
+      clearTimeout(queueIdleDelayTimerRef.current);
+    }
+    queueIdleDelayTimerRef.current = window.setTimeout(() => {
+      queueIdleDelayTimerRef.current = null;
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+      }
+      if (!isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
+        idleTimerRef.current = window.setTimeout(() => {
+          if (isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) {
+            return;
+          }
+          setIsMinimized(true);
+          setShowEdgeGlow(false);
+        }, 3000);
+      }
+    }, delayMs);
   }, []);
 
   const closeContextMenuWindow = useCallback(async () => {
@@ -454,8 +755,8 @@ function App() {
   };
 
   const shouldShowEdgeGlow =
-    isPanelHovered && !isHovering && !downloadProgress && !isMinimized && showEdgeGlow;
-  const shouldShowDragGlow = isHovering && !downloadProgress && !isMinimized;
+    isPanelHovered && !isHovering && !primaryTask && !isMinimized && showEdgeGlow;
+  const shouldShowDragGlow = isHovering && !primaryTask && !isMinimized;
   const panelRadius = isMinimized ? 100 : 16;
 
   const getEdgeGlowOpacity = () => {
@@ -579,6 +880,36 @@ function App() {
     }
   }, [addCancellingTraceId, removeCancellingTraceId, t]);
 
+  const retryTranscodeTask = useCallback(async (traceId: string) => {
+    addPendingTranscodeActionTraceId(traceId);
+
+    try {
+      const retried = await invoke<boolean>("retry_transcode", { traceId });
+      if (!retried) {
+        console.warn("Transcode retry was ignored for trace:", traceId);
+      }
+    } catch (err) {
+      console.error("Failed to retry transcode:", err);
+    } finally {
+      removePendingTranscodeActionTraceId(traceId);
+    }
+  }, [addPendingTranscodeActionTraceId, removePendingTranscodeActionTraceId]);
+
+  const removeTranscodeTask = useCallback(async (traceId: string) => {
+    addPendingTranscodeActionTraceId(traceId);
+
+    try {
+      const removed = await invoke<boolean>("remove_transcode", { traceId });
+      if (!removed) {
+        console.warn("Transcode remove was ignored for trace:", traceId);
+      }
+    } catch (err) {
+      console.error("Failed to remove transcode row:", err);
+    } finally {
+      removePendingTranscodeActionTraceId(traceId);
+    }
+  }, [addPendingTranscodeActionTraceId, removePendingTranscodeActionTraceId]);
+
   // Load config on mount
   useEffect(() => {
     const loadConfig = async () => {
@@ -607,6 +938,12 @@ function App() {
       if (resetCounterFeedbackTimerRef.current !== null) {
         clearTimeout(resetCounterFeedbackTimerRef.current);
       }
+      if (queueNoticeTimerRef.current !== null) {
+        clearTimeout(queueNoticeTimerRef.current);
+      }
+      if (queueIdleDelayTimerRef.current !== null) {
+        clearTimeout(queueIdleDelayTimerRef.current);
+      }
     };
   }, []);
 
@@ -620,6 +957,10 @@ function App() {
         if (idleTimerRef.current) {
           clearTimeout(idleTimerRef.current);
           idleTimerRef.current = null;
+        }
+        if (queueIdleDelayTimerRef.current !== null) {
+          clearTimeout(queueIdleDelayTimerRef.current);
+          queueIdleDelayTimerRef.current = null;
         }
         // Set progress immediately (sync) before async operations
         setIsMinimized(false);
@@ -676,30 +1017,17 @@ function App() {
         setDownloadErrorMessage(success ? null : errorSummary);
         if (!success) {
           console.error(">>> [Frontend] Video download failed:", payload?.error ?? "Unknown error");
+          setIsProcessing(true);
+          setTimeout(() => setIsProcessing(false), 1500);
         }
-        setIsProcessing(true);
-        setTimeout(() => setIsProcessing(false), 1500);
-
-        // 下载完成后延迟5秒再启动 idle timer
-        setTimeout(() => {
-          if (idleTimerRef.current) {
-            clearTimeout(idleTimerRef.current);
-          }
-          if (!isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
-            idleTimerRef.current = window.setTimeout(() => {
-              if (isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
-              setIsMinimized(true);
-              setShowEdgeGlow(false);
-            }, 3000);
-          }
-        }, 5000);
+        scheduleIdleAfterTaskSettlement();
       }
     );
     return () => {
       unlistenProgress.then(fn => fn());
       unlistenComplete.then(fn => fn());
     };
-  }, [isMacOS, removeCancellingTraceId]);
+  }, [isMacOS, removeCancellingTraceId, scheduleIdleAfterTaskSettlement]);
 
   // Listen for output path changes from settings window
   useEffect(() => {
@@ -756,7 +1084,7 @@ function App() {
       if (idleTimerRef.current) {
         clearTimeout(idleTimerRef.current);
       }
-      if (!hasActiveDownloads && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
+      if (!hasPrimaryTask && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
         idleTimerRef.current = window.setTimeout(() => {
           if (isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
           setIsMinimized(true);
@@ -771,7 +1099,7 @@ function App() {
       }, 100);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [windowResized, hasActiveDownloads, isMacOS]);
+  }, [windowResized, hasPrimaryTask, isMacOS]);
 
   // Check yt-dlp version on startup
   useEffect(() => {
@@ -798,7 +1126,6 @@ function App() {
       }
       if (normalized.totalCount === 0) {
         clearCancellingTraceIds();
-        setIsQueuePopoverOpen(false);
       }
     });
     return () => { unlisten.then(fn => fn()); };
@@ -808,9 +1135,6 @@ function App() {
     const unlisten = listen<VideoQueueDetailPayload>("video-queue-detail", (event) => {
       const normalized = normalizeVideoQueueDetail(event.payload);
       setVideoQueueDetail(normalized);
-      if (normalized.tasks.length === 0) {
-        setIsQueuePopoverOpen(false);
-      }
       const liveTraceIds = new Set(normalized.tasks.map((task) => task.traceId));
       setCancellingTraceIds((current) => {
         const next = current.filter((traceId) => liveTraceIds.has(traceId));
@@ -823,6 +1147,175 @@ function App() {
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
+
+  useEffect(() => {
+    const unlistenCount = listen<VideoTranscodeQueueStatePayload>("video-transcode-queue-count", (event) => {
+      const normalized = normalizeVideoTranscodeQueueState(event.payload);
+      setVideoTranscodeQueueState(normalized);
+      if (normalized.activeCount === 0) {
+        setTranscodeProgressByTrace((current) => (Object.keys(current).length === 0 ? current : {}));
+      }
+    });
+
+    const unlistenDetail = listen<VideoTranscodeQueueDetailPayload>("video-transcode-queue-detail", (event) => {
+      const normalized = normalizeVideoTranscodeQueueDetail(event.payload);
+      setVideoTranscodeQueueDetail(normalized);
+    });
+
+    const unlistenProgress = listen<VideoTranscodeTaskPayload>("video-transcode-progress", async (event) => {
+      const normalized = normalizeVideoTranscodeTask(event.payload);
+      if (!normalized) {
+        return;
+      }
+
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = null;
+      }
+      if (queueIdleDelayTimerRef.current !== null) {
+        clearTimeout(queueIdleDelayTimerRef.current);
+        queueIdleDelayTimerRef.current = null;
+      }
+
+      setIsMinimized(false);
+      setTranscodeProgressByTrace((current) => ({
+        ...current,
+        [normalized.traceId]: {
+          ...normalized,
+          status: "active",
+        },
+      }));
+      setVideoTranscodeQueueDetail((current) => ({
+        tasks: upsertVideoTranscodeTask(current.tasks, {
+          ...normalized,
+          status: "active",
+        }),
+      }));
+      setDownloadErrorMessage(null);
+
+      if (!isMacOS) {
+        try {
+          const win = getCurrentWindow();
+          const pos = await win.outerPosition();
+          await Promise.all([
+            invoke("set_window_size", { width: FULL_SIZE, height: FULL_SIZE }),
+            invoke("set_window_position", { x: pos.x, y: pos.y }),
+          ]);
+          setWindowResized(false);
+        } catch (err) {
+          console.error("Failed to expand window for transcode:", err);
+        }
+      } else {
+        setWindowResized(false);
+      }
+    });
+
+    const unlistenQueued = listen<VideoTranscodeTaskPayload>("video-transcode-queued", (event) => {
+      const normalized = normalizeVideoTranscodeTask(event.payload);
+      if (!normalized) {
+        return;
+      }
+      setVideoTranscodeQueueDetail((current) => ({
+        tasks: upsertVideoTranscodeTask(current.tasks, normalized),
+      }));
+      showQueueNotice(t("app.queue.sourceQueuedForTranscode"));
+    });
+
+    const unlistenRetried = listen<VideoTranscodeTaskPayload>("video-transcode-retried", (event) => {
+      const normalized = normalizeVideoTranscodeTask(event.payload);
+      if (!normalized) {
+        return;
+      }
+      setVideoTranscodeQueueDetail((current) => ({
+        tasks: upsertVideoTranscodeTask(current.tasks, normalized),
+      }));
+      setTranscodeProgressByTrace((current) => {
+        const next = { ...current };
+        delete next[normalized.traceId];
+        return next;
+      });
+    });
+
+    const unlistenRemoved = listen<VideoTranscodeTaskPayload>("video-transcode-removed", (event) => {
+      const normalized = normalizeVideoTranscodeTask(event.payload);
+      if (!normalized) {
+        return;
+      }
+      setVideoTranscodeQueueDetail((current) => ({
+        tasks: removeVideoTranscodeTask(current.tasks, normalized.traceId),
+      }));
+      setTranscodeProgressByTrace((current) => {
+        if (!current[normalized.traceId]) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[normalized.traceId];
+        return next;
+      });
+    });
+
+    const unlistenFailed = listen<VideoTranscodeTaskPayload>("video-transcode-failed", (event) => {
+      const normalized = normalizeVideoTranscodeTask(event.payload);
+      if (!normalized) {
+        return;
+      }
+      setVideoTranscodeQueueDetail((current) => ({
+        tasks: upsertVideoTranscodeTask(current.tasks, normalized),
+      }));
+      setTranscodeProgressByTrace((current) => {
+        if (!current[normalized.traceId]) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[normalized.traceId];
+        return next;
+      });
+      setDownloadCancelled(true);
+      setDownloadErrorMessage(normalized.error ?? getTranscodeStageLabel("failed"));
+      setIsProcessing(true);
+      setTimeout(() => setIsProcessing(false), 1800);
+      showQueueNotice(t("app.queue.transcodeFailedNotice"));
+      scheduleIdleAfterTaskSettlement(3500);
+    });
+
+    const unlistenComplete = listen<VideoTranscodeCompletePayload>("video-transcode-complete", (event) => {
+      const payload = event.payload;
+      setVideoTranscodeQueueDetail((current) => ({
+        tasks: removeVideoTranscodeTask(current.tasks, payload.traceId),
+      }));
+      setTranscodeProgressByTrace((current) => {
+        if (!current[payload.traceId]) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[payload.traceId];
+        return next;
+      });
+      setDownloadCancelled(false);
+      setDownloadErrorMessage(null);
+      setIsProcessing(true);
+      setTimeout(() => setIsProcessing(false), 1400);
+      showQueueNotice(t("app.queue.transcodeCompleted"));
+      scheduleIdleAfterTaskSettlement(3500);
+    });
+
+    return () => {
+      unlistenCount.then((fn) => fn());
+      unlistenDetail.then((fn) => fn());
+      unlistenProgress.then((fn) => fn());
+      unlistenQueued.then((fn) => fn());
+      unlistenRetried.then((fn) => fn());
+      unlistenRemoved.then((fn) => fn());
+      unlistenFailed.then((fn) => fn());
+      unlistenComplete.then((fn) => fn());
+    };
+  }, [isMacOS, scheduleIdleAfterTaskSettlement, showQueueNotice, t]);
+
+  useEffect(() => {
+    if (totalTaskCount === 0) {
+      setIsQueuePopoverOpen(false);
+    }
+  }, [totalTaskCount]);
 
   // Block F12 if devMode is disabled
   useEffect(() => {
@@ -855,8 +1348,8 @@ function App() {
       }, 100);
     }
 
-    // 下载进行中、拖拽中或鼠标仍停留在面板内时不启动 idle timer
-    if (hasActiveDownloads || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
+    // 活跃任务进行中、拖拽中或鼠标仍停留在面板内时不启动 idle timer
+    if (primaryTask || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
 
     idleTimerRef.current = window.setTimeout(() => {
       if (isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
@@ -979,8 +1472,8 @@ function App() {
   const canDoubleClickOpenOutputFolder =
     !isMinimized &&
     !isProcessing &&
-    !downloadProgress &&
-    videoQueueState.totalCount === 0 &&
+    !primaryTask &&
+    totalTaskCount === 0 &&
     !isQueuePopoverOpen;
 
   const handlePanelDoubleClick = async (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1592,8 +2085,10 @@ function App() {
   };
 
   const shouldShowMiniControls = isPanelHovered && !isMinimized;
-  const containerBoxShadow = downloadProgress
-    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px ${colors.accentGlow}`
+  const containerBoxShadow = primaryTask?.kind === "transcode"
+    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 14px ${colors.transcodeGlow}`
+    : primaryTask?.kind === "download"
+      ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px ${colors.accentGlow}`
     : isHovering
       ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 24px ${colors.accentGlow}, inset 0 0 42px ${colors.accentSurfaceStrong}`
       : `inset 0 0 0 1px ${colors.borderStart}`;
@@ -1614,10 +2109,10 @@ function App() {
     pointerEvents: shouldShowMiniControls ? 'auto' : 'none',
     zIndex: 10,
   };
-  const isPrimaryTaskCancelling = primaryQueueTask
-    ? cancellingTraceIds.includes(primaryQueueTask.traceId)
+  const isPrimaryTaskCancelling = primaryTask?.kind === "download"
+    ? cancellingTraceIds.includes(primaryTask.task.traceId)
     : false;
-  const getQueueTaskProgressText = (task: VideoQueueTaskPayload): string => {
+  const getDownloadQueueTaskProgressText = (task: VideoQueueTaskPayload): string => {
     if (cancellingTraceIds.includes(task.traceId)) {
       return t("app.queue.cancelling");
     }
@@ -1636,7 +2131,7 @@ function App() {
           status: statusText,
         });
   };
-  const getQueueTaskProgressPercent = (task: VideoQueueTaskPayload): number => {
+  const getDownloadQueueTaskProgressPercent = (task: VideoQueueTaskPayload): number => {
     if (task.status !== "active") {
       return 8;
     }
@@ -1646,22 +2141,51 @@ function App() {
     }
     return Math.max(8, Math.min(100, progress.percent));
   };
-  const downloadStatusText = downloadProgress
-    ? getDownloadStatusText(downloadProgress, downloadStage)
+  const primaryTaskStatusText = primaryTask
+    ? primaryTask.statusText
     : "";
-  const queueStatusText = isPrimaryTaskCancelling
+  const primaryTaskSummaryText = queueNoticeMessage
+    ? queueNoticeMessage
+    : isPrimaryTaskCancelling
     ? t("app.queue.cancellingCurrent")
-    : videoQueueState.pendingCount > 0
-      ? t("app.queue.queuedNext", { count: videoQueueState.pendingCount })
-      : videoQueueState.totalCount > 1
-        ? t("app.queue.tasksInQueue", { count: videoQueueState.totalCount })
+    : remainingDownloadCount > 0 || remainingTranscodeCount > 0
+      ? t("app.queue.remainingSummary", {
+          downloadCount: remainingDownloadCount,
+          transcodeCount: remainingTranscodeCount,
+        })
         : "";
-  const showVideoTaskBadge = videoQueueState.totalCount > 1 || isQueuePopoverOpen;
+  const showVideoTaskBadge = totalTaskCount > 0 || isQueuePopoverOpen;
   const queueViewTitle = t("app.queue.title");
-  const queueViewMeta = t("app.queue.meta", {
-    active: videoQueueState.activeCount,
-    queued: videoQueueState.pendingCount,
-  });
+  const queueViewMeta = [
+    totalDownloadTaskCount > 0 ? t("app.queue.downloadCountSummary", { count: totalDownloadTaskCount }) : null,
+    totalTranscodeTaskCount > 0 ? t("app.queue.transcodeCountSummary", { count: totalTranscodeTaskCount }) : null,
+  ].filter(Boolean).join(" · ");
+  const hasDownloadTasks = totalDownloadTaskCount > 0;
+  const hasTranscodeTasks = totalTranscodeTaskCount > 0;
+  const primaryTaskFormatLabel = primaryTask?.kind === "transcode"
+    ? getVideoTranscodeFormatLabel(primaryTask.task)
+    : null;
+  const primaryTaskStroke = primaryTask?.kind === "transcode"
+    ? colors.transcodeSolid
+    : colors.progressFgStroke;
+  const primaryTaskTextColor = primaryTask?.kind === "transcode"
+    ? colors.transcodeText
+    : colors.progressText;
+  const primaryTaskStatusColor = primaryTask?.kind === "transcode"
+    ? colors.transcodeMutedText
+    : colors.progressSpeedText;
+  const primaryTaskPillBackground = primaryTask?.kind === "transcode"
+    ? colors.transcodeSurface
+    : colors.accentSurface;
+  const primaryTaskPillBorder = primaryTask?.kind === "transcode"
+    ? colors.transcodeBorder
+    : colors.accentBorder;
+  const primaryTaskPillText = primaryTask?.kind === "transcode"
+    ? colors.transcodeText
+    : colors.accentText;
+  const primaryTaskTrackStroke = primaryTask?.kind === "transcode"
+    ? colors.transcodeTrack
+    : colors.progressBgStroke;
 
   return (
     <motion.div
@@ -1780,11 +2304,11 @@ function App() {
               justifyContent: 'center',
               gap: 6,
               background: isQueuePopoverOpen
-                ? `linear-gradient(135deg, ${colors.queueCloseBg} 0%, ${colors.queueCloseGlow} 100%)`
+                ? `linear-gradient(135deg, ${colors.queueBadgeOpenBg} 0%, ${colors.queueBadgeOpenGlow} 100%)`
                 : `linear-gradient(135deg, ${colors.queueBadgeBg} 0%, ${colors.queueBadgeGlow} 100%)`,
-              color: isQueuePopoverOpen ? colors.queueCloseIcon : colors.queueBadgeText,
+              color: isQueuePopoverOpen ? colors.queueBadgeOpenText : colors.queueBadgeText,
               border: isQueuePopoverOpen
-                ? `1px solid ${colors.queueCloseBorder}`
+                ? `1px solid ${colors.queueBadgeOpenBorder}`
                 : `1px solid ${colors.queueBadgeBorder}`,
               fontSize: 12,
               fontWeight: 800,
@@ -1792,46 +2316,43 @@ function App() {
               userSelect: 'none',
               zIndex: 30,
               boxShadow: isQueuePopoverOpen
-                ? `0 10px 18px ${colors.progressCancelHoverBg}`
+                ? `0 10px 18px ${colors.queueBadgeOpenShadow}, ${colors.panelShadow}`
                 : `0 10px 18px ${colors.queueBadgeShadow}, ${colors.panelShadow}`,
               backdropFilter: 'blur(12px)',
               cursor: 'pointer',
               transition: 'background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
             }}
             aria-pressed={isQueuePopoverOpen}
-            aria-label={t("app.queue.currentTasksAria", { count: videoQueueState.totalCount })}
+            aria-label={t("app.queue.currentTasksAria", { count: totalTaskCount })}
             title={isQueuePopoverOpen ? t("app.queue.closeList") : t("app.queue.showList")}
           >
-            {isQueuePopoverOpen ? (
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 10 10"
-                style={{ color: colors.queueCloseIcon, pointerEvents: 'none' }}
-              >
-                <path
-                  d="M2 2L8 8M8 2L2 8"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            ) : (
-              <>
+            <span style={{ pointerEvents: 'none' }}>{totalTaskCount}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, pointerEvents: 'none' }}>
+              {hasDownloadTasks ? (
                 <span
                   style={{
-                    width: 7,
-                    height: 7,
+                    width: 6,
+                    height: 6,
                     borderRadius: '50%',
-                    backgroundColor: colors.queueBadgeDot,
-                    boxShadow: `0 0 10px ${colors.queueBadgeDot}`,
+                    backgroundColor: colors.progressFgStroke,
+                    boxShadow: `0 0 10px ${colors.progressFgStroke}`,
                     flexShrink: 0,
-                    pointerEvents: 'none',
                   }}
                 />
-                <span style={{ pointerEvents: 'none' }}>{videoQueueState.totalCount}</span>
-              </>
-            )}
+              ) : null}
+              {hasTranscodeTasks ? (
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    backgroundColor: colors.transcodeSolid,
+                    boxShadow: `0 0 10px ${colors.transcodeGlow}`,
+                    flexShrink: 0,
+                  }}
+                />
+              ) : null}
+            </span>
           </button>
 
           <AnimatePresence>
@@ -1889,16 +2410,18 @@ function App() {
                   >
                     {queueViewTitle}
                   </span>
-                  <span
-                    style={{
-                      fontSize: 9,
-                      color: colors.textSecondary,
-                      lineHeight: 1.2,
-                      userSelect: 'none',
-                    }}
-                  >
-                    {queueViewMeta}
-                  </span>
+                  {queueViewMeta ? (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        color: colors.textSecondary,
+                        lineHeight: 1.2,
+                        userSelect: 'none',
+                      }}
+                    >
+                      {queueViewMeta}
+                    </span>
+                  ) : null}
                 </div>
 
                 <div
@@ -1913,122 +2436,379 @@ function App() {
                     paddingRight: 2,
                   }}
                 >
-                  {queueTasks.map((task) => {
-                    const isTaskCancelling = cancellingTraceIds.includes(task.traceId);
-                    return (
+                  {hasDownloadTasks ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div
-                        key={task.traceId}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
+                          justifyContent: 'space-between',
                           gap: 8,
-                          padding: '8px 9px',
-                          borderRadius: 8,
-                          background: `linear-gradient(180deg, ${colors.bgPrimary} 0%, ${colors.bgSecondary} 100%)`,
-                          border: `1px solid ${colors.borderStart}`,
-                          boxShadow: `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
+                          padding: '0 4px',
                         }}
                       >
-                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span
-                              style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: '50%',
-                                flexShrink: 0,
-                                backgroundColor: task.status === 'pending'
-                                  ? colors.queueBadgeDot
-                                  : colors.progressFgStroke,
-                                boxShadow: task.status === 'pending'
-                                  ? `0 0 8px ${colors.queueBadgeDot}`
-                                  : `0 0 10px ${colors.progressFgStroke}`,
-                              }}
-                            />
-                            <span
-                              title={task.label}
-                              style={{
-                                fontSize: 10,
-                                lineHeight: 1.2,
-                                color: colors.textPrimary,
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                              }}
-                            >
-                              {task.label}
-                            </span>
-                          </div>
-                          <div
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          <span
                             style={{
-                              width: '100%',
+                              width: 6,
                               height: 6,
-                              borderRadius: 999,
-                              background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                              overflow: 'hidden',
-                              boxShadow: `inset 0 0 0 1px ${colors.borderStart}`,
+                              borderRadius: '50%',
+                              backgroundColor: colors.progressFgStroke,
+                              boxShadow: `0 0 8px ${colors.progressFgStroke}`,
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: colors.textPrimary,
+                              lineHeight: 1,
+                              userSelect: 'none',
                             }}
                           >
-                            <div
-                              style={{
-                                width: `${getQueueTaskProgressPercent(task)}%`,
-                                height: '100%',
-                                borderRadius: 999,
-                                background: task.status === 'pending'
-                                  ? `linear-gradient(90deg, ${colors.queueBadgeDot} 0%, ${colors.queueBadgeGlow} 100%)`
-                                  : `linear-gradient(90deg, ${colors.progressFgStroke} 0%, ${colors.progressText} 100%)`,
-                                boxShadow: task.status === 'pending'
-                                  ? `0 0 12px ${colors.queueBadgeShadow}`
-                                  : `0 0 12px ${colors.progressFgStroke}`,
-                                transition: 'width 0.2s ease',
-                              }}
-                            />
-                          </div>
-                          <span style={{ fontSize: 9, lineHeight: 1.1, color: colors.textSecondary }}>
-                            {getQueueTaskProgressText(task)}
+                            {t("app.queue.downloadSection")}
                           </span>
                         </div>
-                        <button
-                          onClick={() => {
-                            void cancelVideoTask(task.traceId);
-                          }}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          disabled={isTaskCancelling}
+                        <span
                           style={{
-                            width: 24,
-                            height: 24,
-                            borderRadius: '50%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            border: 'none',
-                            backgroundColor: isTaskCancelling
-                              ? colors.queueStatusBg
-                              : 'transparent',
-                            cursor: isTaskCancelling ? 'default' : 'pointer',
-                            opacity: isTaskCancelling ? 0.6 : 1,
-                            flexShrink: 0,
-                            transition: 'background-color 0.2s ease',
+                            fontSize: 8,
+                            color: colors.textSecondary,
+                            lineHeight: 1,
+                            userSelect: 'none',
                           }}
-                          title={isTaskCancelling ? t("app.queue.cancellingTask") : t("app.queue.cancelTask")}
                         >
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 10 10"
-                            style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
-                          >
-                            <path
-                              d="M2 2L8 8M8 2L2 8"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                        </button>
+                          {totalDownloadTaskCount}
+                        </span>
                       </div>
-                    );
-                  })}
+
+                      {downloadQueueTasks.map((task) => {
+                        const isTaskCancelling = cancellingTraceIds.includes(task.traceId);
+                        return (
+                          <div
+                            key={task.traceId}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: '8px 9px',
+                              borderRadius: 8,
+                              background: `linear-gradient(180deg, ${colors.bgPrimary} 0%, ${colors.bgSecondary} 100%)`,
+                              border: `1px solid ${colors.borderStart}`,
+                              boxShadow: `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
+                            }}
+                          >
+                            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span
+                                  style={{
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: '50%',
+                                    flexShrink: 0,
+                                    backgroundColor: task.status === 'pending'
+                                      ? colors.accentBorder
+                                      : colors.progressFgStroke,
+                                    boxShadow: task.status === 'pending'
+                                      ? `0 0 8px ${colors.accentGlow}`
+                                      : `0 0 10px ${colors.progressFgStroke}`,
+                                  }}
+                                />
+                                <span
+                                  title={task.label}
+                                  style={{
+                                    fontSize: 10,
+                                    lineHeight: 1.2,
+                                    color: colors.textPrimary,
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {task.label}
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  width: '100%',
+                                  height: 6,
+                                  borderRadius: 999,
+                                  background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                                  overflow: 'hidden',
+                                  boxShadow: `inset 0 0 0 1px ${colors.borderStart}`,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: `${getDownloadQueueTaskProgressPercent(task)}%`,
+                                    height: '100%',
+                                    borderRadius: 999,
+                                    background: task.status === 'pending'
+                                      ? `linear-gradient(90deg, ${colors.accentBorder} 0%, ${colors.progressText} 100%)`
+                                      : `linear-gradient(90deg, ${colors.progressFgStroke} 0%, ${colors.progressText} 100%)`,
+                                    boxShadow: task.status === 'pending'
+                                      ? `0 0 12px ${colors.accentGlow}`
+                                      : `0 0 12px ${colors.progressFgStroke}`,
+                                    transition: 'width 0.2s ease',
+                                  }}
+                                />
+                              </div>
+                              <span style={{ fontSize: 9, lineHeight: 1.1, color: colors.textSecondary }}>
+                                {getDownloadQueueTaskProgressText(task)}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                void cancelVideoTask(task.traceId);
+                              }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              disabled={isTaskCancelling}
+                              style={{
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                border: 'none',
+                                backgroundColor: isTaskCancelling
+                                  ? colors.queueStatusBg
+                                  : 'transparent',
+                                cursor: isTaskCancelling ? 'default' : 'pointer',
+                                opacity: isTaskCancelling ? 0.6 : 1,
+                                flexShrink: 0,
+                                transition: 'background-color 0.2s ease',
+                              }}
+                              title={isTaskCancelling ? t("app.queue.cancellingTask") : t("app.queue.cancelTask")}
+                            >
+                              <svg
+                                width="10"
+                                height="10"
+                                viewBox="0 0 10 10"
+                                style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
+                              >
+                                <path
+                                  d="M2 2L8 8M8 2L2 8"
+                                  stroke="currentColor"
+                                  strokeWidth="1.5"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {hasTranscodeTasks ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                          padding: '0 4px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          <span
+                            style={{
+                              width: 6,
+                              height: 6,
+                              borderRadius: '50%',
+                              backgroundColor: colors.transcodeSolid,
+                              boxShadow: `0 0 8px ${colors.transcodeGlow}`,
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: colors.textPrimary,
+                              lineHeight: 1,
+                              userSelect: 'none',
+                            }}
+                          >
+                            {t("app.queue.transcodeSection")}
+                          </span>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 8,
+                            color: colors.textSecondary,
+                            lineHeight: 1,
+                            userSelect: 'none',
+                          }}
+                        >
+                          {totalTranscodeTaskCount}
+                        </span>
+                      </div>
+
+                      {transcodeQueueTasks.map((task) => {
+                        const isFailedTask = task.status === "failed";
+                        const isTaskActionPending = pendingTranscodeActionTraceIds.includes(task.traceId);
+                        const formatLabel = getVideoTranscodeFormatLabel(task);
+                        const markerColor = isFailedTask ? colors.dangerSolid : colors.transcodeSolid;
+                        const markerGlow = isFailedTask ? colors.dangerGlow : colors.transcodeGlow;
+
+                        return (
+                          <div
+                            key={task.traceId}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 7,
+                              padding: '8px 9px',
+                              borderRadius: 8,
+                              background: `linear-gradient(180deg, ${colors.bgPrimary} 0%, ${colors.bgSecondary} 100%)`,
+                              border: `1px solid ${isFailedTask ? colors.dangerBorder : colors.borderStart}`,
+                              boxShadow: `inset 0 0 0 1px ${isFailedTask ? colors.dangerBorder : colors.borderStart}, ${colors.panelShadow}`,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                              <span
+                                style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: '50%',
+                                  flexShrink: 0,
+                                  backgroundColor: markerColor,
+                                  boxShadow: `0 0 10px ${markerGlow}`,
+                                }}
+                              />
+                              <span
+                                title={task.label}
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  fontSize: 10,
+                                  lineHeight: 1.2,
+                                  color: colors.textPrimary,
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {task.label}
+                              </span>
+                              {formatLabel ? (
+                                <span
+                                  style={{
+                                    maxWidth: 76,
+                                    padding: '2px 5px',
+                                    borderRadius: 999,
+                                    fontSize: 8,
+                                    lineHeight: 1,
+                                    color: colors.transcodeText,
+                                    backgroundColor: colors.transcodeSurface,
+                                    border: `1px solid ${colors.transcodeBorder}`,
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    userSelect: 'none',
+                                  }}
+                                  title={formatLabel}
+                                >
+                                  {formatLabel}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <div
+                              style={{
+                                width: '100%',
+                                height: 6,
+                                borderRadius: 999,
+                                background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                                overflow: 'hidden',
+                                boxShadow: `inset 0 0 0 1px ${colors.borderStart}`,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: `${getVideoTranscodeTaskProgressPercent(task)}%`,
+                                  height: '100%',
+                                  borderRadius: 999,
+                                  background: `linear-gradient(90deg, ${colors.transcodeSolid} 0%, ${colors.transcodeText} 100%)`,
+                                  boxShadow: `0 0 12px ${colors.transcodeGlow}`,
+                                  opacity: isFailedTask ? 0.7 : 1,
+                                  transition: 'width 0.2s ease',
+                                }}
+                              />
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
+                              <span
+                                title={task.error ?? undefined}
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  fontSize: 9,
+                                  lineHeight: 1.1,
+                                  color: isFailedTask ? colors.dangerText : colors.textSecondary,
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {getTranscodeTaskStatusText(task)}
+                              </span>
+
+                              {isFailedTask ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                  <button
+                                    onClick={() => {
+                                      void retryTranscodeTask(task.traceId);
+                                    }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    disabled={isTaskActionPending}
+                                    style={{
+                                      border: `1px solid ${colors.transcodeBorder}`,
+                                      backgroundColor: colors.transcodeSurface,
+                                      color: colors.transcodeText,
+                                      borderRadius: 999,
+                                      padding: '2px 7px',
+                                      fontSize: 8,
+                                      lineHeight: 1.2,
+                                      cursor: isTaskActionPending ? 'default' : 'pointer',
+                                      opacity: isTaskActionPending ? 0.6 : 1,
+                                    }}
+                                    title={t("app.queue.retryTranscode")}
+                                  >
+                                    {t("app.queue.retryTranscode")}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      void removeTranscodeTask(task.traceId);
+                                    }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    disabled={isTaskActionPending}
+                                    style={{
+                                      border: `1px solid ${colors.fieldBorder}`,
+                                      backgroundColor: colors.fieldBg,
+                                      color: colors.textSecondary,
+                                      borderRadius: 999,
+                                      padding: '2px 7px',
+                                      fontSize: 8,
+                                      lineHeight: 1.2,
+                                      cursor: isTaskActionPending ? 'default' : 'pointer',
+                                      opacity: isTaskActionPending ? 0.6 : 1,
+                                    }}
+                                    title={t("app.queue.removeTranscodeHint")}
+                                  >
+                                    {t("app.queue.removeTranscode")}
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               </motion.div>
             ) : null}
@@ -2074,7 +2854,7 @@ function App() {
 
       {/* 中央图标 */}
       <AnimatePresence mode="wait">
-        {downloadProgress ? (
+        {primaryTask ? (
           <motion.div
             key="progress"
             initial={{ scale: 0, opacity: 0 }}
@@ -2113,22 +2893,22 @@ function App() {
                 <circle
                   cx="24" cy="24" r="20"
                   fill="none"
-                  stroke={colors.progressBgStroke}
+                  stroke={primaryTaskTrackStroke}
                   strokeWidth="4"
                 />
                 <circle
                   cx="24" cy="24" r="20"
                   fill="none"
-                  stroke={colors.progressFgStroke}
+                  stroke={primaryTaskStroke}
                   strokeWidth="4"
                   strokeLinecap="round"
                   strokeDasharray={2 * Math.PI * 20}
-                  strokeDashoffset={downloadProgress.percent < 0
-                    ? 2 * Math.PI * 20 * 0.75  // Indeterminate: show 25% arc
-                    : 2 * Math.PI * 20 * (1 - downloadProgress.percent / 100)}
+                  strokeDashoffset={primaryTask.indeterminate
+                    ? 2 * Math.PI * 20 * 0.75
+                    : 2 * Math.PI * 20 * (1 - Math.max(0, Math.min(100, primaryTask.percent)) / 100)}
                   style={{
-                    transition: downloadProgress.percent < 0 ? 'none' : 'stroke-dashoffset 0.3s ease',
-                    animation: downloadProgress.percent < 0 ? 'spin 1s linear infinite' : 'none',
+                    transition: primaryTask.indeterminate ? 'none' : 'stroke-dashoffset 0.3s ease',
+                    animation: primaryTask.indeterminate ? 'spin 1s linear infinite' : 'none',
                     transformOrigin: 'center',
                   }}
                 />
@@ -2137,28 +2917,63 @@ function App() {
                 position: 'absolute',
                 fontSize: 11,
                 fontWeight: 500,
-                color: colors.progressText,
+                color: primaryTaskTextColor,
                 textAlign: 'center',
                 userSelect: 'none',
                 pointerEvents: 'none',
               }}>
-                {downloadProgress.percent < 0
+                {primaryTask.indeterminate
                   ? '...'
-                  : `${Math.round(downloadProgress.percent)}%`}
+                  : `${Math.round(primaryTask.percent)}%`}
               </span>
             </div>
-            {downloadStatusText ? (
-              <span style={{ fontSize: 10, color: colors.progressSpeedText, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>
-                {downloadStatusText}
+            <span
+              title={primaryTask.task.label}
+              style={{
+                maxWidth: 146,
+                fontSize: 10,
+                fontWeight: 600,
+                color: colors.textPrimary,
+                lineHeight: 1.15,
+                textAlign: 'center',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                userSelect: 'none',
+                pointerEvents: 'none',
+              }}
+            >
+              {primaryTask.task.label}
+            </span>
+            {primaryTaskFormatLabel ? (
+              <span
+                style={{
+                  fontSize: 8,
+                  color: colors.transcodeText,
+                  backgroundColor: colors.transcodeSurface,
+                  border: `1px solid ${colors.transcodeBorder}`,
+                  borderRadius: 999,
+                  padding: '2px 6px',
+                  lineHeight: 1,
+                  userSelect: 'none',
+                  pointerEvents: 'none',
+                }}
+              >
+                {primaryTaskFormatLabel}
               </span>
             ) : null}
-            {queueStatusText ? (
+            {primaryTaskStatusText ? (
+              <span style={{ fontSize: 10, color: primaryTaskStatusColor, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>
+                {primaryTaskStatusText}
+              </span>
+            ) : null}
+            {primaryTaskSummaryText ? (
               <span
                 style={{
                   fontSize: 9,
-                  color: colors.queueBadgeText,
-                  backgroundColor: colors.queueStatusBg,
-                  border: `1px solid ${colors.queueStatusBorder}`,
+                  color: primaryTaskPillText,
+                  backgroundColor: primaryTaskPillBackground,
+                  border: `1px solid ${primaryTaskPillBorder}`,
                   borderRadius: 999,
                   padding: '2px 6px',
                   lineHeight: 1.1,
@@ -2166,54 +2981,55 @@ function App() {
                   pointerEvents: 'none',
                 }}
               >
-                {queueStatusText}
+                {primaryTaskSummaryText}
               </span>
             ) : null}
-            {/* Cancel download button */}
-            <button
-              onClick={async () => {
-                if (!primaryQueueTask || isPrimaryTaskCancelling) {
-                  return;
-                }
-                void cancelVideoTask(primaryQueueTask.traceId, { showCurrentTaskFeedback: true });
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              onMouseEnter={() => setIsProgressCancelHovered(true)}
-              onMouseLeave={() => setIsProgressCancelHovered(false)}
-              style={{
-                margin: 0,
-                marginTop: 4,
-                width: 20,
-                height: 20,
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: isProgressCancelHovered ? colors.progressCancelHoverBg : 'transparent',
-                border: 'none',
-                cursor: !primaryQueueTask || isPrimaryTaskCancelling ? 'default' : 'pointer',
-                transition: 'background-color 0.2s',
-                opacity: !primaryQueueTask || isPrimaryTaskCancelling ? 0.6 : 1,
-              }}
-              title={t("app.actions.cancelCurrentTask")}
-            >
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 10 10"
-                style={{
-                  color: isProgressCancelHovered ? colors.progressCancelHoverIcon : colors.progressCancelIcon,
-                  transition: 'color 0.2s',
+            {primaryTask.kind === "download" ? (
+              <button
+                onClick={async () => {
+                  if (isPrimaryTaskCancelling) {
+                    return;
+                  }
+                  void cancelVideoTask(primaryTask.task.traceId, { showCurrentTaskFeedback: true });
                 }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseEnter={() => setIsProgressCancelHovered(true)}
+                onMouseLeave={() => setIsProgressCancelHovered(false)}
+                style={{
+                  margin: 0,
+                  marginTop: 4,
+                  width: 20,
+                  height: 20,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: isProgressCancelHovered ? colors.progressCancelHoverBg : 'transparent',
+                  border: 'none',
+                  cursor: isPrimaryTaskCancelling ? 'default' : 'pointer',
+                  transition: 'background-color 0.2s',
+                  opacity: isPrimaryTaskCancelling ? 0.6 : 1,
+                }}
+                title={t("app.actions.cancelCurrentTask")}
               >
-                <path
-                  d="M2 2L8 8M8 2L2 8"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 10 10"
+                  style={{
+                    color: isProgressCancelHovered ? colors.progressCancelHoverIcon : colors.progressCancelIcon,
+                    transition: 'color 0.2s',
+                  }}
+                >
+                  <path
+                    d="M2 2L8 8M8 2L2 8"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            ) : null}
           </motion.div>
         ) : isProcessing ? (
           <motion.div
