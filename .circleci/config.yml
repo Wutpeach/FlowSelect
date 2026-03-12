@@ -86,17 +86,63 @@ jobs:
           name: Download yt-dlp
           command: |
             $ErrorActionPreference = "Stop"
+
+            function Invoke-WebRequestWithRetry {
+              param(
+                [Parameter(Mandatory=$true)][string]$Uri,
+                [Parameter(Mandatory=$true)][string]$OutFile,
+                [int]$MaxAttempts = 3,
+                [int]$DelaySeconds = 5
+              )
+
+              for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+                try {
+                  Invoke-WebRequest -Uri $Uri -OutFile $OutFile
+                  return
+                } catch {
+                  if ($attempt -eq $MaxAttempts) {
+                    throw
+                  }
+                  Write-Warning "Download failed ($attempt/$MaxAttempts): $Uri. Retrying in $DelaySeconds seconds..."
+                  Start-Sleep -Seconds $DelaySeconds
+                }
+              }
+            }
+
             $downloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
             New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
-            Invoke-WebRequest -Uri $downloadUrl -OutFile "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" -MaximumRetryCount 3 -RetryIntervalSec 5
+            Invoke-WebRequestWithRetry -Uri $downloadUrl -OutFile "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe"
             Write-Host "Downloaded yt-dlp from: $downloadUrl"
 
       - run:
           name: Download Deno
           command: |
             $ErrorActionPreference = "Stop"
+
+            function Invoke-WebRequestWithRetry {
+              param(
+                [Parameter(Mandatory=$true)][string]$Uri,
+                [Parameter(Mandatory=$true)][string]$OutFile,
+                [int]$MaxAttempts = 3,
+                [int]$DelaySeconds = 5
+              )
+
+              for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+                try {
+                  Invoke-WebRequest -Uri $Uri -OutFile $OutFile
+                  return
+                } catch {
+                  if ($attempt -eq $MaxAttempts) {
+                    throw
+                  }
+                  Write-Warning "Download failed ($attempt/$MaxAttempts): $Uri. Retrying in $DelaySeconds seconds..."
+                  Start-Sleep -Seconds $DelaySeconds
+                }
+              }
+            }
+
             $downloadUrl = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
-            Invoke-WebRequest -Uri $downloadUrl -OutFile "deno.zip" -MaximumRetryCount 3 -RetryIntervalSec 5
+            Invoke-WebRequestWithRetry -Uri $downloadUrl -OutFile "deno.zip"
             Expand-Archive -Path "deno.zip" -DestinationPath "src-tauri/binaries" -Force
             Remove-Item "deno.zip"
             Write-Host "Downloaded Deno from: $downloadUrl"
@@ -105,6 +151,28 @@ jobs:
           name: Download FFmpeg
           command: |
             $ErrorActionPreference = "Stop"
+
+            function Invoke-WebRequestWithRetry {
+              param(
+                [Parameter(Mandatory=$true)][string]$Uri,
+                [Parameter(Mandatory=$true)][string]$OutFile,
+                [int]$MaxAttempts = 3,
+                [int]$DelaySeconds = 5
+              )
+
+              for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+                try {
+                  Invoke-WebRequest -Uri $Uri -OutFile $OutFile
+                  return
+                } catch {
+                  if ($attempt -eq $MaxAttempts) {
+                    throw
+                  }
+                  Write-Warning "Download failed ($attempt/$MaxAttempts): $Uri. Retrying in $DelaySeconds seconds..."
+                  Start-Sleep -Seconds $DelaySeconds
+                }
+              }
+            }
 
             $downloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
             $tempRoot = [System.IO.Path]::GetTempPath()
@@ -115,7 +183,7 @@ jobs:
               Remove-Item $extractDir -Recurse -Force
             }
 
-            Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -MaximumRetryCount 3 -RetryIntervalSec 5
+            Invoke-WebRequestWithRetry -Uri $downloadUrl -OutFile $zipPath
             Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
 
             $ffmpegBinary = Get-ChildItem -Path $extractDir -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
