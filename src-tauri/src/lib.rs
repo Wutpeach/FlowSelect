@@ -3267,6 +3267,12 @@ fn configure_hidden_cli_command(command: &mut std::process::Command) -> &mut std
     command
 }
 
+fn run_hidden_cli_command_output(
+    command: &mut std::process::Command,
+) -> std::io::Result<std::process::Output> {
+    configure_hidden_cli_command(command).output()
+}
+
 fn spawn_command_output_reader<R>(
     reader: R,
     tx: mpsc::UnboundedSender<CommandEvent>,
@@ -7292,40 +7298,39 @@ fn kill_download_child_process(trace_id: &str) {
 fn request_graceful_stop(pid: u32) {
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T"])
-            .output();
+        let mut command = std::process::Command::new("taskkill");
+        command.args(["/PID", &pid.to_string(), "/T"]);
+        let _ = run_hidden_cli_command_output(&mut command);
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .output();
+        let mut command = std::process::Command::new("kill");
+        command.args(["-TERM", &pid.to_string()]);
+        let _ = run_hidden_cli_command_output(&mut command);
     }
 }
 
 fn force_kill_process(pid: u32) {
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .output();
+        let mut command = std::process::Command::new("taskkill");
+        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        let _ = run_hidden_cli_command_output(&mut command);
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("kill")
-            .args(["-KILL", &pid.to_string()])
-            .output();
+        let mut command = std::process::Command::new("kill");
+        command.args(["-KILL", &pid.to_string()]);
+        let _ = run_hidden_cli_command_output(&mut command);
     }
 }
 
 fn is_process_alive(pid: u32) -> bool {
     #[cfg(windows)]
     {
-        if let Ok(output) = std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
-            .output()
-        {
+        let mut command = std::process::Command::new("tasklist");
+        command.args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"]);
+        if let Ok(output) = run_hidden_cli_command_output(&mut command) {
             let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
             return output.status.success()
                 && !stdout.contains("no tasks are running")
@@ -7335,8 +7340,9 @@ fn is_process_alive(pid: u32) -> bool {
     }
     #[cfg(not(windows))]
     {
-        std::process::Command::new("kill")
-            .args(["-0", &pid.to_string()])
+        let mut command = std::process::Command::new("kill");
+        command.args(["-0", &pid.to_string()]);
+        configure_hidden_cli_command(&mut command)
             .status()
             .map(|status| status.success())
             .unwrap_or(false)
