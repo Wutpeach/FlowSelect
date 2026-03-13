@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { YtdlpVersionInfo } from "./types/ytdlp";
@@ -553,6 +553,7 @@ const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) 
 function App() {
   const { t } = useTranslation("desktop");
   const { colors } = useTheme();
+  const shouldReduceMotion = useReducedMotion();
   const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1277,13 +1278,14 @@ function App() {
     }
 
     setShowRuntimeSuccessIndicator(true);
+    setIsRuntimeIndicatorHovered(false);
     if (runtimeSuccessTimerRef.current !== null) {
       clearTimeout(runtimeSuccessTimerRef.current);
     }
     runtimeSuccessTimerRef.current = window.setTimeout(() => {
       setShowRuntimeSuccessIndicator(false);
       runtimeSuccessTimerRef.current = null;
-    }, 1000);
+    }, 1120);
   }, [runtimeDependencyGateState?.phase, showRuntimeSuccessIndicator]);
 
   useEffect(() => {
@@ -2443,6 +2445,30 @@ function App() {
   const runtimeIndicatorTitle = runtimeGateRequiresManualAction
     ? runtimeIndicatorErrorSummary ?? runtimeIndicatorFallbackSummary
     : runtimeIndicatorProgressLabel ?? runtimeIndicatorHeadline;
+  const runtimeIndicatorPresenceTransition = shouldReduceMotion
+    ? { duration: 0.1 }
+    : { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const };
+  const runtimeIndicatorShellAnimate = showRuntimeSuccessIndicator && !shouldReduceMotion
+    ? {
+        scale: [1, 1.18, 1.03],
+        y: [0, -1, 0],
+        opacity: [0.96, 1, 1],
+      }
+    : {
+        scale: 1,
+        y: 0,
+        opacity: 1,
+      };
+  const runtimeIndicatorShellTransition = showRuntimeSuccessIndicator && !shouldReduceMotion
+    ? {
+        duration: 0.42,
+        ease: [0.22, 1, 0.36, 1] as const,
+        times: [0, 0.56, 1],
+      }
+    : {
+        duration: 0.16,
+        ease: [0.22, 1, 0.36, 1] as const,
+      };
 
   return (
     <motion.div
@@ -3340,12 +3366,23 @@ function App() {
 
       <AnimatePresence>
         {shouldShowRuntimeIndicator ? (
-          <div
+          <motion.div
+            initial={shouldReduceMotion
+              ? { opacity: 0 }
+              : { opacity: 0, scale: 0.9, y: 6, filter: "blur(1.5px)" }}
+            animate={shouldReduceMotion
+              ? { opacity: 1 }
+              : { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
+            exit={shouldReduceMotion
+              ? { opacity: 0 }
+              : { opacity: 0, scale: 0.78, y: 8, filter: "blur(1.5px)" }}
+            transition={runtimeIndicatorPresenceTransition}
             style={{
               position: "absolute",
               left: 12,
               bottom: 12,
               zIndex: 12,
+              transformOrigin: "bottom left",
             }}
             data-panel-double-click="ignore"
             onMouseEnter={() => setIsRuntimeIndicatorHovered(true)}
@@ -3468,23 +3505,48 @@ function App() {
             </AnimatePresence>
 
             {runtimeIndicatorShouldRenderRing ? (
-              <div
+              <motion.div
+                initial={false}
                 onMouseDown={(e) => e.stopPropagation()}
                 title={runtimeIndicatorTitle}
+                animate={runtimeIndicatorShellAnimate}
+                transition={runtimeIndicatorShellTransition}
                 style={{
+                  position: "relative",
                   width: 24,
                   height: 24,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   borderRadius: "50%",
-                  backgroundColor: "rgba(0, 0, 0, 0.12)",
+                  backgroundColor: showRuntimeSuccessIndicator
+                    ? colors.warningSurface
+                    : "rgba(0, 0, 0, 0.12)",
                   boxShadow: showRuntimeSuccessIndicator
-                    ? `0 0 14px ${colors.warningGlow}`
+                    ? `0 0 18px ${colors.warningGlow}`
                     : "none",
                   pointerEvents: "auto",
+                  transition: "background-color 0.18s ease, box-shadow 0.18s ease",
                 }}
               >
+                {showRuntimeSuccessIndicator && !shouldReduceMotion ? (
+                  <motion.span
+                    initial={{ opacity: 0.22, scale: 0.84 }}
+                    animate={{ opacity: [0.2, 0.44, 0], scale: [0.84, 1.42, 1.68] }}
+                    transition={{
+                      duration: 0.52,
+                      ease: [0.22, 1, 0.36, 1],
+                      times: [0, 0.48, 1],
+                    }}
+                    style={{
+                      position: "absolute",
+                      inset: 1,
+                      borderRadius: "50%",
+                      border: `1px solid ${colors.warningBorder}`,
+                      pointerEvents: "none",
+                    }}
+                  />
+                ) : null}
                 <svg
                   width={runtimeIndicatorSize}
                   height={runtimeIndicatorSize}
@@ -3519,7 +3581,7 @@ function App() {
                     }}
                   />
                 </svg>
-              </div>
+              </motion.div>
             ) : (
               <motion.button
                 type="button"
@@ -3556,7 +3618,7 @@ function App() {
                   : { duration: 1.4, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
               />
             )}
-          </div>
+          </motion.div>
         ) : null}
       </AnimatePresence>
 
