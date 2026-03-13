@@ -7,6 +7,7 @@ let ws = null;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 const WS_URL = 'ws://127.0.0.1:39527';
+const WS_RECONNECT_ALARM = 'flowselect-ws-reconnect';
 const REQUEST_TIMEOUT_MS = 7000;
 const CONNECTING_WAIT_TIMEOUT_MS = 500;
 const VIDEO_SELECTION_CONNECT_TIMEOUT_MS = 2500;
@@ -16,6 +17,7 @@ const CONNECTING_STATUS_TEXT = 'Connecting';
 const OFFLINE_STATUS_TEXT = 'Offline';
 const FALLBACK_LANGUAGE = 'en';
 const LANGUAGE_STORAGE_KEY = 'flowselectCurrentLanguage';
+const PENDING_DOWNLOAD_PREFERENCES_SYNC_KEY = 'flowselectPendingDownloadPreferencesSync';
 const WS_ACTION_GET_LANGUAGE = 'get_language';
 const WS_ACTION_LANGUAGE_INFO = 'language_info';
 const WS_ACTION_LANGUAGE_CHANGED = 'language_changed';
@@ -89,6 +91,20 @@ function storageSet(payload) {
       resolve();
     });
   });
+}
+
+async function setPendingDownloadPreferencesSync(pending) {
+  if (!chrome?.storage?.local) {
+    return;
+  }
+
+  try {
+    await storageSet({
+      [PENDING_DOWNLOAD_PREFERENCES_SYNC_KEY]: pending === true,
+    });
+  } catch (error) {
+    console.error('[FlowSelect] Failed to persist pending preference sync state:', error);
+  }
 }
 
 async function getCachedLanguage() {
@@ -461,6 +477,7 @@ function connect(options = {}) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  clearReconnectAlarm();
 
   const shouldNotifyConnecting = reconnectAttempts === 0 && !hasUnavailableIssue();
   if (shouldNotifyConnecting) {
@@ -475,6 +492,7 @@ function connect(options = {}) {
     reconnectAttempts = 0;
     lastConnectionIssue = '';
     notifyConnectionStatus();
+    clearReconnectAlarm();
     // Query current theme after connection
     ws.send(JSON.stringify({ action: 'get_theme' }));
     requestLanguageFromApp();
@@ -520,10 +538,37 @@ function scheduleReconnect() {
 
   reconnectAttempts++;
   const delay = Math.min(500 * Math.pow(1.5, reconnectAttempts), 5000);
+  scheduleReconnectAlarm(delay);
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connect();
   }, delay);
+}
+
+function scheduleReconnectAlarm(delayMs) {
+  if (!chrome?.alarms?.create) {
+    return;
+  }
+
+  try {
+    chrome.alarms.create(WS_RECONNECT_ALARM, {
+      when: Date.now() + Math.max(1000, delayMs),
+    });
+  } catch (error) {
+    console.error('[FlowSelect] Failed to schedule reconnect alarm:', error);
+  }
+}
+
+function clearReconnectAlarm() {
+  if (!chrome?.alarms?.clear) {
+    return;
+  }
+
+  try {
+    chrome.alarms.clear(WS_RECONNECT_ALARM, () => {});
+  } catch (error) {
+    console.error('[FlowSelect] Failed to clear reconnect alarm:', error);
+  }
 }
 
 function nextRequestId() {
@@ -577,6 +622,9 @@ function handleMessage(message) {
       setCurrentLanguage(nextLanguage);
       break;
     }
+    case 'request_download_preferences':
+      void syncDownloadPreferencesToApp();
+      break;
     case 'start_picker':
       startPicker(message.tabId);
       break;
@@ -615,18 +663,57 @@ function sendToApp(data) {
 function syncDownloadPreferencesToApp() {
   return directDownloadQuality
     .getQualityPreference()
-    .then((qualityPreference) => {
-      return sendToApp({
-        action: 'sync_download_preferences',
-        data: {
+    .then(async (qualityPreference) => {
+      const response = await sendRequestToApp(
+        'sync_download_preferences',
+        {
           ytdlpQualityPreference: qualityPreference,
         },
-      });
+        REQUEST_TIMEOUT_MS,
+        {
+          forceConnect: true,
+        }
+      );
+      const success = Boolean(response?.success);
+      await setPendingDownloadPreferencesSync(!success);
+      if (!success) {
+        console.warn(
+          '[FlowSelect] Download preferences sync was not acknowledged:',
+          response?.data?.code || response?.message || 'unknown'
+        );
+      }
+      return success;
     })
-    .catch((error) => {
+    .catch(async (error) => {
       console.error('[FlowSelect] Failed to sync download preferences:', error);
+      await setPendingDownloadPreferencesSync(true);
       return false;
     });
+}
+
+function requestPendingDownloadPreferencesSync() {
+  if (!chrome?.storage?.local) {
+    return Promise.resolve(false);
+  }
+
+  return storageGet(PENDING_DOWNLOAD_PREFERENCES_SYNC_KEY)
+    .then((result) => {
+      if (result?.[PENDING_DOWNLOAD_PREFERENCES_SYNC_KEY] === true) {
+        return syncDownloadPreferencesToApp();
+      }
+
+      return false;
+    })
+    .catch((error) => {
+      console.error('[FlowSelect] Failed to inspect pending preference sync state:', error);
+      return false;
+    });
+}
+
+function markDownloadPreferencesDirtyAndSync() {
+  void setPendingDownloadPreferencesSync(true).then(() => {
+    void syncDownloadPreferencesToApp();
+  });
 }
 
 function sleep(ms) {
@@ -950,6 +1037,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+if (chrome?.alarms?.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm?.name !== WS_RECONNECT_ALARM) {
+      return;
+    }
+
+    if (!isConnected() && !isConnecting()) {
+      connect({ force: true });
+    }
+  });
+}
+
+if (chrome?.runtime?.onStartup) {
+  chrome.runtime.onStartup.addListener(() => {
+    connect({ force: true });
+    void requestPendingDownloadPreferencesSync();
+  });
+}
+
+if (chrome?.runtime?.onInstalled) {
+  chrome.runtime.onInstalled.addListener(() => {
+    connect({ force: true });
+    void requestPendingDownloadPreferencesSync();
+  });
+}
+
 if (chrome?.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') {
@@ -963,9 +1076,10 @@ if (chrome?.storage?.onChanged) {
       return;
     }
 
-    void syncDownloadPreferencesToApp();
+    markDownloadPreferencesDirtyAndSync();
   });
 }
 
 // Auto-connect on startup
 connect();
+void requestPendingDownloadPreferencesSync();

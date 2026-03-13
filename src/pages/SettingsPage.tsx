@@ -26,6 +26,14 @@ import {
   type AppLanguage,
 } from "../i18n/contract";
 import { normalizeAppLanguage } from "../i18n/language";
+import {
+  getRuntimeGateHeadline,
+  getRuntimeGateNextLabel,
+  getRuntimeGateProgressLabel,
+  runtimeGateIsActive,
+  runtimeGateNeedsManualAction,
+  summarizeRuntimeGateError,
+} from "../utils/runtimeDependencyGate";
 
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
 
@@ -306,6 +314,19 @@ function SettingsPage() {
   })();
   const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
   const runtimeGatePhaseLabel = t(`desktop:settings.downloaders.runtime.phase.${runtimeGatePhase}`);
+  const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
+  const runtimeGateRequiresManualAction = runtimeGateNeedsManualAction(runtimeGatePhase)
+    || (
+      !runtimeGateIsBusy
+      && (
+        (runtimeDependencyGateState?.missingComponents.length ?? 0) > 0
+        || runtimeDependencyStatus === null
+      )
+    );
+  const runtimeGateHeadline = getRuntimeGateHeadline(t, runtimeDependencyGateState);
+  const runtimeGateProgressLabel = getRuntimeGateProgressLabel(t, runtimeDependencyGateState);
+  const runtimeGateNextLabel = getRuntimeGateNextLabel(t, runtimeDependencyGateState);
+  const runtimeGateErrorSummary = summarizeRuntimeGateError(runtimeDependencyGateState?.lastError);
   const runtimeGateColor = (() => {
     switch (runtimeGatePhase) {
       case "ready":
@@ -313,10 +334,10 @@ function SettingsPage() {
       case "awaiting_confirmation":
       case "blocked_by_user":
       case "failed":
-        return colors.dangerText;
+        return colors.warningText;
       case "checking":
       case "downloading":
-        return colors.accentText;
+        return colors.warningText;
       default:
         return colors.textSecondary;
     }
@@ -332,6 +353,25 @@ function SettingsPage() {
     return t("desktop:settings.downloaders.runtime.missingItems", {
       items: runtimeMissingComponents.join(", "),
     });
+  })();
+  const runtimeDescriptionText = runtimeHint
+    || (
+      runtimeGateIsBusy
+        ? runtimeGateHeadline
+        : runtimeGateRequiresManualAction
+          ? t("desktop:settings.downloaders.runtime.mainWindowRetryHint")
+          : t("desktop:settings.downloaders.runtime.description")
+    );
+  const runtimeDetailText = (() => {
+    if (runtimeGateRequiresManualAction) {
+      return runtimeGateErrorSummary ?? runtimeSummaryMessage;
+    }
+
+    if (runtimeGateProgressLabel && runtimeGateNextLabel) {
+      return `${runtimeGateProgressLabel} · ${runtimeGateNextLabel}`;
+    }
+
+    return runtimeGateProgressLabel ?? runtimeGateNextLabel ?? runtimeSummaryMessage;
   })();
 
   // Load config on mount
@@ -849,6 +889,14 @@ function SettingsPage() {
     boxShadow: `0 0 6px ${colors.dangerGlow}`,
     flexShrink: 0,
   };
+  const runtimeStatusDotStyle: CSSProperties = {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    backgroundColor: colors.warningSolid,
+    boxShadow: `0 0 6px ${colors.warningGlow}`,
+    flexShrink: 0,
+  };
   const downloaderCards = [
     {
       id: "ytdlp",
@@ -982,13 +1030,13 @@ function SettingsPage() {
             {(runtimeGatePhase === "awaiting_confirmation"
               || runtimeGatePhase === "blocked_by_user"
               || runtimeGatePhase === "failed") ? (
-              <span style={statusDotStyle} />
+              <span style={runtimeStatusDotStyle} />
             ) : null}
           </div>
           <span
             style={{
               fontSize: 11,
-              color: runtimeHint ? colors.accentText : colors.textSecondary,
+              color: runtimeGateIsBusy ? colors.warningText : colors.textSecondary,
               opacity: 0.94,
               lineHeight: 1.2,
               whiteSpace: "nowrap",
@@ -996,8 +1044,38 @@ function SettingsPage() {
               textOverflow: "ellipsis",
             }}
           >
-            {runtimeHint || t("desktop:settings.downloaders.runtime.description")}
+            {runtimeDescriptionText}
           </span>
+          {runtimeGateIsBusy ? (
+            <div
+              style={{
+                width: "100%",
+                height: 5,
+                borderRadius: 999,
+                overflow: "hidden",
+                background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                boxShadow: `inset 0 0 0 1px ${colors.warningBorder}`,
+              }}
+            >
+              <div
+                style={{
+                  width: runtimeDependencyGateState?.progressPercent != null
+                    ? `${Math.max(8, Math.min(100, runtimeDependencyGateState.progressPercent))}%`
+                    : "38%",
+                  height: "100%",
+                  borderRadius: 999,
+                  background: `linear-gradient(90deg, ${colors.warningSolid} 0%, ${colors.warningText} 100%)`,
+                  boxShadow: `0 0 12px ${colors.warningGlow}`,
+                  animation: runtimeDependencyGateState?.progressPercent == null
+                    ? "shimmer 1.2s ease-in-out infinite"
+                    : "none",
+                  transition: runtimeDependencyGateState?.progressPercent == null
+                    ? "none"
+                    : "width 0.22s ease",
+                }}
+              />
+            </div>
+          ) : null}
           <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
             <span
               style={{
@@ -1010,9 +1088,9 @@ function SettingsPage() {
                 overflow: "hidden",
                 textOverflow: "ellipsis",
               }}
-              title={runtimeDependencyGateState?.lastError ?? runtimeSummaryMessage}
+              title={runtimeDetailText}
             >
-              {runtimeDependencyGateState?.lastError ?? runtimeSummaryMessage}
+              {runtimeDetailText}
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <NeonButton

@@ -57,6 +57,20 @@
         "missing": "运行时需要处理",
         "ready": "运行时已就绪"
       },
+      "component": {
+        "ffmpeg": "FFmpeg",
+        "deno": "Deno",
+        "pinterest-dl": "Pinterest 下载器"
+      },
+      "stage": {
+        "checking": "检测中",
+        "downloading": "下载中",
+        "verifying": "校验中",
+        "installing": "安装中"
+      },
+      "progressSummary": "{{percent}}% · {{stage}}",
+      "nextSummary": "下一项：{{item}}",
+      "manualHint": "点击可重试；也可以在设置里查看运行时恢复入口。",
       "taskCountSingle": "1 个任务",
       "taskCountPlural": "{{count}} 个任务"
     },
@@ -149,6 +163,7 @@
       },
       "runtime": {
         "description": "下载托管运行时就绪状态。",
+        "mainWindowRetryHint": "主窗口左下角指示器也可以重试失败的配置。",
         "unavailable": "运行时状态暂不可用。",
         "allReady": "所有运行时依赖均已就绪。",
         "missingItems": "缺失：{{items}}",

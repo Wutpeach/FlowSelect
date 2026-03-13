@@ -42,6 +42,7 @@
       "icons/icon.ico"
     ],
     "resources": {
+      "binaries/flowselect-cli-proxy*": "binaries/",
       "binaries/yt-dlp*": "binaries/",
       "resources/locales/": "locales/"
     }

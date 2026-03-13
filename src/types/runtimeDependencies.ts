@@ -25,9 +25,26 @@ export type RuntimeDependencyGatePhase =
   | "blocked_by_user"
   | "failed";
 
+export type RuntimeDependencyManagedComponent =
+  | "ffmpeg"
+  | "deno"
+  | "pinterest-dl";
+
+export type RuntimeDependencyGateActivityStage =
+  | "checking"
+  | "downloading"
+  | "verifying"
+  | "installing";
+
 export type RuntimeDependencyGateStatePayload = {
   phase: RuntimeDependencyGatePhase;
   missingComponents: string[];
   lastError: string | null;
   updatedAtMs: number;
+  currentComponent: RuntimeDependencyManagedComponent | null;
+  currentStage: RuntimeDependencyGateActivityStage | null;
+  progressPercent: number | null;
+  downloadedBytes: number | null;
+  totalBytes: number | null;
+  nextComponent: RuntimeDependencyManagedComponent | null;
 };

@@ -29,6 +29,15 @@ import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
 import i18n from "./i18n";
+import {
+  clampRuntimeGateProgressPercent,
+  getRuntimeGateHeadline,
+  getRuntimeGateNextLabel,
+  getRuntimeGateProgressLabel,
+  runtimeGateIsActive,
+  runtimeGateNeedsManualAction,
+  summarizeRuntimeGateError,
+} from "./utils/runtimeDependencyGate";
 
 // Helper function to check and show sequence overflow error
 const checkSequenceOverflow = (error: unknown): boolean => {
@@ -566,7 +575,10 @@ function App() {
   const [runtimeDependencyStatus, setRuntimeDependencyStatus] = useState<RuntimeDependencyStatusSnapshot | null>(null);
   const [runtimeDependencyGateState, setRuntimeDependencyGateState] =
     useState<RuntimeDependencyGateStatePayload | null>(null);
-  const [runtimeHint, setRuntimeHint] = useState("");
+  const [isRuntimeIndicatorHovered, setIsRuntimeIndicatorHovered] = useState(false);
+  const [isRuntimeRetryFeedbackVisible, setIsRuntimeRetryFeedbackVisible] = useState(false);
+  const [isRuntimeRetryInFlight, setIsRuntimeRetryInFlight] = useState(false);
+  const [showRuntimeSuccessIndicator, setShowRuntimeSuccessIndicator] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -584,7 +596,8 @@ function App() {
   const resetCounterFeedbackTimerRef = useRef<number | null>(null);
   const queueNoticeTimerRef = useRef<number | null>(null);
   const queueIdleDelayTimerRef = useRef<number | null>(null);
-  const runtimeHintTimerRef = useRef<number | null>(null);
+  const runtimeRetryFeedbackTimerRef = useRef<number | null>(null);
+  const runtimeSuccessTimerRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
   const isDraggingRef = useRef(false);
   const cancellingTraceIdsRef = useRef<Set<string>>(new Set());
@@ -593,6 +606,7 @@ function App() {
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
   const pendingDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const previousTaskCountRef = useRef(0);
+  const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
 
   // Window size constants
   const FULL_SIZE = 200;
@@ -888,17 +902,6 @@ function App() {
     }
   }, []);
 
-  const showRuntimeHint = useCallback((message: string) => {
-    setRuntimeHint(message);
-    if (runtimeHintTimerRef.current !== null) {
-      clearTimeout(runtimeHintTimerRef.current);
-    }
-    runtimeHintTimerRef.current = window.setTimeout(() => {
-      setRuntimeHint("");
-      runtimeHintTimerRef.current = null;
-    }, 2200);
-  }, []);
-
   const refreshRuntimeDependencyStatus = useCallback(async () => {
     try {
       const status = await invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
@@ -935,22 +938,13 @@ function App() {
     }
   }, []);
 
-  const refreshRuntimeDependencyContext = useCallback(async (
-    options: { showHint?: boolean } = {},
-  ) => {
+  const refreshRuntimeDependencyContext = useCallback(async () => {
     const [status, gate] = await Promise.all([
       refreshRuntimeDependencyStatus(),
       refreshRuntimeDependencyGateState(),
     ]);
-    if (options.showHint) {
-      showRuntimeHint(
-        status && gate
-          ? t("settings.downloaders.runtime.refreshed")
-          : t("settings.downloaders.runtime.refreshFailed"),
-      );
-    }
     return { status, gate };
-  }, [refreshRuntimeDependencyGateState, refreshRuntimeDependencyStatus, showRuntimeHint, t]);
+  }, [refreshRuntimeDependencyGateState, refreshRuntimeDependencyStatus]);
 
   const enqueueVideoDownload = useCallback((request: string | QueuedVideoDownloadRequest) => {
     resetDownloadOutcome();
@@ -1077,8 +1071,11 @@ function App() {
       if (queueIdleDelayTimerRef.current !== null) {
         clearTimeout(queueIdleDelayTimerRef.current);
       }
-      if (runtimeHintTimerRef.current !== null) {
-        clearTimeout(runtimeHintTimerRef.current);
+      if (runtimeRetryFeedbackTimerRef.current !== null) {
+        clearTimeout(runtimeRetryFeedbackTimerRef.current);
+      }
+      if (runtimeSuccessTimerRef.current !== null) {
+        clearTimeout(runtimeSuccessTimerRef.current);
       }
     };
   }, []);
@@ -1265,6 +1262,29 @@ function App() {
       unlisten.then((fn) => fn());
     };
   }, [refreshRuntimeDependencyStatus]);
+
+  useEffect(() => {
+    const previousPhase = previousRuntimeGatePhaseRef.current;
+    const currentPhase = runtimeDependencyGateState?.phase ?? "idle";
+    previousRuntimeGatePhaseRef.current = currentPhase;
+
+    const transitionedFromActiveToReady = runtimeGateIsActive(previousPhase) && currentPhase === "ready";
+    if (!transitionedFromActiveToReady) {
+      if (currentPhase !== "ready" && showRuntimeSuccessIndicator) {
+        setShowRuntimeSuccessIndicator(false);
+      }
+      return;
+    }
+
+    setShowRuntimeSuccessIndicator(true);
+    if (runtimeSuccessTimerRef.current !== null) {
+      clearTimeout(runtimeSuccessTimerRef.current);
+    }
+    runtimeSuccessTimerRef.current = window.setTimeout(() => {
+      setShowRuntimeSuccessIndicator(false);
+      runtimeSuccessTimerRef.current = null;
+    }, 1000);
+  }, [runtimeDependencyGateState?.phase, showRuntimeSuccessIndicator]);
 
   useEffect(() => {
     const previousTaskCount = previousTaskCountRef.current;
@@ -2183,7 +2203,21 @@ function App() {
 
   const handleRuntimeDependencyRecheck = async () => {
     resetIdleTimer({ expandIfMinimized: false });
-    await refreshRuntimeDependencyContext({ showHint: true });
+    setIsRuntimeRetryInFlight(true);
+    setIsRuntimeRetryFeedbackVisible(true);
+    if (runtimeRetryFeedbackTimerRef.current !== null) {
+      clearTimeout(runtimeRetryFeedbackTimerRef.current);
+    }
+    runtimeRetryFeedbackTimerRef.current = window.setTimeout(() => {
+      setIsRuntimeRetryFeedbackVisible(false);
+      runtimeRetryFeedbackTimerRef.current = null;
+    }, 180);
+
+    try {
+      await refreshRuntimeDependencyContext();
+    } finally {
+      setIsRuntimeRetryInFlight(false);
+    }
   };
 
   // 右键菜单
@@ -2362,111 +2396,53 @@ function App() {
     : getMissingRuntimeComponentsFromStatus(runtimeDependencyStatus);
   const hasRuntimeGateIssue = runtimeGatePhaseNeedsAttention(runtimeGatePhase)
     || runtimeMissingComponents.length > 0;
-  const shouldShowRuntimePrompt = !isMinimized && !isQueuePopoverOpen && (
-    runtimeHint.length > 0
+  const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
+  const runtimeGateRequiresManualAction = runtimeGateNeedsManualAction(runtimeGatePhase)
+    || (
+      !runtimeGateIsBusy
+      && (runtimeMissingComponents.length > 0 || runtimeDependencyStatus === null)
+    );
+  const shouldShowRuntimeIndicator = !isMinimized && !isQueuePopoverOpen && (
+    showRuntimeSuccessIndicator
     || hasRuntimeGateIssue
     || (totalTaskCount > 0 && runtimeDependencyStatus === null)
   );
-  const showRuntimeRecheckButton = runtimeGatePhase !== "downloading" && (
-    runtimeGatePhase === "failed"
-    || runtimeMissingComponents.length > 0
-    || runtimeDependencyStatus === null
+  const runtimeIndicatorHeadline = getRuntimeGateHeadline(t, runtimeDependencyGateState);
+  const runtimeIndicatorProgressLabel = getRuntimeGateProgressLabel(t, runtimeDependencyGateState);
+  const runtimeIndicatorNextLabel = getRuntimeGateNextLabel(t, runtimeDependencyGateState);
+  const runtimeIndicatorErrorSummary = summarizeRuntimeGateError(runtimeDependencyGateState?.lastError);
+  const runtimeIndicatorFallbackSummary = runtimeMissingComponents.length > 0
+    ? t("settings.downloaders.runtime.missingItems", {
+        items: runtimeMissingComponents.join(", "),
+      })
+    : runtimeDependencyStatus
+      ? t("settings.downloaders.runtime.allReady")
+      : t("settings.downloaders.runtime.unavailable");
+  const runtimeIndicatorStatusText = runtimeGateRequiresManualAction
+    ? runtimeIndicatorErrorSummary ?? runtimeIndicatorFallbackSummary
+    : runtimeIndicatorProgressLabel ?? runtimeIndicatorFallbackSummary;
+  const runtimeIndicatorFooterText = runtimeIndicatorNextLabel
+    ?? (runtimeGateRequiresManualAction ? t("app.runtime.manualHint") : null);
+  const runtimeIndicatorProgressPercent = clampRuntimeGateProgressPercent(
+    runtimeDependencyGateState?.progressPercent,
   );
-  const runtimePromptTitle = (() => {
-    if (runtimeGatePhase === "checking") {
-      return t("app.runtime.phaseTitle.checking");
-    }
-    if (runtimeGatePhase === "awaiting_confirmation") {
-      return t("app.runtime.phaseTitle.awaiting_confirmation");
-    }
-    if (runtimeGatePhase === "downloading") {
-      return t("app.runtime.phaseTitle.downloading");
-    }
-    if (runtimeGatePhase === "blocked_by_user") {
-      return t("app.runtime.phaseTitle.blocked_by_user");
-    }
-    if (runtimeGatePhase === "failed") {
-      return t("app.runtime.phaseTitle.failed");
-    }
-    if (runtimeMissingComponents.length > 0) {
-      return t("app.runtime.phaseTitle.missing");
-    }
-    return t("app.runtime.phaseTitle.ready");
-  })();
-  const runtimePromptSummary = runtimeHint
-    || runtimeDependencyGateState?.lastError
-    || (
-      runtimeMissingComponents.length > 0
-        ? t("settings.downloaders.runtime.missingItems", {
-            items: runtimeMissingComponents.join(", "),
-          })
-        : runtimeDependencyStatus
-          ? t("settings.downloaders.runtime.allReady")
-          : t("settings.downloaders.runtime.unavailable")
-    );
-  const runtimePromptTone = runtimeHint
-    ? "accent"
-    : runtimeGatePhase === "failed"
-      || runtimeGatePhase === "blocked_by_user"
-      || runtimeGatePhase === "awaiting_confirmation"
-      ? "danger"
-      : "accent";
-  const runtimePromptAccentColor = runtimePromptTone === "danger"
-    ? colors.dangerText
-    : colors.accentText;
-  const runtimePromptAccentFill = runtimePromptTone === "danger"
-    ? colors.dangerSolid
-    : colors.accentSolid;
-  const runtimePromptAccentGlow = runtimePromptTone === "danger"
-    ? colors.dangerGlow
-    : colors.accentGlow;
-  const runtimePromptBackground = runtimePromptTone === "danger"
-    ? `linear-gradient(180deg, ${colors.dangerSurface} 0%, ${colors.bgSecondary} 100%)`
-    : `linear-gradient(180deg, ${totalTaskCount > 0 ? colors.accentSurfaceStrong : colors.accentSurface} 0%, ${colors.bgSecondary} 100%)`;
-  const runtimePromptBorderColor = runtimePromptTone === "danger"
-    ? colors.dangerSolid
-    : colors.accentBorder;
-  const runtimePromptTaskCountLabel = totalTaskCount === 1
-    ? t("app.runtime.taskCountSingle")
-    : t("app.runtime.taskCountPlural", { count: totalTaskCount });
-  const runtimePromptContentOffset = shouldShowRuntimePrompt
-    ? 54
-    : 0;
-  const getRuntimeActionButtonStyle = (tone: "accent" | "danger" | "neutral"): CSSProperties => {
-    const borderColor = tone === "danger"
-      ? colors.dangerSolid
-      : tone === "accent"
-        ? colors.accentBorder
-        : colors.borderStart;
-    const textColor = tone === "danger"
-      ? colors.dangerText
-      : tone === "accent"
-        ? colors.accentText
-        : colors.textSecondary;
-    const backgroundColor = tone === "danger"
-      ? colors.dangerSurface
-      : tone === "accent"
-        ? colors.accentSurface
-        : colors.bgPrimary;
-    return {
-      minWidth: 46,
-      height: 22,
-      borderRadius: 999,
-      border: `1px solid ${borderColor}`,
-      backgroundColor,
-      color: textColor,
-      padding: "0 8px",
-      fontSize: 9,
-      fontWeight: 700,
-      lineHeight: 1,
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      cursor: "pointer",
-      boxShadow: tone === "neutral" ? "none" : `0 0 12px ${runtimePromptAccentGlow}`,
-      transition: "background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease",
-    };
-  };
+  const runtimeIndicatorIsIndeterminate = runtimeGateIsBusy && runtimeIndicatorProgressPercent === null;
+  const runtimeIndicatorShouldRenderRing = runtimeGateIsBusy || showRuntimeSuccessIndicator;
+  const runtimeIndicatorSize = 18;
+  const runtimeIndicatorRadius = 7;
+  const runtimeIndicatorCircumference = 2 * Math.PI * runtimeIndicatorRadius;
+  const runtimeIndicatorFillRatio = showRuntimeSuccessIndicator
+    ? 1
+    : runtimeIndicatorProgressPercent !== null
+      ? Math.max(0.08, runtimeIndicatorProgressPercent / 100)
+      : 0.34;
+  const runtimeIndicatorDashOffset = runtimeIndicatorCircumference * (1 - runtimeIndicatorFillRatio);
+  const shouldShowRuntimePopover = shouldShowRuntimeIndicator
+    && isRuntimeIndicatorHovered
+    && !showRuntimeSuccessIndicator;
+  const runtimeIndicatorTitle = runtimeGateRequiresManualAction
+    ? runtimeIndicatorErrorSummary ?? runtimeIndicatorFallbackSummary
+    : runtimeIndicatorProgressLabel ?? runtimeIndicatorHeadline;
 
   return (
     <motion.div
@@ -3152,8 +3128,6 @@ function App() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: 4,
-              paddingTop: shouldShowRuntimePrompt ? 8 : 0,
-              paddingBottom: runtimePromptContentOffset,
             }}
           >
             <div style={{
@@ -3328,8 +3302,6 @@ function App() {
               justifyContent: "center",
               gap: 6,
               maxWidth: 170,
-              transform: shouldShowRuntimePrompt ? "translateY(-16px)" : "translateY(0)",
-              transition: "transform 0.2s ease",
             }}
           >
             {downloadCancelled ? (
@@ -3367,122 +3339,224 @@ function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {shouldShowRuntimePrompt ? (
-          <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.98 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        {shouldShowRuntimeIndicator ? (
+          <div
             style={{
               position: "absolute",
-              left: 10,
-              right: 10,
-              bottom: 30,
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              padding: "8px 10px",
-              borderRadius: 12,
-              background: runtimePromptBackground,
-              border: `1px solid ${runtimePromptBorderColor}`,
-              boxShadow: `0 12px 24px ${runtimePromptAccentGlow}, ${colors.panelShadow}`,
-              backdropFilter: "blur(14px)",
+              left: 12,
+              bottom: 12,
               zIndex: 12,
             }}
             data-panel-double-click="ignore"
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseEnter={() => setIsRuntimeIndicatorHovered(true)}
+            onMouseLeave={() => setIsRuntimeIndicatorHovered(false)}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-              }}
-            >
+            <AnimatePresence>
+              {shouldShowRuntimePopover ? (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.94, y: 4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.96, y: 4 }}
+                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    bottom: 0,
+                    marginBottom: 24,
+                    width: 164,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                    padding: "9px 10px",
+                    borderRadius: 12,
+                    border: `1px solid ${colors.warningBorder}`,
+                    background: `linear-gradient(180deg, ${colors.warningSurface} 0%, ${colors.bgSecondary} 100%)`,
+                    boxShadow: `0 14px 28px ${colors.warningGlow}, ${colors.panelShadow}`,
+                    backdropFilter: "blur(14px)",
+                    transformOrigin: "bottom left",
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        flexShrink: 0,
+                        backgroundColor: colors.warningSolid,
+                        boxShadow: `0 0 10px ${colors.warningGlow}`,
+                      }}
+                    />
+                    <span
+                      style={{
+                        minWidth: 0,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: colors.textPrimary,
+                        lineHeight: 1.1,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        userSelect: "none",
+                      }}
+                    >
+                      {runtimeIndicatorHeadline}
+                    </span>
+                  </div>
+
+                  {runtimeIndicatorShouldRenderRing ? (
+                    <div
+                      style={{
+                        width: "100%",
+                        height: 5,
+                        borderRadius: 999,
+                        overflow: "hidden",
+                        background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
+                        boxShadow: `inset 0 0 0 1px ${colors.warningBorder}`,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: runtimeIndicatorIsIndeterminate
+                            ? "38%"
+                            : `${runtimeIndicatorProgressPercent ?? 100}%`,
+                          height: "100%",
+                          borderRadius: 999,
+                          background: `linear-gradient(90deg, ${colors.warningSolid} 0%, ${colors.warningText} 100%)`,
+                          boxShadow: `0 0 12px ${colors.warningGlow}`,
+                          animation: runtimeIndicatorIsIndeterminate ? "shimmer 1.2s ease-in-out infinite" : "none",
+                          transformOrigin: "left center",
+                          transition: runtimeIndicatorIsIndeterminate ? "none" : "width 0.22s ease",
+                        }}
+                      />
+                    </div>
+                  ) : null}
+
+                  <span
+                    title={runtimeIndicatorStatusText}
+                    style={{
+                      fontSize: 9,
+                      lineHeight: 1.24,
+                      color: runtimeGateRequiresManualAction ? colors.warningText : colors.textSecondary,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {runtimeIndicatorStatusText}
+                  </span>
+
+                  {runtimeIndicatorFooterText ? (
+                    <span
+                      style={{
+                        fontSize: 8,
+                        lineHeight: 1.2,
+                        color: colors.textSecondary,
+                        opacity: 0.88,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {runtimeIndicatorFooterText}
+                    </span>
+                  ) : null}
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+
+            {runtimeIndicatorShouldRenderRing ? (
               <div
+                onMouseDown={(e) => e.stopPropagation()}
+                title={runtimeIndicatorTitle}
                 style={{
+                  width: 24,
+                  height: 24,
                   display: "flex",
                   alignItems: "center",
-                  gap: 6,
-                  minWidth: 0,
+                  justifyContent: "center",
+                  borderRadius: "50%",
+                  backgroundColor: "rgba(0, 0, 0, 0.12)",
+                  boxShadow: showRuntimeSuccessIndicator
+                    ? `0 0 14px ${colors.warningGlow}`
+                    : "none",
+                  pointerEvents: "auto",
                 }}
               >
-                <span
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    flexShrink: 0,
-                    backgroundColor: runtimePromptAccentFill,
-                    boxShadow: `0 0 10px ${runtimePromptAccentGlow}`,
-                  }}
-                />
-                <span
-                  style={{
-                    minWidth: 0,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: colors.textPrimary,
-                    lineHeight: 1.1,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    userSelect: "none",
-                  }}
+                <svg
+                  width={runtimeIndicatorSize}
+                  height={runtimeIndicatorSize}
+                  viewBox={`0 0 ${runtimeIndicatorSize} ${runtimeIndicatorSize}`}
+                  style={{ transform: "rotate(-90deg)", display: "block" }}
                 >
-                  {runtimePromptTitle}
-                </span>
+                  <circle
+                    cx={runtimeIndicatorSize / 2}
+                    cy={runtimeIndicatorSize / 2}
+                    r={runtimeIndicatorRadius}
+                    fill="none"
+                    stroke={colors.progressBgStroke}
+                    strokeWidth="2"
+                  />
+                  <circle
+                    cx={runtimeIndicatorSize / 2}
+                    cy={runtimeIndicatorSize / 2}
+                    r={runtimeIndicatorRadius}
+                    fill="none"
+                    stroke={colors.warningSolid}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeDasharray={runtimeIndicatorCircumference}
+                    strokeDashoffset={runtimeIndicatorDashOffset}
+                    style={{
+                      transition: runtimeIndicatorIsIndeterminate
+                        ? "none"
+                        : "stroke-dashoffset 0.24s ease, opacity 0.18s ease",
+                      animation: runtimeIndicatorIsIndeterminate ? "spin 1s linear infinite" : "none",
+                      transformOrigin: "center",
+                      opacity: showRuntimeSuccessIndicator ? 1 : 0.96,
+                    }}
+                  />
+                </svg>
               </div>
-              {totalTaskCount > 0 ? (
-                <span
-                  style={{
-                    flexShrink: 0,
-                    borderRadius: 999,
-                    padding: "2px 6px",
-                    fontSize: 8,
-                    fontWeight: 700,
-                    lineHeight: 1,
-                    color: runtimePromptAccentColor,
-                    backgroundColor: runtimePromptTone === "danger"
-                      ? colors.dangerSurface
-                      : colors.accentSurface,
-                    border: `1px solid ${runtimePromptBorderColor}`,
-                    userSelect: "none",
-                  }}
-                >
-                  {runtimePromptTaskCountLabel}
-                </span>
-              ) : null}
-            </div>
-
-            <span
-              title={runtimePromptSummary}
-              style={{
-                fontSize: 9,
-                lineHeight: 1.28,
-                color: runtimeHint ? runtimePromptAccentColor : colors.textSecondary,
-                display: "-webkit-box",
-                WebkitLineClamp: 1,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}
-            >
-              {runtimePromptSummary}
-            </span>
-
-            {showRuntimeRecheckButton ? (
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  type="button"
-                  onClick={() => void handleRuntimeDependencyRecheck()}
-                  style={getRuntimeActionButtonStyle("neutral")}
-                >
-                  {t("settings.downloaders.runtime.recheckButton")}
-                </button>
-              </div>
-            ) : null}
-          </motion.div>
+            ) : (
+              <motion.button
+                type="button"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => {
+                  if (isRuntimeRetryInFlight) {
+                    return;
+                  }
+                  void handleRuntimeDependencyRecheck();
+                }}
+                title={runtimeIndicatorTitle}
+                style={{
+                  width: 14,
+                  height: 14,
+                  padding: 0,
+                  border: "none",
+                  borderRadius: "50%",
+                  backgroundColor: colors.warningSolid,
+                  boxShadow: `0 0 14px ${colors.warningGlow}`,
+                  cursor: isRuntimeRetryInFlight ? "default" : "pointer",
+                  opacity: isRuntimeRetryInFlight ? 0.82 : 1,
+                }}
+                animate={isRuntimeRetryFeedbackVisible
+                  ? {
+                      scale: [1, 0.9, 1.04, 1],
+                      opacity: [1, 0.86, 1],
+                    }
+                  : {
+                      scale: [1, 1.06, 1],
+                      opacity: [0.6, 1, 0.6],
+                    }}
+                transition={isRuntimeRetryFeedbackVisible
+                  ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] }
+                  : { duration: 1.4, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
+              />
+            )}
+          </div>
         ) : null}
       </AnimatePresence>
 

@@ -57,6 +57,20 @@
         "missing": "Runtime attention needed",
         "ready": "Runtime ready"
       },
+      "component": {
+        "ffmpeg": "FFmpeg",
+        "deno": "Deno",
+        "pinterest-dl": "Pinterest downloader"
+      },
+      "stage": {
+        "checking": "Checking",
+        "downloading": "Downloading",
+        "verifying": "Verifying",
+        "installing": "Installing"
+      },
+      "progressSummary": "{{percent}}% · {{stage}}",
+      "nextSummary": "Next: {{item}}",
+      "manualHint": "Click to retry. You can also review runtime recovery in Settings.",
       "taskCountSingle": "1 task",
       "taskCountPlural": "{{count}} tasks"
     },
@@ -149,6 +163,7 @@
       },
       "runtime": {
         "description": "Managed runtime readiness for downloads.",
+        "mainWindowRetryHint": "The main-window runtime indicator can also retry failed setup.",
         "unavailable": "Runtime status unavailable.",
         "allReady": "All runtime dependencies are ready.",
         "missingItems": "Missing: {{items}}",

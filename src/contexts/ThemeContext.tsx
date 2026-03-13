@@ -36,6 +36,11 @@ interface ThemeColors {
   accentSurface: string;
   accentSurfaceStrong: string;
   accentBorder: string;
+  warningSolid: string;
+  warningText: string;
+  warningSurface: string;
+  warningBorder: string;
+  warningGlow: string;
   dangerSolid: string;
   dangerSurface: string;
   dangerBorder: string;
@@ -103,6 +108,11 @@ const themes: Record<Theme, ThemeColors> = {
     accentSurface: 'rgba(59,130,246,0.1)',
     accentSurfaceStrong: 'rgba(59,130,246,0.18)',
     accentBorder: 'rgba(96,165,250,0.42)',
+    warningSolid: '#f59e0b',
+    warningText: '#fbbf24',
+    warningSurface: 'rgba(245,158,11,0.12)',
+    warningBorder: 'rgba(251,191,36,0.34)',
+    warningGlow: 'rgba(245,158,11,0.34)',
     dangerSolid: '#ef4444',
     dangerSurface: 'rgba(239,68,68,0.14)',
     dangerBorder: 'rgba(248,113,113,0.34)',
@@ -166,6 +176,11 @@ const themes: Record<Theme, ThemeColors> = {
     accentSurface: 'rgba(37,99,235,0.08)',
     accentSurfaceStrong: 'rgba(37,99,235,0.14)',
     accentBorder: 'rgba(37,99,235,0.26)',
+    warningSolid: '#d97706',
+    warningText: '#b45309',
+    warningSurface: 'rgba(245,158,11,0.12)',
+    warningBorder: 'rgba(217,119,6,0.26)',
+    warningGlow: 'rgba(217,119,6,0.22)',
     dangerSolid: '#ef4444',
     dangerSurface: 'rgba(239,68,68,0.1)',
     dangerBorder: 'rgba(239,68,68,0.24)',

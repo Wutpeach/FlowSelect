@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::net::SocketAddr;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -22,7 +22,7 @@ use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use std::time::Duration;
 
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 #[cfg(windows)]
 use clipboard_win::{formats, get_clipboard};
@@ -42,7 +42,6 @@ use tauri::{
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
-use tauri_plugin_shell::ShellExt;
 use zip::ZipArchive;
 
 const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.flowselect.app"];
@@ -56,6 +55,23 @@ const WINDOWS_CREATE_NO_WINDOW: u32 = 0x08000000;
 struct RegisteredShortcut {
     current: Mutex<Option<Shortcut>>,
     last_trigger_ms: Mutex<u128>,
+}
+
+#[derive(Debug)]
+struct CommandTerminatedPayload {
+    code: Option<i32>,
+}
+
+#[derive(Debug)]
+enum CommandEvent {
+    Stdout(Vec<u8>),
+    Stderr(Vec<u8>),
+    Terminated(CommandTerminatedPayload),
+}
+
+struct StreamingCliCommand {
+    pid: u32,
+    rx: mpsc::UnboundedReceiver<CommandEvent>,
 }
 
 #[derive(Clone)]
@@ -787,6 +803,8 @@ static PINTEREST_RUNTIME_BOOTSTRAP_LOCK: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));
 static DENO_RUNTIME_BOOTSTRAP_LOCK: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));
+static FFMPEG_RUNTIME_BOOTSTRAP_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 static RUNTIME_LOG_DIR: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
 static RUNTIME_LOG_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static RUNTIME_LOG_PROGRESS_STATE: LazyLock<Mutex<HashMap<String, RuntimeProgressLogState>>> =
@@ -812,11 +830,18 @@ const RUNTIME_LOG_ROTATED_FILE_NAME: &str = "runtime.log.1";
 const RUNTIME_LOG_MAX_BYTES: u64 = 512 * 1024;
 const RUNTIME_LOG_PROGRESS_BUCKET_PERCENT: f32 = 5.0;
 const RUNTIME_LOG_PROGRESS_MIN_INTERVAL_MS: u128 = 1500;
+const RUNTIME_GATE_PROGRESS_MIN_INTERVAL_MS: u128 = 160;
 const SUPPORT_LOG_RUNTIME_EVIDENCE_LINE_LIMIT: usize = 24;
 const SUPPORT_LOG_TEXT_PREVIEW_LIMIT: usize = 220;
 const MANAGED_RUNTIMES_DIR_NAME: &str = "runtimes";
+const FFMPEG_RUNTIME_COMPONENT_ID: &str = "ffmpeg";
 const DENO_RUNTIME_COMPONENT_ID: &str = "deno";
 const PINTEREST_RUNTIME_COMPONENT_ID: &str = "pinterest-dl";
+const MANAGED_RUNTIME_BOOTSTRAP_ORDER: [&str; 3] = [
+    FFMPEG_RUNTIME_COMPONENT_ID,
+    PINTEREST_RUNTIME_COMPONENT_ID,
+    DENO_RUNTIME_COMPONENT_ID,
+];
 const PINTEREST_RUNTIME_MANIFEST_URL: &str = "https://github.com/Wutpeach/FlowSelect/releases/download/runtime-sidecars-manifest-latest/runtime-sidecars-manifest.json";
 const PROTECTED_IMAGE_FALLBACK_TIMEOUT_MS: u64 = 15_000;
 const YTDLP_SELECTED_FORMAT_MARKER: &str = "__FLOWSELECT_SELECTED_FORMAT__=";
@@ -1194,19 +1219,6 @@ fn deno_executable_name() -> &'static str {
     "deno"
 }
 
-fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let target_path = managed_deno_binary_path(app)?;
-    if target_path.exists() {
-        println!(">>> [Rust] Using managed deno from: {:?}", target_path);
-        Ok(target_path)
-    } else {
-        Err(format!(
-            "Managed deno runtime is missing at {:?}. FlowSelect will bootstrap it from the pinned Deno release asset.",
-            target_path
-        ))
-    }
-}
-
 fn current_runtime_sidecar_target() -> Result<&'static str, String> {
     if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         Ok("x86_64-pc-windows-msvc")
@@ -1248,8 +1260,31 @@ fn managed_deno_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
     managed_component_runtime_dir(app, DENO_RUNTIME_COMPONENT_ID)
 }
 
-fn managed_deno_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(managed_deno_runtime_dir(app)?.join(deno_executable_name()))
+struct ManagedDenoRuntimePaths {
+    front_deno: PathBuf,
+    real_deno: PathBuf,
+}
+
+impl ManagedDenoRuntimePaths {
+    fn is_ready(&self) -> bool {
+        self.front_deno.exists() && self.real_deno.exists()
+    }
+
+    fn missing_error(&self) -> String {
+        let required_paths = if self.front_deno == self.real_deno {
+            vec![self.front_deno.clone()]
+        } else {
+            vec![self.front_deno.clone(), self.real_deno.clone()]
+        };
+        format!(
+            "Managed deno runtime is missing required files {:?}. FlowSelect will bootstrap them from the pinned Deno release asset.",
+            required_paths
+        )
+    }
+}
+
+fn managed_ffmpeg_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    managed_component_runtime_dir(app, FFMPEG_RUNTIME_COMPONENT_ID)
 }
 
 fn managed_pinterest_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -1292,6 +1327,40 @@ fn pinterest_downloader_binary_path(app: &AppHandle) -> Result<PathBuf, String> 
     }
 }
 
+struct ManagedFfmpegRuntimePaths {
+    front_ffmpeg: PathBuf,
+    front_ffprobe: PathBuf,
+    real_ffmpeg: PathBuf,
+    real_ffprobe: PathBuf,
+}
+
+impl ManagedFfmpegRuntimePaths {
+    fn is_ready(&self) -> bool {
+        self.front_ffmpeg.exists()
+            && self.front_ffprobe.exists()
+            && self.real_ffmpeg.exists()
+            && self.real_ffprobe.exists()
+    }
+
+    fn missing_error(&self) -> String {
+        let mut required_paths = Vec::new();
+        for path in [
+            &self.front_ffmpeg,
+            &self.front_ffprobe,
+            &self.real_ffmpeg,
+            &self.real_ffprobe,
+        ] {
+            if !required_paths.iter().any(|existing| existing == path) {
+                required_paths.push(path.clone());
+            }
+        }
+        format!(
+            "Managed ffmpeg runtime is missing required files {:?}. FlowSelect will bootstrap them from the pinned FFmpegBin release asset.",
+            required_paths
+        )
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn ffmpeg_executable_name() -> &'static str {
     "ffmpeg.exe"
@@ -1310,6 +1379,112 @@ fn ffprobe_executable_name() -> &'static str {
 #[cfg(not(target_os = "windows"))]
 fn ffprobe_executable_name() -> &'static str {
     "ffprobe"
+}
+
+fn flowselect_cli_proxy_binary_filename() -> Result<String, String> {
+    let target = current_runtime_sidecar_target()?;
+    #[cfg(target_os = "windows")]
+    {
+        Ok(format!("flowselect-cli-proxy-{}.exe", target))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(format!("flowselect-cli-proxy-{}", target))
+    }
+}
+
+fn flowselect_cli_proxy_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let file_name = flowselect_cli_proxy_binary_filename()?;
+    let candidates = binary_candidate_paths(app, file_name.as_str());
+    if let Some(path) = candidates.iter().find(|path| path.exists()) {
+        println!(">>> [Rust] Using bundled runtime proxy from: {:?}", path);
+        return Ok(path.clone());
+    }
+
+    candidates.into_iter().next().ok_or_else(|| {
+        format!(
+            "Failed to resolve runtime proxy path for {}",
+            file_name.as_str()
+        )
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn managed_ffmpeg_real_runtime_dir_for(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join("real")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn managed_ffmpeg_real_runtime_dir_for(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.to_path_buf()
+}
+
+#[cfg(target_os = "windows")]
+fn managed_deno_real_runtime_dir_for(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join("real")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn managed_deno_real_runtime_dir_for(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.to_path_buf()
+}
+
+fn managed_deno_runtime_paths_from_dir(runtime_dir: &Path) -> ManagedDenoRuntimePaths {
+    let real_dir = managed_deno_real_runtime_dir_for(runtime_dir);
+    ManagedDenoRuntimePaths {
+        front_deno: runtime_dir.join(deno_executable_name()),
+        real_deno: real_dir.join(deno_executable_name()),
+    }
+}
+
+fn managed_deno_runtime_paths(app: &AppHandle) -> Result<ManagedDenoRuntimePaths, String> {
+    let runtime_dir = managed_deno_runtime_dir(app)?;
+    Ok(managed_deno_runtime_paths_from_dir(&runtime_dir))
+}
+
+fn managed_ffmpeg_runtime_paths_from_dir(runtime_dir: &Path) -> ManagedFfmpegRuntimePaths {
+    let real_dir = managed_ffmpeg_real_runtime_dir_for(runtime_dir);
+    ManagedFfmpegRuntimePaths {
+        front_ffmpeg: runtime_dir.join(ffmpeg_executable_name()),
+        front_ffprobe: runtime_dir.join(ffprobe_executable_name()),
+        real_ffmpeg: real_dir.join(ffmpeg_executable_name()),
+        real_ffprobe: real_dir.join(ffprobe_executable_name()),
+    }
+}
+
+fn managed_ffmpeg_runtime_paths(app: &AppHandle) -> Result<ManagedFfmpegRuntimePaths, String> {
+    let runtime_dir = managed_ffmpeg_runtime_dir(app)?;
+    Ok(managed_ffmpeg_runtime_paths_from_dir(&runtime_dir))
+}
+
+#[cfg(target_os = "windows")]
+fn copy_bundled_runtime_proxy_to_path(
+    app: &AppHandle,
+    target_path: &Path,
+    runtime_label: &str,
+) -> Result<(), String> {
+    let proxy_source = flowselect_cli_proxy_binary_path(app)?;
+    ensure_parent_dir_exists(target_path, runtime_label)?;
+    fs::copy(&proxy_source, target_path).map_err(|err| {
+        format!(
+            "Failed to copy bundled runtime proxy from {:?} to {:?} for {}: {}",
+            proxy_source, target_path, runtime_label, err
+        )
+    })?;
+    Ok(())
+}
+
+fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let runtime_paths = managed_deno_runtime_paths(app)?;
+    if runtime_paths.is_ready() {
+        println!(
+            ">>> [Rust] Using managed deno from: {:?}",
+            runtime_paths.real_deno
+        );
+        Ok(runtime_paths.real_deno)
+    } else {
+        Err(runtime_paths.missing_error())
+    }
 }
 
 fn resolve_binary_from_env_path(file_name: &str) -> Option<PathBuf> {
@@ -1370,24 +1545,33 @@ fn runtime_dependency_status_from_resolution(
 }
 
 fn inspect_deno_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
-    let target_path = match managed_deno_binary_path(app) {
-        Ok(path) => path,
+    let runtime_paths = match managed_deno_runtime_paths(app) {
+        Ok(paths) => paths,
         Err(err) => return RuntimeDependencyStatusEntry::missing(err),
     };
-    if target_path.exists() {
-        RuntimeDependencyStatusEntry::ready(target_path, RuntimeDependencySource::Managed)
+    if runtime_paths.is_ready() {
+        RuntimeDependencyStatusEntry::ready(
+            runtime_paths.front_deno,
+            RuntimeDependencySource::Managed,
+        )
     } else {
-        RuntimeDependencyStatusEntry::missing(format!(
-            "Managed deno runtime is missing at {:?}",
-            target_path
-        ))
+        RuntimeDependencyStatusEntry::missing(runtime_paths.missing_error())
     }
 }
 
 fn inspect_ffmpeg_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
-    let file_name = ffmpeg_executable_name();
-    let bundled_candidates = binary_candidate_paths(app, file_name);
-    runtime_dependency_status_from_resolution(&bundled_candidates, ffmpeg_binary_path(app))
+    let runtime_paths = match managed_ffmpeg_runtime_paths(app) {
+        Ok(paths) => paths,
+        Err(err) => return RuntimeDependencyStatusEntry::missing(err),
+    };
+    if runtime_paths.is_ready() {
+        RuntimeDependencyStatusEntry::ready(
+            runtime_paths.front_ffmpeg,
+            RuntimeDependencySource::Managed,
+        )
+    } else {
+        RuntimeDependencyStatusEntry::missing(runtime_paths.missing_error())
+    }
 }
 
 fn inspect_ytdlp_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
@@ -1415,62 +1599,37 @@ fn inspect_pinterest_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusE
 }
 
 fn ffmpeg_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let file_name = ffmpeg_executable_name();
-    let candidates = binary_candidate_paths(app, file_name);
-    if let Some(path) = candidates.iter().find(|path| path.exists()) {
-        println!(">>> [Rust] Using bundled ffmpeg from: {:?}", path);
-        return Ok(path.clone());
+    let runtime_paths = managed_ffmpeg_runtime_paths(app)?;
+    if runtime_paths.is_ready() {
+        println!(
+            ">>> [Rust] Using managed ffmpeg from: {:?}",
+            runtime_paths.real_ffmpeg
+        );
+        Ok(runtime_paths.real_ffmpeg)
+    } else {
+        Err(runtime_paths.missing_error())
     }
-
-    if let Some(path) = resolve_binary_from_env_path(file_name) {
-        println!(">>> [Rust] Using system ffmpeg from PATH: {:?}", path);
-        return Ok(path);
-    }
-
-    Err(format!(
-        "Failed to resolve ffmpeg runtime. Looked for {:?} in bundled candidates {:?} and system PATH",
-        file_name, candidates
-    ))
 }
 
 fn ffprobe_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let file_name = ffprobe_executable_name();
-    let candidates = binary_candidate_paths(app, file_name);
-    if let Some(path) = candidates.iter().find(|path| path.exists()) {
-        println!(">>> [Rust] Using bundled ffprobe from: {:?}", path);
-        return Ok(path.clone());
+    let runtime_paths = managed_ffmpeg_runtime_paths(app)?;
+    if runtime_paths.is_ready() {
+        println!(
+            ">>> [Rust] Using managed ffprobe from: {:?}",
+            runtime_paths.real_ffprobe
+        );
+        Ok(runtime_paths.real_ffprobe)
+    } else {
+        Err(runtime_paths.missing_error())
     }
-
-    if let Ok(ffmpeg_path) = ffmpeg_binary_path(app) {
-        if let Some(parent) = ffmpeg_path.parent() {
-            let sibling_path = parent.join(file_name);
-            if sibling_path.exists() {
-                println!(
-                    ">>> [Rust] Using ffprobe next to resolved ffmpeg: {:?}",
-                    sibling_path
-                );
-                return Ok(sibling_path);
-            }
-        }
-    }
-
-    if let Some(path) = resolve_binary_from_env_path(file_name) {
-        println!(">>> [Rust] Using system ffprobe from PATH: {:?}", path);
-        return Ok(path);
-    }
-
-    Err(format!(
-        "Failed to resolve ffprobe runtime. Looked for {:?} in bundled candidates {:?}, alongside resolved ffmpeg, and system PATH",
-        file_name, candidates
-    ))
 }
 
 fn ffmpeg_location_for_ytdlp(app: &AppHandle) -> Result<String, String> {
-    let ffmpeg_path = ffmpeg_binary_path(app)?;
-    let parent = ffmpeg_path.parent().ok_or_else(|| {
+    let runtime_paths = managed_ffmpeg_runtime_paths(app)?;
+    let parent = runtime_paths.front_ffmpeg.parent().ok_or_else(|| {
         format!(
             "Resolved ffmpeg path has no parent directory: {:?}",
-            ffmpeg_path
+            runtime_paths.front_ffmpeg
         )
     })?;
     Ok(parent.to_string_lossy().to_string())
@@ -1478,9 +1637,9 @@ fn ffmpeg_location_for_ytdlp(app: &AppHandle) -> Result<String, String> {
 
 fn build_env_path_with_deno(app: &AppHandle) -> String {
     let mut env_path = std::env::var("PATH").unwrap_or_default();
-    if let Ok(deno_path) = get_deno_path(app) {
-        if let Some(deno_dir) = deno_path.parent() {
-            if deno_path.exists() {
+    if let Ok(runtime_paths) = managed_deno_runtime_paths(app) {
+        if runtime_paths.front_deno.exists() {
+            if let Some(deno_dir) = runtime_paths.front_deno.parent() {
                 #[cfg(target_os = "windows")]
                 let separator = ";";
                 #[cfg(not(target_os = "windows"))]
@@ -1496,8 +1655,9 @@ fn build_env_path_with_deno(app: &AppHandle) -> String {
 fn build_env_path_with_ffmpeg(app: &AppHandle) -> String {
     let mut env_path = std::env::var("PATH").unwrap_or_default();
 
-    if let Ok(ffmpeg_path) = ffmpeg_binary_path(app) {
-        if let Some(ffmpeg_dir) = ffmpeg_path.parent() {
+    if let Ok(ffmpeg_dir) = ffmpeg_location_for_ytdlp(app) {
+        let ffmpeg_dir = PathBuf::from(ffmpeg_dir);
+        if ffmpeg_dir.exists() {
             #[cfg(target_os = "windows")]
             let separator = ";";
             #[cfg(not(target_os = "windows"))]
@@ -3100,9 +3260,112 @@ fn resolve_precise_clip_hw_encoder(app: &AppHandle) -> Option<String> {
 fn configure_hidden_cli_command(command: &mut std::process::Command) -> &mut std::process::Command {
     #[cfg(windows)]
     {
+        // Keep this to CREATE_NO_WINDOW only. Microsoft documents that combining it
+        // with DETACHED_PROCESS causes CREATE_NO_WINDOW to be ignored.
         command.creation_flags(WINDOWS_CREATE_NO_WINDOW);
     }
     command
+}
+
+fn spawn_command_output_reader<R>(
+    reader: R,
+    tx: mpsc::UnboundedSender<CommandEvent>,
+    stream_name: &'static str,
+    is_stdout: bool,
+) -> std::thread::JoinHandle<()>
+where
+    R: std::io::Read + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        loop {
+            let mut buffer = Vec::new();
+            match reader.read_until(b'\n', &mut buffer) {
+                Ok(0) => break,
+                Ok(_) => {
+                    while buffer
+                        .last()
+                        .is_some_and(|byte| *byte == b'\n' || *byte == b'\r')
+                    {
+                        buffer.pop();
+                    }
+                    if buffer.is_empty() {
+                        continue;
+                    }
+                    let event = if is_stdout {
+                        CommandEvent::Stdout(buffer)
+                    } else {
+                        CommandEvent::Stderr(buffer)
+                    };
+                    if tx.send(event).is_err() {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    let message = format!("Failed to read process {}: {}", stream_name, err);
+                    let _ = tx.send(CommandEvent::Stderr(message.into_bytes()));
+                    break;
+                }
+            }
+        }
+    })
+}
+
+fn spawn_streaming_cli_command(
+    program: &Path,
+    args: &[String],
+    env_overrides: &[(String, String)],
+) -> Result<StreamingCliCommand, std::io::Error> {
+    let mut command = std::process::Command::new(program);
+    command
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    for (key, value) in env_overrides {
+        command.env(key, value);
+    }
+    configure_hidden_cli_command(&mut command);
+
+    let mut child = command.spawn()?;
+    let pid = child.id();
+    let (tx, rx) = mpsc::unbounded_channel();
+    let stdout_handle = child
+        .stdout
+        .take()
+        .map(|stdout| spawn_command_output_reader(stdout, tx.clone(), "stdout", true));
+    let stderr_handle = child
+        .stderr
+        .take()
+        .map(|stderr| spawn_command_output_reader(stderr, tx.clone(), "stderr", false));
+    let program_display = program.to_string_lossy().to_string();
+
+    std::thread::spawn(move || {
+        let wait_result = child.wait();
+        if let Some(handle) = stdout_handle {
+            let _ = handle.join();
+        }
+        if let Some(handle) = stderr_handle {
+            let _ = handle.join();
+        }
+        match wait_result {
+            Ok(status) => {
+                let _ = tx.send(CommandEvent::Terminated(CommandTerminatedPayload {
+                    code: status.code(),
+                }));
+            }
+            Err(err) => {
+                let _ = tx.send(CommandEvent::Stderr(
+                    format!("Failed to wait on {}: {}", program_display, err).into_bytes(),
+                ));
+                let _ = tx.send(CommandEvent::Terminated(CommandTerminatedPayload {
+                    code: None,
+                }));
+            }
+        }
+    });
+
+    Ok(StreamingCliCommand { pid, rx })
 }
 
 fn extract_process_failure_message(stderr: &[u8], status: std::process::ExitStatus) -> String {
@@ -3279,6 +3542,7 @@ fn probe_media_summary_with_ffmpeg(
 }
 
 async fn probe_media_summary(app: &AppHandle, path: &Path) -> Result<MediaProbeSummary, String> {
+    ensure_managed_ffmpeg_runtime_ready(app, "media_probe").await?;
     let app = app.clone();
     let target_path = path.to_path_buf();
     tokio::task::spawn_blocking(move || match ffprobe_binary_path(&app) {
@@ -3499,11 +3763,56 @@ fn replace_file_preserving_backup(temp_path: &Path, target_path: &Path) -> Resul
     }
 }
 
+fn replace_directory_preserving_backup(
+    staging_dir: &Path,
+    target_dir: &Path,
+) -> Result<(), String> {
+    if !target_dir.exists() {
+        return fs::rename(staging_dir, target_dir).map_err(|err| {
+            format!(
+                "Failed to move staged runtime dir from {:?} to {:?}: {}",
+                staging_dir, target_dir, err
+            )
+        });
+    }
+
+    let backup_dir = build_runtime_temp_path_with_suffix(target_dir, "flowselect-backup");
+    if backup_dir.exists() {
+        let _ = fs::remove_dir_all(&backup_dir);
+    }
+    fs::rename(target_dir, &backup_dir).map_err(|err| {
+        format!(
+            "Failed to stage existing runtime dir {:?} for replacement: {}",
+            target_dir, err
+        )
+    })?;
+
+    match fs::rename(staging_dir, target_dir) {
+        Ok(_) => {
+            if let Err(err) = fs::remove_dir_all(&backup_dir) {
+                println!(
+                    ">>> [Rust] Warning: Failed to cleanup runtime dir backup {:?}: {}",
+                    backup_dir, err
+                );
+            }
+            Ok(())
+        }
+        Err(err) => {
+            let _ = fs::rename(&backup_dir, target_dir);
+            Err(format!(
+                "Failed to replace runtime dir {:?} with staged dir {:?}: {}",
+                target_dir, staging_dir, err
+            ))
+        }
+    }
+}
+
 async fn run_ffmpeg_capture_output(
     app: &AppHandle,
     args: Vec<String>,
     context: &str,
 ) -> Result<std::process::Output, String> {
+    ensure_managed_ffmpeg_runtime_ready(app, context).await?;
     let ffmpeg_path = ffmpeg_binary_path(app)?;
     let ffmpeg_path_display = ffmpeg_path.to_string_lossy().to_string();
     let output = tokio::task::spawn_blocking(move || {
@@ -3894,6 +4203,18 @@ fn append_ytdlp_runtime_guard_args(args: &mut Vec<String>, disable_resume_artifa
     }
 }
 
+fn append_ytdlp_js_runtime_args(args: &mut Vec<String>) {
+    #[cfg(target_os = "windows")]
+    let runtimes = ["deno", "node"];
+    #[cfg(not(target_os = "windows"))]
+    let runtimes = ["node", "deno"];
+
+    for runtime in runtimes {
+        args.push("--js-runtimes".to_string());
+        args.push(runtime.to_string());
+    }
+}
+
 async fn download_full_source_to_slice_cache(
     app: &AppHandle,
     url: &str,
@@ -3903,10 +4224,9 @@ async fn download_full_source_to_slice_cache(
     trace_id: &str,
     disable_resume_artifacts: bool,
 ) -> Result<PathBuf, String> {
-    use tauri_plugin_shell::process::CommandEvent;
-
     println!(">>> [Rust] Slice cache source download start: {}", url);
     ensure_managed_deno_runtime_ready(app, "slice_cache_download").await?;
+    ensure_managed_ffmpeg_runtime_ready(app, "slice_cache_download").await?;
     let ffmpeg_location = ffmpeg_location_for_ytdlp(app)?;
     let ytdlp_temp_dir = std::env::temp_dir().join(YTDLP_TEMP_DIR_NAME);
     fs::create_dir_all(&ytdlp_temp_dir)
@@ -3933,15 +4253,12 @@ async fn download_full_source_to_slice_cache(
         "utf-8".to_string(),
         "--extractor-args".to_string(),
         "youtube:player_js_variant=tv".to_string(),
-        "--js-runtimes".to_string(),
-        "node".to_string(),
-        "--js-runtimes".to_string(),
-        "deno".to_string(),
         "--remote-components".to_string(),
         "ejs:github".to_string(),
         "-o".to_string(),
         cache_path.to_string_lossy().to_string(),
     ];
+    append_ytdlp_js_runtime_args(&mut args);
     append_ytdlp_runtime_guard_args(&mut args, disable_resume_artifacts);
     append_ytdlp_selected_format_print_arg(&mut args);
     if let Some(format_sort) = ytdlp_quality.format_sort() {
@@ -3958,19 +4275,15 @@ async fn download_full_source_to_slice_cache(
 
     let env_path = build_env_path_with_deno(app);
     let ytdlp_path = ytdlp_runtime_binary_path(app)?;
-    let shell = app.shell();
-    let (mut rx, child) = shell
-        .command(ytdlp_path.to_string_lossy().to_string())
-        .args(&args)
-        .env("PATH", &env_path)
-        .spawn()
-        .map_err(|spawn_err| {
+    let env_overrides = vec![("PATH".to_string(), env_path)];
+    let StreamingCliCommand { mut rx, pid } =
+        spawn_streaming_cli_command(&ytdlp_path, &args, &env_overrides).map_err(|spawn_err| {
             format!(
                 "Failed to spawn yt-dlp for slice cache at {:?}: {}",
                 ytdlp_path, spawn_err
             )
         })?;
-    register_download_child(trace_id, child.pid());
+    register_download_child(trace_id, pid);
 
     let mut stderr_buffer = String::new();
     let mut last_file_path = Some(cache_path.to_string_lossy().to_string());
@@ -4058,7 +4371,6 @@ async fn download_full_source_to_slice_cache(
                         .unwrap_or_else(|| format!("yt-dlp exited with code {:?}", payload.code));
                     return Err(format!("Slice cache source download failed: {}", message));
                 }
-                _ => {}
             },
             Ok(None) => break,
             Err(_) => {}
@@ -5686,8 +5998,6 @@ async fn download_pinterest_video(
     video_candidates: Vec<ExtensionVideoCandidate>,
     trace_id: String,
 ) -> Result<DownloadResult, String> {
-    use tauri_plugin_shell::process::CommandEvent;
-
     println!(">>> [Rust] Starting Pinterest download: {}", page_url);
     log_download_trace(
         &trace_id,
@@ -5909,47 +6219,58 @@ async fn download_pinterest_video(
             return Err(stage_error("runtime_spawn", err.as_str()));
         }
     };
+    if let Err(err) = ensure_managed_ffmpeg_runtime_ready(&app, "pinterest_download").await {
+        let _ = fs::remove_file(&runtime_input_path);
+        append_runtime_log_event(
+            "download",
+            "complete",
+            Some(trace_id.as_str()),
+            serde_json::json!({
+                "mode": "pinterest",
+                "success": false,
+                "error": err,
+            }),
+        );
+        clear_runtime_progress_log_state(trace_id.as_str());
+        return Err(stage_error("runtime_bootstrap", err.as_str()));
+    }
 
-    let shell = app.shell();
     let runtime_args = vec![
         "--input-json".to_string(),
         runtime_input_path.to_string_lossy().to_string(),
     ];
-    let (mut rx, child) = match shell
-        .command(downloader_path.to_string_lossy().to_string())
-        .args(runtime_args)
-        .env("PATH", build_env_path_with_ffmpeg(&app))
-        .spawn()
-    {
-        Ok(result) => result,
-        Err(err) => {
-            let _ = fs::remove_file(&runtime_input_path);
-            append_runtime_log_event(
-                "download",
-                "complete",
-                Some(trace_id.as_str()),
-                serde_json::json!({
-                    "mode": "pinterest",
-                    "success": false,
-                    "error": format!(
+    let env_overrides = vec![("PATH".to_string(), build_env_path_with_ffmpeg(&app))];
+    let StreamingCliCommand { mut rx, pid } =
+        match spawn_streaming_cli_command(&downloader_path, &runtime_args, &env_overrides) {
+            Ok(result) => result,
+            Err(err) => {
+                let _ = fs::remove_file(&runtime_input_path);
+                append_runtime_log_event(
+                    "download",
+                    "complete",
+                    Some(trace_id.as_str()),
+                    serde_json::json!({
+                        "mode": "pinterest",
+                        "success": false,
+                        "error": format!(
+                            "Failed to spawn Pinterest downloader at {:?}: {}",
+                            downloader_path, err
+                        ),
+                    }),
+                );
+                clear_runtime_progress_log_state(trace_id.as_str());
+                return Err(stage_error(
+                    "runtime_spawn",
+                    format!(
                         "Failed to spawn Pinterest downloader at {:?}: {}",
                         downloader_path, err
-                    ),
-                }),
-            );
-            clear_runtime_progress_log_state(trace_id.as_str());
-            return Err(stage_error(
-                "runtime_spawn",
-                format!(
-                    "Failed to spawn Pinterest downloader at {:?}: {}",
-                    downloader_path, err
-                )
-                .as_str(),
-            ));
-        }
-    };
+                    )
+                    .as_str(),
+                ));
+            }
+        };
 
-    register_download_child(trace_id.as_str(), child.pid());
+    register_download_child(trace_id.as_str(), pid);
     log_download_trace(
         &trace_id,
         "pinterest_sidecar_spawn",
@@ -6181,7 +6502,6 @@ async fn download_pinterest_video(
                         .as_str(),
                     ));
                 }
-                _ => {}
             },
             Ok(None) => break,
             Err(_) => {}
@@ -6249,8 +6569,6 @@ async fn download_video_internal(
     trace_id: String,
     policy: YtdlpInvocationPolicy,
 ) -> Result<DownloadResult, String> {
-    use tauri_plugin_shell::process::CommandEvent;
-
     println!(">>> [Rust] Starting video download: {}", url);
     println!(
         ">>> [Rust] yt-dlp quality preference: {}",
@@ -6381,6 +6699,11 @@ async fn download_video_internal(
         let _ = fs::remove_file(&reported_output_path_file);
         return Err(err);
     }
+    if let Err(err) = ensure_managed_ffmpeg_runtime_ready(&app, "ytdlp_download").await {
+        cleanup_extension_cookies_file(&extension_cookies_path);
+        let _ = fs::remove_file(&reported_output_path_file);
+        return Err(err);
+    }
     let ffmpeg_location = match ffmpeg_location_for_ytdlp(&app) {
         Ok(location) => location,
         Err(err) => {
@@ -6404,11 +6727,6 @@ async fn download_video_internal(
         // 使用 tv 变体解决 YouTube player 签名问题
         "--extractor-args".to_string(),
         "youtube:player_js_variant=tv".to_string(),
-        // Enable both Node and Deno JavaScript runtimes for YouTube challenges.
-        "--js-runtimes".to_string(),
-        "node".to_string(),
-        "--js-runtimes".to_string(),
-        "deno".to_string(),
         // Let yt-dlp fetch EJS solver assets for better YouTube compatibility.
         "--remote-components".to_string(),
         "ejs:github".to_string(),
@@ -6422,6 +6740,7 @@ async fn download_video_internal(
         "-o".to_string(),
         output_template.to_string_lossy().to_string(),
     ];
+    append_ytdlp_js_runtime_args(&mut args);
     append_ytdlp_runtime_guard_args(&mut args, policy.disable_resume_artifacts);
     append_ytdlp_selected_format_print_arg(&mut args);
     if selection_scope.should_force_single_item() {
@@ -6532,30 +6851,26 @@ async fn download_video_internal(
     };
 
     // Spawn yt-dlp process
-    let shell = app.shell();
-    let (mut rx, child) = match shell
-        .command(ytdlp_path.to_string_lossy().to_string())
-        .args(&args)
-        .env("PATH", &env_path)
-        .spawn()
-    {
-        Ok(result) => result,
-        Err(spawn_err) => {
-            cleanup_extension_cookies_file(&extension_cookies_path);
-            cleanup_part_files_for_output_root(&output_dir);
-            let _ = fs::remove_file(&reported_output_path_file);
-            let result = emit_download_terminal_failure(
-                &app,
-                trace_id.as_str(),
-                DownloadTerminalErrorCode::YtdlpSpawnFailure,
-                &format!("Failed to spawn yt-dlp at {:?}: {}", ytdlp_path, spawn_err),
-            );
-            return Ok(result);
-        }
-    };
+    let env_overrides = vec![("PATH".to_string(), env_path)];
+    let StreamingCliCommand { mut rx, pid } =
+        match spawn_streaming_cli_command(&ytdlp_path, &args, &env_overrides) {
+            Ok(result) => result,
+            Err(spawn_err) => {
+                cleanup_extension_cookies_file(&extension_cookies_path);
+                cleanup_part_files_for_output_root(&output_dir);
+                let _ = fs::remove_file(&reported_output_path_file);
+                let result = emit_download_terminal_failure(
+                    &app,
+                    trace_id.as_str(),
+                    DownloadTerminalErrorCode::YtdlpSpawnFailure,
+                    &format!("Failed to spawn yt-dlp at {:?}: {}", ytdlp_path, spawn_err),
+                );
+                return Ok(result);
+            }
+        };
 
     // Store child process PID for cancellation
-    register_download_child(trace_id.as_str(), child.pid());
+    register_download_child(trace_id.as_str(), pid);
 
     let mut stdout_buffer = String::new();
     let mut stderr_buffer = String::new();
@@ -6875,7 +7190,6 @@ async fn download_video_internal(
                     clear_runtime_progress_log_state(trace_id.as_str());
                     return Ok(result);
                 }
-                _ => {}
             },
             Ok(None) => break,
             Err(_) => {}
@@ -9455,27 +9769,26 @@ async fn probe_ytdlp_selected_format(
     ytdlp_quality: YtdlpQualityPreference,
     cookies_path: Option<&PathBuf>,
 ) -> Result<Option<YtdlpSelectedFormatInfo>, String> {
-    use tauri_plugin_shell::process::CommandEvent;
-
     ensure_managed_deno_runtime_ready(app, "ytdlp_selection_probe").await?;
+    ensure_managed_ffmpeg_runtime_ready(app, "ytdlp_selection_probe").await?;
     let ytdlp_path = ytdlp_runtime_binary_path(app)?;
+    let ffmpeg_location = ffmpeg_location_for_ytdlp(app)?;
     let mut args = vec![
         "--skip-download".to_string(),
         "-f".to_string(),
         ytdlp_quality.format_selector().to_string(),
         "--merge-output-format".to_string(),
         ytdlp_quality.merge_output_format().to_string(),
+        "--ffmpeg-location".to_string(),
+        ffmpeg_location,
         "--extractor-args".to_string(),
         "youtube:player_js_variant=tv".to_string(),
-        "--js-runtimes".to_string(),
-        "node".to_string(),
-        "--js-runtimes".to_string(),
-        "deno".to_string(),
         "--remote-components".to_string(),
         "ejs:github".to_string(),
         "--encoding".to_string(),
         "utf-8".to_string(),
     ];
+    append_ytdlp_js_runtime_args(&mut args);
     append_ytdlp_runtime_guard_args(&mut args, false);
     append_ytdlp_selected_format_print_arg(&mut args);
     if selection_scope.should_force_single_item() {
@@ -9492,13 +9805,9 @@ async fn probe_ytdlp_selected_format(
     args.push(url.to_string());
 
     let env_path = build_env_path_with_deno(app);
-    let shell = app.shell();
-    let (mut rx, _child) = shell
-        .command(ytdlp_path.to_string_lossy().to_string())
-        .args(&args)
-        .env("PATH", &env_path)
-        .spawn()
-        .map_err(|spawn_err| {
+    let env_overrides = vec![("PATH".to_string(), env_path)];
+    let StreamingCliCommand { mut rx, .. } =
+        spawn_streaming_cli_command(&ytdlp_path, &args, &env_overrides).map_err(|spawn_err| {
             format!(
                 "Failed to spawn yt-dlp selection probe at {:?}: {}",
                 ytdlp_path, spawn_err
@@ -9539,7 +9848,6 @@ async fn probe_ytdlp_selected_format(
                     payload.code, message
                 ));
             }
-            _ => {}
         }
     }
 
@@ -10070,12 +10378,32 @@ pub enum RuntimeDependencyGatePhase {
     Failed,
 }
 
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeDependencyGateActivityStage {
+    Checking,
+    Downloading,
+    Verifying,
+    Installing,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RuntimeDependencyGateActivityState {
+    current_component: Option<String>,
+    current_stage: Option<RuntimeDependencyGateActivityStage>,
+    progress_percent: Option<f32>,
+    downloaded_bytes: Option<u64>,
+    total_bytes: Option<u64>,
+    next_component: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 struct RuntimeDependencyGateState {
     phase: RuntimeDependencyGatePhase,
     missing_components: Vec<String>,
     last_error: Option<String>,
     updated_at_ms: u128,
+    activity: RuntimeDependencyGateActivityState,
 }
 
 impl Default for RuntimeDependencyGateState {
@@ -10085,6 +10413,7 @@ impl Default for RuntimeDependencyGateState {
             missing_components: Vec::new(),
             last_error: None,
             updated_at_ms: 0,
+            activity: RuntimeDependencyGateActivityState::default(),
         }
     }
 }
@@ -10098,6 +10427,18 @@ pub struct RuntimeDependencyGateStatePayload {
     pub last_error: Option<String>,
     #[serde(rename = "updatedAtMs")]
     pub updated_at_ms: u128,
+    #[serde(rename = "currentComponent")]
+    pub current_component: Option<String>,
+    #[serde(rename = "currentStage")]
+    pub current_stage: Option<RuntimeDependencyGateActivityStage>,
+    #[serde(rename = "progressPercent")]
+    pub progress_percent: Option<f32>,
+    #[serde(rename = "downloadedBytes")]
+    pub downloaded_bytes: Option<u64>,
+    #[serde(rename = "totalBytes")]
+    pub total_bytes: Option<u64>,
+    #[serde(rename = "nextComponent")]
+    pub next_component: Option<String>,
 }
 
 impl RuntimeDependencyGateState {
@@ -10107,7 +10448,62 @@ impl RuntimeDependencyGateState {
             missing_components: self.missing_components.clone(),
             last_error: self.last_error.clone(),
             updated_at_ms: self.updated_at_ms,
+            current_component: self.activity.current_component.clone(),
+            current_stage: self.activity.current_stage,
+            progress_percent: self.activity.progress_percent,
+            downloaded_bytes: self.activity.downloaded_bytes,
+            total_bytes: self.activity.total_bytes,
+            next_component: self.activity.next_component.clone(),
         }
+    }
+}
+
+fn ordered_missing_managed_runtime_components(missing_components: &[String]) -> Vec<&'static str> {
+    MANAGED_RUNTIME_BOOTSTRAP_ORDER
+        .iter()
+        .copied()
+        .filter(|component_id| {
+            missing_components
+                .iter()
+                .any(|missing| missing == component_id)
+        })
+        .collect()
+}
+
+fn next_runtime_dependency_component(
+    missing_components: &[String],
+    current_component: Option<&str>,
+) -> Option<String> {
+    let ordered_missing = ordered_missing_managed_runtime_components(missing_components);
+    if ordered_missing.is_empty() {
+        return None;
+    }
+
+    match current_component {
+        Some(current_component_id) => ordered_missing
+            .iter()
+            .position(|component_id| *component_id == current_component_id)
+            .and_then(|index| ordered_missing.get(index + 1).copied())
+            .map(str::to_string),
+        None => ordered_missing.first().copied().map(str::to_string),
+    }
+}
+
+fn runtime_dependency_gate_activity_state(
+    missing_components: &[String],
+    current_component: Option<&str>,
+    current_stage: Option<RuntimeDependencyGateActivityStage>,
+    progress_percent: Option<f32>,
+    downloaded_bytes: Option<u64>,
+    total_bytes: Option<u64>,
+) -> RuntimeDependencyGateActivityState {
+    RuntimeDependencyGateActivityState {
+        current_component: current_component.map(str::to_string),
+        current_stage,
+        progress_percent,
+        downloaded_bytes,
+        total_bytes,
+        next_component: next_runtime_dependency_component(missing_components, current_component),
     }
 }
 
@@ -10135,6 +10531,7 @@ fn update_runtime_dependency_gate_state(
     phase: RuntimeDependencyGatePhase,
     missing_components: Vec<String>,
     last_error: Option<String>,
+    activity: RuntimeDependencyGateActivityState,
 ) -> RuntimeDependencyGateStatePayload {
     let payload = {
         let mut state = RUNTIME_DEPENDENCY_GATE_STATE.lock().unwrap();
@@ -10142,17 +10539,50 @@ fn update_runtime_dependency_gate_state(
         state.missing_components = missing_components;
         state.last_error = last_error;
         state.updated_at_ms = now_timestamp_ms();
+        state.activity = activity;
         state.as_payload()
     };
 
     println!(
-        ">>> [Rust] Runtime dependency gate state updated: phase={:?}, missing={}, error={}",
+        ">>> [Rust] Runtime dependency gate state updated: phase={:?}, missing={}, current={}, stage={:?}, next={}, progress={}, error={}",
         payload.phase,
         payload.missing_components.join(","),
+        payload.current_component.as_deref().unwrap_or(""),
+        payload.current_stage,
+        payload.next_component.as_deref().unwrap_or(""),
+        payload
+            .progress_percent
+            .map(|value| format!("{:.1}", value))
+            .unwrap_or_default(),
         payload.last_error.as_deref().unwrap_or("")
     );
     let _ = app.emit("runtime-dependency-gate-state", payload.clone());
     payload
+}
+
+fn update_runtime_dependency_gate_download_activity(
+    app: &AppHandle,
+    missing_components: &[String],
+    current_component: &str,
+    current_stage: RuntimeDependencyGateActivityStage,
+    progress_percent: Option<f32>,
+    downloaded_bytes: Option<u64>,
+    total_bytes: Option<u64>,
+) -> RuntimeDependencyGateStatePayload {
+    update_runtime_dependency_gate_state(
+        app,
+        RuntimeDependencyGatePhase::Downloading,
+        missing_components.to_vec(),
+        None,
+        runtime_dependency_gate_activity_state(
+            missing_components,
+            Some(current_component),
+            Some(current_stage),
+            progress_percent,
+            downloaded_bytes,
+            total_bytes,
+        ),
+    )
 }
 
 fn pinterest_downloader_info_from_lock_json(
@@ -10194,7 +10624,6 @@ struct ManagedZipRuntimeArtifactSpec {
     download_urls: &'static [&'static str],
     sha256: &'static str,
     size: u64,
-    archive_entry_name: &'static str,
 }
 
 fn select_deno_runtime_artifact_spec() -> Result<ManagedZipRuntimeArtifactSpec, String> {
@@ -10208,7 +10637,6 @@ fn select_deno_runtime_artifact_spec() -> Result<ManagedZipRuntimeArtifactSpec, 
             ],
             sha256: "94d71d4772436de27a0495933ca4bab7b6895992622b65baeaf4b7995dae1e69",
             size: 47277539,
-            archive_entry_name: "deno.exe",
         });
     }
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
@@ -10221,7 +10649,6 @@ fn select_deno_runtime_artifact_spec() -> Result<ManagedZipRuntimeArtifactSpec, 
             ],
             sha256: "bc3392a0f50be9a1ecb68596530319308639a6f69d99678a0018c47e23a10c1f",
             size: 42170253,
-            archive_entry_name: "deno",
         });
     }
     if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
@@ -10234,12 +10661,53 @@ fn select_deno_runtime_artifact_spec() -> Result<ManagedZipRuntimeArtifactSpec, 
             ],
             sha256: "5478393fc9893c6f3516cee7579453a990834ceebf5ff44aaced2d0f285302d7",
             size: 45229858,
-            archive_entry_name: "deno",
         });
     }
 
     Err(format!(
         "Unsupported platform for managed deno runtime: {}-{}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    ))
+}
+
+fn select_ffmpeg_runtime_artifact_spec() -> Result<ManagedZipRuntimeArtifactSpec, String> {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        return Ok(ManagedZipRuntimeArtifactSpec {
+            component: FFMPEG_RUNTIME_COMPONENT_ID,
+            target: "x86_64-pc-windows-msvc",
+            download_urls: &[
+                "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-windows-x64.zip",
+            ],
+            sha256: "29f9f067e8ffad75d5c0e96ec142e665228cb12cdb05fd5cc39eeb9c68962a40",
+            size: 72093901,
+        });
+    }
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        return Ok(ManagedZipRuntimeArtifactSpec {
+            component: FFMPEG_RUNTIME_COMPONENT_ID,
+            target: "aarch64-apple-darwin",
+            download_urls: &[
+                "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-osx-arm64.zip",
+            ],
+            sha256: "0447ba1f4a2f2a10c05985bd1815da61b968ad42fe91d35b502bfc7abffcad0a",
+            size: 69575396,
+        });
+    }
+    if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        return Ok(ManagedZipRuntimeArtifactSpec {
+            component: FFMPEG_RUNTIME_COMPONENT_ID,
+            target: "x86_64-apple-darwin",
+            download_urls: &[
+                "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-osx-x64.zip",
+            ],
+            sha256: "53c438fe89dd242c95a1cb94a80e1744a9c40798f87eccf6eba564c92e4d1851",
+            size: 75898458,
+        });
+    }
+
+    Err(format!(
+        "Unsupported platform for managed ffmpeg runtime: {}-{}",
         std::env::consts::OS,
         std::env::consts::ARCH
     ))
@@ -10408,12 +10876,25 @@ fn build_runtime_archive_temp_path(target_path: &Path) -> PathBuf {
     build_runtime_temp_path_with_suffix(target_path, "flowselect-download-archive.zip")
 }
 
+fn ensure_parent_dir_exists(path: &Path, label: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Failed to resolve parent dir for {} at {:?}", label, path))?;
+    fs::create_dir_all(parent).map_err(|err| {
+        format!(
+            "Failed to create parent dir {:?} for {}: {}",
+            parent, label, err
+        )
+    })
+}
+
 async fn download_runtime_asset_to_temp(
     download_url: &str,
     expected_size: u64,
     expected_sha256: &str,
     temp_path: &Path,
     asset_label: &str,
+    progress_context: Option<(&AppHandle, &str, &[String])>,
 ) -> Result<(), String> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
@@ -10440,6 +10921,7 @@ async fn download_runtime_asset_to_temp(
         ));
     }
 
+    ensure_parent_dir_exists(temp_path, asset_label)?;
     let mut file = tokio::fs::File::create(temp_path).await.map_err(|err| {
         format!(
             "Failed to create runtime temp file {:?}: {}",
@@ -10449,6 +10931,8 @@ async fn download_runtime_asset_to_temp(
     let mut stream = response.bytes_stream();
     let mut hasher = Sha256::new();
     let mut downloaded = 0_u64;
+    let mut last_progress_bucket: Option<u64> = None;
+    let mut last_progress_emit_ms = 0_u128;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|err| format!("Runtime download stream error: {}", err))?;
@@ -10457,12 +10941,55 @@ async fn download_runtime_asset_to_temp(
             .map_err(|err| format!("Failed to write runtime temp file {:?}: {}", temp_path, err))?;
         hasher.update(&chunk);
         downloaded += chunk.len() as u64;
+
+        if let Some((app, current_component, missing_components)) = progress_context {
+            if expected_size > 0 {
+                let progress_percent =
+                    ((downloaded as f64 / expected_size as f64) * 100.0).min(100.0) as f32;
+                let progress_bucket = progress_percent.floor() as u64;
+                let now_ms = now_timestamp_ms();
+                let should_emit = downloaded >= expected_size
+                    || last_progress_bucket != Some(progress_bucket)
+                    || now_ms.saturating_sub(last_progress_emit_ms)
+                        >= RUNTIME_GATE_PROGRESS_MIN_INTERVAL_MS;
+                if should_emit {
+                    let _ = update_runtime_dependency_gate_download_activity(
+                        app,
+                        missing_components,
+                        current_component,
+                        RuntimeDependencyGateActivityStage::Downloading,
+                        Some(progress_percent),
+                        Some(downloaded),
+                        Some(expected_size),
+                    );
+                    last_progress_bucket = Some(progress_bucket);
+                    last_progress_emit_ms = now_ms;
+                }
+            }
+        }
     }
 
     file.flush()
         .await
         .map_err(|err| format!("Failed to flush runtime temp file {:?}: {}", temp_path, err))?;
     drop(file);
+
+    if let Some((app, current_component, missing_components)) = progress_context {
+        let progress_percent = if expected_size > 0 {
+            Some(((downloaded as f64 / expected_size as f64) * 100.0).min(100.0) as f32)
+        } else {
+            None
+        };
+        let _ = update_runtime_dependency_gate_download_activity(
+            app,
+            missing_components,
+            current_component,
+            RuntimeDependencyGateActivityStage::Verifying,
+            progress_percent,
+            Some(downloaded),
+            Some(expected_size),
+        );
+    }
 
     if downloaded != expected_size {
         let _ = tokio::fs::remove_file(temp_path).await;
@@ -10490,6 +11017,7 @@ async fn download_runtime_asset_to_temp_with_fallbacks(
     expected_sha256: &str,
     temp_path: &Path,
     asset_label: &str,
+    progress_context: Option<(&AppHandle, &str, &[String])>,
 ) -> Result<String, String> {
     let mut errors = Vec::new();
 
@@ -10500,6 +11028,7 @@ async fn download_runtime_asset_to_temp_with_fallbacks(
             expected_sha256,
             temp_path,
             asset_label,
+            progress_context,
         )
         .await
         {
@@ -10531,9 +11060,43 @@ fn extract_runtime_zip_entry(
         .map_err(|err| format!("Failed to open runtime archive {:?}: {}", archive_path, err))?;
     let mut archive = ZipArchive::new(archive_file)
         .map_err(|err| format!("Failed to read runtime archive {:?}: {}", archive_path, err))?;
-    let mut entry = archive.by_name(entry_name).map_err(|err| {
+    let normalized_entry_name = entry_name
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .to_ascii_lowercase();
+    let mut matched_index = None;
+    for index in 0..archive.len() {
+        let archive_name = {
+            let entry = archive.by_index(index).map_err(|err| {
+                format!(
+                    "Failed to inspect runtime archive entry {} in {:?}: {}",
+                    index, archive_path, err
+                )
+            })?;
+            entry
+                .name()
+                .replace('\\', "/")
+                .trim_start_matches("./")
+                .trim_start_matches('/')
+                .to_ascii_lowercase()
+        };
+        if archive_name == normalized_entry_name
+            || archive_name.ends_with(&format!("/{}", normalized_entry_name))
+        {
+            matched_index = Some(index);
+            break;
+        }
+    }
+    let matched_index = matched_index.ok_or_else(|| {
         format!(
-            "Failed to locate runtime archive entry {} in {:?}: {}",
+            "Failed to locate runtime archive entry {} in {:?}: entry not found",
+            entry_name, archive_path
+        )
+    })?;
+    let mut entry = archive.by_index(matched_index).map_err(|err| {
+        format!(
+            "Failed to read runtime archive entry {} in {:?}: {}",
             entry_name, archive_path, err
         )
     })?;
@@ -10544,6 +11107,8 @@ fn extract_runtime_zip_entry(
         ));
     }
 
+    let extracted_label = format!("extracted runtime entry {}", entry_name);
+    ensure_parent_dir_exists(extracted_path, extracted_label.as_str())?;
     let mut output_file = fs::File::create(extracted_path).map_err(|err| {
         format!(
             "Failed to create extracted runtime temp file {:?}: {}",
@@ -10566,8 +11131,10 @@ fn extract_runtime_zip_entry(
 }
 
 async fn download_pinterest_runtime_artifact(
+    app: &AppHandle,
     artifact: &RuntimeSidecarArtifact,
     temp_path: &Path,
+    missing_components: &[String],
 ) -> Result<(), String> {
     download_runtime_asset_to_temp(
         &artifact.url,
@@ -10575,6 +11142,7 @@ async fn download_pinterest_runtime_artifact(
         &artifact.sha256,
         temp_path,
         "managed Pinterest runtime",
+        Some((app, PINTEREST_RUNTIME_COMPONENT_ID, missing_components)),
     )
     .await
 }
@@ -10583,6 +11151,7 @@ fn finalize_runtime_dependency_gate_for_snapshot(
     app: &AppHandle,
     snapshot: &RuntimeDependencyStatusSnapshot,
     last_error: Option<String>,
+    current_component: Option<&str>,
 ) -> RuntimeDependencyGateStatePayload {
     let missing_components = runtime_dependency_missing_components(snapshot);
     if missing_components.is_empty() {
@@ -10591,19 +11160,47 @@ fn finalize_runtime_dependency_gate_for_snapshot(
             RuntimeDependencyGatePhase::Ready,
             Vec::new(),
             None,
+            RuntimeDependencyGateActivityState::default(),
+        );
+    }
+
+    if last_error.is_none() && snapshot_has_missing_managed_runtime(snapshot) {
+        return update_runtime_dependency_gate_state(
+            app,
+            RuntimeDependencyGatePhase::Checking,
+            missing_components.clone(),
+            None,
+            runtime_dependency_gate_activity_state(
+                &missing_components,
+                None,
+                Some(RuntimeDependencyGateActivityStage::Checking),
+                None,
+                None,
+                None,
+            ),
         );
     }
 
     update_runtime_dependency_gate_state(
         app,
         RuntimeDependencyGatePhase::Failed,
-        missing_components,
+        missing_components.clone(),
         last_error,
+        runtime_dependency_gate_activity_state(
+            &missing_components,
+            current_component,
+            None,
+            None,
+            None,
+            None,
+        ),
     )
 }
 
 fn snapshot_has_missing_managed_runtime(snapshot: &RuntimeDependencyStatusSnapshot) -> bool {
-    !snapshot.pinterest_downloader.is_ready() || !snapshot.deno.is_ready()
+    !snapshot.ffmpeg.is_ready()
+        || !snapshot.pinterest_downloader.is_ready()
+        || !snapshot.deno.is_ready()
 }
 
 async fn ensure_managed_pinterest_runtime_ready(
@@ -10622,10 +11219,13 @@ async fn ensure_managed_pinterest_runtime_ready(
 
     let initial_snapshot = get_runtime_dependency_status(app.clone());
     let missing_components = runtime_dependency_missing_components(&initial_snapshot);
-    update_runtime_dependency_gate_state(
+    let _ = update_runtime_dependency_gate_download_activity(
         app,
-        RuntimeDependencyGatePhase::Downloading,
-        missing_components.clone(),
+        &missing_components,
+        PINTEREST_RUNTIME_COMPONENT_ID,
+        RuntimeDependencyGateActivityStage::Checking,
+        None,
+        None,
         None,
     );
     append_runtime_log_event(
@@ -10654,7 +11254,17 @@ async fn ensure_managed_pinterest_runtime_ready(
         })?;
 
         let temp_path = build_runtime_download_temp_path(&target_path);
-        download_pinterest_runtime_artifact(&artifact, &temp_path).await?;
+        download_pinterest_runtime_artifact(app, &artifact, &temp_path, &missing_components)
+            .await?;
+        let _ = update_runtime_dependency_gate_download_activity(
+            app,
+            &missing_components,
+            PINTEREST_RUNTIME_COMPONENT_ID,
+            RuntimeDependencyGateActivityStage::Installing,
+            Some(100.0),
+            Some(artifact.size),
+            Some(artifact.size),
+        );
         if let Err(err) = replace_file_preserving_backup(&temp_path, &target_path) {
             let _ = fs::remove_file(&temp_path);
             return Err(err);
@@ -10687,7 +11297,7 @@ async fn ensure_managed_pinterest_runtime_ready(
                 }),
             );
             let snapshot = get_runtime_dependency_status(app.clone());
-            let _ = finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, None);
+            let _ = finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, None, None);
             Ok(path)
         }
         Err(err) => {
@@ -10704,8 +11314,12 @@ async fn ensure_managed_pinterest_runtime_ready(
                 }),
             );
             let snapshot = get_runtime_dependency_status(app.clone());
-            let _ =
-                finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, Some(err.clone()));
+            let _ = finalize_runtime_dependency_gate_for_snapshot(
+                app,
+                &snapshot,
+                Some(err.clone()),
+                Some(PINTEREST_RUNTIME_COMPONENT_ID),
+            );
             Err(err)
         }
     }
@@ -10715,22 +11329,28 @@ async fn ensure_managed_deno_runtime_ready(
     app: &AppHandle,
     trigger: &str,
 ) -> Result<PathBuf, String> {
-    let target_path = managed_deno_binary_path(app)?;
-    if target_path.exists() {
+    let runtime_paths = managed_deno_runtime_paths(app)?;
+    let target_path = runtime_paths.front_deno.clone();
+    let real_target_path = runtime_paths.real_deno.clone();
+    if runtime_paths.is_ready() {
         return Ok(target_path);
     }
 
     let _lock = DENO_RUNTIME_BOOTSTRAP_LOCK.lock().await;
-    if target_path.exists() {
+    let runtime_paths = managed_deno_runtime_paths(app)?;
+    if runtime_paths.is_ready() {
         return Ok(target_path);
     }
 
     let initial_snapshot = get_runtime_dependency_status(app.clone());
     let missing_components = runtime_dependency_missing_components(&initial_snapshot);
-    update_runtime_dependency_gate_state(
+    let _ = update_runtime_dependency_gate_download_activity(
         app,
-        RuntimeDependencyGatePhase::Downloading,
-        missing_components.clone(),
+        &missing_components,
+        DENO_RUNTIME_COMPONENT_ID,
+        RuntimeDependencyGateActivityStage::Checking,
+        None,
+        None,
         None,
     );
     append_runtime_log_event(
@@ -10741,6 +11361,7 @@ async fn ensure_managed_deno_runtime_ready(
             "component": DENO_RUNTIME_COMPONENT_ID,
             "trigger": trigger,
             "targetPath": target_path,
+            "realTargetPath": real_target_path,
             "missingComponents": missing_components,
         }),
     );
@@ -10753,15 +11374,15 @@ async fn ensure_managed_deno_runtime_ready(
             artifact.target,
             artifact.download_urls.join(", ")
         );
-        let target_dir = target_path
-            .parent()
-            .ok_or_else(|| format!("Failed to resolve runtime target dir for {:?}", target_path))?;
-        tokio::fs::create_dir_all(target_dir).await.map_err(|err| {
-            format!(
-                "Failed to create runtime target dir {:?}: {}",
-                target_dir, err
-            )
-        })?;
+        let target_dir = managed_deno_runtime_dir(app)?;
+        tokio::fs::create_dir_all(&target_dir)
+            .await
+            .map_err(|err| {
+                format!(
+                    "Failed to create runtime target dir {:?}: {}",
+                    target_dir, err
+                )
+            })?;
 
         let archive_temp_path = build_runtime_archive_temp_path(&target_path);
         let downloaded_from = download_runtime_asset_to_temp_with_fallbacks(
@@ -10770,6 +11391,7 @@ async fn ensure_managed_deno_runtime_ready(
             artifact.sha256,
             &archive_temp_path,
             "managed deno runtime archive",
+            Some((app, DENO_RUNTIME_COMPONENT_ID, &missing_components)),
         )
         .await?;
         println!(
@@ -10777,25 +11399,67 @@ async fn ensure_managed_deno_runtime_ready(
             downloaded_from
         );
 
+        let _ = update_runtime_dependency_gate_download_activity(
+            app,
+            &missing_components,
+            DENO_RUNTIME_COMPONENT_ID,
+            RuntimeDependencyGateActivityStage::Installing,
+            Some(100.0),
+            Some(artifact.size),
+            Some(artifact.size),
+        );
+
         let mut install_error: Option<String> = None;
         for attempt in 1..=3 {
-            let temp_path = build_runtime_download_temp_path(&target_path);
-            let _ = fs::remove_file(&temp_path);
+            let staging_dir =
+                build_runtime_temp_path_with_suffix(&target_dir, "flowselect-install");
+            let staging_paths = managed_deno_runtime_paths_from_dir(&staging_dir);
+            let _ = fs::remove_dir_all(&staging_dir);
 
-            match extract_runtime_zip_entry(
-                &archive_temp_path,
-                artifact.archive_entry_name,
-                &temp_path,
-            )
-            .and_then(|_| replace_file_preserving_backup(&temp_path, &target_path))
-            {
+            let attempt_result = (|| -> Result<(), String> {
+                fs::create_dir_all(&staging_dir).map_err(|err| {
+                    format!(
+                        "Failed to create staged runtime dir {:?}: {}",
+                        staging_dir, err
+                    )
+                })?;
+                extract_runtime_zip_entry(
+                    &archive_temp_path,
+                    deno_executable_name(),
+                    &staging_paths.real_deno,
+                )?;
+                #[cfg(target_os = "windows")]
+                {
+                    copy_bundled_runtime_proxy_to_path(
+                        app,
+                        &staging_paths.front_deno,
+                        "managed deno proxy",
+                    )?;
+                }
+                #[cfg(unix)]
+                {
+                    fs::set_permissions(
+                        &staging_paths.real_deno,
+                        std::fs::Permissions::from_mode(0o755),
+                    )
+                    .map_err(|err| {
+                        format!(
+                            "Failed to set executable permission on {:?}: {}",
+                            staging_paths.real_deno, err
+                        )
+                    })?;
+                }
+                replace_directory_preserving_backup(&staging_dir, &target_dir)
+            })();
+
+            match attempt_result {
                 Ok(()) => {
                     install_error = None;
                     let _ = fs::remove_file(&archive_temp_path);
                     break;
                 }
                 Err(err) => {
-                    let _ = fs::remove_file(&temp_path);
+                    let _ = fs::remove_dir_all(&staging_dir);
                     install_error = Some(err.clone());
                     println!(
                         ">>> [Rust] Managed deno extract/install attempt {} failed: {}",
@@ -10816,15 +11480,6 @@ async fn ensure_managed_deno_runtime_ready(
                 err
             ));
         }
-        #[cfg(unix)]
-        fs::set_permissions(&target_path, std::fs::Permissions::from_mode(0o755)).map_err(
-            |err| {
-                format!(
-                    "Failed to set executable permission on {:?}: {}",
-                    target_path, err
-                )
-            },
-        )?;
 
         Ok::<PathBuf, String>(target_path.clone())
     }
@@ -10840,11 +11495,12 @@ async fn ensure_managed_deno_runtime_ready(
                     "component": DENO_RUNTIME_COMPONENT_ID,
                     "trigger": trigger,
                     "path": path,
+                    "realPath": real_target_path,
                     "success": true,
                 }),
             );
             let snapshot = get_runtime_dependency_status(app.clone());
-            let _ = finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, None);
+            let _ = finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, None, None);
             Ok(path)
         }
         Err(err) => {
@@ -10856,13 +11512,250 @@ async fn ensure_managed_deno_runtime_ready(
                     "component": DENO_RUNTIME_COMPONENT_ID,
                     "trigger": trigger,
                     "targetPath": target_path,
+                    "realTargetPath": real_target_path,
                     "success": false,
                     "error": err,
                 }),
             );
             let snapshot = get_runtime_dependency_status(app.clone());
-            let _ =
-                finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, Some(err.clone()));
+            let _ = finalize_runtime_dependency_gate_for_snapshot(
+                app,
+                &snapshot,
+                Some(err.clone()),
+                Some(DENO_RUNTIME_COMPONENT_ID),
+            );
+            Err(err)
+        }
+    }
+}
+
+async fn ensure_managed_ffmpeg_runtime_ready(
+    app: &AppHandle,
+    trigger: &str,
+) -> Result<PathBuf, String> {
+    let runtime_paths = managed_ffmpeg_runtime_paths(app)?;
+    let target_path = runtime_paths.front_ffmpeg.clone();
+    let ffprobe_path = runtime_paths.front_ffprobe.clone();
+    let real_target_path = runtime_paths.real_ffmpeg.clone();
+    let real_ffprobe_path = runtime_paths.real_ffprobe.clone();
+    if runtime_paths.is_ready() {
+        return Ok(target_path);
+    }
+
+    let _lock = FFMPEG_RUNTIME_BOOTSTRAP_LOCK.lock().await;
+    let runtime_paths = managed_ffmpeg_runtime_paths(app)?;
+    if runtime_paths.is_ready() {
+        return Ok(target_path);
+    }
+
+    let initial_snapshot = get_runtime_dependency_status(app.clone());
+    let missing_components = runtime_dependency_missing_components(&initial_snapshot);
+    let _ = update_runtime_dependency_gate_download_activity(
+        app,
+        &missing_components,
+        FFMPEG_RUNTIME_COMPONENT_ID,
+        RuntimeDependencyGateActivityStage::Checking,
+        None,
+        None,
+        None,
+    );
+    append_runtime_log_event(
+        "runtime_bootstrap",
+        "start",
+        None,
+        serde_json::json!({
+            "component": FFMPEG_RUNTIME_COMPONENT_ID,
+            "trigger": trigger,
+            "targetPath": target_path,
+            "ffprobePath": ffprobe_path,
+            "realTargetPath": real_target_path,
+            "realFfprobePath": real_ffprobe_path,
+            "missingComponents": missing_components,
+        }),
+    );
+
+    let install_result = async {
+        let artifact = select_ffmpeg_runtime_artifact_spec()?;
+        println!(
+            ">>> [Rust] Selected managed ffmpeg artifact component={} target={} urls={}",
+            artifact.component,
+            artifact.target,
+            artifact.download_urls.join(", ")
+        );
+        let target_dir = managed_ffmpeg_runtime_dir(app)?;
+        tokio::fs::create_dir_all(&target_dir)
+            .await
+            .map_err(|err| {
+                format!(
+                    "Failed to create runtime target dir {:?}: {}",
+                    target_dir, err
+                )
+            })?;
+
+        let archive_temp_path = build_runtime_archive_temp_path(&target_path);
+        let downloaded_from = download_runtime_asset_to_temp_with_fallbacks(
+            artifact.download_urls,
+            artifact.size,
+            artifact.sha256,
+            &archive_temp_path,
+            "managed ffmpeg runtime archive",
+            Some((app, FFMPEG_RUNTIME_COMPONENT_ID, &missing_components)),
+        )
+        .await?;
+        println!(
+            ">>> [Rust] Managed ffmpeg runtime archive downloaded from {}",
+            downloaded_from
+        );
+
+        let _ = update_runtime_dependency_gate_download_activity(
+            app,
+            &missing_components,
+            FFMPEG_RUNTIME_COMPONENT_ID,
+            RuntimeDependencyGateActivityStage::Installing,
+            Some(100.0),
+            Some(artifact.size),
+            Some(artifact.size),
+        );
+
+        let mut install_error: Option<String> = None;
+        for attempt in 1..=3 {
+            let staging_dir =
+                build_runtime_temp_path_with_suffix(&target_dir, "flowselect-install");
+            let staging_paths = managed_ffmpeg_runtime_paths_from_dir(&staging_dir);
+            let _ = fs::remove_dir_all(&staging_dir);
+
+            let attempt_result = (|| -> Result<(), String> {
+                fs::create_dir_all(&staging_dir).map_err(|err| {
+                    format!(
+                        "Failed to create staged runtime dir {:?}: {}",
+                        staging_dir, err
+                    )
+                })?;
+                extract_runtime_zip_entry(
+                    &archive_temp_path,
+                    ffmpeg_executable_name(),
+                    &staging_paths.real_ffmpeg,
+                )?;
+                extract_runtime_zip_entry(
+                    &archive_temp_path,
+                    ffprobe_executable_name(),
+                    &staging_paths.real_ffprobe,
+                )?;
+                #[cfg(target_os = "windows")]
+                {
+                    copy_bundled_runtime_proxy_to_path(
+                        app,
+                        &staging_paths.front_ffmpeg,
+                        "managed ffmpeg proxy",
+                    )?;
+                    copy_bundled_runtime_proxy_to_path(
+                        app,
+                        &staging_paths.front_ffprobe,
+                        "managed ffprobe proxy",
+                    )?;
+                }
+                #[cfg(unix)]
+                {
+                    fs::set_permissions(
+                        &staging_paths.real_ffmpeg,
+                        std::fs::Permissions::from_mode(0o755),
+                    )
+                    .map_err(|err| {
+                        format!(
+                            "Failed to set executable permission on {:?}: {}",
+                            staging_paths.real_ffmpeg, err
+                        )
+                    })?;
+                    fs::set_permissions(
+                        &staging_paths.real_ffprobe,
+                        std::fs::Permissions::from_mode(0o755),
+                    )
+                    .map_err(|err| {
+                        format!(
+                            "Failed to set executable permission on {:?}: {}",
+                            staging_paths.real_ffprobe, err
+                        )
+                    })?;
+                }
+                replace_directory_preserving_backup(&staging_dir, &target_dir)
+            })();
+
+            match attempt_result {
+                Ok(()) => {
+                    install_error = None;
+                    let _ = fs::remove_file(&archive_temp_path);
+                    break;
+                }
+                Err(err) => {
+                    let _ = fs::remove_dir_all(&staging_dir);
+                    install_error = Some(err.clone());
+                    println!(
+                        ">>> [Rust] Managed ffmpeg extract/install attempt {} failed: {}",
+                        attempt, err
+                    );
+                    if attempt < 3 {
+                        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+                    } else {
+                        let _ = fs::remove_file(&archive_temp_path);
+                    }
+                }
+            }
+        }
+
+        if let Some(err) = install_error {
+            return Err(format!(
+                "Failed to install managed ffmpeg runtime after retries: {}",
+                err
+            ));
+        }
+
+        Ok::<PathBuf, String>(target_path.clone())
+    }
+    .await;
+
+    match install_result {
+        Ok(path) => {
+            append_runtime_log_event(
+                "runtime_bootstrap",
+                "complete",
+                None,
+                serde_json::json!({
+                    "component": FFMPEG_RUNTIME_COMPONENT_ID,
+                    "trigger": trigger,
+                    "path": path,
+                    "ffprobePath": ffprobe_path,
+                    "realPath": real_target_path,
+                    "realFfprobePath": real_ffprobe_path,
+                    "success": true,
+                }),
+            );
+            let snapshot = get_runtime_dependency_status(app.clone());
+            let _ = finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, None, None);
+            Ok(path)
+        }
+        Err(err) => {
+            append_runtime_log_event(
+                "runtime_bootstrap",
+                "complete",
+                None,
+                serde_json::json!({
+                    "component": FFMPEG_RUNTIME_COMPONENT_ID,
+                    "trigger": trigger,
+                    "targetPath": target_path,
+                    "ffprobePath": ffprobe_path,
+                    "realTargetPath": real_target_path,
+                    "realFfprobePath": real_ffprobe_path,
+                    "success": false,
+                    "error": err,
+                }),
+            );
+            let snapshot = get_runtime_dependency_status(app.clone());
+            let _ = finalize_runtime_dependency_gate_for_snapshot(
+                app,
+                &snapshot,
+                Some(err.clone()),
+                Some(FFMPEG_RUNTIME_COMPONENT_ID),
+            );
             Err(err)
         }
     }
@@ -10872,6 +11765,11 @@ async fn ensure_missing_managed_runtimes_ready(
     app: &AppHandle,
     trigger: &str,
 ) -> Result<(), String> {
+    let snapshot = get_runtime_dependency_status(app.clone());
+    if !snapshot.ffmpeg.is_ready() {
+        ensure_managed_ffmpeg_runtime_ready(app, trigger).await?;
+    }
+
     let snapshot = get_runtime_dependency_status(app.clone());
     if !snapshot.pinterest_downloader.is_ready() {
         ensure_managed_pinterest_runtime_ready(app, trigger).await?;
@@ -10963,15 +11861,11 @@ fn ytdlp_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 async fn get_local_ytdlp_version(app: &AppHandle) -> Result<String, String> {
-    use tauri_plugin_shell::process::CommandEvent;
-
     let ytdlp_path = ytdlp_binary_path(app)?;
-    let shell = app.shell();
-    let (mut rx, _child) = shell
-        .command(ytdlp_path.to_string_lossy().to_string())
-        .args(["--version"])
-        .spawn()
-        .map_err(|spawn_err| {
+    let args = vec!["--version".to_string()];
+    let env_overrides: Vec<(String, String)> = Vec::new();
+    let StreamingCliCommand { mut rx, .. } =
+        spawn_streaming_cli_command(&ytdlp_path, &args, &env_overrides).map_err(|spawn_err| {
             format!(
                 "Failed to spawn yt-dlp for version check at {:?}: {}",
                 ytdlp_path, spawn_err
@@ -10984,8 +11878,8 @@ async fn get_local_ytdlp_version(app: &AppHandle) -> Result<String, String> {
             CommandEvent::Stdout(line) => {
                 current_version = String::from_utf8_lossy(&line).trim().to_string();
             }
+            CommandEvent::Stderr(_) => {}
             CommandEvent::Terminated(_) => break,
-            _ => {}
         }
     }
 
@@ -11053,6 +11947,7 @@ fn refresh_runtime_dependency_gate_state(app: AppHandle) -> RuntimeDependencyGat
         RuntimeDependencyGatePhase::Checking,
         Vec::new(),
         None,
+        RuntimeDependencyGateActivityState::default(),
     );
 
     let snapshot = get_runtime_dependency_status(app.clone());
@@ -11063,6 +11958,7 @@ fn refresh_runtime_dependency_gate_state(app: AppHandle) -> RuntimeDependencyGat
             RuntimeDependencyGatePhase::Ready,
             Vec::new(),
             None,
+            RuntimeDependencyGateActivityState::default(),
         );
     }
 
@@ -11070,8 +11966,16 @@ fn refresh_runtime_dependency_gate_state(app: AppHandle) -> RuntimeDependencyGat
         let payload = update_runtime_dependency_gate_state(
             &app,
             RuntimeDependencyGatePhase::Downloading,
-            missing_components,
+            missing_components.clone(),
             None,
+            runtime_dependency_gate_activity_state(
+                &missing_components,
+                None,
+                Some(RuntimeDependencyGateActivityStage::Checking),
+                None,
+                None,
+                None,
+            ),
         );
         spawn_missing_managed_runtime_bootstrap(app, "gate_refresh");
         return payload;
@@ -11085,6 +11989,7 @@ fn refresh_runtime_dependency_gate_state(app: AppHandle) -> RuntimeDependencyGat
             "Missing runtime dependencies: {}",
             missing_components.join(", ")
         )),
+        runtime_dependency_gate_activity_state(&missing_components, None, None, None, None, None),
     )
 }
 
@@ -11101,14 +12006,22 @@ fn set_runtime_dependency_user_decision(
     if allow_download {
         let snapshot = get_runtime_dependency_status(app.clone());
         if !snapshot_has_missing_managed_runtime(&snapshot) {
-            return finalize_runtime_dependency_gate_for_snapshot(&app, &snapshot, None);
+            return finalize_runtime_dependency_gate_for_snapshot(&app, &snapshot, None, None);
         }
 
         let payload = update_runtime_dependency_gate_state(
             &app,
             RuntimeDependencyGatePhase::Downloading,
-            current_missing,
+            current_missing.clone(),
             None,
+            runtime_dependency_gate_activity_state(
+                &current_missing,
+                None,
+                Some(RuntimeDependencyGateActivityStage::Checking),
+                None,
+                None,
+                None,
+            ),
         );
         spawn_missing_managed_runtime_bootstrap(app, "manual_decision");
         payload
@@ -11116,11 +12029,12 @@ fn set_runtime_dependency_user_decision(
         update_runtime_dependency_gate_state(
             &app,
             RuntimeDependencyGatePhase::Failed,
-            current_missing,
+            current_missing.clone(),
             Some(
                 "Managed runtime bootstrap is required before runtime-gated downloads can continue"
                     .to_string(),
             ),
+            runtime_dependency_gate_activity_state(&current_missing, None, None, None, None, None),
         )
     }
 }
@@ -11137,6 +12051,7 @@ fn mark_runtime_dependency_download_result(
             RuntimeDependencyGatePhase::Ready,
             Vec::new(),
             None,
+            RuntimeDependencyGateActivityState::default(),
         );
     }
 
@@ -11148,8 +12063,9 @@ fn mark_runtime_dependency_download_result(
     update_runtime_dependency_gate_state(
         &app,
         RuntimeDependencyGatePhase::Failed,
-        current_missing,
+        current_missing.clone(),
         Some(error_message),
+        runtime_dependency_gate_activity_state(&current_missing, None, None, None, None, None),
     )
 }
 
@@ -13031,6 +13947,15 @@ async fn handle_ws_connection(
 
     let (mut write, mut read) = ws_stream.split();
     println!(">>> [WS] Client connected");
+    let _ = write
+        .send(Message::Text(
+            serde_json::json!({
+                "action": "request_download_preferences"
+            })
+            .to_string()
+            .into(),
+        ))
+        .await;
     let mut disconnect_error: Option<String> = None;
 
     loop {
@@ -13137,6 +14062,8 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
         }
         "sync_download_preferences" => {
             if let Some(data) = msg.data {
+                let request_id = extract_ws_request_id(&data);
+                let with_request_id = |code: Option<&str>| build_ws_request_data(&request_id, code);
                 let incoming_quality = parse_ytdlp_quality_preference_override(&data);
                 let incoming_ae = parse_ae_friendly_conversion_enabled_override(&data);
 
@@ -13144,7 +14071,7 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                     return WsResponse {
                         success: false,
                         message: Some("Missing download preference fields".to_string()),
-                        data: None,
+                        data: with_request_id(Some("missing_download_preference_fields")),
                     };
                 }
 
@@ -13156,10 +14083,24 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                             Ok(_) => WsResponse {
                                 success: true,
                                 message: Some("Download preferences synced".to_string()),
-                                data: Some(serde_json::json!({
-                                    "quality": next_preferences.ytdlp_quality.as_str(),
-                                    "aeFriendlyConversionEnabled": next_preferences.ae_friendly_conversion_enabled,
-                                })),
+                                data: with_request_id(None).map(|base| {
+                                    let mut payload = base;
+                                    if let Some(object) = payload.as_object_mut() {
+                                        object.insert(
+                                            "quality".to_string(),
+                                            serde_json::Value::String(
+                                                next_preferences.ytdlp_quality.as_str().to_string(),
+                                            ),
+                                        );
+                                        object.insert(
+                                            "aeFriendlyConversionEnabled".to_string(),
+                                            serde_json::Value::Bool(
+                                                next_preferences.ae_friendly_conversion_enabled,
+                                            ),
+                                        );
+                                    }
+                                    payload
+                                }),
                             },
                             Err(err) => WsResponse {
                                 success: false,
@@ -13167,14 +14108,14 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
                                     "Failed to persist download preferences: {}",
                                     err
                                 )),
-                                data: None,
+                                data: with_request_id(Some("persist_download_preferences_failed")),
                             },
                         }
                     }
                     Err(err) => WsResponse {
                         success: false,
                         message: Some(format!("Failed to resolve download preferences: {}", err)),
-                        data: None,
+                        data: with_request_id(Some("resolve_download_preferences_failed")),
                     },
                 }
             } else {
@@ -13690,6 +14631,7 @@ pub fn run() {
                         RuntimeDependencyGatePhase::Ready,
                         Vec::new(),
                         None,
+                        RuntimeDependencyGateActivityState::default(),
                     );
                     return;
                 }
@@ -13717,6 +14659,14 @@ pub fn run() {
                         "Missing runtime dependencies: {}",
                         missing_components.join(", ")
                     )),
+                    runtime_dependency_gate_activity_state(
+                        &missing_components,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
                 );
             });
 
@@ -13990,9 +14940,64 @@ mod tests {
             .download_urls
             .iter()
             .all(|url| !url.trim().is_empty()));
-        assert_eq!(artifact.archive_entry_name, deno_executable_name());
         assert!(artifact.size > 0);
         assert_eq!(artifact.sha256.len(), 64);
+    }
+
+    #[test]
+    fn select_ffmpeg_runtime_artifact_spec_matches_current_target() {
+        let target = current_runtime_sidecar_target().expect("expected supported runtime target");
+        let artifact = select_ffmpeg_runtime_artifact_spec()
+            .expect("expected managed ffmpeg artifact spec for current target");
+
+        assert_eq!(artifact.component, FFMPEG_RUNTIME_COMPONENT_ID);
+        assert_eq!(artifact.target, target);
+        assert!(!artifact.download_urls.is_empty());
+        assert!(artifact
+            .download_urls
+            .iter()
+            .all(|url| !url.trim().is_empty()));
+        assert!(artifact.size > 0);
+        assert_eq!(artifact.sha256.len(), 64);
+    }
+
+    #[test]
+    fn snapshot_has_missing_managed_runtime_includes_ffmpeg() {
+        let snapshot = RuntimeDependencyStatusSnapshot {
+            yt_dlp: RuntimeDependencyStatusEntry::ready(
+                PathBuf::from("C:/flowselect/mock/binaries/yt-dlp.exe"),
+                RuntimeDependencySource::Bundled,
+            ),
+            ffmpeg: RuntimeDependencyStatusEntry::missing("missing ffmpeg".to_string()),
+            deno: RuntimeDependencyStatusEntry::ready(
+                PathBuf::from("C:/flowselect/config/runtimes/deno/deno.exe"),
+                RuntimeDependencySource::Managed,
+            ),
+            pinterest_downloader: RuntimeDependencyStatusEntry::ready(
+                PathBuf::from("C:/flowselect/config/runtimes/pinterest-dl/pinterest-dl.exe"),
+                RuntimeDependencySource::Managed,
+            ),
+        };
+
+        assert!(snapshot_has_missing_managed_runtime(&snapshot));
+    }
+
+    #[test]
+    fn ensure_parent_dir_exists_creates_nested_parent() {
+        let root =
+            std::env::temp_dir().join(format!("flowselect-parent-dir-test-{}", std::process::id()));
+        let nested_file = root.join("level-a").join("level-b").join("artifact.tmp");
+        let _ = fs::remove_dir_all(&root);
+
+        ensure_parent_dir_exists(&nested_file, "test temp file")
+            .expect("expected parent dir creation to succeed");
+
+        assert!(nested_file
+            .parent()
+            .expect("expected nested parent")
+            .exists());
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -14015,6 +15020,63 @@ mod tests {
             missing_components,
             vec!["ffmpeg".to_string(), "deno".to_string()]
         );
+    }
+
+    #[test]
+    fn next_runtime_dependency_component_uses_bootstrap_order() {
+        let missing_components = vec![
+            "deno".to_string(),
+            "pinterest-dl".to_string(),
+            "ffmpeg".to_string(),
+        ];
+
+        assert_eq!(
+            next_runtime_dependency_component(&missing_components, None),
+            Some("ffmpeg".to_string())
+        );
+        assert_eq!(
+            next_runtime_dependency_component(&missing_components, Some(FFMPEG_RUNTIME_COMPONENT_ID)),
+            Some("pinterest-dl".to_string())
+        );
+        assert_eq!(
+            next_runtime_dependency_component(
+                &missing_components,
+                Some(PINTEREST_RUNTIME_COMPONENT_ID)
+            ),
+            Some("deno".to_string())
+        );
+        assert_eq!(
+            next_runtime_dependency_component(&missing_components, Some(DENO_RUNTIME_COMPONENT_ID)),
+            None
+        );
+    }
+
+    #[test]
+    fn runtime_dependency_gate_activity_state_tracks_current_and_next_component() {
+        let missing_components = vec![
+            "ffmpeg".to_string(),
+            "pinterest-dl".to_string(),
+            "deno".to_string(),
+        ];
+
+        let activity = runtime_dependency_gate_activity_state(
+            &missing_components,
+            Some(FFMPEG_RUNTIME_COMPONENT_ID),
+            Some(RuntimeDependencyGateActivityStage::Downloading),
+            Some(42.0),
+            Some(42),
+            Some(100),
+        );
+
+        assert_eq!(activity.current_component.as_deref(), Some("ffmpeg"));
+        assert_eq!(
+            activity.current_stage,
+            Some(RuntimeDependencyGateActivityStage::Downloading)
+        );
+        assert_eq!(activity.progress_percent, Some(42.0));
+        assert_eq!(activity.downloaded_bytes, Some(42));
+        assert_eq!(activity.total_bytes, Some(100));
+        assert_eq!(activity.next_component.as_deref(), Some("pinterest-dl"));
     }
 
     #[test]

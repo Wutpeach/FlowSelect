@@ -49,7 +49,9 @@ CLAUDE.md
 
 # Tauri sidecar binaries (downloaded in CI)
 src-tauri/binaries/*.exe
+src-tauri/binaries/flowselect-cli-proxy-*
 src-tauri/binaries/pinterest-dl-*
+src-tauri/runtime-proxy/target/
 
 # Python cache artifacts
 __pycache__/

@@ -3,7 +3,7 @@
   "name": "FlowSelect Video Picker",
   "version": "1.0.0",
   "description": "Pick video elements from web pages for FlowSelect",
-  "permissions": ["activeTab", "scripting", "cookies", "storage"],
+  "permissions": ["activeTab", "scripting", "cookies", "storage", "alarms"],
   "host_permissions": ["<all_urls>"],
   "web_accessible_resources": [
     {
