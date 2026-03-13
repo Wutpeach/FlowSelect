@@ -47,6 +47,19 @@
       "removeTranscode": "Remove",
       "removeTranscodeHint": "Remove from queue only"
     },
+    "runtime": {
+      "phaseTitle": {
+        "checking": "Checking runtime",
+        "awaiting_confirmation": "Runtime approval needed",
+        "downloading": "Preparing runtime",
+        "blocked_by_user": "Runtime download skipped",
+        "failed": "Runtime prep failed",
+        "missing": "Runtime attention needed",
+        "ready": "Runtime ready"
+      },
+      "taskCountSingle": "1 task",
+      "taskCountPlural": "{{count}} tasks"
+    },
     "actions": {
       "hideWindow": "Hide window",
       "cancelCurrentTask": "Cancel current task",

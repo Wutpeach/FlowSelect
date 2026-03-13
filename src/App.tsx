@@ -8,6 +8,11 @@ import { motion, AnimatePresence } from "motion/react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { YtdlpVersionInfo } from "./types/ytdlp";
+import type {
+  RuntimeDependencyGatePhase,
+  RuntimeDependencyGateStatePayload,
+  RuntimeDependencyStatusSnapshot,
+} from "./types/runtimeDependencies";
 import {
   buildPinterestDragDiagnostic,
   extractEmbeddedPinterestDragPayload,
@@ -146,6 +151,43 @@ type QueuedVideoDownloadRequest = {
   videoCandidates?: PinterestVideoCandidate[];
   dragDiagnostic?: PinterestDragDiagnostic;
 };
+
+const getMissingRuntimeComponentsFromStatus = (
+  status: RuntimeDependencyStatusSnapshot | null,
+): string[] => {
+  if (!status) {
+    return [];
+  }
+
+  const missingComponents: string[] = [];
+  if (status.ytDlp.state !== "ready") {
+    missingComponents.push("yt-dlp");
+  }
+  if (status.ffmpeg.state !== "ready") {
+    missingComponents.push("ffmpeg");
+  }
+  if (status.deno.state !== "ready") {
+    missingComponents.push("deno");
+  }
+  if (status.pinterestDownloader.state !== "ready") {
+    missingComponents.push("pinterest-dl");
+  }
+  return missingComponents;
+};
+
+const runtimeGatePhaseNeedsAttention = (phase: RuntimeDependencyGatePhase): boolean => (
+  phase === "checking"
+  || phase === "awaiting_confirmation"
+  || phase === "downloading"
+  || phase === "blocked_by_user"
+  || phase === "failed"
+);
+
+const runtimeGatePhasePreservesDecision = (phase: RuntimeDependencyGatePhase): boolean => (
+  phase === "awaiting_confirmation"
+  || phase === "downloading"
+  || phase === "blocked_by_user"
+);
 
 const pickDroppedUrl = (rawValue: string): string => {
   if (typeof rawValue !== "string" || !rawValue.trim()) {
@@ -521,6 +563,10 @@ function App() {
   const [queueNoticeMessage, setQueueNoticeMessage] = useState<string | null>(null);
   const [isQueuePopoverOpen, setIsQueuePopoverOpen] = useState(false);
   const [ytdlpUpdate, setYtdlpUpdate] = useState<YtdlpVersionInfo | null>(null);
+  const [runtimeDependencyStatus, setRuntimeDependencyStatus] = useState<RuntimeDependencyStatusSnapshot | null>(null);
+  const [runtimeDependencyGateState, setRuntimeDependencyGateState] =
+    useState<RuntimeDependencyGateStatePayload | null>(null);
+  const [runtimeHint, setRuntimeHint] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -538,6 +584,7 @@ function App() {
   const resetCounterFeedbackTimerRef = useRef<number | null>(null);
   const queueNoticeTimerRef = useRef<number | null>(null);
   const queueIdleDelayTimerRef = useRef<number | null>(null);
+  const runtimeHintTimerRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
   const isDraggingRef = useRef(false);
   const cancellingTraceIdsRef = useRef<Set<string>>(new Set());
@@ -545,6 +592,7 @@ function App() {
   const isPanelHoveredRef = useRef(false);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
   const pendingDragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const previousTaskCountRef = useRef(0);
 
   // Window size constants
   const FULL_SIZE = 200;
@@ -840,6 +888,70 @@ function App() {
     }
   }, []);
 
+  const showRuntimeHint = useCallback((message: string) => {
+    setRuntimeHint(message);
+    if (runtimeHintTimerRef.current !== null) {
+      clearTimeout(runtimeHintTimerRef.current);
+    }
+    runtimeHintTimerRef.current = window.setTimeout(() => {
+      setRuntimeHint("");
+      runtimeHintTimerRef.current = null;
+    }, 2200);
+  }, []);
+
+  const refreshRuntimeDependencyStatus = useCallback(async () => {
+    try {
+      const status = await invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
+      setRuntimeDependencyStatus(status);
+      return status;
+    } catch (err) {
+      console.error("Failed to load runtime dependency status:", err);
+      setRuntimeDependencyStatus(null);
+      return null;
+    }
+  }, []);
+
+  const loadRuntimeDependencyGateState = useCallback(async () => {
+    try {
+      const state = await invoke<RuntimeDependencyGateStatePayload>("get_runtime_dependency_gate_state");
+      setRuntimeDependencyGateState(state);
+      return state;
+    } catch (err) {
+      console.error("Failed to load runtime dependency gate state:", err);
+      setRuntimeDependencyGateState(null);
+      return null;
+    }
+  }, []);
+
+  const refreshRuntimeDependencyGateState = useCallback(async () => {
+    try {
+      const state = await invoke<RuntimeDependencyGateStatePayload>("refresh_runtime_dependency_gate_state");
+      setRuntimeDependencyGateState(state);
+      return state;
+    } catch (err) {
+      console.error("Failed to refresh runtime dependency gate state:", err);
+      setRuntimeDependencyGateState(null);
+      return null;
+    }
+  }, []);
+
+  const refreshRuntimeDependencyContext = useCallback(async (
+    options: { showHint?: boolean } = {},
+  ) => {
+    const [status, gate] = await Promise.all([
+      refreshRuntimeDependencyStatus(),
+      refreshRuntimeDependencyGateState(),
+    ]);
+    if (options.showHint) {
+      showRuntimeHint(
+        status && gate
+          ? t("settings.downloaders.runtime.refreshed")
+          : t("settings.downloaders.runtime.refreshFailed"),
+      );
+    }
+    return { status, gate };
+  }, [refreshRuntimeDependencyGateState, refreshRuntimeDependencyStatus, showRuntimeHint, t]);
+
   const enqueueVideoDownload = useCallback((request: string | QueuedVideoDownloadRequest) => {
     resetDownloadOutcome();
     const payload = typeof request === "string" ? { url: request } : request;
@@ -925,6 +1037,27 @@ function App() {
     loadConfig();
   }, [applyRuntimeConfig, isMacOS]);
 
+  useEffect(() => {
+    const loadRuntimeDependencies = async () => {
+      const status = await refreshRuntimeDependencyStatus();
+      const gate = await loadRuntimeDependencyGateState();
+      if (!status) {
+        return;
+      }
+      if (!gate || gate.phase === "idle") {
+        if (getMissingRuntimeComponentsFromStatus(status).length > 0) {
+          await refreshRuntimeDependencyGateState();
+        }
+      }
+    };
+
+    void loadRuntimeDependencies();
+  }, [
+    loadRuntimeDependencyGateState,
+    refreshRuntimeDependencyGateState,
+    refreshRuntimeDependencyStatus,
+  ]);
+
   // Startup animation: brief delay to trigger bounce effect
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -943,6 +1076,9 @@ function App() {
       }
       if (queueIdleDelayTimerRef.current !== null) {
         clearTimeout(queueIdleDelayTimerRef.current);
+      }
+      if (runtimeHintTimerRef.current !== null) {
+        clearTimeout(runtimeHintTimerRef.current);
       }
     };
   }, []);
@@ -1116,6 +1252,34 @@ function App() {
     });
     return () => { unlisten.then(fn => fn()); };
   }, [refreshYtdlpVersion]);
+
+  useEffect(() => {
+    const unlisten = listen<RuntimeDependencyGateStatePayload>(
+      "runtime-dependency-gate-state",
+      (event) => {
+        setRuntimeDependencyGateState(event.payload);
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  useEffect(() => {
+    const previousTaskCount = previousTaskCountRef.current;
+    previousTaskCountRef.current = totalTaskCount;
+
+    if (previousTaskCount > 0 || totalTaskCount === 0) {
+      return;
+    }
+
+    const currentPhase = runtimeDependencyGateState?.phase ?? "idle";
+    if (runtimeGatePhasePreservesDecision(currentPhase)) {
+      return;
+    }
+
+    void refreshRuntimeDependencyContext();
+  }, [refreshRuntimeDependencyContext, runtimeDependencyGateState?.phase, totalTaskCount]);
 
   useEffect(() => {
     const unlisten = listen<VideoQueueStatePayload>("video-queue-count", (event) => {
@@ -2016,6 +2180,41 @@ function App() {
     }
   };
 
+  const handleRuntimeDependencyRecheck = async () => {
+    resetIdleTimer({ expandIfMinimized: false });
+    await refreshRuntimeDependencyContext({ showHint: true });
+  };
+
+  const handleRuntimeAllowDownload = async () => {
+    resetIdleTimer({ expandIfMinimized: false });
+    try {
+      const state = await invoke<RuntimeDependencyGateStatePayload>(
+        "set_runtime_dependency_user_decision",
+        { allowDownload: true },
+      );
+      setRuntimeDependencyGateState(state);
+      showRuntimeHint(t("settings.downloaders.runtime.markedForDownload"));
+    } catch (err) {
+      console.error("Failed to set runtime dependency allow decision:", err);
+      showRuntimeHint(t("settings.downloaders.runtime.markDecisionFailed"));
+    }
+  };
+
+  const handleRuntimeBlockDownload = async () => {
+    resetIdleTimer({ expandIfMinimized: false });
+    try {
+      const state = await invoke<RuntimeDependencyGateStatePayload>(
+        "set_runtime_dependency_user_decision",
+        { allowDownload: false },
+      );
+      setRuntimeDependencyGateState(state);
+      showRuntimeHint(t("settings.downloaders.runtime.markedBlockedByUser"));
+    } catch (err) {
+      console.error("Failed to set runtime dependency block decision:", err);
+      showRuntimeHint(t("settings.downloaders.runtime.markDecisionFailed"));
+    }
+  };
+
   // 右键菜单
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -2186,6 +2385,119 @@ function App() {
   const primaryTaskTrackStroke = primaryTask?.kind === "transcode"
     ? colors.transcodeTrack
     : colors.progressBgStroke;
+  const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
+  const runtimeMissingComponents = runtimeDependencyGateState?.missingComponents.length
+    ? runtimeDependencyGateState.missingComponents
+    : getMissingRuntimeComponentsFromStatus(runtimeDependencyStatus);
+  const hasRuntimeGateIssue = runtimeGatePhaseNeedsAttention(runtimeGatePhase)
+    || runtimeMissingComponents.length > 0;
+  const shouldShowRuntimePrompt = !isMinimized && !isQueuePopoverOpen && (
+    runtimeHint.length > 0
+    || hasRuntimeGateIssue
+    || (totalTaskCount > 0 && runtimeDependencyStatus === null)
+  );
+  const runtimePromptNeedsDecision = runtimeGatePhase === "awaiting_confirmation";
+  const showRuntimeRecheckButton = !runtimePromptNeedsDecision && runtimeGatePhase !== "downloading" && (
+    runtimeGatePhase === "failed"
+    || runtimeGatePhase === "blocked_by_user"
+    || runtimeMissingComponents.length > 0
+    || runtimeDependencyStatus === null
+  );
+  const runtimePromptTitle = (() => {
+    if (runtimeGatePhase === "checking") {
+      return t("app.runtime.phaseTitle.checking");
+    }
+    if (runtimeGatePhase === "awaiting_confirmation") {
+      return t("app.runtime.phaseTitle.awaiting_confirmation");
+    }
+    if (runtimeGatePhase === "downloading") {
+      return t("app.runtime.phaseTitle.downloading");
+    }
+    if (runtimeGatePhase === "blocked_by_user") {
+      return t("app.runtime.phaseTitle.blocked_by_user");
+    }
+    if (runtimeGatePhase === "failed") {
+      return t("app.runtime.phaseTitle.failed");
+    }
+    if (runtimeMissingComponents.length > 0) {
+      return t("app.runtime.phaseTitle.missing");
+    }
+    return t("app.runtime.phaseTitle.ready");
+  })();
+  const runtimePromptSummary = runtimeHint
+    || runtimeDependencyGateState?.lastError
+    || (
+      runtimeMissingComponents.length > 0
+        ? t("settings.downloaders.runtime.missingItems", {
+            items: runtimeMissingComponents.join(", "),
+          })
+        : runtimeDependencyStatus
+          ? t("settings.downloaders.runtime.allReady")
+          : t("settings.downloaders.runtime.unavailable")
+    );
+  const runtimePromptTone = runtimeHint
+    ? "accent"
+    : runtimeGatePhase === "failed"
+      || runtimeGatePhase === "blocked_by_user"
+      || runtimeGatePhase === "awaiting_confirmation"
+      ? "danger"
+      : "accent";
+  const runtimePromptAccentColor = runtimePromptTone === "danger"
+    ? colors.dangerText
+    : colors.accentText;
+  const runtimePromptAccentFill = runtimePromptTone === "danger"
+    ? colors.dangerSolid
+    : colors.accentSolid;
+  const runtimePromptAccentGlow = runtimePromptTone === "danger"
+    ? colors.dangerGlow
+    : colors.accentGlow;
+  const runtimePromptBackground = runtimePromptTone === "danger"
+    ? `linear-gradient(180deg, ${colors.dangerSurface} 0%, ${colors.bgSecondary} 100%)`
+    : `linear-gradient(180deg, ${totalTaskCount > 0 ? colors.accentSurfaceStrong : colors.accentSurface} 0%, ${colors.bgSecondary} 100%)`;
+  const runtimePromptBorderColor = runtimePromptTone === "danger"
+    ? colors.dangerSolid
+    : colors.accentBorder;
+  const runtimePromptTaskCountLabel = totalTaskCount === 1
+    ? t("app.runtime.taskCountSingle")
+    : t("app.runtime.taskCountPlural", { count: totalTaskCount });
+  const runtimePromptContentOffset = shouldShowRuntimePrompt
+    ? (runtimePromptNeedsDecision ? 72 : 54)
+    : 0;
+  const getRuntimeActionButtonStyle = (tone: "accent" | "danger" | "neutral"): CSSProperties => {
+    const borderColor = tone === "danger"
+      ? colors.dangerSolid
+      : tone === "accent"
+        ? colors.accentBorder
+        : colors.borderStart;
+    const textColor = tone === "danger"
+      ? colors.dangerText
+      : tone === "accent"
+        ? colors.accentText
+        : colors.textSecondary;
+    const backgroundColor = tone === "danger"
+      ? colors.dangerSurface
+      : tone === "accent"
+        ? colors.accentSurface
+        : colors.bgPrimary;
+    return {
+      minWidth: 46,
+      height: 22,
+      borderRadius: 999,
+      border: `1px solid ${borderColor}`,
+      backgroundColor,
+      color: textColor,
+      padding: "0 8px",
+      fontSize: 9,
+      fontWeight: 700,
+      lineHeight: 1,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      cursor: "pointer",
+      boxShadow: tone === "neutral" ? "none" : `0 0 12px ${runtimePromptAccentGlow}`,
+      transition: "background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease",
+    };
+  };
 
   return (
     <motion.div
@@ -2871,6 +3183,8 @@ function App() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: 4,
+              paddingTop: shouldShowRuntimePrompt ? 8 : 0,
+              paddingBottom: runtimePromptContentOffset,
             }}
           >
             <div style={{
@@ -3045,6 +3359,8 @@ function App() {
               justifyContent: "center",
               gap: 6,
               maxWidth: 170,
+              transform: shouldShowRuntimePrompt ? "translateY(-16px)" : "translateY(0)",
+              transition: "transform 0.2s ease",
             }}
           >
             {downloadCancelled ? (
@@ -3077,6 +3393,143 @@ function App() {
             exit={{ scale: 0, opacity: 0 }}
           >
             <CatIcon size={isMacOS ? 120 : 40} glow={!isMacOS} />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {shouldShowRuntimePrompt ? (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            style={{
+              position: "absolute",
+              left: 10,
+              right: 10,
+              bottom: 30,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              padding: "8px 10px",
+              borderRadius: 12,
+              background: runtimePromptBackground,
+              border: `1px solid ${runtimePromptBorderColor}`,
+              boxShadow: `0 12px 24px ${runtimePromptAccentGlow}, ${colors.panelShadow}`,
+              backdropFilter: "blur(14px)",
+              zIndex: 12,
+            }}
+            data-panel-double-click="ignore"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  minWidth: 0,
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    flexShrink: 0,
+                    backgroundColor: runtimePromptAccentFill,
+                    boxShadow: `0 0 10px ${runtimePromptAccentGlow}`,
+                  }}
+                />
+                <span
+                  style={{
+                    minWidth: 0,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: colors.textPrimary,
+                    lineHeight: 1.1,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    userSelect: "none",
+                  }}
+                >
+                  {runtimePromptTitle}
+                </span>
+              </div>
+              {totalTaskCount > 0 ? (
+                <span
+                  style={{
+                    flexShrink: 0,
+                    borderRadius: 999,
+                    padding: "2px 6px",
+                    fontSize: 8,
+                    fontWeight: 700,
+                    lineHeight: 1,
+                    color: runtimePromptAccentColor,
+                    backgroundColor: runtimePromptTone === "danger"
+                      ? colors.dangerSurface
+                      : colors.accentSurface,
+                    border: `1px solid ${runtimePromptBorderColor}`,
+                    userSelect: "none",
+                  }}
+                >
+                  {runtimePromptTaskCountLabel}
+                </span>
+              ) : null}
+            </div>
+
+            <span
+              title={runtimePromptSummary}
+              style={{
+                fontSize: 9,
+                lineHeight: 1.28,
+                color: runtimeHint ? runtimePromptAccentColor : colors.textSecondary,
+                display: "-webkit-box",
+                WebkitLineClamp: runtimePromptNeedsDecision ? 2 : 1,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {runtimePromptSummary}
+            </span>
+
+            {runtimePromptNeedsDecision ? (
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => void handleRuntimeAllowDownload()}
+                  style={getRuntimeActionButtonStyle("accent")}
+                >
+                  {t("settings.downloaders.runtime.allowButton")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleRuntimeBlockDownload()}
+                  style={getRuntimeActionButtonStyle("danger")}
+                >
+                  {t("settings.downloaders.runtime.skipButton")}
+                </button>
+              </div>
+            ) : showRuntimeRecheckButton ? (
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => void handleRuntimeDependencyRecheck()}
+                  style={getRuntimeActionButtonStyle("neutral")}
+                >
+                  {t("settings.downloaders.runtime.recheckButton")}
+                </button>
+              </div>
+            ) : null}
           </motion.div>
         ) : null}
       </AnimatePresence>

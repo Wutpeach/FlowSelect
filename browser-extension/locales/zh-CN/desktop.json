@@ -47,6 +47,19 @@
       "removeTranscode": "移除",
       "removeTranscodeHint": "仅从队列中移除"
     },
+    "runtime": {
+      "phaseTitle": {
+        "checking": "检测运行时",
+        "awaiting_confirmation": "需要确认运行时下载",
+        "downloading": "准备运行时中",
+        "blocked_by_user": "已跳过运行时下载",
+        "failed": "运行时准备失败",
+        "missing": "运行时需要处理",
+        "ready": "运行时已就绪"
+      },
+      "taskCountSingle": "1 个任务",
+      "taskCountPlural": "{{count}} 个任务"
+    },
     "actions": {
       "hideWindow": "隐藏窗口",
       "cancelCurrentTask": "取消当前任务",
