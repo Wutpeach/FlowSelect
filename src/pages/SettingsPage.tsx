@@ -14,6 +14,10 @@ import { saveOutputPath } from "../utils/outputPath";
 import { APP_VERSION } from "../constants/appVersion";
 import { DownloaderDeck } from "./settings/DownloaderDeck";
 import type { PinterestDownloaderInfo } from "../types/pinterestDownloader";
+import type {
+  RuntimeDependencyGateStatePayload,
+  RuntimeDependencyStatusSnapshot,
+} from "../types/runtimeDependencies";
 import type { YtdlpVersionInfo } from "../types/ytdlp";
 import { changeDesktopLanguage } from "../i18n/desktopLanguage";
 import {
@@ -147,9 +151,14 @@ function SettingsPage() {
   const [versionTapHint, setVersionTapHint] = useState("");
   const [ytdlpInfo, setYtdlpInfo] = useState<YtdlpVersionInfo | null>(null);
   const [pinterestInfo, setPinterestInfo] = useState<PinterestDownloaderInfo | null>(null);
+  const [runtimeDependencyStatus, setRuntimeDependencyStatus] =
+    useState<RuntimeDependencyStatusSnapshot | null>(null);
+  const [runtimeDependencyGateState, setRuntimeDependencyGateState] =
+    useState<RuntimeDependencyGateStatePayload | null>(null);
   const [isUpdatingYtdlp, setIsUpdatingYtdlp] = useState(false);
   const [ytdlpHint, setYtdlpHint] = useState("");
   const [pinterestHint, setPinterestHint] = useState("");
+  const [runtimeHint, setRuntimeHint] = useState("");
   const [renamePresetMenuOpen, setRenamePresetMenuOpen] = useState(false);
   const [hoveredRenamePreset, setHoveredRenamePreset] = useState<RenameRulePreset | null>(null);
   const [isCloseHovered, setIsCloseHovered] = useState(false);
@@ -158,6 +167,7 @@ function SettingsPage() {
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ytdlpHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pinterestHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runtimeHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const supportLogExportInFlightRef = useRef(false);
   const renamePresetMenuRef = useRef<HTMLDivElement | null>(null);
   const currentLanguage = normalizeAppLanguage(i18n.resolvedLanguage) ?? FALLBACK_LANGUAGE;
@@ -202,6 +212,17 @@ function SettingsPage() {
     }, 2200);
   }, []);
 
+  const showRuntimeHint = useCallback((message: string) => {
+    setRuntimeHint(message);
+    if (runtimeHintTimerRef.current) {
+      clearTimeout(runtimeHintTimerRef.current);
+    }
+    runtimeHintTimerRef.current = setTimeout(() => {
+      setRuntimeHint("");
+      runtimeHintTimerRef.current = null;
+    }, 2200);
+  }, []);
+
   const refreshYtdlpVersion = useCallback(async () => {
     try {
       const versionInfo = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
@@ -219,6 +240,30 @@ function SettingsPage() {
     } catch (err) {
       console.error("Failed to load Pinterest downloader info:", err);
       setPinterestInfo(null);
+    }
+  }, []);
+
+  const refreshRuntimeDependencyStatus = useCallback(async () => {
+    try {
+      const status = await invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
+      setRuntimeDependencyStatus(status);
+      return status;
+    } catch (err) {
+      console.error("Failed to load runtime dependency status:", err);
+      setRuntimeDependencyStatus(null);
+      return null;
+    }
+  }, []);
+
+  const refreshRuntimeDependencyGateState = useCallback(async () => {
+    try {
+      const state = await invoke<RuntimeDependencyGateStatePayload>("refresh_runtime_dependency_gate_state");
+      setRuntimeDependencyGateState(state);
+      return state;
+    } catch (err) {
+      console.error("Failed to refresh runtime dependency gate state:", err);
+      setRuntimeDependencyGateState(null);
+      return null;
     }
   }, []);
 
@@ -263,6 +308,35 @@ function SettingsPage() {
     }
 
     return t("desktop:settings.downloaders.pinterest.managedByApp");
+  })();
+  const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
+  const runtimeGatePhaseLabel = t(`desktop:settings.downloaders.runtime.phase.${runtimeGatePhase}`);
+  const runtimeGateColor = (() => {
+    switch (runtimeGatePhase) {
+      case "ready":
+        return colors.textSecondary;
+      case "awaiting_confirmation":
+      case "blocked_by_user":
+      case "failed":
+        return colors.dangerText;
+      case "checking":
+      case "downloading":
+        return colors.accentText;
+      default:
+        return colors.textSecondary;
+    }
+  })();
+  const runtimeMissingComponents = runtimeDependencyGateState?.missingComponents ?? [];
+  const runtimeSummaryMessage = (() => {
+    if (!runtimeDependencyStatus) {
+      return t("desktop:settings.downloaders.runtime.unavailable");
+    }
+    if (runtimeMissingComponents.length === 0) {
+      return t("desktop:settings.downloaders.runtime.allReady");
+    }
+    return t("desktop:settings.downloaders.runtime.missingItems", {
+      items: runtimeMissingComponents.join(", "),
+    });
   })();
 
   // Load config on mount
@@ -315,6 +389,8 @@ function SettingsPage() {
     loadAutostart();
     void refreshYtdlpVersion();
     void refreshPinterestDownloaderInfo();
+    void refreshRuntimeDependencyStatus();
+    void refreshRuntimeDependencyGateState();
 
     const loadShortcut = async () => {
       try {
@@ -325,7 +401,12 @@ function SettingsPage() {
       }
     };
     loadShortcut();
-  }, [refreshPinterestDownloaderInfo, refreshYtdlpVersion]);
+  }, [
+    refreshPinterestDownloaderInfo,
+    refreshRuntimeDependencyGateState,
+    refreshRuntimeDependencyStatus,
+    refreshYtdlpVersion,
+  ]);
 
   useEffect(() => {
     const unlisten = listen<{ path: string }>("output-path-changed", (event) => {
@@ -386,6 +467,10 @@ function SettingsPage() {
         clearTimeout(pinterestHintTimerRef.current);
         pinterestHintTimerRef.current = null;
       }
+      if (runtimeHintTimerRef.current) {
+        clearTimeout(runtimeHintTimerRef.current);
+        runtimeHintTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -433,6 +518,19 @@ function SettingsPage() {
       unlisten.then((fn) => fn());
     };
   }, [refreshYtdlpVersion, showYtdlpHint, t]);
+
+  useEffect(() => {
+    const unlisten = listen<RuntimeDependencyGateStatePayload>(
+      "runtime-dependency-gate-state",
+      (event) => {
+        setRuntimeDependencyGateState(event.payload);
+      },
+    );
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const startRecording = () => {
     setRecordedKeys("");
@@ -511,6 +609,46 @@ function SettingsPage() {
     } catch (err) {
       console.error("Failed to open FlowSelect releases:", err);
       showPinterestHint(t("desktop:settings.downloaders.pinterest.openReleasesFailed"));
+    }
+  };
+
+  const handleRuntimeDependencyRecheck = async () => {
+    const [status, gate] = await Promise.all([
+      refreshRuntimeDependencyStatus(),
+      refreshRuntimeDependencyGateState(),
+    ]);
+    if (status && gate) {
+      showRuntimeHint(t("desktop:settings.downloaders.runtime.refreshed"));
+      return;
+    }
+    showRuntimeHint(t("desktop:settings.downloaders.runtime.refreshFailed"));
+  };
+
+  const handleRuntimeAllowDownload = async () => {
+    try {
+      const state = await invoke<RuntimeDependencyGateStatePayload>(
+        "set_runtime_dependency_user_decision",
+        { allowDownload: true },
+      );
+      setRuntimeDependencyGateState(state);
+      showRuntimeHint(t("desktop:settings.downloaders.runtime.markedForDownload"));
+    } catch (err) {
+      console.error("Failed to set runtime dependency allow decision:", err);
+      showRuntimeHint(t("desktop:settings.downloaders.runtime.markDecisionFailed"));
+    }
+  };
+
+  const handleRuntimeBlockDownload = async () => {
+    try {
+      const state = await invoke<RuntimeDependencyGateStatePayload>(
+        "set_runtime_dependency_user_decision",
+        { allowDownload: false },
+      );
+      setRuntimeDependencyGateState(state);
+      showRuntimeHint(t("desktop:settings.downloaders.runtime.markedBlockedByUser"));
+    } catch (err) {
+      console.error("Failed to set runtime dependency block decision:", err);
+      showRuntimeHint(t("desktop:settings.downloaders.runtime.markDecisionFailed"));
     }
   };
 
@@ -860,6 +998,87 @@ function SettingsPage() {
             >
               {t("desktop:settings.downloaders.pinterest.releasesButton")}
             </NeonButton>
+          </div>
+        </>
+      ),
+    },
+    {
+      id: "runtime",
+      title: "runtime",
+      body: (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span style={{ fontSize: 12, color: colors.textPrimary }}>
+              {t("desktop:settings.downloaders.runtime.phaseLabel", { phase: runtimeGatePhaseLabel })}
+            </span>
+            {(runtimeGatePhase === "awaiting_confirmation"
+              || runtimeGatePhase === "blocked_by_user"
+              || runtimeGatePhase === "failed") ? (
+              <span style={statusDotStyle} />
+            ) : null}
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              color: runtimeHint ? colors.accentText : colors.textSecondary,
+              opacity: 0.94,
+              lineHeight: 1.2,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {runtimeHint || t("desktop:settings.downloaders.runtime.description")}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: 10,
+                color: runtimeGateColor,
+                opacity: 0.85,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+              title={runtimeDependencyGateState?.lastError ?? runtimeSummaryMessage}
+            >
+              {runtimeDependencyGateState?.lastError ?? runtimeSummaryMessage}
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <NeonButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void handleRuntimeDependencyRecheck()}
+                style={{ minWidth: 62, fontSize: 11, padding: "5px 8px" }}
+              >
+                {t("desktop:settings.downloaders.runtime.recheckButton")}
+              </NeonButton>
+              {runtimeGatePhase === "awaiting_confirmation" ? (
+                <>
+                  <NeonButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void handleRuntimeAllowDownload()}
+                    style={{ minWidth: 56, fontSize: 11, padding: "5px 8px" }}
+                  >
+                    {t("desktop:settings.downloaders.runtime.allowButton")}
+                  </NeonButton>
+                  <NeonButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void handleRuntimeBlockDownload()}
+                    style={{ minWidth: 56, fontSize: 11, padding: "5px 8px" }}
+                  >
+                    {t("desktop:settings.downloaders.runtime.skipButton")}
+                  </NeonButton>
+                </>
+              ) : null}
+            </div>
           </div>
         </>
       ),

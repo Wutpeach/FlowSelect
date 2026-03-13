@@ -133,6 +133,30 @@
         "managedByApp": "Managed by FlowSelect.",
         "releasesButton": "Releases",
         "openReleasesFailed": "Failed to open FlowSelect releases"
+      },
+      "runtime": {
+        "description": "Runtime dependency readiness for downloads.",
+        "unavailable": "Runtime status unavailable.",
+        "allReady": "All runtime dependencies are ready.",
+        "missingItems": "Missing: {{items}}",
+        "phaseLabel": "Phase: {{phase}}",
+        "refreshed": "Runtime status refreshed",
+        "refreshFailed": "Failed to refresh runtime status",
+        "markedForDownload": "Marked runtime dependencies for download",
+        "markedBlockedByUser": "Marked as blocked by user choice",
+        "markDecisionFailed": "Failed to update runtime decision",
+        "recheckButton": "Check",
+        "allowButton": "Allow",
+        "skipButton": "Skip",
+        "phase": {
+          "idle": "Idle",
+          "checking": "Checking",
+          "awaiting_confirmation": "Awaiting confirm",
+          "downloading": "Downloading",
+          "ready": "Ready",
+          "blocked_by_user": "Blocked by user",
+          "failed": "Failed"
+        }
       }
     },
     "supportLog": {

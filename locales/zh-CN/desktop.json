@@ -133,6 +133,30 @@
         "managedByApp": "由 FlowSelect 管理。",
         "releasesButton": "版本发布",
         "openReleasesFailed": "打开 FlowSelect 发布页失败"
+      },
+      "runtime": {
+        "description": "下载运行时依赖就绪状态。",
+        "unavailable": "运行时状态暂不可用。",
+        "allReady": "所有运行时依赖均已就绪。",
+        "missingItems": "缺失：{{items}}",
+        "phaseLabel": "阶段：{{phase}}",
+        "refreshed": "运行时状态已刷新",
+        "refreshFailed": "刷新运行时状态失败",
+        "markedForDownload": "已标记缺失依赖为待下载",
+        "markedBlockedByUser": "已标记为用户拒绝下载",
+        "markDecisionFailed": "更新运行时决策失败",
+        "recheckButton": "检查",
+        "allowButton": "同意",
+        "skipButton": "跳过",
+        "phase": {
+          "idle": "空闲",
+          "checking": "检测中",
+          "awaiting_confirmation": "等待确认",
+          "downloading": "下载中",
+          "ready": "已就绪",
+          "blocked_by_user": "用户已拒绝",
+          "failed": "失败"
+        }
       }
     },
     "supportLog": {

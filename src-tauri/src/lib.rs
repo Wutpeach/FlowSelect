@@ -778,6 +778,8 @@ static SLICE_REQUEST_HISTORY: LazyLock<Mutex<HashMap<String, u128>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static PRECISE_CLIP_HW_ENCODER_CACHE: LazyLock<Mutex<Option<Option<String>>>> =
     LazyLock::new(|| Mutex::new(None));
+static RUNTIME_DEPENDENCY_GATE_STATE: LazyLock<Mutex<RuntimeDependencyGateState>> =
+    LazyLock::new(|| Mutex::new(RuntimeDependencyGateState::default()));
 static RUNTIME_LOG_DIR: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
 static RUNTIME_LOG_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static RUNTIME_LOG_PROGRESS_STATE: LazyLock<Mutex<HashMap<String, RuntimeProgressLogState>>> =
@@ -1171,21 +1173,24 @@ fn binary_candidate_paths(app: &AppHandle, file_name: &str) -> Vec<PathBuf> {
     candidates
 }
 
+#[cfg(target_os = "windows")]
+fn deno_executable_name() -> &'static str {
+    "deno.exe"
+}
+
+#[cfg(not(target_os = "windows"))]
+fn deno_executable_name() -> &'static str {
+    "deno"
+}
+
 fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
-    #[cfg(target_os = "windows")]
-    let exe_name = "deno.exe";
-    #[cfg(not(target_os = "windows"))]
-    let exe_name = "deno";
-
-    let candidates = binary_candidate_paths(app, exe_name);
-    if let Some(path) = candidates.iter().find(|path| path.exists()) {
-        return Ok(path.clone());
-    }
-
-    candidates
-        .into_iter()
-        .next()
-        .ok_or_else(|| "Failed to resolve deno runtime path candidates".to_string())
+    let exe_name = deno_executable_name();
+    let path_fallback_names = [exe_name];
+    resolve_runtime_binary_with_path_fallback(
+        "deno",
+        binary_candidate_paths(app, exe_name),
+        &path_fallback_names,
+    )
 }
 
 fn pinterest_downloader_binary_filename() -> Result<&'static str, String> {
@@ -1204,23 +1209,23 @@ fn pinterest_downloader_binary_filename() -> Result<&'static str, String> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn pinterest_downloader_path_fallback_filenames() -> &'static [&'static str] {
+    &["pinterest-dl.exe", "pinterest-dl"]
+}
+
+#[cfg(not(target_os = "windows"))]
+fn pinterest_downloader_path_fallback_filenames() -> &'static [&'static str] {
+    &["pinterest-dl"]
+}
+
 fn pinterest_downloader_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
     let file_name = pinterest_downloader_binary_filename()?;
-    let candidates = binary_candidate_paths(app, file_name);
-    if let Some(path) = candidates.iter().find(|path| path.exists()) {
-        println!(
-            ">>> [Rust] Using bundled Pinterest downloader from: {:?}",
-            path
-        );
-        return Ok(path.clone());
-    }
-
-    candidates.into_iter().next().ok_or_else(|| {
-        format!(
-            "Failed to resolve Pinterest downloader path for {}",
-            file_name
-        )
-    })
+    resolve_runtime_binary_with_path_fallback(
+        "Pinterest downloader",
+        binary_candidate_paths(app, file_name),
+        pinterest_downloader_path_fallback_filenames(),
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -1249,6 +1254,88 @@ fn resolve_binary_from_env_path(file_name: &str) -> Option<PathBuf> {
             .map(|dir| dir.join(file_name))
             .find(|path| path.exists())
     })
+}
+
+fn resolve_runtime_binary_with_path_fallback(
+    component_label: &str,
+    bundled_candidates: Vec<PathBuf>,
+    path_fallback_file_names: &[&str],
+) -> Result<PathBuf, String> {
+    if let Some(path) = bundled_candidates.iter().find(|path| path.exists()) {
+        println!(
+            ">>> [Rust] Using bundled {} from: {:?}",
+            component_label, path
+        );
+        return Ok(path.clone());
+    }
+
+    for file_name in path_fallback_file_names {
+        if let Some(path) = resolve_binary_from_env_path(file_name) {
+            println!(
+                ">>> [Rust] Using system {} from PATH: {:?}",
+                component_label, path
+            );
+            return Ok(path);
+        }
+    }
+
+    Err(format!(
+        "Failed to resolve {} runtime. Looked for bundled candidates {:?} and system PATH names {:?}",
+        component_label, bundled_candidates, path_fallback_file_names
+    ))
+}
+
+fn runtime_dependency_status_from_resolution(
+    bundled_candidates: &[PathBuf],
+    resolution: Result<PathBuf, String>,
+) -> RuntimeDependencyStatusEntry {
+    match resolution {
+        Ok(path) => {
+            let source = if bundled_candidates
+                .iter()
+                .any(|candidate| candidate == &path)
+            {
+                RuntimeDependencySource::Bundled
+            } else {
+                RuntimeDependencySource::SystemPath
+            };
+            RuntimeDependencyStatusEntry::ready(path, source)
+        }
+        Err(err) => RuntimeDependencyStatusEntry::missing(err),
+    }
+}
+
+fn inspect_deno_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
+    let file_name = deno_executable_name();
+    let bundled_candidates = binary_candidate_paths(app, file_name);
+    runtime_dependency_status_from_resolution(&bundled_candidates, get_deno_path(app))
+}
+
+fn inspect_ffmpeg_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
+    let file_name = ffmpeg_executable_name();
+    let bundled_candidates = binary_candidate_paths(app, file_name);
+    runtime_dependency_status_from_resolution(&bundled_candidates, ffmpeg_binary_path(app))
+}
+
+fn inspect_ytdlp_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
+    let file_name = match ytdlp_binary_filename() {
+        Ok(file_name) => file_name,
+        Err(err) => return RuntimeDependencyStatusEntry::missing(err),
+    };
+    let bundled_candidates = binary_candidate_paths(app, file_name);
+    runtime_dependency_status_from_resolution(&bundled_candidates, ytdlp_runtime_binary_path(app))
+}
+
+fn inspect_pinterest_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
+    let file_name = match pinterest_downloader_binary_filename() {
+        Ok(file_name) => file_name,
+        Err(err) => return RuntimeDependencyStatusEntry::missing(err),
+    };
+    let bundled_candidates = binary_candidate_paths(app, file_name);
+    runtime_dependency_status_from_resolution(
+        &bundled_candidates,
+        pinterest_downloader_binary_path(app),
+    )
 }
 
 fn ffmpeg_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -3793,7 +3880,7 @@ async fn download_full_source_to_slice_cache(
     args.push(url.to_string());
 
     let env_path = build_env_path_with_deno(app);
-    let ytdlp_path = ytdlp_binary_path(app)?;
+    let ytdlp_path = ytdlp_runtime_binary_path(app)?;
     let shell = app.shell();
     let (mut rx, child) = shell
         .command(ytdlp_path.to_string_lossy().to_string())
@@ -6323,21 +6410,7 @@ async fn download_video_internal(
         }),
     );
 
-    // 构建环境变量，将 Deno 目录添加到 PATH
-    let mut env_path = std::env::var("PATH").unwrap_or_default();
-    if let Ok(deno_path) = get_deno_path(&app) {
-        if let Some(deno_dir) = deno_path.parent() {
-            if deno_path.exists() {
-                // Windows 使用分号，macOS/Linux 使用冒号分隔 PATH
-                #[cfg(target_os = "windows")]
-                let separator = ";";
-                #[cfg(not(target_os = "windows"))]
-                let separator = ":";
-                env_path = format!("{}{}{}", deno_dir.to_string_lossy(), separator, env_path);
-                println!(">>> [Rust] Added Deno to PATH: {:?}", deno_dir);
-            }
-        }
-    }
+    let env_path = build_env_path_with_deno(&app);
 
     // Emit "preparing" event to show indeterminate progress
     let _ = app.emit(
@@ -6358,7 +6431,7 @@ async fn download_video_internal(
         "",
     );
 
-    let ytdlp_path = match ytdlp_binary_path(&app) {
+    let ytdlp_path = match ytdlp_runtime_binary_path(&app) {
         Ok(path) => path,
         Err(resolve_err) => {
             cleanup_extension_cookies_file(&extension_cookies_path);
@@ -9300,7 +9373,7 @@ async fn probe_ytdlp_selected_format(
 ) -> Result<Option<YtdlpSelectedFormatInfo>, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
-    let ytdlp_path = ytdlp_binary_path(app)?;
+    let ytdlp_path = ytdlp_runtime_binary_path(app)?;
     let mut args = vec![
         "--skip-download".to_string(),
         "-f".to_string(),
@@ -9487,9 +9560,7 @@ async fn maybe_retry_youtube_highest_without_cookies(
             );
         }
         Ok(None) => {
-            println!(
-                ">>> [Rust] YouTube Highest cookie-free probe returned no selected format"
-            );
+            println!(">>> [Rust] YouTube Highest cookie-free probe returned no selected format");
             append_runtime_log_event(
                 "download",
                 "youtube_selected_format_keep_cookies",
@@ -9816,6 +9887,160 @@ pub struct PinterestDownloaderInfo {
     pub update_channel: String,
 }
 
+#[derive(Clone, Copy)]
+enum RuntimeDependencySource {
+    Bundled,
+    SystemPath,
+}
+
+impl RuntimeDependencySource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Bundled => "bundled",
+            Self::SystemPath => "system_path",
+        }
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct RuntimeDependencyStatusEntry {
+    pub state: String,
+    pub source: Option<String>,
+    pub path: Option<String>,
+    pub error: Option<String>,
+}
+
+impl RuntimeDependencyStatusEntry {
+    fn ready(path: PathBuf, source: RuntimeDependencySource) -> Self {
+        Self {
+            state: "ready".to_string(),
+            source: Some(source.as_str().to_string()),
+            path: Some(path.to_string_lossy().to_string()),
+            error: None,
+        }
+    }
+
+    fn missing(error: String) -> Self {
+        Self {
+            state: "missing".to_string(),
+            source: None,
+            path: None,
+            error: Some(error),
+        }
+    }
+
+    fn is_ready(&self) -> bool {
+        self.state == "ready"
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct RuntimeDependencyStatusSnapshot {
+    #[serde(rename = "ytDlp")]
+    pub yt_dlp: RuntimeDependencyStatusEntry,
+    pub ffmpeg: RuntimeDependencyStatusEntry,
+    pub deno: RuntimeDependencyStatusEntry,
+    #[serde(rename = "pinterestDownloader")]
+    pub pinterest_downloader: RuntimeDependencyStatusEntry,
+}
+
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeDependencyGatePhase {
+    Idle,
+    Checking,
+    AwaitingConfirmation,
+    Downloading,
+    Ready,
+    BlockedByUser,
+    Failed,
+}
+
+#[derive(Clone, Debug)]
+struct RuntimeDependencyGateState {
+    phase: RuntimeDependencyGatePhase,
+    missing_components: Vec<String>,
+    last_error: Option<String>,
+    updated_at_ms: u128,
+}
+
+impl Default for RuntimeDependencyGateState {
+    fn default() -> Self {
+        Self {
+            phase: RuntimeDependencyGatePhase::Idle,
+            missing_components: Vec::new(),
+            last_error: None,
+            updated_at_ms: 0,
+        }
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct RuntimeDependencyGateStatePayload {
+    pub phase: RuntimeDependencyGatePhase,
+    #[serde(rename = "missingComponents")]
+    pub missing_components: Vec<String>,
+    #[serde(rename = "lastError")]
+    pub last_error: Option<String>,
+    #[serde(rename = "updatedAtMs")]
+    pub updated_at_ms: u128,
+}
+
+impl RuntimeDependencyGateState {
+    fn as_payload(&self) -> RuntimeDependencyGateStatePayload {
+        RuntimeDependencyGateStatePayload {
+            phase: self.phase,
+            missing_components: self.missing_components.clone(),
+            last_error: self.last_error.clone(),
+            updated_at_ms: self.updated_at_ms,
+        }
+    }
+}
+
+fn runtime_dependency_missing_components(
+    snapshot: &RuntimeDependencyStatusSnapshot,
+) -> Vec<String> {
+    let mut missing_components = Vec::new();
+    if !snapshot.yt_dlp.is_ready() {
+        missing_components.push("yt-dlp".to_string());
+    }
+    if !snapshot.ffmpeg.is_ready() {
+        missing_components.push("ffmpeg".to_string());
+    }
+    if !snapshot.deno.is_ready() {
+        missing_components.push("deno".to_string());
+    }
+    if !snapshot.pinterest_downloader.is_ready() {
+        missing_components.push("pinterest-dl".to_string());
+    }
+    missing_components
+}
+
+fn update_runtime_dependency_gate_state(
+    app: &AppHandle,
+    phase: RuntimeDependencyGatePhase,
+    missing_components: Vec<String>,
+    last_error: Option<String>,
+) -> RuntimeDependencyGateStatePayload {
+    let payload = {
+        let mut state = RUNTIME_DEPENDENCY_GATE_STATE.lock().unwrap();
+        state.phase = phase;
+        state.missing_components = missing_components;
+        state.last_error = last_error;
+        state.updated_at_ms = now_timestamp_ms();
+        state.as_payload()
+    };
+
+    println!(
+        ">>> [Rust] Runtime dependency gate state updated: phase={:?}, missing={}, error={}",
+        payload.phase,
+        payload.missing_components.join(","),
+        payload.last_error.as_deref().unwrap_or("")
+    );
+    let _ = app.emit("runtime-dependency-gate-state", payload.clone());
+    payload
+}
+
 fn pinterest_downloader_info_from_lock_json(
     lock_json: &str,
 ) -> Result<PinterestDownloaderInfo, String> {
@@ -9889,6 +10114,25 @@ fn ytdlp_download_url() -> Result<&'static str, String> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn ytdlp_runtime_path_fallback_filenames() -> &'static [&'static str] {
+    &["yt-dlp.exe", "yt-dlp"]
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ytdlp_runtime_path_fallback_filenames() -> &'static [&'static str] {
+    &["yt-dlp"]
+}
+
+fn ytdlp_runtime_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let file_name = ytdlp_binary_filename()?;
+    resolve_runtime_binary_with_path_fallback(
+        "yt-dlp",
+        binary_candidate_paths(app, file_name),
+        ytdlp_runtime_path_fallback_filenames(),
+    )
+}
+
 fn ytdlp_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
     let file_name = ytdlp_binary_filename()?;
     let candidates = binary_candidate_paths(app, file_name);
@@ -9956,6 +10200,118 @@ async fn check_ytdlp_version(app: AppHandle) -> Result<YtdlpVersionInfo, String>
 #[tauri::command]
 fn get_pinterest_downloader_info() -> Result<PinterestDownloaderInfo, String> {
     pinterest_downloader_info_from_lock_json(PINTEREST_SIDECAR_LOCK_JSON)
+}
+
+#[tauri::command]
+fn get_runtime_dependency_status(app: AppHandle) -> RuntimeDependencyStatusSnapshot {
+    let snapshot = RuntimeDependencyStatusSnapshot {
+        yt_dlp: inspect_ytdlp_runtime_status(&app),
+        ffmpeg: inspect_ffmpeg_runtime_status(&app),
+        deno: inspect_deno_runtime_status(&app),
+        pinterest_downloader: inspect_pinterest_runtime_status(&app),
+    };
+
+    let missing_components = runtime_dependency_missing_components(&snapshot);
+
+    if missing_components.is_empty() {
+        println!(">>> [Rust] Runtime dependency snapshot: all dependencies ready");
+    } else {
+        println!(
+            ">>> [Rust] Runtime dependency snapshot: missing {}",
+            missing_components.join(", ")
+        );
+    }
+
+    snapshot
+}
+
+#[tauri::command]
+fn get_runtime_dependency_gate_state() -> RuntimeDependencyGateStatePayload {
+    let state = RUNTIME_DEPENDENCY_GATE_STATE.lock().unwrap();
+    state.as_payload()
+}
+
+#[tauri::command]
+fn refresh_runtime_dependency_gate_state(app: AppHandle) -> RuntimeDependencyGateStatePayload {
+    let _ = update_runtime_dependency_gate_state(
+        &app,
+        RuntimeDependencyGatePhase::Checking,
+        Vec::new(),
+        None,
+    );
+
+    let snapshot = get_runtime_dependency_status(app.clone());
+    let missing_components = runtime_dependency_missing_components(&snapshot);
+    if missing_components.is_empty() {
+        return update_runtime_dependency_gate_state(
+            &app,
+            RuntimeDependencyGatePhase::Ready,
+            Vec::new(),
+            None,
+        );
+    }
+
+    update_runtime_dependency_gate_state(
+        &app,
+        RuntimeDependencyGatePhase::AwaitingConfirmation,
+        missing_components,
+        None,
+    )
+}
+
+#[tauri::command]
+fn set_runtime_dependency_user_decision(
+    app: AppHandle,
+    allow_download: bool,
+) -> RuntimeDependencyGateStatePayload {
+    let current_missing = {
+        let state = RUNTIME_DEPENDENCY_GATE_STATE.lock().unwrap();
+        state.missing_components.clone()
+    };
+
+    if allow_download {
+        update_runtime_dependency_gate_state(
+            &app,
+            RuntimeDependencyGatePhase::Downloading,
+            current_missing,
+            None,
+        )
+    } else {
+        update_runtime_dependency_gate_state(
+            &app,
+            RuntimeDependencyGatePhase::BlockedByUser,
+            current_missing,
+            None,
+        )
+    }
+}
+
+#[tauri::command]
+fn mark_runtime_dependency_download_result(
+    app: AppHandle,
+    success: bool,
+    error: Option<String>,
+) -> RuntimeDependencyGateStatePayload {
+    if success {
+        return update_runtime_dependency_gate_state(
+            &app,
+            RuntimeDependencyGatePhase::Ready,
+            Vec::new(),
+            None,
+        );
+    }
+
+    let current_missing = {
+        let state = RUNTIME_DEPENDENCY_GATE_STATE.lock().unwrap();
+        state.missing_components.clone()
+    };
+    let error_message = error.unwrap_or_else(|| "Runtime dependency download failed".to_string());
+    update_runtime_dependency_gate_state(
+        &app,
+        RuntimeDependencyGatePhase::Failed,
+        current_missing,
+        Some(error_message),
+    )
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -11384,7 +11740,7 @@ async fn export_support_log(app: AppHandle) -> Result<String, String> {
     let current_exe = std::env::current_exe()
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|err| format!("unavailable ({})", err));
-    let ytdlp_path = ytdlp_binary_path(&app)
+    let ytdlp_path = ytdlp_runtime_binary_path(&app)
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|err| format!("unavailable ({})", err));
     let ffmpeg_path = ffmpeg_binary_path(&app)
@@ -12444,6 +12800,11 @@ pub fn run() {
             send_to_ae,
             check_ytdlp_version,
             get_pinterest_downloader_info,
+            get_runtime_dependency_status,
+            get_runtime_dependency_gate_state,
+            refresh_runtime_dependency_gate_state,
+            set_runtime_dependency_user_decision,
+            mark_runtime_dependency_download_result,
             update_ytdlp,
             is_directory,
             open_folder,
@@ -12653,6 +13014,95 @@ mod tests {
     fn load_pinterest_fixture_json(name: &str) -> serde_json::Value {
         serde_json::from_str(&load_pinterest_fixture(name))
             .unwrap_or_else(|err| panic!("failed to parse fixture {}: {}", name, err))
+    }
+
+    #[test]
+    fn resolve_runtime_binary_with_path_fallback_prefers_bundled_candidate() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("flowselect-runtime-resolve-{}", unique));
+        fs::create_dir_all(&temp_dir).expect("failed to create temp directory");
+        let bundled_binary = temp_dir.join("mock-runtime-binary");
+        fs::write(&bundled_binary, b"ok").expect("failed to write mock bundled binary");
+
+        let resolved = resolve_runtime_binary_with_path_fallback(
+            "mock-runtime",
+            vec![bundled_binary.clone()],
+            &["flowselect-nonexistent-binary-fallback"],
+        )
+        .expect("expected bundled candidate to resolve");
+
+        assert_eq!(resolved, bundled_binary);
+
+        let _ = fs::remove_file(&bundled_binary);
+        let _ = fs::remove_dir(&temp_dir);
+    }
+
+    #[test]
+    fn resolve_runtime_binary_with_path_fallback_reports_missing_candidates() {
+        let err = resolve_runtime_binary_with_path_fallback(
+            "mock-runtime",
+            vec![PathBuf::from("C:/flowselect/non-existent/mock-runtime")],
+            &["flowselect-nonexistent-binary-fallback"],
+        )
+        .expect_err("expected resolver to fail for missing runtime");
+
+        assert!(err.contains("mock-runtime"));
+        assert!(err.contains("flowselect-nonexistent-binary-fallback"));
+    }
+
+    #[test]
+    fn runtime_dependency_status_from_resolution_marks_bundled_source() {
+        let bundled = PathBuf::from("C:/flowselect/mock/binaries/yt-dlp.exe");
+        let status = runtime_dependency_status_from_resolution(
+            std::slice::from_ref(&bundled),
+            Ok(bundled.clone()),
+        );
+
+        assert!(status.is_ready());
+        assert_eq!(status.source.as_deref(), Some("bundled"));
+        assert_eq!(
+            status.path.as_deref(),
+            Some("C:/flowselect/mock/binaries/yt-dlp.exe")
+        );
+        assert!(status.error.is_none());
+    }
+
+    #[test]
+    fn runtime_dependency_status_from_resolution_marks_missing_state() {
+        let status = runtime_dependency_status_from_resolution(
+            &[PathBuf::from("C:/flowselect/mock/binaries/yt-dlp.exe")],
+            Err("not found".to_string()),
+        );
+
+        assert_eq!(status.state, "missing");
+        assert!(status.source.is_none());
+        assert!(status.path.is_none());
+        assert_eq!(status.error.as_deref(), Some("not found"));
+    }
+
+    #[test]
+    fn runtime_dependency_missing_components_collects_missing_ids() {
+        let snapshot = RuntimeDependencyStatusSnapshot {
+            yt_dlp: RuntimeDependencyStatusEntry::ready(
+                PathBuf::from("C:/flowselect/mock/binaries/yt-dlp.exe"),
+                RuntimeDependencySource::Bundled,
+            ),
+            ffmpeg: RuntimeDependencyStatusEntry::missing("missing ffmpeg".to_string()),
+            deno: RuntimeDependencyStatusEntry::missing("missing deno".to_string()),
+            pinterest_downloader: RuntimeDependencyStatusEntry::ready(
+                PathBuf::from("C:/flowselect/mock/binaries/pinterest-dl.exe"),
+                RuntimeDependencySource::Bundled,
+            ),
+        };
+
+        let missing_components = runtime_dependency_missing_components(&snapshot);
+        assert_eq!(
+            missing_components,
+            vec!["ffmpeg".to_string(), "deno".to_string()]
+        );
     }
 
     #[test]
