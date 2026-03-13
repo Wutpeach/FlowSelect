@@ -142,7 +142,6 @@ try {
 
   Copy-Item $appExe (Join-Path $stagingDir "FlowSelect.exe") -Force
   Copy-Item $ytdlpSource (Join-Path $stagingDir "binaries/yt-dlp-x86_64-pc-windows-msvc.exe") -Force
-  Copy-Item "src-tauri/binaries/deno.exe" (Join-Path $stagingDir "binaries/deno.exe") -Force
   Copy-Item $ffmpegSource (Join-Path $stagingDir "binaries/ffmpeg.exe") -Force
 
   if (Test-Path $portableZip) {

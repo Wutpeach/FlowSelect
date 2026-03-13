@@ -43,6 +43,7 @@ use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
+use zip::ZipArchive;
 
 const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.flowselect.app"];
 const YTDLP_LATEST_CACHE_FILE_NAME: &str = "ytdlp-latest-cache.json";
@@ -784,6 +785,8 @@ static RUNTIME_DEPENDENCY_GATE_STATE: LazyLock<Mutex<RuntimeDependencyGateState>
     LazyLock::new(|| Mutex::new(RuntimeDependencyGateState::default()));
 static PINTEREST_RUNTIME_BOOTSTRAP_LOCK: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));
+static DENO_RUNTIME_BOOTSTRAP_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 static RUNTIME_LOG_DIR: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
 static RUNTIME_LOG_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static RUNTIME_LOG_PROGRESS_STATE: LazyLock<Mutex<HashMap<String, RuntimeProgressLogState>>> =
@@ -812,6 +815,7 @@ const RUNTIME_LOG_PROGRESS_MIN_INTERVAL_MS: u128 = 1500;
 const SUPPORT_LOG_RUNTIME_EVIDENCE_LINE_LIMIT: usize = 24;
 const SUPPORT_LOG_TEXT_PREVIEW_LIMIT: usize = 220;
 const MANAGED_RUNTIMES_DIR_NAME: &str = "runtimes";
+const DENO_RUNTIME_COMPONENT_ID: &str = "deno";
 const PINTEREST_RUNTIME_COMPONENT_ID: &str = "pinterest-dl";
 const PINTEREST_RUNTIME_MANIFEST_URL: &str = "https://github.com/Wutpeach/FlowSelect/releases/download/runtime-sidecars-manifest-latest/runtime-sidecars-manifest.json";
 const PROTECTED_IMAGE_FALLBACK_TIMEOUT_MS: u64 = 15_000;
@@ -1191,13 +1195,16 @@ fn deno_executable_name() -> &'static str {
 }
 
 fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let exe_name = deno_executable_name();
-    let path_fallback_names = [exe_name];
-    resolve_runtime_binary_with_path_fallback(
-        "deno",
-        binary_candidate_paths(app, exe_name),
-        &path_fallback_names,
-    )
+    let target_path = managed_deno_binary_path(app)?;
+    if target_path.exists() {
+        println!(">>> [Rust] Using managed deno from: {:?}", target_path);
+        Ok(target_path)
+    } else {
+        Err(format!(
+            "Managed deno runtime is missing at {:?}. FlowSelect will bootstrap it from the pinned Deno release asset.",
+            target_path
+        ))
+    }
 }
 
 fn current_runtime_sidecar_target() -> Result<&'static str, String> {
@@ -1231,10 +1238,22 @@ fn managed_runtimes_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(runtimes_dir)
 }
 
-fn managed_pinterest_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
+fn managed_component_runtime_dir(app: &AppHandle, component_id: &str) -> Result<PathBuf, String> {
     Ok(managed_runtimes_dir(app)?
-        .join(PINTEREST_RUNTIME_COMPONENT_ID)
+        .join(component_id)
         .join(current_runtime_sidecar_target()?))
+}
+
+fn managed_deno_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    managed_component_runtime_dir(app, DENO_RUNTIME_COMPONENT_ID)
+}
+
+fn managed_deno_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(managed_deno_runtime_dir(app)?.join(deno_executable_name()))
+}
+
+fn managed_pinterest_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    managed_component_runtime_dir(app, PINTEREST_RUNTIME_COMPONENT_ID)
 }
 
 fn managed_pinterest_downloader_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -1351,9 +1370,18 @@ fn runtime_dependency_status_from_resolution(
 }
 
 fn inspect_deno_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
-    let file_name = deno_executable_name();
-    let bundled_candidates = binary_candidate_paths(app, file_name);
-    runtime_dependency_status_from_resolution(&bundled_candidates, get_deno_path(app))
+    let target_path = match managed_deno_binary_path(app) {
+        Ok(path) => path,
+        Err(err) => return RuntimeDependencyStatusEntry::missing(err),
+    };
+    if target_path.exists() {
+        RuntimeDependencyStatusEntry::ready(target_path, RuntimeDependencySource::Managed)
+    } else {
+        RuntimeDependencyStatusEntry::missing(format!(
+            "Managed deno runtime is missing at {:?}",
+            target_path
+        ))
+    }
 }
 
 fn inspect_ffmpeg_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
@@ -3878,6 +3906,7 @@ async fn download_full_source_to_slice_cache(
     use tauri_plugin_shell::process::CommandEvent;
 
     println!(">>> [Rust] Slice cache source download start: {}", url);
+    ensure_managed_deno_runtime_ready(app, "slice_cache_download").await?;
     let ffmpeg_location = ffmpeg_location_for_ytdlp(app)?;
     let ytdlp_temp_dir = std::env::temp_dir().join(YTDLP_TEMP_DIR_NAME);
     fs::create_dir_all(&ytdlp_temp_dir)
@@ -6347,6 +6376,11 @@ async fn download_video_internal(
     let reported_output_path_file =
         ytdlp_temp_dir.join(format!("{}-reported-output-path.txt", trace_id));
     let _ = fs::remove_file(&reported_output_path_file);
+    if let Err(err) = ensure_managed_deno_runtime_ready(&app, "ytdlp_download").await {
+        cleanup_extension_cookies_file(&extension_cookies_path);
+        let _ = fs::remove_file(&reported_output_path_file);
+        return Err(err);
+    }
     let ffmpeg_location = match ffmpeg_location_for_ytdlp(&app) {
         Ok(location) => location,
         Err(err) => {
@@ -9423,6 +9457,7 @@ async fn probe_ytdlp_selected_format(
 ) -> Result<Option<YtdlpSelectedFormatInfo>, String> {
     use tauri_plugin_shell::process::CommandEvent;
 
+    ensure_managed_deno_runtime_ready(app, "ytdlp_selection_probe").await?;
     let ytdlp_path = ytdlp_runtime_binary_path(app)?;
     let mut args = vec![
         "--skip-download".to_string(),
@@ -10152,6 +10187,64 @@ struct YtdlpLatestCacheEntry {
     fetched_at_ms: u64,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ManagedZipRuntimeArtifactSpec {
+    component: &'static str,
+    target: &'static str,
+    download_urls: &'static [&'static str],
+    sha256: &'static str,
+    size: u64,
+    archive_entry_name: &'static str,
+}
+
+fn select_deno_runtime_artifact_spec() -> Result<ManagedZipRuntimeArtifactSpec, String> {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        return Ok(ManagedZipRuntimeArtifactSpec {
+            component: DENO_RUNTIME_COMPONENT_ID,
+            target: "x86_64-pc-windows-msvc",
+            download_urls: &[
+                "https://dl.deno.land/release/v2.7.1/deno-x86_64-pc-windows-msvc.zip",
+                "https://github.com/denoland/deno/releases/download/v2.7.1/deno-x86_64-pc-windows-msvc.zip",
+            ],
+            sha256: "94d71d4772436de27a0495933ca4bab7b6895992622b65baeaf4b7995dae1e69",
+            size: 47277539,
+            archive_entry_name: "deno.exe",
+        });
+    }
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        return Ok(ManagedZipRuntimeArtifactSpec {
+            component: DENO_RUNTIME_COMPONENT_ID,
+            target: "aarch64-apple-darwin",
+            download_urls: &[
+                "https://dl.deno.land/release/v2.7.1/deno-aarch64-apple-darwin.zip",
+                "https://github.com/denoland/deno/releases/download/v2.7.1/deno-aarch64-apple-darwin.zip",
+            ],
+            sha256: "bc3392a0f50be9a1ecb68596530319308639a6f69d99678a0018c47e23a10c1f",
+            size: 42170253,
+            archive_entry_name: "deno",
+        });
+    }
+    if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        return Ok(ManagedZipRuntimeArtifactSpec {
+            component: DENO_RUNTIME_COMPONENT_ID,
+            target: "x86_64-apple-darwin",
+            download_urls: &[
+                "https://dl.deno.land/release/v2.7.1/deno-x86_64-apple-darwin.zip",
+                "https://github.com/denoland/deno/releases/download/v2.7.1/deno-x86_64-apple-darwin.zip",
+            ],
+            sha256: "5478393fc9893c6f3516cee7579453a990834ceebf5ff44aaced2d0f285302d7",
+            size: 45229858,
+            archive_entry_name: "deno",
+        });
+    }
+
+    Err(format!(
+        "Unsupported platform for managed deno runtime: {}-{}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    ))
+}
+
 fn is_min_app_version_satisfied(min_app_version: Option<&str>) -> Result<bool, String> {
     let Some(raw_min_app_version) = min_app_version
         .map(str::trim)
@@ -10284,7 +10377,7 @@ async fn fetch_pinterest_runtime_manifest() -> Result<RuntimeSidecarsManifest, S
         .map_err(|err| format!("Failed to parse runtime manifest JSON: {}", err))
 }
 
-fn build_runtime_download_temp_path(target_path: &Path) -> PathBuf {
+fn build_runtime_temp_path_with_suffix(target_path: &Path, suffix: &str) -> PathBuf {
     let parent = target_path.parent().unwrap_or_else(|| Path::new("."));
     let file_name = target_path
         .file_name()
@@ -10292,14 +10385,14 @@ fn build_runtime_download_temp_path(target_path: &Path) -> PathBuf {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("runtime-binary");
 
-    let first = parent.join(format!("{}.flowselect-download", file_name));
+    let first = parent.join(format!("{}.{}", file_name, suffix));
     if !first.exists() {
         return first;
     }
 
     let mut counter = 2;
     loop {
-        let candidate = parent.join(format!("{}.flowselect-download-{}", file_name, counter));
+        let candidate = parent.join(format!("{}.{}-{}", file_name, suffix, counter));
         if !candidate.exists() {
             return candidate;
         }
@@ -10307,9 +10400,20 @@ fn build_runtime_download_temp_path(target_path: &Path) -> PathBuf {
     }
 }
 
-async fn download_pinterest_runtime_artifact(
-    artifact: &RuntimeSidecarArtifact,
+fn build_runtime_download_temp_path(target_path: &Path) -> PathBuf {
+    build_runtime_temp_path_with_suffix(target_path, "flowselect-download")
+}
+
+fn build_runtime_archive_temp_path(target_path: &Path) -> PathBuf {
+    build_runtime_temp_path_with_suffix(target_path, "flowselect-download-archive.zip")
+}
+
+async fn download_runtime_asset_to_temp(
+    download_url: &str,
+    expected_size: u64,
+    expected_sha256: &str,
     temp_path: &Path,
+    asset_label: &str,
 ) -> Result<(), String> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
@@ -10319,18 +10423,19 @@ async fn download_pinterest_runtime_artifact(
         .build()
         .map_err(|err| format!("Failed to build runtime download HTTP client: {}", err))?;
     let response = client
-        .get(&artifact.url)
+        .get(download_url)
         .header(
             "User-Agent",
             format!("FlowSelect/{}", env!("CARGO_PKG_VERSION")),
         )
         .send()
         .await
-        .map_err(|err| format!("Failed to download managed Pinterest runtime: {}", err))?;
+        .map_err(|err| format!("Failed to download {}: {}", asset_label, err))?;
 
     if !response.status().is_success() {
         return Err(format!(
-            "Managed Pinterest runtime download failed with HTTP {}",
+            "{} download failed with HTTP {}",
+            asset_label,
             response.status()
         ));
     }
@@ -10359,24 +10464,119 @@ async fn download_pinterest_runtime_artifact(
         .map_err(|err| format!("Failed to flush runtime temp file {:?}: {}", temp_path, err))?;
     drop(file);
 
-    if downloaded != artifact.size {
+    if downloaded != expected_size {
         let _ = tokio::fs::remove_file(temp_path).await;
         return Err(format!(
-            "Managed Pinterest runtime size mismatch: expected {} bytes, got {} bytes",
-            artifact.size, downloaded
+            "{} size mismatch: expected {} bytes, got {} bytes",
+            asset_label, expected_size, downloaded
         ));
     }
 
     let checksum = format!("{:x}", hasher.finalize());
-    if checksum != artifact.sha256.to_ascii_lowercase() {
+    if checksum != expected_sha256.to_ascii_lowercase() {
         let _ = tokio::fs::remove_file(temp_path).await;
         return Err(format!(
-            "Managed Pinterest runtime checksum mismatch: expected {}, got {}",
-            artifact.sha256, checksum
+            "{} checksum mismatch: expected {}, got {}",
+            asset_label, expected_sha256, checksum
         ));
     }
 
     Ok(())
+}
+
+async fn download_runtime_asset_to_temp_with_fallbacks(
+    download_urls: &[&str],
+    expected_size: u64,
+    expected_sha256: &str,
+    temp_path: &Path,
+    asset_label: &str,
+) -> Result<String, String> {
+    let mut errors = Vec::new();
+
+    for download_url in download_urls {
+        match download_runtime_asset_to_temp(
+            download_url,
+            expected_size,
+            expected_sha256,
+            temp_path,
+            asset_label,
+        )
+        .await
+        {
+            Ok(()) => return Ok((*download_url).to_string()),
+            Err(err) => {
+                let _ = fs::remove_file(temp_path);
+                println!(
+                    ">>> [Rust] {} download attempt failed from {}: {}",
+                    asset_label, download_url, err
+                );
+                errors.push(format!("{} -> {}", download_url, err));
+            }
+        }
+    }
+
+    Err(format!(
+        "All download sources failed for {}: {}",
+        asset_label,
+        errors.join(" | ")
+    ))
+}
+
+fn extract_runtime_zip_entry(
+    archive_path: &Path,
+    entry_name: &str,
+    extracted_path: &Path,
+) -> Result<(), String> {
+    let archive_file = fs::File::open(archive_path)
+        .map_err(|err| format!("Failed to open runtime archive {:?}: {}", archive_path, err))?;
+    let mut archive = ZipArchive::new(archive_file)
+        .map_err(|err| format!("Failed to read runtime archive {:?}: {}", archive_path, err))?;
+    let mut entry = archive.by_name(entry_name).map_err(|err| {
+        format!(
+            "Failed to locate runtime archive entry {} in {:?}: {}",
+            entry_name, archive_path, err
+        )
+    })?;
+    if entry.is_dir() {
+        return Err(format!(
+            "Runtime archive entry {} in {:?} resolved to a directory",
+            entry_name, archive_path
+        ));
+    }
+
+    let mut output_file = fs::File::create(extracted_path).map_err(|err| {
+        format!(
+            "Failed to create extracted runtime temp file {:?}: {}",
+            extracted_path, err
+        )
+    })?;
+    std::io::copy(&mut entry, &mut output_file).map_err(|err| {
+        format!(
+            "Failed to extract runtime archive entry {} to {:?}: {}",
+            entry_name, extracted_path, err
+        )
+    })?;
+    output_file.flush().map_err(|err| {
+        format!(
+            "Failed to flush extracted runtime temp file {:?}: {}",
+            extracted_path, err
+        )
+    })?;
+    Ok(())
+}
+
+async fn download_pinterest_runtime_artifact(
+    artifact: &RuntimeSidecarArtifact,
+    temp_path: &Path,
+) -> Result<(), String> {
+    download_runtime_asset_to_temp(
+        &artifact.url,
+        artifact.size,
+        &artifact.sha256,
+        temp_path,
+        "managed Pinterest runtime",
+    )
+    .await
 }
 
 fn finalize_runtime_dependency_gate_for_snapshot(
@@ -10400,6 +10600,10 @@ fn finalize_runtime_dependency_gate_for_snapshot(
         missing_components,
         last_error,
     )
+}
+
+fn snapshot_has_missing_managed_runtime(snapshot: &RuntimeDependencyStatusSnapshot) -> bool {
+    !snapshot.pinterest_downloader.is_ready() || !snapshot.deno.is_ready()
 }
 
 async fn ensure_managed_pinterest_runtime_ready(
@@ -10507,11 +10711,185 @@ async fn ensure_managed_pinterest_runtime_ready(
     }
 }
 
-fn spawn_managed_pinterest_runtime_bootstrap(app: AppHandle, trigger: &'static str) {
+async fn ensure_managed_deno_runtime_ready(
+    app: &AppHandle,
+    trigger: &str,
+) -> Result<PathBuf, String> {
+    let target_path = managed_deno_binary_path(app)?;
+    if target_path.exists() {
+        return Ok(target_path);
+    }
+
+    let _lock = DENO_RUNTIME_BOOTSTRAP_LOCK.lock().await;
+    if target_path.exists() {
+        return Ok(target_path);
+    }
+
+    let initial_snapshot = get_runtime_dependency_status(app.clone());
+    let missing_components = runtime_dependency_missing_components(&initial_snapshot);
+    update_runtime_dependency_gate_state(
+        app,
+        RuntimeDependencyGatePhase::Downloading,
+        missing_components.clone(),
+        None,
+    );
+    append_runtime_log_event(
+        "runtime_bootstrap",
+        "start",
+        None,
+        serde_json::json!({
+            "component": DENO_RUNTIME_COMPONENT_ID,
+            "trigger": trigger,
+            "targetPath": target_path,
+            "missingComponents": missing_components,
+        }),
+    );
+
+    let install_result = async {
+        let artifact = select_deno_runtime_artifact_spec()?;
+        println!(
+            ">>> [Rust] Selected managed deno artifact component={} target={} urls={}",
+            artifact.component,
+            artifact.target,
+            artifact.download_urls.join(", ")
+        );
+        let target_dir = target_path
+            .parent()
+            .ok_or_else(|| format!("Failed to resolve runtime target dir for {:?}", target_path))?;
+        tokio::fs::create_dir_all(target_dir).await.map_err(|err| {
+            format!(
+                "Failed to create runtime target dir {:?}: {}",
+                target_dir, err
+            )
+        })?;
+
+        let archive_temp_path = build_runtime_archive_temp_path(&target_path);
+        let downloaded_from = download_runtime_asset_to_temp_with_fallbacks(
+            artifact.download_urls,
+            artifact.size,
+            artifact.sha256,
+            &archive_temp_path,
+            "managed deno runtime archive",
+        )
+        .await?;
+        println!(
+            ">>> [Rust] Managed deno runtime archive downloaded from {}",
+            downloaded_from
+        );
+
+        let mut install_error: Option<String> = None;
+        for attempt in 1..=3 {
+            let temp_path = build_runtime_download_temp_path(&target_path);
+            let _ = fs::remove_file(&temp_path);
+
+            match extract_runtime_zip_entry(
+                &archive_temp_path,
+                artifact.archive_entry_name,
+                &temp_path,
+            )
+            .and_then(|_| replace_file_preserving_backup(&temp_path, &target_path))
+            {
+                Ok(()) => {
+                    install_error = None;
+                    let _ = fs::remove_file(&archive_temp_path);
+                    break;
+                }
+                Err(err) => {
+                    let _ = fs::remove_file(&temp_path);
+                    install_error = Some(err.clone());
+                    println!(
+                        ">>> [Rust] Managed deno extract/install attempt {} failed: {}",
+                        attempt, err
+                    );
+                    if attempt < 3 {
+                        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+                    } else {
+                        let _ = fs::remove_file(&archive_temp_path);
+                    }
+                }
+            }
+        }
+
+        if let Some(err) = install_error {
+            return Err(format!(
+                "Failed to install managed deno runtime after retries: {}",
+                err
+            ));
+        }
+        #[cfg(unix)]
+        fs::set_permissions(&target_path, std::fs::Permissions::from_mode(0o755)).map_err(
+            |err| {
+                format!(
+                    "Failed to set executable permission on {:?}: {}",
+                    target_path, err
+                )
+            },
+        )?;
+
+        Ok::<PathBuf, String>(target_path.clone())
+    }
+    .await;
+
+    match install_result {
+        Ok(path) => {
+            append_runtime_log_event(
+                "runtime_bootstrap",
+                "complete",
+                None,
+                serde_json::json!({
+                    "component": DENO_RUNTIME_COMPONENT_ID,
+                    "trigger": trigger,
+                    "path": path,
+                    "success": true,
+                }),
+            );
+            let snapshot = get_runtime_dependency_status(app.clone());
+            let _ = finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, None);
+            Ok(path)
+        }
+        Err(err) => {
+            append_runtime_log_event(
+                "runtime_bootstrap",
+                "complete",
+                None,
+                serde_json::json!({
+                    "component": DENO_RUNTIME_COMPONENT_ID,
+                    "trigger": trigger,
+                    "targetPath": target_path,
+                    "success": false,
+                    "error": err,
+                }),
+            );
+            let snapshot = get_runtime_dependency_status(app.clone());
+            let _ =
+                finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, Some(err.clone()));
+            Err(err)
+        }
+    }
+}
+
+async fn ensure_missing_managed_runtimes_ready(
+    app: &AppHandle,
+    trigger: &str,
+) -> Result<(), String> {
+    let snapshot = get_runtime_dependency_status(app.clone());
+    if !snapshot.pinterest_downloader.is_ready() {
+        ensure_managed_pinterest_runtime_ready(app, trigger).await?;
+    }
+
+    let snapshot = get_runtime_dependency_status(app.clone());
+    if !snapshot.deno.is_ready() {
+        ensure_managed_deno_runtime_ready(app, trigger).await?;
+    }
+
+    Ok(())
+}
+
+fn spawn_missing_managed_runtime_bootstrap(app: AppHandle, trigger: &'static str) {
     tauri::async_runtime::spawn(async move {
-        if let Err(err) = ensure_managed_pinterest_runtime_ready(&app, trigger).await {
+        if let Err(err) = ensure_missing_managed_runtimes_ready(&app, trigger).await {
             println!(
-                ">>> [Rust] Managed Pinterest runtime bootstrap failed (trigger={}): {}",
+                ">>> [Rust] Managed runtime bootstrap failed (trigger={}): {}",
                 trigger, err
             );
         }
@@ -10688,17 +11066,14 @@ fn refresh_runtime_dependency_gate_state(app: AppHandle) -> RuntimeDependencyGat
         );
     }
 
-    if missing_components
-        .iter()
-        .any(|component| component == PINTEREST_RUNTIME_COMPONENT_ID)
-    {
+    if snapshot_has_missing_managed_runtime(&snapshot) {
         let payload = update_runtime_dependency_gate_state(
             &app,
             RuntimeDependencyGatePhase::Downloading,
             missing_components,
             None,
         );
-        spawn_managed_pinterest_runtime_bootstrap(app, "gate_refresh");
+        spawn_missing_managed_runtime_bootstrap(app, "gate_refresh");
         return payload;
     }
 
@@ -10724,13 +11099,18 @@ fn set_runtime_dependency_user_decision(
     };
 
     if allow_download {
+        let snapshot = get_runtime_dependency_status(app.clone());
+        if !snapshot_has_missing_managed_runtime(&snapshot) {
+            return finalize_runtime_dependency_gate_for_snapshot(&app, &snapshot, None);
+        }
+
         let payload = update_runtime_dependency_gate_state(
             &app,
             RuntimeDependencyGatePhase::Downloading,
             current_missing,
             None,
         );
-        spawn_managed_pinterest_runtime_bootstrap(app, "manual_decision");
+        spawn_missing_managed_runtime_bootstrap(app, "manual_decision");
         payload
     } else {
         update_runtime_dependency_gate_state(
@@ -10738,7 +11118,7 @@ fn set_runtime_dependency_user_decision(
             RuntimeDependencyGatePhase::Failed,
             current_missing,
             Some(
-                "Managed runtime bootstrap is required before Pinterest downloads can continue"
+                "Managed runtime bootstrap is required before runtime-gated downloads can continue"
                     .to_string(),
             ),
         )
@@ -12202,6 +12582,9 @@ async fn export_support_log(app: AppHandle) -> Result<String, String> {
     let ytdlp_path = ytdlp_runtime_binary_path(&app)
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|err| format!("unavailable ({})", err));
+    let deno_path = get_deno_path(&app)
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|err| format!("unavailable ({})", err));
     let ffmpeg_path = ffmpeg_binary_path(&app)
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|err| format!("unavailable ({})", err));
@@ -12253,6 +12636,7 @@ async fn export_support_log(app: AppHandle) -> Result<String, String> {
     let mut downloader_lines = vec![
         format!("yt_dlp_path={}", ytdlp_path),
         format!("yt_dlp_version={}", ytdlp_version),
+        format!("deno_path={}", deno_path),
         format!("pin_dlp_path={}", pinterest_path),
         format!("ffmpeg_path={}", ffmpeg_path),
     ];
@@ -13310,11 +13694,8 @@ pub fn run() {
                     return;
                 }
 
-                if missing_components
-                    .iter()
-                    .any(|component| component == PINTEREST_RUNTIME_COMPONENT_ID)
-                {
-                    if let Err(err) = ensure_managed_pinterest_runtime_ready(
+                if snapshot_has_missing_managed_runtime(&snapshot) {
+                    if let Err(err) = ensure_missing_managed_runtimes_ready(
                         &app_handle_runtime_bootstrap,
                         "app_startup",
                     )
@@ -13594,6 +13975,24 @@ mod tests {
 
         assert!(status.is_ready());
         assert_eq!(status.source.as_deref(), Some("managed"));
+    }
+
+    #[test]
+    fn select_deno_runtime_artifact_spec_matches_current_target() {
+        let target = current_runtime_sidecar_target().expect("expected supported runtime target");
+        let artifact = select_deno_runtime_artifact_spec()
+            .expect("expected managed deno artifact spec for current target");
+
+        assert_eq!(artifact.component, DENO_RUNTIME_COMPONENT_ID);
+        assert_eq!(artifact.target, target);
+        assert!(!artifact.download_urls.is_empty());
+        assert!(artifact
+            .download_urls
+            .iter()
+            .all(|url| !url.trim().is_empty()));
+        assert_eq!(artifact.archive_entry_name, deno_executable_name());
+        assert!(artifact.size > 0);
+        assert_eq!(artifact.sha256.len(), 64);
     }
 
     #[test]
