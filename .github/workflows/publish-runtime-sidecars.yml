@@ -1,0 +1,260 @@
+name: Publish Runtime Sidecars
+
+on:
+  push:
+    tags:
+      - "runtime-sidecars-pinterest-dl-v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional release tag override (default: runtime-sidecars-pinterest-dl-v<flowselectSidecarVersion>)"
+        required: false
+        type: string
+      min_app_version:
+        description: "Optional min app version written into manifest entries"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      published_at: ${{ steps.resolve.outputs.published_at }}
+      flowselect_sidecar_version: ${{ steps.resolve.outputs.flowselect_sidecar_version }}
+      upstream_version: ${{ steps.resolve.outputs.upstream_version }}
+      min_app_version: ${{ steps.resolve.outputs.min_app_version }}
+      is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: resolve
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_MIN_APP_VERSION: ${{ inputs.min_app_version }}
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+
+          const lock = JSON.parse(fs.readFileSync("src-tauri/pinterest-sidecar/lock.json", "utf8"));
+          const flowselectSidecarVersion = String(lock?.flowselectSidecarVersion ?? "").trim();
+          const upstreamVersion = String(lock?.upstream?.version ?? "").trim();
+
+          if (!flowselectSidecarVersion) {
+            throw new Error("lock.json is missing flowselectSidecarVersion");
+          }
+          if (!upstreamVersion) {
+            throw new Error("lock.json is missing upstream.version");
+          }
+
+          const eventName = String(process.env.GITHUB_EVENT_NAME ?? "");
+          const refType = String(process.env.GITHUB_REF_TYPE ?? "");
+          const refName = String(process.env.GITHUB_REF_NAME ?? "").trim();
+          const inputReleaseTag = String(process.env.INPUT_RELEASE_TAG ?? "").trim();
+          const minAppVersion = String(process.env.INPUT_MIN_APP_VERSION ?? "").trim();
+          const publishedAt = new Date().toISOString();
+
+          let releaseTag = inputReleaseTag;
+          if (eventName === "push" && refType === "tag" && refName) {
+            releaseTag = refName;
+          }
+          if (!releaseTag) {
+            releaseTag = `runtime-sidecars-pinterest-dl-v${flowselectSidecarVersion}`;
+          }
+
+          const isPrerelease = flowselectSidecarVersion.includes("-");
+          const outputPath = process.env.GITHUB_OUTPUT;
+          const writeOutput = (key, value) => fs.appendFileSync(outputPath, `${key}=${value}\n`);
+
+          writeOutput("release_tag", releaseTag);
+          writeOutput("published_at", publishedAt);
+          writeOutput("flowselect_sidecar_version", flowselectSidecarVersion);
+          writeOutput("upstream_version", upstreamVersion);
+          writeOutput("min_app_version", minAppVersion);
+          writeOutput("is_prerelease", isPrerelease ? "true" : "false");
+
+          console.log(
+            JSON.stringify(
+              {
+                releaseTag,
+                flowselectSidecarVersion,
+                upstreamVersion,
+                minAppVersion: minAppVersion || null,
+                publishedAt,
+              },
+              null,
+              2,
+            ),
+          );
+          NODE
+
+  build-sidecars:
+    needs: resolve-release
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name: pinterest-dl-x86_64-pc-windows-msvc.exe
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            asset_name: pinterest-dl-x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            asset_name: pinterest-dl-aarch64-apple-darwin
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build Pinterest sidecar
+        run: node ./scripts/build-pinterest-sidecar.mjs --target ${{ matrix.target }}
+
+      - name: Smoke test Pinterest sidecar
+        run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target ${{ matrix.target }}
+
+      - name: Stage sidecar artifact
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const target = "${{ matrix.target }}";
+          const assetName = "${{ matrix.asset_name }}";
+          const repoRoot = process.cwd();
+          const source = path.join(repoRoot, "src-tauri", "binaries", assetName);
+          const targetDir = path.join(repoRoot, "runtime-sidecars", target);
+          const destination = path.join(targetDir, assetName);
+
+          if (!fs.existsSync(source)) {
+            throw new Error(`Missing built sidecar binary: ${source}`);
+          }
+
+          fs.mkdirSync(targetDir, { recursive: true });
+          fs.copyFileSync(source, destination);
+          console.log(`Copied ${source} -> ${destination}`);
+          NODE
+
+      - name: Generate sidecar metadata
+        shell: bash
+        run: |
+          node ./scripts/create-runtime-sidecar-asset-metadata.mjs \
+            --target ${{ matrix.target }} \
+            --asset runtime-sidecars/${{ matrix.target }}/${{ matrix.asset_name }} \
+            --output runtime-sidecars/${{ matrix.target }}/${{ matrix.target }}.metadata.json
+
+      - name: Upload sidecar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-sidecar-${{ matrix.target }}
+          path: runtime-sidecars/${{ matrix.target }}/*
+          if-no-files-found: error
+
+  publish-release:
+    needs: [resolve-release, build-sidecars]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download sidecar artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: runtime-sidecar-*
+          path: runtime-sidecars
+          merge-multiple: true
+
+      - name: Generate runtime sidecars manifest
+        run: |
+          node ./scripts/generate-runtime-sidecars-manifest.mjs \
+            --assets-dir runtime-sidecars \
+            --repo "${{ github.repository }}" \
+            --release-tag "${{ needs.resolve-release.outputs.release_tag }}" \
+            --published-at "${{ needs.resolve-release.outputs.published_at }}" \
+            --min-app-version "${{ needs.resolve-release.outputs.min_app_version }}" \
+            --output runtime-sidecars/runtime-sidecars-manifest.json
+
+      - name: Validate runtime sidecars manifest schema
+        run: |
+          node ./scripts/validate-runtime-sidecars-manifest.mjs \
+            --manifest runtime-sidecars/runtime-sidecars-manifest.json \
+            --schema docs/runtime-sidecars/manifest.schema.json
+
+      - name: Create versioned runtime sidecars release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-release.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: Runtime Sidecars ${{ needs.resolve-release.outputs.release_tag }}
+          draft: false
+          prerelease: ${{ needs.resolve-release.outputs.is_prerelease }}
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          body: |
+            Runtime sidecar publish for `pinterest-dl`.
+
+            - flowselectSidecarVersion: `${{ needs.resolve-release.outputs.flowselect_sidecar_version }}`
+            - upstreamVersion: `${{ needs.resolve-release.outputs.upstream_version }}`
+          files: |
+            runtime-sidecars/pinterest-dl-*
+            runtime-sidecars/runtime-sidecars-manifest.json
+
+      - name: Update stable latest manifest pointer
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: runtime-sidecars-manifest-latest
+          target_commitish: ${{ github.sha }}
+          name: Runtime Sidecars Manifest (Latest Pointer)
+          draft: false
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          body: |
+            Stable pointer release for the latest FlowSelect runtime sidecars manifest.
+
+            Fetch URL:
+            - `https://github.com/${{ github.repository }}/releases/download/runtime-sidecars-manifest-latest/runtime-sidecars-manifest.json`
+          files: |
+            runtime-sidecars/runtime-sidecars-manifest.json
+
+      - name: Write workflow summary
+        run: |
+          {
+            echo "## Runtime sidecars published"
+            echo ""
+            echo "- Release tag: \`${{ needs.resolve-release.outputs.release_tag }}\`"
+            echo "- flowselectSidecarVersion: \`${{ needs.resolve-release.outputs.flowselect_sidecar_version }}\`"
+            echo "- upstreamVersion: \`${{ needs.resolve-release.outputs.upstream_version }}\`"
+            echo "- Stable manifest URL:"
+            echo "  - https://github.com/${{ github.repository }}/releases/download/runtime-sidecars-manifest-latest/runtime-sidecars-manifest.json"
+          } >> "$GITHUB_STEP_SUMMARY"

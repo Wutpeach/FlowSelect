@@ -14,6 +14,8 @@
     "build": "tsc && vite build",
     "build:pinterest-sidecar": "node ./scripts/build-pinterest-sidecar.mjs",
     "check:pinterest-sidecar-upstream": "node ./scripts/check-pinterest-sidecar-upstream.mjs",
+    "manifest:runtime-sidecars": "node ./scripts/generate-runtime-sidecars-manifest.mjs",
+    "manifest:runtime-sidecars:validate": "node ./scripts/validate-runtime-sidecars-manifest.mjs",
     "lint": "eslint src vite.config.ts --ext .ts,.tsx",
     "smoke:pinterest-sidecar": "node ./scripts/smoke-pinterest-sidecar.mjs",
     "type-check": "tsc --noEmit",
