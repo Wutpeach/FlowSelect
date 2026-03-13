@@ -140,15 +140,15 @@
       },
       "pinterest": {
         "version": "版本 {{version}}",
-        "description": "Pinterest 视频下载器。",
+        "description": "Pinterest 托管视频下载器。",
         "detailsUnavailable": "暂时无法获取详情。",
         "updatesShipWithApp": "更新会随应用版本一起发布。",
-        "managedByApp": "由 FlowSelect 管理。",
+        "managedByApp": "由 FlowSelect 自动下载并托管。",
         "releasesButton": "版本发布",
         "openReleasesFailed": "打开 FlowSelect 发布页失败"
       },
       "runtime": {
-        "description": "下载运行时依赖就绪状态。",
+        "description": "下载托管运行时就绪状态。",
         "unavailable": "运行时状态暂不可用。",
         "allReady": "所有运行时依赖均已就绪。",
         "missingItems": "缺失：{{items}}",

@@ -1,6 +1,8 @@
 mod native_i18n;
 
 use regex::Regex;
+use semver::Version;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -780,6 +782,8 @@ static PRECISE_CLIP_HW_ENCODER_CACHE: LazyLock<Mutex<Option<Option<String>>>> =
     LazyLock::new(|| Mutex::new(None));
 static RUNTIME_DEPENDENCY_GATE_STATE: LazyLock<Mutex<RuntimeDependencyGateState>> =
     LazyLock::new(|| Mutex::new(RuntimeDependencyGateState::default()));
+static PINTEREST_RUNTIME_BOOTSTRAP_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 static RUNTIME_LOG_DIR: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
 static RUNTIME_LOG_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static RUNTIME_LOG_PROGRESS_STATE: LazyLock<Mutex<HashMap<String, RuntimeProgressLogState>>> =
@@ -807,6 +811,9 @@ const RUNTIME_LOG_PROGRESS_BUCKET_PERCENT: f32 = 5.0;
 const RUNTIME_LOG_PROGRESS_MIN_INTERVAL_MS: u128 = 1500;
 const SUPPORT_LOG_RUNTIME_EVIDENCE_LINE_LIMIT: usize = 24;
 const SUPPORT_LOG_TEXT_PREVIEW_LIMIT: usize = 220;
+const MANAGED_RUNTIMES_DIR_NAME: &str = "runtimes";
+const PINTEREST_RUNTIME_COMPONENT_ID: &str = "pinterest-dl";
+const PINTEREST_RUNTIME_MANIFEST_URL: &str = "https://github.com/Wutpeach/FlowSelect/releases/download/runtime-sidecars-manifest-latest/runtime-sidecars-manifest.json";
 const PROTECTED_IMAGE_FALLBACK_TIMEOUT_MS: u64 = 15_000;
 const YTDLP_SELECTED_FORMAT_MARKER: &str = "__FLOWSELECT_SELECTED_FORMAT__=";
 // `best` should prefer adaptive video-only + audio-only formats first. Allowing
@@ -1193,6 +1200,47 @@ fn get_deno_path(app: &AppHandle) -> Result<PathBuf, String> {
     )
 }
 
+fn current_runtime_sidecar_target() -> Result<&'static str, String> {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Ok("x86_64-pc-windows-msvc")
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Ok("aarch64-apple-darwin")
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Ok("x86_64-apple-darwin")
+    } else {
+        Err(format!(
+            "Unsupported platform for managed runtime sidecar: {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ))
+    }
+}
+
+fn managed_runtimes_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let config_path = get_config_path(app)?;
+    let config_dir = config_path
+        .parent()
+        .ok_or_else(|| "Failed to resolve config directory for managed runtimes".to_string())?;
+    let runtimes_dir = config_dir.join(MANAGED_RUNTIMES_DIR_NAME);
+    fs::create_dir_all(&runtimes_dir).map_err(|err| {
+        format!(
+            "Failed to create managed runtimes dir {:?}: {}",
+            runtimes_dir, err
+        )
+    })?;
+    Ok(runtimes_dir)
+}
+
+fn managed_pinterest_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(managed_runtimes_dir(app)?
+        .join(PINTEREST_RUNTIME_COMPONENT_ID)
+        .join(current_runtime_sidecar_target()?))
+}
+
+fn managed_pinterest_downloader_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(managed_pinterest_runtime_dir(app)?.join(pinterest_downloader_binary_filename()?))
+}
+
 fn pinterest_downloader_binary_filename() -> Result<&'static str, String> {
     if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         Ok("pinterest-dl-x86_64-pc-windows-msvc.exe")
@@ -1209,23 +1257,20 @@ fn pinterest_downloader_binary_filename() -> Result<&'static str, String> {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn pinterest_downloader_path_fallback_filenames() -> &'static [&'static str] {
-    &["pinterest-dl.exe", "pinterest-dl"]
-}
-
-#[cfg(not(target_os = "windows"))]
-fn pinterest_downloader_path_fallback_filenames() -> &'static [&'static str] {
-    &["pinterest-dl"]
-}
-
 fn pinterest_downloader_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let file_name = pinterest_downloader_binary_filename()?;
-    resolve_runtime_binary_with_path_fallback(
-        "Pinterest downloader",
-        binary_candidate_paths(app, file_name),
-        pinterest_downloader_path_fallback_filenames(),
-    )
+    let target_path = managed_pinterest_downloader_binary_path(app)?;
+    if target_path.exists() {
+        println!(
+            ">>> [Rust] Using managed Pinterest downloader from: {:?}",
+            target_path
+        );
+        Ok(target_path)
+    } else {
+        Err(format!(
+            "Managed Pinterest downloader is missing at {:?}. FlowSelect will bootstrap it from the runtime sidecar manifest.",
+            target_path
+        ))
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -1327,15 +1372,18 @@ fn inspect_ytdlp_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry
 }
 
 fn inspect_pinterest_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
-    let file_name = match pinterest_downloader_binary_filename() {
-        Ok(file_name) => file_name,
+    let target_path = match managed_pinterest_downloader_binary_path(app) {
+        Ok(path) => path,
         Err(err) => return RuntimeDependencyStatusEntry::missing(err),
     };
-    let bundled_candidates = binary_candidate_paths(app, file_name);
-    runtime_dependency_status_from_resolution(
-        &bundled_candidates,
-        pinterest_downloader_binary_path(app),
-    )
+    if target_path.exists() {
+        RuntimeDependencyStatusEntry::ready(target_path, RuntimeDependencySource::Managed)
+    } else {
+        RuntimeDependencyStatusEntry::missing(format!(
+            "Managed Pinterest downloader is missing at {:?}",
+            target_path
+        ))
+    }
 }
 
 fn ffmpeg_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -5640,6 +5688,8 @@ async fn download_pinterest_video(
         "",
     );
 
+    ensure_managed_pinterest_runtime_ready(&app, "pinterest_download").await?;
+
     let hinted_video_url =
         select_pinterest_hint_video_url(video_url_hint.as_deref(), &video_candidates);
     let resolved_result = resolve_pinterest_pin_media(
@@ -9876,6 +9926,33 @@ struct EmbeddedPinterestSidecarUpstream {
     version: String,
 }
 
+#[derive(serde::Deserialize)]
+struct RuntimeSidecarsManifest {
+    component: String,
+    #[serde(rename = "flowselectSidecarVersion")]
+    flowselect_sidecar_version: String,
+    #[serde(rename = "upstreamVersion")]
+    upstream_version: String,
+    artifacts: Vec<RuntimeSidecarArtifact>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct RuntimeSidecarArtifact {
+    component: String,
+    #[serde(rename = "flowselectSidecarVersion")]
+    flowselect_sidecar_version: String,
+    #[serde(rename = "upstreamVersion")]
+    upstream_version: String,
+    target: String,
+    url: String,
+    sha256: String,
+    size: u64,
+    #[serde(rename = "publishedAt")]
+    published_at: String,
+    #[serde(rename = "minAppVersion")]
+    min_app_version: Option<String>,
+}
+
 #[derive(serde::Serialize, Clone)]
 pub struct PinterestDownloaderInfo {
     pub current: String,
@@ -9890,6 +9967,7 @@ pub struct PinterestDownloaderInfo {
 #[derive(Clone, Copy)]
 enum RuntimeDependencySource {
     Bundled,
+    Managed,
     SystemPath,
 }
 
@@ -9897,6 +9975,7 @@ impl RuntimeDependencySource {
     fn as_str(self) -> &'static str {
         match self {
             Self::Bundled => "bundled",
+            Self::Managed => "managed",
             Self::SystemPath => "system_path",
         }
     }
@@ -10044,26 +10123,18 @@ fn update_runtime_dependency_gate_state(
 fn pinterest_downloader_info_from_lock_json(
     lock_json: &str,
 ) -> Result<PinterestDownloaderInfo, String> {
-    let lock: EmbeddedPinterestSidecarLock = serde_json::from_str(lock_json).map_err(|err| {
-        format!(
-            "Failed to parse bundled Pinterest downloader metadata: {}",
-            err
-        )
-    })?;
+    let lock: EmbeddedPinterestSidecarLock = serde_json::from_str(lock_json)
+        .map_err(|err| format!("Failed to parse Pinterest downloader metadata: {}", err))?;
 
     if lock.upstream.package.trim().is_empty() {
-        return Err(
-            "Bundled Pinterest downloader metadata is missing upstream.package".to_string(),
-        );
+        return Err("Pinterest downloader metadata is missing upstream.package".to_string());
     }
     if lock.upstream.version.trim().is_empty() {
-        return Err(
-            "Bundled Pinterest downloader metadata is missing upstream.version".to_string(),
-        );
+        return Err("Pinterest downloader metadata is missing upstream.version".to_string());
     }
     if lock.flowselect_sidecar_version.trim().is_empty() {
         return Err(
-            "Bundled Pinterest downloader metadata is missing flowselectSidecarVersion".to_string(),
+            "Pinterest downloader metadata is missing flowselectSidecarVersion".to_string(),
         );
     }
 
@@ -10071,7 +10142,7 @@ fn pinterest_downloader_info_from_lock_json(
         current: lock.upstream.version,
         package_name: lock.upstream.package,
         flowselect_sidecar_version: lock.flowselect_sidecar_version,
-        update_channel: "app_release".to_string(),
+        update_channel: "managed_runtime".to_string(),
     })
 }
 
@@ -10079,6 +10150,372 @@ fn pinterest_downloader_info_from_lock_json(
 struct YtdlpLatestCacheEntry {
     latest: String,
     fetched_at_ms: u64,
+}
+
+fn is_min_app_version_satisfied(min_app_version: Option<&str>) -> Result<bool, String> {
+    let Some(raw_min_app_version) = min_app_version
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(true);
+    };
+
+    if matches!(
+        raw_min_app_version.to_ascii_lowercase().as_str(),
+        "true" | "false"
+    ) {
+        println!(
+            ">>> [Rust] Ignoring malformed runtime manifest minAppVersion value: {}",
+            raw_min_app_version
+        );
+        return Ok(true);
+    }
+
+    let current_version = Version::parse(env!("CARGO_PKG_VERSION")).map_err(|err| {
+        format!(
+            "Failed to parse current app version {}: {}",
+            env!("CARGO_PKG_VERSION"),
+            err
+        )
+    })?;
+    let minimum_version = Version::parse(raw_min_app_version).map_err(|err| {
+        format!(
+            "Failed to parse runtime manifest minAppVersion {}: {}",
+            raw_min_app_version, err
+        )
+    })?;
+    Ok(current_version >= minimum_version)
+}
+
+fn select_pinterest_runtime_artifact(
+    manifest: RuntimeSidecarsManifest,
+) -> Result<RuntimeSidecarArtifact, String> {
+    if manifest.component.trim() != PINTEREST_RUNTIME_COMPONENT_ID {
+        return Err(format!(
+            "Unexpected runtime manifest component: {}",
+            manifest.component
+        ));
+    }
+    if manifest.flowselect_sidecar_version.trim().is_empty() {
+        return Err("Runtime manifest is missing flowselectSidecarVersion".to_string());
+    }
+    if manifest.upstream_version.trim().is_empty() {
+        return Err("Runtime manifest is missing upstreamVersion".to_string());
+    }
+
+    let expected_target = current_runtime_sidecar_target()?;
+    let artifact = manifest
+        .artifacts
+        .into_iter()
+        .find(|candidate| {
+            candidate.component == PINTEREST_RUNTIME_COMPONENT_ID
+                && candidate.target == expected_target
+        })
+        .ok_or_else(|| {
+            format!(
+                "Runtime manifest does not contain a Pinterest sidecar for target {}",
+                expected_target
+            )
+        })?;
+
+    if artifact.flowselect_sidecar_version.trim().is_empty() {
+        return Err("Runtime artifact is missing flowselectSidecarVersion".to_string());
+    }
+    if artifact.upstream_version.trim().is_empty() {
+        return Err("Runtime artifact is missing upstreamVersion".to_string());
+    }
+    if artifact.url.trim().is_empty() {
+        return Err("Runtime artifact is missing url".to_string());
+    }
+    if artifact.sha256.trim().len() != 64 {
+        return Err("Runtime artifact is missing a valid sha256 checksum".to_string());
+    }
+    if artifact.size == 0 {
+        return Err("Runtime artifact size must be greater than zero".to_string());
+    }
+    if artifact.published_at.trim().is_empty() {
+        return Err("Runtime artifact is missing publishedAt".to_string());
+    }
+    if !is_min_app_version_satisfied(artifact.min_app_version.as_deref())? {
+        return Err(format!(
+            "Runtime artifact requires app version {} or newer",
+            artifact.min_app_version.as_deref().unwrap_or_default()
+        ));
+    }
+
+    Ok(artifact)
+}
+
+async fn fetch_pinterest_runtime_manifest() -> Result<RuntimeSidecarsManifest, String> {
+    println!(
+        ">>> [Rust] Fetching Pinterest runtime manifest: {}",
+        PINTEREST_RUNTIME_MANIFEST_URL
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|err| format!("Failed to build runtime manifest HTTP client: {}", err))?;
+
+    let response = client
+        .get(PINTEREST_RUNTIME_MANIFEST_URL)
+        .header(
+            "User-Agent",
+            format!("FlowSelect/{}", env!("CARGO_PKG_VERSION")),
+        )
+        .send()
+        .await
+        .map_err(|err| format!("Failed to fetch runtime manifest: {}", err))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|err| format!("Failed to read runtime manifest response: {}", err))?;
+    if !status.is_success() {
+        return Err(format!(
+            "Runtime manifest request failed with HTTP {}: {}",
+            status,
+            body.chars().take(180).collect::<String>()
+        ));
+    }
+
+    serde_json::from_str::<RuntimeSidecarsManifest>(&body)
+        .map_err(|err| format!("Failed to parse runtime manifest JSON: {}", err))
+}
+
+fn build_runtime_download_temp_path(target_path: &Path) -> PathBuf {
+    let parent = target_path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = target_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("runtime-binary");
+
+    let first = parent.join(format!("{}.flowselect-download", file_name));
+    if !first.exists() {
+        return first;
+    }
+
+    let mut counter = 2;
+    loop {
+        let candidate = parent.join(format!("{}.flowselect-download-{}", file_name, counter));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+async fn download_pinterest_runtime_artifact(
+    artifact: &RuntimeSidecarArtifact,
+    temp_path: &Path,
+) -> Result<(), String> {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|err| format!("Failed to build runtime download HTTP client: {}", err))?;
+    let response = client
+        .get(&artifact.url)
+        .header(
+            "User-Agent",
+            format!("FlowSelect/{}", env!("CARGO_PKG_VERSION")),
+        )
+        .send()
+        .await
+        .map_err(|err| format!("Failed to download managed Pinterest runtime: {}", err))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Managed Pinterest runtime download failed with HTTP {}",
+            response.status()
+        ));
+    }
+
+    let mut file = tokio::fs::File::create(temp_path).await.map_err(|err| {
+        format!(
+            "Failed to create runtime temp file {:?}: {}",
+            temp_path, err
+        )
+    })?;
+    let mut stream = response.bytes_stream();
+    let mut hasher = Sha256::new();
+    let mut downloaded = 0_u64;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|err| format!("Runtime download stream error: {}", err))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|err| format!("Failed to write runtime temp file {:?}: {}", temp_path, err))?;
+        hasher.update(&chunk);
+        downloaded += chunk.len() as u64;
+    }
+
+    file.flush()
+        .await
+        .map_err(|err| format!("Failed to flush runtime temp file {:?}: {}", temp_path, err))?;
+    drop(file);
+
+    if downloaded != artifact.size {
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return Err(format!(
+            "Managed Pinterest runtime size mismatch: expected {} bytes, got {} bytes",
+            artifact.size, downloaded
+        ));
+    }
+
+    let checksum = format!("{:x}", hasher.finalize());
+    if checksum != artifact.sha256.to_ascii_lowercase() {
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return Err(format!(
+            "Managed Pinterest runtime checksum mismatch: expected {}, got {}",
+            artifact.sha256, checksum
+        ));
+    }
+
+    Ok(())
+}
+
+fn finalize_runtime_dependency_gate_for_snapshot(
+    app: &AppHandle,
+    snapshot: &RuntimeDependencyStatusSnapshot,
+    last_error: Option<String>,
+) -> RuntimeDependencyGateStatePayload {
+    let missing_components = runtime_dependency_missing_components(snapshot);
+    if missing_components.is_empty() {
+        return update_runtime_dependency_gate_state(
+            app,
+            RuntimeDependencyGatePhase::Ready,
+            Vec::new(),
+            None,
+        );
+    }
+
+    update_runtime_dependency_gate_state(
+        app,
+        RuntimeDependencyGatePhase::Failed,
+        missing_components,
+        last_error,
+    )
+}
+
+async fn ensure_managed_pinterest_runtime_ready(
+    app: &AppHandle,
+    trigger: &str,
+) -> Result<PathBuf, String> {
+    let target_path = managed_pinterest_downloader_binary_path(app)?;
+    if target_path.exists() {
+        return Ok(target_path);
+    }
+
+    let _lock = PINTEREST_RUNTIME_BOOTSTRAP_LOCK.lock().await;
+    if target_path.exists() {
+        return Ok(target_path);
+    }
+
+    let initial_snapshot = get_runtime_dependency_status(app.clone());
+    let missing_components = runtime_dependency_missing_components(&initial_snapshot);
+    update_runtime_dependency_gate_state(
+        app,
+        RuntimeDependencyGatePhase::Downloading,
+        missing_components.clone(),
+        None,
+    );
+    append_runtime_log_event(
+        "runtime_bootstrap",
+        "start",
+        None,
+        serde_json::json!({
+            "component": PINTEREST_RUNTIME_COMPONENT_ID,
+            "trigger": trigger,
+            "targetPath": target_path,
+            "missingComponents": missing_components,
+        }),
+    );
+
+    let install_result = async {
+        let manifest = fetch_pinterest_runtime_manifest().await?;
+        let artifact = select_pinterest_runtime_artifact(manifest)?;
+        let target_dir = target_path
+            .parent()
+            .ok_or_else(|| format!("Failed to resolve runtime target dir for {:?}", target_path))?;
+        tokio::fs::create_dir_all(target_dir).await.map_err(|err| {
+            format!(
+                "Failed to create runtime target dir {:?}: {}",
+                target_dir, err
+            )
+        })?;
+
+        let temp_path = build_runtime_download_temp_path(&target_path);
+        download_pinterest_runtime_artifact(&artifact, &temp_path).await?;
+        if let Err(err) = replace_file_preserving_backup(&temp_path, &target_path) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(err);
+        }
+        #[cfg(unix)]
+        fs::set_permissions(&target_path, std::fs::Permissions::from_mode(0o755)).map_err(
+            |err| {
+                format!(
+                    "Failed to set executable permission on {:?}: {}",
+                    target_path, err
+                )
+            },
+        )?;
+
+        Ok::<PathBuf, String>(target_path.clone())
+    }
+    .await;
+
+    match install_result {
+        Ok(path) => {
+            append_runtime_log_event(
+                "runtime_bootstrap",
+                "complete",
+                None,
+                serde_json::json!({
+                    "component": PINTEREST_RUNTIME_COMPONENT_ID,
+                    "trigger": trigger,
+                    "path": path,
+                    "success": true,
+                }),
+            );
+            let snapshot = get_runtime_dependency_status(app.clone());
+            let _ = finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, None);
+            Ok(path)
+        }
+        Err(err) => {
+            append_runtime_log_event(
+                "runtime_bootstrap",
+                "complete",
+                None,
+                serde_json::json!({
+                    "component": PINTEREST_RUNTIME_COMPONENT_ID,
+                    "trigger": trigger,
+                    "targetPath": target_path,
+                    "success": false,
+                    "error": err,
+                }),
+            );
+            let snapshot = get_runtime_dependency_status(app.clone());
+            let _ =
+                finalize_runtime_dependency_gate_for_snapshot(app, &snapshot, Some(err.clone()));
+            Err(err)
+        }
+    }
+}
+
+fn spawn_managed_pinterest_runtime_bootstrap(app: AppHandle, trigger: &'static str) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = ensure_managed_pinterest_runtime_ready(&app, trigger).await {
+            println!(
+                ">>> [Rust] Managed Pinterest runtime bootstrap failed (trigger={}): {}",
+                trigger, err
+            );
+        }
+    });
 }
 
 fn ytdlp_binary_filename() -> Result<&'static str, String> {
@@ -10251,11 +10688,28 @@ fn refresh_runtime_dependency_gate_state(app: AppHandle) -> RuntimeDependencyGat
         );
     }
 
+    if missing_components
+        .iter()
+        .any(|component| component == PINTEREST_RUNTIME_COMPONENT_ID)
+    {
+        let payload = update_runtime_dependency_gate_state(
+            &app,
+            RuntimeDependencyGatePhase::Downloading,
+            missing_components,
+            None,
+        );
+        spawn_managed_pinterest_runtime_bootstrap(app, "gate_refresh");
+        return payload;
+    }
+
     update_runtime_dependency_gate_state(
         &app,
-        RuntimeDependencyGatePhase::AwaitingConfirmation,
-        missing_components,
-        None,
+        RuntimeDependencyGatePhase::Failed,
+        missing_components.clone(),
+        Some(format!(
+            "Missing runtime dependencies: {}",
+            missing_components.join(", ")
+        )),
     )
 }
 
@@ -10270,18 +10724,23 @@ fn set_runtime_dependency_user_decision(
     };
 
     if allow_download {
-        update_runtime_dependency_gate_state(
+        let payload = update_runtime_dependency_gate_state(
             &app,
             RuntimeDependencyGatePhase::Downloading,
             current_missing,
             None,
-        )
+        );
+        spawn_managed_pinterest_runtime_bootstrap(app, "manual_decision");
+        payload
     } else {
         update_runtime_dependency_gate_state(
             &app,
-            RuntimeDependencyGatePhase::BlockedByUser,
+            RuntimeDependencyGatePhase::Failed,
             current_missing,
-            None,
+            Some(
+                "Managed runtime bootstrap is required before Pinterest downloads can continue"
+                    .to_string(),
+            ),
         )
     }
 }
@@ -12837,6 +13296,49 @@ pub fn run() {
                 }),
             );
 
+            let app_handle_runtime_bootstrap = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let snapshot = get_runtime_dependency_status(app_handle_runtime_bootstrap.clone());
+                let missing_components = runtime_dependency_missing_components(&snapshot);
+                if missing_components.is_empty() {
+                    let _ = update_runtime_dependency_gate_state(
+                        &app_handle_runtime_bootstrap,
+                        RuntimeDependencyGatePhase::Ready,
+                        Vec::new(),
+                        None,
+                    );
+                    return;
+                }
+
+                if missing_components
+                    .iter()
+                    .any(|component| component == PINTEREST_RUNTIME_COMPONENT_ID)
+                {
+                    if let Err(err) = ensure_managed_pinterest_runtime_ready(
+                        &app_handle_runtime_bootstrap,
+                        "app_startup",
+                    )
+                    .await
+                    {
+                        println!(
+                            ">>> [Rust] Startup managed runtime bootstrap failed: {}",
+                            err
+                        );
+                    }
+                    return;
+                }
+
+                let _ = update_runtime_dependency_gate_state(
+                    &app_handle_runtime_bootstrap,
+                    RuntimeDependencyGatePhase::Failed,
+                    missing_components.clone(),
+                    Some(format!(
+                        "Missing runtime dependencies: {}",
+                        missing_components.join(", ")
+                    )),
+                );
+            });
+
             // Create Tray Menu
             let initial_tray_labels = load_current_native_tray_labels(&app.handle());
             let quit_i =
@@ -13084,6 +13586,17 @@ mod tests {
     }
 
     #[test]
+    fn runtime_dependency_status_entry_marks_managed_source() {
+        let status = RuntimeDependencyStatusEntry::ready(
+            PathBuf::from("C:/flowselect/config/runtimes/pinterest-dl/pinterest-dl.exe"),
+            RuntimeDependencySource::Managed,
+        );
+
+        assert!(status.is_ready());
+        assert_eq!(status.source.as_deref(), Some("managed"));
+    }
+
+    #[test]
     fn runtime_dependency_missing_components_collects_missing_ids() {
         let snapshot = RuntimeDependencyStatusSnapshot {
             yt_dlp: RuntimeDependencyStatusEntry::ready(
@@ -13217,6 +13730,95 @@ mod tests {
     }
 
     #[test]
+    fn select_pinterest_runtime_artifact_accepts_current_target() {
+        let target = current_runtime_sidecar_target().expect("expected supported runtime target");
+        let manifest = RuntimeSidecarsManifest {
+            component: PINTEREST_RUNTIME_COMPONENT_ID.to_string(),
+            flowselect_sidecar_version: "0.1.0-dev".to_string(),
+            upstream_version: "1.1.2".to_string(),
+            artifacts: vec![RuntimeSidecarArtifact {
+                component: PINTEREST_RUNTIME_COMPONENT_ID.to_string(),
+                flowselect_sidecar_version: "0.1.0-dev".to_string(),
+                upstream_version: "1.1.2".to_string(),
+                target: target.to_string(),
+                url: "https://example.com/pinterest-dl".to_string(),
+                sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+                size: 42,
+                published_at: "2026-03-13T00:00:00Z".to_string(),
+                min_app_version: None,
+            }],
+        };
+
+        let artifact =
+            select_pinterest_runtime_artifact(manifest).expect("expected target artifact");
+
+        assert_eq!(artifact.target, target);
+        assert_eq!(artifact.component, PINTEREST_RUNTIME_COMPONENT_ID);
+    }
+
+    #[test]
+    fn select_pinterest_runtime_artifact_ignores_boolean_like_min_app_version() {
+        let target = current_runtime_sidecar_target().expect("expected supported runtime target");
+        let manifest = RuntimeSidecarsManifest {
+            component: PINTEREST_RUNTIME_COMPONENT_ID.to_string(),
+            flowselect_sidecar_version: "0.1.0-dev".to_string(),
+            upstream_version: "1.1.2".to_string(),
+            artifacts: vec![RuntimeSidecarArtifact {
+                component: PINTEREST_RUNTIME_COMPONENT_ID.to_string(),
+                flowselect_sidecar_version: "0.1.0-dev".to_string(),
+                upstream_version: "1.1.2".to_string(),
+                target: target.to_string(),
+                url: "https://example.com/pinterest-dl".to_string(),
+                sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                    .to_string(),
+                size: 42,
+                published_at: "2026-03-13T00:00:00Z".to_string(),
+                min_app_version: Some("true".to_string()),
+            }],
+        };
+
+        let artifact = select_pinterest_runtime_artifact(manifest)
+            .expect("expected boolean-like minAppVersion to be ignored");
+
+        assert_eq!(artifact.target, target);
+    }
+
+    #[test]
+    fn select_pinterest_runtime_artifact_rejects_future_min_app_version() {
+        let current_version =
+            Version::parse(env!("CARGO_PKG_VERSION")).expect("expected valid app version");
+        let future_version = Version::new(
+            current_version.major,
+            current_version.minor,
+            current_version.patch + 1,
+        );
+        let target = current_runtime_sidecar_target().expect("expected supported runtime target");
+        let manifest = RuntimeSidecarsManifest {
+            component: PINTEREST_RUNTIME_COMPONENT_ID.to_string(),
+            flowselect_sidecar_version: "0.1.0-dev".to_string(),
+            upstream_version: "1.1.2".to_string(),
+            artifacts: vec![RuntimeSidecarArtifact {
+                component: PINTEREST_RUNTIME_COMPONENT_ID.to_string(),
+                flowselect_sidecar_version: "0.1.0-dev".to_string(),
+                upstream_version: "1.1.2".to_string(),
+                target: target.to_string(),
+                url: "https://example.com/pinterest-dl".to_string(),
+                sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_string(),
+                size: 42,
+                published_at: "2026-03-13T00:00:00Z".to_string(),
+                min_app_version: Some(future_version.to_string()),
+            }],
+        };
+
+        let err = select_pinterest_runtime_artifact(manifest)
+            .expect_err("expected future minAppVersion to fail");
+
+        assert!(err.contains("requires app version"));
+    }
+
+    #[test]
     fn pinterest_downloader_info_matches_embedded_lock_metadata() {
         let info = pinterest_downloader_info_from_lock_json(PINTEREST_SIDECAR_LOCK_JSON)
             .expect("expected embedded lock metadata to parse");
@@ -13243,7 +13845,7 @@ mod tests {
                 .and_then(|value| value.as_str())
                 .expect("expected flowselectSidecarVersion in embedded lock")
         );
-        assert_eq!(info.update_channel, "app_release");
+        assert_eq!(info.update_channel, "managed_runtime");
     }
 
     #[test]

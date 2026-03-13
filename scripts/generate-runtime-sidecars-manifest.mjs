@@ -15,7 +15,7 @@ function parseArgs(argv) {
     }
     const key = token.slice(2);
     const next = argv[index + 1];
-    if (!next || next.startsWith("--")) {
+    if (next === undefined || next.startsWith("--")) {
       parsed[key] = "true";
       continue;
     }
@@ -77,6 +77,10 @@ function parseMetadata(path) {
   return metadata;
 }
 
+function isLikelySemver(value) {
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value);
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const assetsDirArg = String(args["assets-dir"] ?? "").trim();
@@ -109,6 +113,11 @@ function main() {
   }
   if (!component) {
     throw new Error("component must not be empty");
+  }
+  if (minAppVersion && !isLikelySemver(minAppVersion)) {
+    throw new Error(
+      `Invalid --min-app-version value "${minAppVersion}". Expected a semver string like 0.2.6`,
+    );
   }
 
   const assetsDir = resolve(repoRoot, assetsDirArg);

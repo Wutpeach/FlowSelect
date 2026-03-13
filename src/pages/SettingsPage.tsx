@@ -302,11 +302,6 @@ function SettingsPage() {
     if (!pinterestInfo) {
       return t("desktop:settings.downloaders.pinterest.detailsUnavailable");
     }
-
-    if (pinterestInfo.updateChannel === "app_release") {
-      return t("desktop:settings.downloaders.pinterest.updatesShipWithApp");
-    }
-
     return t("desktop:settings.downloaders.pinterest.managedByApp");
   })();
   const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
@@ -524,13 +519,14 @@ function SettingsPage() {
       "runtime-dependency-gate-state",
       (event) => {
         setRuntimeDependencyGateState(event.payload);
+        void refreshRuntimeDependencyStatus();
       },
     );
 
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [refreshRuntimeDependencyStatus]);
 
   const startRecording = () => {
     setRecordedKeys("");
@@ -622,34 +618,6 @@ function SettingsPage() {
       return;
     }
     showRuntimeHint(t("desktop:settings.downloaders.runtime.refreshFailed"));
-  };
-
-  const handleRuntimeAllowDownload = async () => {
-    try {
-      const state = await invoke<RuntimeDependencyGateStatePayload>(
-        "set_runtime_dependency_user_decision",
-        { allowDownload: true },
-      );
-      setRuntimeDependencyGateState(state);
-      showRuntimeHint(t("desktop:settings.downloaders.runtime.markedForDownload"));
-    } catch (err) {
-      console.error("Failed to set runtime dependency allow decision:", err);
-      showRuntimeHint(t("desktop:settings.downloaders.runtime.markDecisionFailed"));
-    }
-  };
-
-  const handleRuntimeBlockDownload = async () => {
-    try {
-      const state = await invoke<RuntimeDependencyGateStatePayload>(
-        "set_runtime_dependency_user_decision",
-        { allowDownload: false },
-      );
-      setRuntimeDependencyGateState(state);
-      showRuntimeHint(t("desktop:settings.downloaders.runtime.markedBlockedByUser"));
-    } catch (err) {
-      console.error("Failed to set runtime dependency block decision:", err);
-      showRuntimeHint(t("desktop:settings.downloaders.runtime.markDecisionFailed"));
-    }
   };
 
   const toggleAutostart = async () => {
@@ -1056,28 +1024,6 @@ function SettingsPage() {
               >
                 {t("desktop:settings.downloaders.runtime.recheckButton")}
               </NeonButton>
-              {runtimeGatePhase === "awaiting_confirmation" ? (
-                <>
-                  <NeonButton
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void handleRuntimeAllowDownload()}
-                    style={{ minWidth: 56, fontSize: 11, padding: "5px 8px" }}
-                  >
-                    {t("desktop:settings.downloaders.runtime.allowButton")}
-                  </NeonButton>
-                  <NeonButton
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void handleRuntimeBlockDownload()}
-                    style={{ minWidth: 56, fontSize: 11, padding: "5px 8px" }}
-                  >
-                    {t("desktop:settings.downloaders.runtime.skipButton")}
-                  </NeonButton>
-                </>
-              ) : null}
             </div>
           </div>
         </>

@@ -140,15 +140,15 @@
       },
       "pinterest": {
         "version": "Version {{version}}",
-        "description": "Pinterest video downloader.",
+        "description": "Managed Pinterest video downloader.",
         "detailsUnavailable": "Details unavailable.",
         "updatesShipWithApp": "Updates ship with app releases.",
-        "managedByApp": "Managed by FlowSelect.",
+        "managedByApp": "Auto-downloaded and managed by FlowSelect.",
         "releasesButton": "Releases",
         "openReleasesFailed": "Failed to open FlowSelect releases"
       },
       "runtime": {
-        "description": "Runtime dependency readiness for downloads.",
+        "description": "Managed runtime readiness for downloads.",
         "unavailable": "Runtime status unavailable.",
         "allReady": "All runtime dependencies are ready.",
         "missingItems": "Missing: {{items}}",

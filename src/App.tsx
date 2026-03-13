@@ -1258,12 +1258,13 @@ function App() {
       "runtime-dependency-gate-state",
       (event) => {
         setRuntimeDependencyGateState(event.payload);
+        void refreshRuntimeDependencyStatus();
       },
     );
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [refreshRuntimeDependencyStatus]);
 
   useEffect(() => {
     const previousTaskCount = previousTaskCountRef.current;
@@ -2185,36 +2186,6 @@ function App() {
     await refreshRuntimeDependencyContext({ showHint: true });
   };
 
-  const handleRuntimeAllowDownload = async () => {
-    resetIdleTimer({ expandIfMinimized: false });
-    try {
-      const state = await invoke<RuntimeDependencyGateStatePayload>(
-        "set_runtime_dependency_user_decision",
-        { allowDownload: true },
-      );
-      setRuntimeDependencyGateState(state);
-      showRuntimeHint(t("settings.downloaders.runtime.markedForDownload"));
-    } catch (err) {
-      console.error("Failed to set runtime dependency allow decision:", err);
-      showRuntimeHint(t("settings.downloaders.runtime.markDecisionFailed"));
-    }
-  };
-
-  const handleRuntimeBlockDownload = async () => {
-    resetIdleTimer({ expandIfMinimized: false });
-    try {
-      const state = await invoke<RuntimeDependencyGateStatePayload>(
-        "set_runtime_dependency_user_decision",
-        { allowDownload: false },
-      );
-      setRuntimeDependencyGateState(state);
-      showRuntimeHint(t("settings.downloaders.runtime.markedBlockedByUser"));
-    } catch (err) {
-      console.error("Failed to set runtime dependency block decision:", err);
-      showRuntimeHint(t("settings.downloaders.runtime.markDecisionFailed"));
-    }
-  };
-
   // 右键菜单
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -2396,10 +2367,8 @@ function App() {
     || hasRuntimeGateIssue
     || (totalTaskCount > 0 && runtimeDependencyStatus === null)
   );
-  const runtimePromptNeedsDecision = runtimeGatePhase === "awaiting_confirmation";
-  const showRuntimeRecheckButton = !runtimePromptNeedsDecision && runtimeGatePhase !== "downloading" && (
+  const showRuntimeRecheckButton = runtimeGatePhase !== "downloading" && (
     runtimeGatePhase === "failed"
-    || runtimeGatePhase === "blocked_by_user"
     || runtimeMissingComponents.length > 0
     || runtimeDependencyStatus === null
   );
@@ -2461,7 +2430,7 @@ function App() {
     ? t("app.runtime.taskCountSingle")
     : t("app.runtime.taskCountPlural", { count: totalTaskCount });
   const runtimePromptContentOffset = shouldShowRuntimePrompt
-    ? (runtimePromptNeedsDecision ? 72 : 54)
+    ? 54
     : 0;
   const getRuntimeActionButtonStyle = (tone: "accent" | "danger" | "neutral"): CSSProperties => {
     const borderColor = tone === "danger"
@@ -3494,7 +3463,7 @@ function App() {
                 lineHeight: 1.28,
                 color: runtimeHint ? runtimePromptAccentColor : colors.textSecondary,
                 display: "-webkit-box",
-                WebkitLineClamp: runtimePromptNeedsDecision ? 2 : 1,
+                WebkitLineClamp: 1,
                 WebkitBoxOrient: "vertical",
                 overflow: "hidden",
               }}
@@ -3502,24 +3471,7 @@ function App() {
               {runtimePromptSummary}
             </span>
 
-            {runtimePromptNeedsDecision ? (
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
-                <button
-                  type="button"
-                  onClick={() => void handleRuntimeAllowDownload()}
-                  style={getRuntimeActionButtonStyle("accent")}
-                >
-                  {t("settings.downloaders.runtime.allowButton")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleRuntimeBlockDownload()}
-                  style={getRuntimeActionButtonStyle("danger")}
-                >
-                  {t("settings.downloaders.runtime.skipButton")}
-                </button>
-              </div>
-            ) : showRuntimeRecheckButton ? (
+            {showRuntimeRecheckButton ? (
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <button
                   type="button"
