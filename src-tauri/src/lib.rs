@@ -6574,6 +6574,8 @@ async fn download_video_internal(
         ">>> [Rust] yt-dlp quality preference: {}",
         ytdlp_quality.as_str()
     );
+    let mut extension_cookies_path = extension_cookies_path;
+    let mut policy = policy;
 
     // Get config
     let config_str = get_config(app.clone())?;
@@ -6712,6 +6714,22 @@ async fn download_video_internal(
             return Err(err);
         }
     };
+    let preflight_cookies_path = resolve_youtube_highest_preflight_cookies_path(
+        &app,
+        url.as_str(),
+        &clip_range,
+        &extension_cookies_path,
+        ytdlp_quality,
+        selection_scope,
+        policy,
+        trace_id.as_str(),
+    )
+    .await;
+    if extension_cookies_path.is_some() && preflight_cookies_path.is_none() {
+        cleanup_extension_cookies_file(&extension_cookies_path);
+        policy.allow_youtube_cookie_retry = false;
+    }
+    extension_cookies_path = preflight_cookies_path;
 
     // Build args
     let mut args = vec![
@@ -6912,27 +6930,6 @@ async fn download_video_internal(
                     if heartbeat_event.soft_heartbeat {
                         last_soft_heartbeat_at = Some(now);
                     }
-                    if let Some(retried_result) = maybe_retry_youtube_highest_without_cookies(
-                        &app,
-                        &url,
-                        &clip_range,
-                        &extension_cookies_path,
-                        ytdlp_quality,
-                        policy,
-                        heartbeat_state.selected_format.as_ref(),
-                        &mut heartbeat_state.youtube_highest_probe_attempted,
-                        selection_scope,
-                        &source_title,
-                        ae_friendly_conversion_enabled,
-                        &trace_id,
-                        &captured_artifact_paths,
-                        &output_dir,
-                        &reported_output_path_file,
-                    )
-                    .await?
-                    {
-                        return Ok(retried_result);
-                    }
                 }
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
@@ -6955,27 +6952,6 @@ async fn download_video_internal(
                     }
                     if heartbeat_event.soft_heartbeat {
                         last_soft_heartbeat_at = Some(now);
-                    }
-                    if let Some(retried_result) = maybe_retry_youtube_highest_without_cookies(
-                        &app,
-                        &url,
-                        &clip_range,
-                        &extension_cookies_path,
-                        ytdlp_quality,
-                        policy,
-                        heartbeat_state.selected_format.as_ref(),
-                        &mut heartbeat_state.youtube_highest_probe_attempted,
-                        selection_scope,
-                        &source_title,
-                        ae_friendly_conversion_enabled,
-                        &trace_id,
-                        &captured_artifact_paths,
-                        &output_dir,
-                        &reported_output_path_file,
-                    )
-                    .await?
-                    {
-                        return Ok(retried_result);
                     }
                 }
                 CommandEvent::Terminated(payload) => {
@@ -9854,135 +9830,203 @@ async fn probe_ytdlp_selected_format(
     Ok(selected_format)
 }
 
-async fn maybe_retry_youtube_highest_without_cookies(
+async fn resolve_youtube_highest_preflight_cookies_path(
     app: &AppHandle,
-    url: &String,
+    url: &str,
     clip_range: &Option<ClipTimeRange>,
     extension_cookies_path: &Option<PathBuf>,
     ytdlp_quality: YtdlpQualityPreference,
-    policy: YtdlpInvocationPolicy,
-    selected_format: Option<&YtdlpSelectedFormatInfo>,
-    probe_attempted: &mut bool,
     selection_scope: VideoSelectionScope,
-    source_title: &Option<String>,
-    ae_friendly_conversion_enabled: bool,
-    trace_id: &String,
-    captured_artifact_paths: &HashSet<PathBuf>,
-    output_dir: &Path,
-    reported_output_path_file: &Path,
-) -> Result<Option<DownloadResult>, String> {
-    if *probe_attempted
-        || !should_probe_youtube_highest_without_cookies(
-            url,
-            clip_range,
-            extension_cookies_path,
-            ytdlp_quality,
-            policy,
-            selected_format,
-        )
+    policy: YtdlpInvocationPolicy,
+    trace_id: &str,
+) -> Option<PathBuf> {
+    if !policy.allow_youtube_cookie_retry
+        || !is_youtube_url(url)
+        || clip_range.is_some()
+        || ytdlp_quality != YtdlpQualityPreference::Best
     {
-        return Ok(None);
+        return extension_cookies_path.clone();
     }
 
-    *probe_attempted = true;
-    let Some(current_selection) = selected_format else {
-        return Ok(None);
+    let Some(existing_cookie_path) = extension_cookies_path
+        .as_ref()
+        .filter(|path| path.exists())
+        .cloned()
+    else {
+        return extension_cookies_path.clone();
     };
 
-    let probe_result =
+    let cookies_probe = probe_ytdlp_selected_format(
+        app,
+        url,
+        selection_scope,
+        ytdlp_quality,
+        Some(&existing_cookie_path),
+    )
+    .await;
+    let should_probe_cookie_free = match cookies_probe.as_ref() {
+        Ok(Some(selected_format)) => should_probe_youtube_highest_without_cookies(
+            url,
+            clip_range,
+            &Some(existing_cookie_path.clone()),
+            ytdlp_quality,
+            policy,
+            Some(selected_format),
+        ),
+        Ok(None) => true,
+        Err(err) => should_retry_youtube_without_cookies(err.as_str()),
+    };
+
+    if !should_probe_cookie_free {
+        return Some(existing_cookie_path);
+    }
+
+    let cookie_free_probe =
         probe_ytdlp_selected_format(app, url, selection_scope, ytdlp_quality, None).await;
-    match probe_result {
-        Ok(Some(probed_selection))
-            if is_selected_format_strictly_better_than(&probed_selection, current_selection) =>
+    match (cookies_probe, cookie_free_probe) {
+        (Ok(Some(cookies_selection)), Ok(Some(cookie_free_selection)))
+            if is_selected_format_strictly_better_than(
+                &cookie_free_selection,
+                &cookies_selection,
+            ) =>
         {
             println!(
-                ">>> [Rust] YouTube Highest cookie-free probe selected better format: {}",
-                probed_selection.raw
-            );
-            println!(
-                ">>> [Rust] YouTube Highest probe found better cookie-free format, retrying without cookies"
+                ">>> [Rust] YouTube Highest preflight picked cookie-free download path: {}",
+                cookie_free_selection.raw
             );
             append_runtime_log_event(
                 "download",
-                "youtube_selected_format_retry",
-                Some(trace_id.as_str()),
+                "youtube_cookie_strategy_preflight",
+                Some(trace_id),
                 serde_json::json!({
                     "reason": "better_cookie_free_selection",
-                    "selectedFormat": current_selection.as_log_payload(),
-                    "probedFormat": probed_selection.as_log_payload(),
+                    "cookiesSelectedFormat": cookies_selection.as_log_payload(),
+                    "cookieFreeSelectedFormat": cookie_free_selection.as_log_payload(),
+                    "decision": "without_cookies",
                 }),
             );
-            terminate_download_child_process_with_grace(trace_id.as_str()).await;
-            cleanup_captured_ytdlp_artifacts(captured_artifact_paths, None);
-            cleanup_part_files_for_output_root(output_dir);
-            cleanup_extension_cookies_file(extension_cookies_path);
-            let _ = fs::remove_file(reported_output_path_file);
-            return Box::pin(download_video_internal(
-                app.clone(),
-                url.clone(),
-                None,
-                clip_range.clone(),
-                source_title.clone(),
-                selection_scope,
-                ytdlp_quality,
-                ae_friendly_conversion_enabled,
-                trace_id.clone(),
-                YtdlpInvocationPolicy {
-                    allow_youtube_cookie_retry: false,
-                    allow_http_416_retry: policy.allow_http_416_retry,
-                    disable_resume_artifacts: policy.disable_resume_artifacts,
-                },
-            ))
-            .await
-            .map(Some);
+            None
         }
-        Ok(Some(probed_selection)) => {
+        (Ok(Some(cookies_selection)), Ok(Some(cookie_free_selection))) => {
             println!(
-                ">>> [Rust] YouTube Highest cookie-free probe kept cookies path; probe selected {}",
-                probed_selection.raw
+                ">>> [Rust] YouTube Highest preflight kept cookies path; cookie-free probe selected {}",
+                cookie_free_selection.raw
             );
             append_runtime_log_event(
                 "download",
-                "youtube_selected_format_keep_cookies",
-                Some(trace_id.as_str()),
+                "youtube_cookie_strategy_preflight",
+                Some(trace_id),
                 serde_json::json!({
                     "reason": "cookie_free_not_better",
-                    "selectedFormat": current_selection.as_log_payload(),
-                    "probedFormat": probed_selection.as_log_payload(),
+                    "cookiesSelectedFormat": cookies_selection.as_log_payload(),
+                    "cookieFreeSelectedFormat": cookie_free_selection.as_log_payload(),
+                    "decision": "with_cookies",
                 }),
             );
+            Some(existing_cookie_path)
         }
-        Ok(None) => {
-            println!(">>> [Rust] YouTube Highest cookie-free probe returned no selected format");
+        (Ok(Some(cookies_selection)), Ok(None)) => {
+            println!(">>> [Rust] YouTube Highest preflight kept cookies path; cookie-free probe returned no selected format");
             append_runtime_log_event(
                 "download",
-                "youtube_selected_format_keep_cookies",
-                Some(trace_id.as_str()),
+                "youtube_cookie_strategy_preflight",
+                Some(trace_id),
                 serde_json::json!({
                     "reason": "cookie_free_probe_empty",
-                    "selectedFormat": current_selection.as_log_payload(),
+                    "cookiesSelectedFormat": cookies_selection.as_log_payload(),
+                    "decision": "with_cookies",
                 }),
             );
+            Some(existing_cookie_path)
         }
-        Err(err) => {
+        (Ok(Some(cookies_selection)), Err(err)) => {
             println!(
-                ">>> [Rust] YouTube Highest cookie-free probe failed: {}",
+                ">>> [Rust] YouTube Highest preflight kept cookies path; cookie-free probe failed: {}",
                 err
             );
             append_runtime_log_event(
                 "download",
-                "youtube_selected_format_keep_cookies",
-                Some(trace_id.as_str()),
+                "youtube_cookie_strategy_preflight",
+                Some(trace_id),
                 serde_json::json!({
                     "reason": "cookie_free_probe_failed",
-                    "selectedFormat": current_selection.as_log_payload(),
+                    "cookiesSelectedFormat": cookies_selection.as_log_payload(),
                     "error": err,
+                    "decision": "with_cookies",
                 }),
             );
+            Some(existing_cookie_path)
+        }
+        (Ok(None), Ok(cookie_free_selection)) => {
+            println!(
+                ">>> [Rust] YouTube Highest preflight switched to cookie-free download after cookies probe returned no selected format"
+            );
+            append_runtime_log_event(
+                "download",
+                "youtube_cookie_strategy_preflight",
+                Some(trace_id),
+                serde_json::json!({
+                    "reason": "cookies_probe_empty",
+                    "cookieFreeSelectedFormat": cookie_free_selection.map(|value| value.as_log_payload()),
+                    "decision": "without_cookies",
+                }),
+            );
+            None
+        }
+        (Ok(None), Err(err)) => {
+            println!(
+                ">>> [Rust] YouTube Highest preflight kept cookies path; cookies probe was empty and cookie-free probe failed: {}",
+                err
+            );
+            append_runtime_log_event(
+                "download",
+                "youtube_cookie_strategy_preflight",
+                Some(trace_id),
+                serde_json::json!({
+                    "reason": "cookies_probe_empty_cookie_free_failed",
+                    "error": err,
+                    "decision": "with_cookies",
+                }),
+            );
+            Some(existing_cookie_path)
+        }
+        (Err(cookies_err), Ok(cookie_free_selection)) => {
+            println!(
+                ">>> [Rust] YouTube Highest preflight switched to cookie-free download after cookies probe failed: {}",
+                cookies_err
+            );
+            append_runtime_log_event(
+                "download",
+                "youtube_cookie_strategy_preflight",
+                Some(trace_id),
+                serde_json::json!({
+                    "reason": "cookies_probe_failed",
+                    "error": cookies_err,
+                    "cookieFreeSelectedFormat": cookie_free_selection.map(|value| value.as_log_payload()),
+                    "decision": "without_cookies",
+                }),
+            );
+            None
+        }
+        (Err(cookies_err), Err(cookie_free_err)) => {
+            println!(
+                ">>> [Rust] YouTube Highest preflight kept cookies path; both probes failed: cookies={}, cookie-free={}",
+                cookies_err, cookie_free_err
+            );
+            append_runtime_log_event(
+                "download",
+                "youtube_cookie_strategy_preflight",
+                Some(trace_id),
+                serde_json::json!({
+                    "reason": "both_probes_failed",
+                    "cookiesError": cookies_err,
+                    "cookieFreeError": cookie_free_err,
+                    "decision": "with_cookies",
+                }),
+            );
+            Some(existing_cookie_path)
         }
     }
-
-    Ok(None)
 }
 
 fn read_ytdlp_reported_output_path(report_path: &Path) -> Option<String> {
@@ -10007,8 +10051,6 @@ struct YtdlpHeartbeatState {
     last_ffmpeg_time_seconds: Option<f64>,
     last_output_bytes: Option<u64>,
     last_stage_status: Option<String>,
-    selected_format: Option<YtdlpSelectedFormatInfo>,
-    youtube_highest_probe_attempted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -10224,7 +10266,6 @@ fn process_ytdlp_output_line(
         }
 
         if let Some(selected_format) = parse_ytdlp_selected_format_line(normalized_line) {
-            heartbeat_state.selected_format = Some(selected_format.clone());
             append_runtime_log_event(
                 "download",
                 "selected_format",
@@ -15035,7 +15076,10 @@ mod tests {
             Some("ffmpeg".to_string())
         );
         assert_eq!(
-            next_runtime_dependency_component(&missing_components, Some(FFMPEG_RUNTIME_COMPONENT_ID)),
+            next_runtime_dependency_component(
+                &missing_components,
+                Some(FFMPEG_RUNTIME_COMPONENT_ID)
+            ),
             Some("pinterest-dl".to_string())
         );
         assert_eq!(

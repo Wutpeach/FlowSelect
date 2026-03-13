@@ -496,7 +496,7 @@ function connect(options = {}) {
     // Query current theme after connection
     ws.send(JSON.stringify({ action: 'get_theme' }));
     requestLanguageFromApp();
-    void syncDownloadPreferencesToApp();
+    void bootstrapDownloadPreferencesSync();
   };
 
   ws.onmessage = (event) => {
@@ -623,7 +623,7 @@ function handleMessage(message) {
       break;
     }
     case 'request_download_preferences':
-      void syncDownloadPreferencesToApp();
+      void bootstrapDownloadPreferencesSync();
       break;
     case 'start_picker':
       startPicker(message.tabId);
@@ -691,29 +691,14 @@ function syncDownloadPreferencesToApp() {
     });
 }
 
-function requestPendingDownloadPreferencesSync() {
-  if (!chrome?.storage?.local) {
-    return Promise.resolve(false);
-  }
-
-  return storageGet(PENDING_DOWNLOAD_PREFERENCES_SYNC_KEY)
-    .then((result) => {
-      if (result?.[PENDING_DOWNLOAD_PREFERENCES_SYNC_KEY] === true) {
-        return syncDownloadPreferencesToApp();
-      }
-
-      return false;
-    })
-    .catch((error) => {
-      console.error('[FlowSelect] Failed to inspect pending preference sync state:', error);
-      return false;
-    });
+function bootstrapDownloadPreferencesSync() {
+  return setPendingDownloadPreferencesSync(true).then(() => {
+    return syncDownloadPreferencesToApp();
+  });
 }
 
 function markDownloadPreferencesDirtyAndSync() {
-  void setPendingDownloadPreferencesSync(true).then(() => {
-    void syncDownloadPreferencesToApp();
-  });
+  void bootstrapDownloadPreferencesSync();
 }
 
 function sleep(ms) {
@@ -1052,14 +1037,14 @@ if (chrome?.alarms?.onAlarm) {
 if (chrome?.runtime?.onStartup) {
   chrome.runtime.onStartup.addListener(() => {
     connect({ force: true });
-    void requestPendingDownloadPreferencesSync();
+    void bootstrapDownloadPreferencesSync();
   });
 }
 
 if (chrome?.runtime?.onInstalled) {
   chrome.runtime.onInstalled.addListener(() => {
     connect({ force: true });
-    void requestPendingDownloadPreferencesSync();
+    void bootstrapDownloadPreferencesSync();
   });
 }
 
@@ -1082,4 +1067,4 @@ if (chrome?.storage?.onChanged) {
 
 // Auto-connect on startup
 connect();
-void requestPendingDownloadPreferencesSync();
+void bootstrapDownloadPreferencesSync();
