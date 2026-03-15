@@ -184,6 +184,17 @@ const getMissingRuntimeComponentsFromStatus = (
   return missingComponents;
 };
 
+const hasMissingManagedRuntimeComponents = (
+  status: RuntimeDependencyStatusSnapshot | null,
+): boolean => (
+  !!status
+  && (
+    status.ffmpeg.state !== "ready"
+    || status.deno.state !== "ready"
+    || status.pinterestDownloader.state !== "ready"
+  )
+);
+
 const runtimeGatePhaseNeedsAttention = (phase: RuntimeDependencyGatePhase): boolean => (
   phase === "checking"
   || phase === "awaiting_confirmation"
@@ -599,6 +610,7 @@ function App() {
   const queueIdleDelayTimerRef = useRef<number | null>(null);
   const runtimeRetryFeedbackTimerRef = useRef<number | null>(null);
   const runtimeSuccessTimerRef = useRef<number | null>(null);
+  const runtimeBootstrapAfterVisibleTimerRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
   const isDraggingRef = useRef(false);
   const cancellingTraceIdsRef = useRef<Set<string>>(new Set());
@@ -608,6 +620,7 @@ function App() {
   const pendingDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const previousTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
+  const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
 
   // Window size constants
   const FULL_SIZE = 200;
@@ -905,16 +918,25 @@ function App() {
   }, []);
 
   const refreshYtdlpVersion = useCallback(async () => {
+    const status = runtimeDependencyStatus ?? await refreshRuntimeDependencyStatus();
+    if (!status || status.ytDlp.state !== "ready") {
+      setYtdlpUpdate(null);
+      return null;
+    }
+
     try {
       console.log(">>> Checking yt-dlp version...");
       const result = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
       console.log(">>> yt-dlp version check result:", result);
       setYtdlpUpdate(result.updateAvailable === true ? result : null);
       void refreshRuntimeDependencyStatus();
+      return result;
     } catch (err) {
       console.error(">>> yt-dlp version check failed:", err);
+      setYtdlpUpdate(null);
+      return null;
     }
-  }, [refreshRuntimeDependencyStatus]);
+  }, [refreshRuntimeDependencyStatus, runtimeDependencyStatus]);
 
   const loadRuntimeDependencyGateState = useCallback(async () => {
     try {
@@ -936,6 +958,17 @@ function App() {
     } catch (err) {
       console.error("Failed to refresh runtime dependency gate state:", err);
       setRuntimeDependencyGateState(null);
+      return null;
+    }
+  }, []);
+
+  const startRuntimeDependencyBootstrap = useCallback(async () => {
+    try {
+      const state = await invoke<RuntimeDependencyGateStatePayload>("start_runtime_dependency_bootstrap");
+      setRuntimeDependencyGateState(state);
+      return state;
+    } catch (err) {
+      console.error("Failed to start runtime dependency bootstrap:", err);
       return null;
     }
   }, []);
@@ -1035,22 +1068,15 @@ function App() {
 
   useEffect(() => {
     const loadRuntimeDependencies = async () => {
-      const status = await refreshRuntimeDependencyStatus();
-      const gate = await loadRuntimeDependencyGateState();
-      if (!status) {
-        return;
-      }
-      if (!gate || gate.phase === "idle") {
-        if (getMissingRuntimeComponentsFromStatus(status).length > 0) {
-          await refreshRuntimeDependencyGateState();
-        }
-      }
+      await Promise.all([
+        refreshRuntimeDependencyStatus(),
+        loadRuntimeDependencyGateState(),
+      ]);
     };
 
     void loadRuntimeDependencies();
   }, [
     loadRuntimeDependencyGateState,
-    refreshRuntimeDependencyGateState,
     refreshRuntimeDependencyStatus,
   ]);
 
@@ -1079,8 +1105,42 @@ function App() {
       if (runtimeSuccessTimerRef.current !== null) {
         clearTimeout(runtimeSuccessTimerRef.current);
       }
+      if (runtimeBootstrapAfterVisibleTimerRef.current !== null) {
+        clearTimeout(runtimeBootstrapAfterVisibleTimerRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (isInitialMount || hasTriggeredStartupRuntimeBootstrapRef.current) {
+      return;
+    }
+    if (!hasMissingManagedRuntimeComponents(runtimeDependencyStatus)) {
+      return;
+    }
+    if (runtimeDependencyGateState?.phase === "downloading") {
+      hasTriggeredStartupRuntimeBootstrapRef.current = true;
+      return;
+    }
+
+    hasTriggeredStartupRuntimeBootstrapRef.current = true;
+    runtimeBootstrapAfterVisibleTimerRef.current = window.setTimeout(() => {
+      runtimeBootstrapAfterVisibleTimerRef.current = null;
+      void startRuntimeDependencyBootstrap();
+    }, 220);
+
+    return () => {
+      if (runtimeBootstrapAfterVisibleTimerRef.current !== null) {
+        clearTimeout(runtimeBootstrapAfterVisibleTimerRef.current);
+        runtimeBootstrapAfterVisibleTimerRef.current = null;
+      }
+    };
+  }, [
+    isInitialMount,
+    runtimeDependencyGateState?.phase,
+    runtimeDependencyStatus,
+    startRuntimeDependencyBootstrap,
+  ]);
 
   // Listen for video download progress events
   useEffect(() => {
@@ -2217,7 +2277,10 @@ function App() {
     }, 180);
 
     try {
-      await refreshRuntimeDependencyContext();
+      const { status } = await refreshRuntimeDependencyContext();
+      if (hasMissingManagedRuntimeComponents(status)) {
+        await startRuntimeDependencyBootstrap();
+      }
     } finally {
       setIsRuntimeRetryInFlight(false);
     }

@@ -1,5 +1,4 @@
 import {
-  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -17,7 +16,6 @@ import { spawnSync } from "node:child_process";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const tauriConfigPath = join(repoRoot, "src-tauri", "tauri.conf.json");
-const helperSourcePath = join(repoRoot, "distribution", "macos", "fix-open.command");
 const readmeSourcePath = join(repoRoot, "distribution", "macos", "install-guide.txt");
 
 function parseArgs(argv) {
@@ -134,9 +132,6 @@ function main() {
   if (!version) {
     throw new Error("Missing version. Pass --version or set src-tauri/tauri.conf.json version.");
   }
-  if (!existsSync(helperSourcePath)) {
-    throw new Error(`Missing helper asset: ${helperSourcePath}`);
-  }
   if (!existsSync(readmeSourcePath)) {
     throw new Error(`Missing install guide asset: ${readmeSourcePath}`);
   }
@@ -148,7 +143,6 @@ function main() {
   const outputPath = join(dmgDir, outputFileName(productName, version, arch));
   const stagingRoot = mkdtempSync(join(tmpdir(), "flowselect-macos-dmg-"));
   const stagingDir = join(stagingRoot, "staging");
-  const helperOutputPath = join(stagingDir, "Fix Open.command");
   const readmeOutputPath = join(stagingDir, "Install FlowSelect on macOS.txt");
 
   ensureDir(dmgDir);
@@ -158,9 +152,7 @@ function main() {
   try {
     cpSync(appBundlePath, join(stagingDir, `${productName}.app`), { recursive: true });
     symlinkSync("/Applications", join(stagingDir, "Applications"), "dir");
-    cpSync(helperSourcePath, helperOutputPath);
     cpSync(readmeSourcePath, readmeOutputPath);
-    chmodSync(helperOutputPath, 0o755);
 
     run("hdiutil", [
       "create",

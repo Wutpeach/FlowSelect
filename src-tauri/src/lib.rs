@@ -12019,7 +12019,7 @@ fn ytdlp_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
 async fn get_local_ytdlp_version(app: &AppHandle) -> Result<String, String> {
     let ytdlp_path = ytdlp_binary_path(app)?;
     let args = vec!["--version".to_string()];
-    let env_overrides: Vec<(String, String)> = Vec::new();
+    let env_overrides = vec![(YTDLP_SKIP_BOOTSTRAP_ENV.to_string(), "1".to_string())];
     let StreamingCliCommand { mut rx, .. } =
         spawn_streaming_cli_command(&ytdlp_path, &args, &env_overrides).map_err(|spawn_err| {
             format!(
@@ -12109,15 +12109,73 @@ fn get_runtime_dependency_gate_state() -> RuntimeDependencyGateStatePayload {
     state.as_payload()
 }
 
+fn sync_runtime_dependency_gate_state_from_snapshot(
+    app: &AppHandle,
+    snapshot: &RuntimeDependencyStatusSnapshot,
+) -> RuntimeDependencyGateStatePayload {
+    let missing_components = runtime_dependency_missing_components(snapshot);
+    if missing_components.is_empty() {
+        return update_runtime_dependency_gate_state(
+            app,
+            RuntimeDependencyGatePhase::Ready,
+            Vec::new(),
+            None,
+            RuntimeDependencyGateActivityState::default(),
+        );
+    }
+
+    if snapshot_has_missing_managed_runtime(snapshot) {
+        return update_runtime_dependency_gate_state(
+            app,
+            RuntimeDependencyGatePhase::Idle,
+            missing_components.clone(),
+            None,
+            runtime_dependency_gate_activity_state(
+                &missing_components,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        );
+    }
+
+    update_runtime_dependency_gate_state(
+        app,
+        RuntimeDependencyGatePhase::Failed,
+        missing_components.clone(),
+        Some(format!(
+            "Missing runtime dependencies: {}",
+            missing_components.join(", ")
+        )),
+        runtime_dependency_gate_activity_state(&missing_components, None, None, None, None, None),
+    )
+}
+
 #[tauri::command]
 fn refresh_runtime_dependency_gate_state(app: AppHandle) -> RuntimeDependencyGateStatePayload {
-    let _ = update_runtime_dependency_gate_state(
-        &app,
-        RuntimeDependencyGatePhase::Checking,
-        Vec::new(),
-        None,
-        RuntimeDependencyGateActivityState::default(),
-    );
+    let current_state = {
+        let state = RUNTIME_DEPENDENCY_GATE_STATE.lock().unwrap();
+        state.clone()
+    };
+    if current_state.phase == RuntimeDependencyGatePhase::Downloading {
+        return current_state.as_payload();
+    }
+
+    let snapshot = get_runtime_dependency_status(app.clone());
+    sync_runtime_dependency_gate_state_from_snapshot(&app, &snapshot)
+}
+
+#[tauri::command]
+fn start_runtime_dependency_bootstrap(app: AppHandle) -> RuntimeDependencyGateStatePayload {
+    let current_state = {
+        let state = RUNTIME_DEPENDENCY_GATE_STATE.lock().unwrap();
+        state.clone()
+    };
+    if current_state.phase == RuntimeDependencyGatePhase::Downloading {
+        return current_state.as_payload();
+    }
 
     let snapshot = get_runtime_dependency_status(app.clone());
     let missing_components = runtime_dependency_missing_components(&snapshot);
@@ -12146,7 +12204,7 @@ fn refresh_runtime_dependency_gate_state(app: AppHandle) -> RuntimeDependencyGat
                 None,
             ),
         );
-        spawn_missing_managed_runtime_bootstrap(app, "gate_refresh");
+        spawn_missing_managed_runtime_bootstrap(app, "frontend_after_visible");
         return payload;
     }
 
@@ -14748,6 +14806,7 @@ pub fn run() {
             get_runtime_dependency_status,
             get_runtime_dependency_gate_state,
             refresh_runtime_dependency_gate_state,
+            start_runtime_dependency_bootstrap,
             set_runtime_dependency_user_decision,
             mark_runtime_dependency_download_result,
             update_ytdlp,
@@ -14785,49 +14844,9 @@ pub fn run() {
             let app_handle_runtime_bootstrap = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let snapshot = get_runtime_dependency_status(app_handle_runtime_bootstrap.clone());
-                let missing_components = runtime_dependency_missing_components(&snapshot);
-                if missing_components.is_empty() {
-                    let _ = update_runtime_dependency_gate_state(
-                        &app_handle_runtime_bootstrap,
-                        RuntimeDependencyGatePhase::Ready,
-                        Vec::new(),
-                        None,
-                        RuntimeDependencyGateActivityState::default(),
-                    );
-                    return;
-                }
-
-                if snapshot_has_missing_managed_runtime(&snapshot) {
-                    if let Err(err) = ensure_missing_managed_runtimes_ready(
-                        &app_handle_runtime_bootstrap,
-                        "app_startup",
-                    )
-                    .await
-                    {
-                        println!(
-                            ">>> [Rust] Startup managed runtime bootstrap failed: {}",
-                            err
-                        );
-                    }
-                    return;
-                }
-
-                let _ = update_runtime_dependency_gate_state(
+                let _ = sync_runtime_dependency_gate_state_from_snapshot(
                     &app_handle_runtime_bootstrap,
-                    RuntimeDependencyGatePhase::Failed,
-                    missing_components.clone(),
-                    Some(format!(
-                        "Missing runtime dependencies: {}",
-                        missing_components.join(", ")
-                    )),
-                    runtime_dependency_gate_activity_state(
-                        &missing_components,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                    ),
+                    &snapshot,
                 );
             });
 

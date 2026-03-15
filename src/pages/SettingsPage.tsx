@@ -244,15 +244,23 @@ function SettingsPage() {
   }, []);
 
   const refreshYtdlpVersion = useCallback(async () => {
+    const status = runtimeDependencyStatus ?? await refreshRuntimeDependencyStatus();
+    if (!status || status.ytDlp.state !== "ready") {
+      setYtdlpInfo(null);
+      return null;
+    }
+
     try {
       const versionInfo = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
       setYtdlpInfo(versionInfo);
       void refreshRuntimeDependencyStatus();
+      return versionInfo;
     } catch (err) {
       console.error("Failed to check yt-dlp version:", err);
       setYtdlpInfo(null);
+      return null;
     }
-  }, [refreshRuntimeDependencyStatus]);
+  }, [refreshRuntimeDependencyStatus, runtimeDependencyStatus]);
 
   const refreshPinterestDownloaderInfo = useCallback(async () => {
     try {
