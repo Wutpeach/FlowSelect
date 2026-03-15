@@ -76,6 +76,13 @@ All buttons below open the GitHub Releases page. Pick the matching artifact for 
 
 - `Apple Silicon DMG`: for M-series Macs.
 - `Intel DMG`: for Intel-based Macs.
+- Install flow:
+  1. Open the DMG and drag `FlowSelect.app` into `Applications`.
+  2. Launch FlowSelect from `Applications`.
+  3. If macOS blocks the app on first launch, first try right-click `Open` or allow it from `System Settings > Privacy & Security`.
+- The DMG also includes `Fix Open.command`. It repairs an already installed `FlowSelect.app`; it does not perform the drag-to-Applications step for you.
+- Advanced manual repair command:
+  `xattr -dr com.apple.quarantine "/Applications/FlowSelect.app"`
 
 ## What FlowSelect does
 

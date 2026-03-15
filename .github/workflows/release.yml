@@ -175,42 +175,55 @@ jobs:
             deno_asset: deno-aarch64-apple-darwin.zip
 
     runs-on: ${{ matrix.runner }}
-    env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate macOS release signing secrets
+      - name: Configure macOS release inputs
         env:
-          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_CERTIFICATE_INPUT: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD_INPUT: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY_INPUT: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER_INPUT: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_INPUT: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8_INPUT: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
+          provided=0
           missing=()
-          for key in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8; do
+          for key in APPLE_CERTIFICATE_INPUT APPLE_CERTIFICATE_PASSWORD_INPUT APPLE_SIGNING_IDENTITY_INPUT APPLE_API_ISSUER_INPUT APPLE_API_KEY_INPUT APPLE_API_KEY_P8_INPUT; do
             if [ -z "${!key:-}" ]; then
               missing+=("$key")
+            else
+              provided=$((provided + 1))
             fi
           done
 
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "Missing required macOS release secrets: ${missing[*]}"
-            echo "Expected secrets: APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_API_ISSUER, APPLE_API_KEY, APPLE_API_KEY_P8"
+          if [ "$provided" -eq 0 ]; then
+            echo "FLOWSELECT_MACOS_RELEASE_MODE=open-source" >> "$GITHUB_ENV"
+            echo "Building macOS release in open-source mode (helper DMG, no Apple signing required)."
+            exit 0
+          fi
+
+          if [ "$provided" -ne 6 ]; then
+            echo "Partial macOS signing configuration detected."
+            echo "Missing required secrets: ${missing[*]}"
+            echo "Provide all of APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_API_ISSUER, APPLE_API_KEY, APPLE_API_KEY_P8 or none of them."
             exit 1
           fi
 
-      - name: Prepare App Store Connect API key
-        env:
-          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-        run: |
-          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
-          printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
+          echo "FLOWSELECT_MACOS_RELEASE_MODE=signed" >> "$GITHUB_ENV"
+          echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE_INPUT" >> "$GITHUB_ENV"
+          echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD_INPUT" >> "$GITHUB_ENV"
+          echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY_INPUT" >> "$GITHUB_ENV"
+          echo "APPLE_API_ISSUER=$APPLE_API_ISSUER_INPUT" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY=$APPLE_API_KEY_INPUT" >> "$GITHUB_ENV"
+
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_INPUT}.p8"
+          printf '%s' "$APPLE_API_KEY_P8_INPUT" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
           echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "Building macOS release with Apple signing inputs enabled."
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -277,8 +290,11 @@ jobs:
       - name: Smoke test Pinterest sidecar
         run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target ${{ matrix.target }}
 
-      - name: Build Tauri application
-        run: npm run tauri build -- --target ${{ matrix.target }}
+      - name: Build Tauri application bundle
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles app
+
+      - name: Package macOS DMG
+        run: npm run package:macos-open-source-dmg -- --target ${{ matrix.target }} --arch ${{ matrix.arch }} --version "${{ steps.version.outputs.version }}"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4

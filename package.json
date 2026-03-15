@@ -15,6 +15,7 @@
     "build": "tsc && vite build",
     "build:runtime-proxies": "node ./scripts/build-runtime-proxies.mjs --profile release",
     "build:pinterest-sidecar": "node ./scripts/build-pinterest-sidecar.mjs",
+    "package:macos-open-source-dmg": "node ./scripts/package-macos-open-source-dmg.mjs",
     "check:pinterest-sidecar-upstream": "node ./scripts/check-pinterest-sidecar-upstream.mjs",
     "manifest:runtime-sidecars": "node ./scripts/generate-runtime-sidecars-manifest.mjs",
     "manifest:runtime-sidecars:validate": "node ./scripts/validate-runtime-sidecars-manifest.mjs",

@@ -1,0 +1,16 @@
+FlowSelect macOS install
+
+1. Drag FlowSelect.app into Applications.
+2. Open FlowSelect from Applications.
+3. If macOS blocks the app on first launch:
+   - Right-click FlowSelect.app and choose Open, or
+   - Go to System Settings > Privacy & Security and allow the app, or
+   - Double-click Fix Open.command in this DMG after the app is already installed.
+
+Advanced manual repair command:
+xattr -dr com.apple.quarantine "/Applications/FlowSelect.app"
+
+Notes:
+- Fix Open.command repairs an installed copy of FlowSelect.app.
+- It does not perform the drag-to-Applications install step for you.
+- If you installed FlowSelect somewhere else, adjust the app path in the manual command.
