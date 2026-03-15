@@ -892,17 +892,6 @@ function App() {
     setRenameMediaOnDownload(resolveRenameMediaEnabled(config));
   }, []);
 
-  const refreshYtdlpVersion = useCallback(async () => {
-    try {
-      console.log(">>> Checking yt-dlp version...");
-      const result = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
-      console.log(">>> yt-dlp version check result:", result);
-      setYtdlpUpdate(result.updateAvailable === true ? result : null);
-    } catch (err) {
-      console.error(">>> yt-dlp version check failed:", err);
-    }
-  }, []);
-
   const refreshRuntimeDependencyStatus = useCallback(async () => {
     try {
       const status = await invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
@@ -914,6 +903,18 @@ function App() {
       return null;
     }
   }, []);
+
+  const refreshYtdlpVersion = useCallback(async () => {
+    try {
+      console.log(">>> Checking yt-dlp version...");
+      const result = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
+      console.log(">>> yt-dlp version check result:", result);
+      setYtdlpUpdate(result.updateAvailable === true ? result : null);
+      void refreshRuntimeDependencyStatus();
+    } catch (err) {
+      console.error(">>> yt-dlp version check failed:", err);
+    }
+  }, [refreshRuntimeDependencyStatus]);
 
   const loadRuntimeDependencyGateState = useCallback(async () => {
     try {

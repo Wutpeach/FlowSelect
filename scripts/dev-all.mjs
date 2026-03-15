@@ -27,10 +27,6 @@ if (!isWindows) {
     process.env.FLOWSELECT_FRONTEND_PORT ?? "1420",
     10,
   );
-  const agentationPort = Number.parseInt(
-    process.env.FLOWSELECT_AGENTATION_PORT ?? "4747",
-    10,
-  );
   const websocketPort = Number.parseInt(
     process.env.FLOWSELECT_WEBSOCKET_PORT ?? "39527",
     10,
@@ -94,9 +90,6 @@ if (!isWindows) {
     if (port === frontendPort) {
       return normalized.includes("vite");
     }
-    if (port === agentationPort) {
-      return normalized.includes("agentation-mcp");
-    }
     if (port === websocketPort) {
       return (
         normalized.includes("flowselect") ||
@@ -139,24 +132,17 @@ if (!isWindows) {
   };
 
   const frontendReady = await ensurePortAvailable(frontendPort, "frontend");
-  const agentationReady = await ensurePortAvailable(agentationPort, "agentation");
   const websocketReady = await ensurePortAvailable(
     websocketPort,
     "desktop websocket",
   );
 
-  if (!frontendReady || !agentationReady || !websocketReady) {
+  if (!frontendReady || !websocketReady) {
     process.exit(1);
   }
 
-  console.log("[start] Agentation MCP server");
   console.log("[start] Tauri dev (frontend + backend)");
   console.log("[hint] press Ctrl+C to stop all services");
-
-  const agentation = spawn(npmCmd, ["run", "agentation:mcp"], {
-    stdio: "inherit",
-    shell: windowsShell,
-  });
 
   const tauriArgs = ["run", "tauri", "dev"];
   if (forwardedArgs.length > 0) {
@@ -182,7 +168,6 @@ if (!isWindows) {
     console.log("");
     console.log("[shutdown] stopping dev services...");
     stopChild(tauri);
-    stopChild(agentation);
   };
 
   process.on("SIGINT", () => {
@@ -193,27 +178,10 @@ if (!isWindows) {
     shutdown();
   });
 
-  agentation.on("error", (error) => {
-    console.error(`[error] Failed to start agentation:mcp: ${error.message}`);
-    exitCode = 1;
-    shutdown();
-  });
-
   tauri.on("error", (error) => {
     console.error(`[error] Failed to start tauri dev: ${error.message}`);
     exitCode = 1;
     shutdown();
-  });
-
-  agentation.on("exit", (code, signal) => {
-    if (!shuttingDown) {
-      console.log("[exit] agentation MCP stopped");
-      if ((code ?? 0) !== 0) {
-        console.log(`[hint] Check whether port ${agentationPort} is occupied.`);
-      }
-      exitCode = code ?? (signal ? 1 : 0);
-      shutdown();
-    }
   });
 
   tauri.on("exit", (code, signal) => {
@@ -229,7 +197,6 @@ if (!isWindows) {
 
   process.on("exit", () => {
     stopChild(tauri);
-    stopChild(agentation);
   });
 
   const waitForExit = () => {
@@ -238,11 +205,9 @@ if (!isWindows) {
       return;
     }
 
-    const agentationExited =
-      agentation.exitCode !== null || agentation.signalCode !== null;
     const tauriExited = tauri.exitCode !== null || tauri.signalCode !== null;
 
-    if (!agentationExited || !tauriExited) {
+    if (!tauriExited) {
       setTimeout(waitForExit, 200);
       return;
     }

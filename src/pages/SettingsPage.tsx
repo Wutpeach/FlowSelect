@@ -231,26 +231,6 @@ function SettingsPage() {
     }, 2200);
   }, []);
 
-  const refreshYtdlpVersion = useCallback(async () => {
-    try {
-      const versionInfo = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
-      setYtdlpInfo(versionInfo);
-    } catch (err) {
-      console.error("Failed to check yt-dlp version:", err);
-      setYtdlpInfo(null);
-    }
-  }, []);
-
-  const refreshPinterestDownloaderInfo = useCallback(async () => {
-    try {
-      const info = await invoke<PinterestDownloaderInfo>("get_pinterest_downloader_info");
-      setPinterestInfo(info);
-    } catch (err) {
-      console.error("Failed to load Pinterest downloader info:", err);
-      setPinterestInfo(null);
-    }
-  }, []);
-
   const refreshRuntimeDependencyStatus = useCallback(async () => {
     try {
       const status = await invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
@@ -260,6 +240,27 @@ function SettingsPage() {
       console.error("Failed to load runtime dependency status:", err);
       setRuntimeDependencyStatus(null);
       return null;
+    }
+  }, []);
+
+  const refreshYtdlpVersion = useCallback(async () => {
+    try {
+      const versionInfo = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
+      setYtdlpInfo(versionInfo);
+      void refreshRuntimeDependencyStatus();
+    } catch (err) {
+      console.error("Failed to check yt-dlp version:", err);
+      setYtdlpInfo(null);
+    }
+  }, [refreshRuntimeDependencyStatus]);
+
+  const refreshPinterestDownloaderInfo = useCallback(async () => {
+    try {
+      const info = await invoke<PinterestDownloaderInfo>("get_pinterest_downloader_info");
+      setPinterestInfo(info);
+    } catch (err) {
+      console.error("Failed to load Pinterest downloader info:", err);
+      setPinterestInfo(null);
     }
   }, []);
 

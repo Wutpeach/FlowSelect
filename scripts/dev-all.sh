@@ -16,10 +16,8 @@ if ! command -v lsof >/dev/null 2>&1; then
 fi
 
 FRONTEND_PORT="${FLOWSELECT_FRONTEND_PORT:-1420}"
-AGENTATION_PORT="${FLOWSELECT_AGENTATION_PORT:-4747}"
 
 TAURI_PID=""
-AGENTATION_PID=""
 
 port_listeners() {
   port="$1"
@@ -88,21 +86,14 @@ cleanup() {
   echo "[shutdown] stopping dev services..."
 
   kill_pid_tree "$TAURI_PID"
-  kill_pid_tree "$AGENTATION_PID"
 
   # Best effort: reclaim common dev ports from stale processes after fast Ctrl+C.
   ensure_port_available "$FRONTEND_PORT" "vite" || true
-  ensure_port_available "$AGENTATION_PORT" "agentation-mcp" || true
 }
 
 trap cleanup INT TERM EXIT
 
 ensure_port_available "$FRONTEND_PORT" "vite"
-ensure_port_available "$AGENTATION_PORT" "agentation-mcp"
-
-echo "[start] Agentation MCP server"
-npm run agentation:mcp &
-AGENTATION_PID=$!
 
 echo "[start] Tauri dev (frontend + backend)"
 if [ "$#" -gt 0 ]; then
@@ -112,7 +103,7 @@ else
 fi
 TAURI_PID=$!
 
-echo "[ready] frontend + backend + agentation are running"
+echo "[ready] frontend + backend are running"
 echo "[hint] press Ctrl+C to stop all services"
 
 EXIT_CODE=0
@@ -121,12 +112,6 @@ while :; do
   if ! kill -0 "$TAURI_PID" 2>/dev/null; then
     wait "$TAURI_PID" || EXIT_CODE=$?
     echo "[exit] tauri dev stopped"
-    break
-  fi
-
-  if ! kill -0 "$AGENTATION_PID" 2>/dev/null; then
-    wait "$AGENTATION_PID" || EXIT_CODE=$?
-    echo "[exit] agentation MCP stopped"
     break
   fi
 

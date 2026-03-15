@@ -34,10 +34,23 @@ if "$PYTHON_BIN" -c "import yt_dlp" >/dev/null 2>&1; then
   exec "$PYTHON_BIN" -m yt_dlp "$@"
 fi
 
-echo "yt_dlp module missing, attempting bootstrap install..." >&2
-if "$PYTHON_BIN" -m pip install --disable-pip-version-check -q yt-dlp >/dev/null 2>&1; then
-  exec "$PYTHON_BIN" -m yt_dlp "$@"
+if [ "${FLOWSELECT_YTDLP_SKIP_BOOTSTRAP:-0}" = "1" ]; then
+  echo "yt_dlp module missing and bootstrap is disabled for status check" >&2
+  exit 1
 fi
 
-echo "No module named yt_dlp. Install manually: python3 -m pip install yt-dlp" >&2
+echo "yt_dlp module missing, attempting bootstrap install..." >&2
+install_attempts=(
+  "--disable-pip-version-check -q yt-dlp"
+  "--disable-pip-version-check --user -q yt-dlp"
+  "--disable-pip-version-check --user --break-system-packages -q yt-dlp"
+)
+
+for attempt in "${install_attempts[@]}"; do
+  if "$PYTHON_BIN" -m pip install ${attempt} >/dev/null 2>&1; then
+    exec "$PYTHON_BIN" -m yt_dlp "$@"
+  fi
+done
+
+echo "No module named yt_dlp. Install manually: python3 -m pip install --user --break-system-packages yt-dlp" >&2
 exit 1

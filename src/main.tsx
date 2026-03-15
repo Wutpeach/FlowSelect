@@ -5,16 +5,12 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
 import SettingsPage from "./pages/SettingsPage";
 import ContextMenuPage from "./pages/ContextMenuPage";
-import { AgentationDevTools } from "./components/AgentationDevTools";
 import { ThemeProvider, type Theme } from "./contexts/ThemeContext";
 import { I18nRuntimeBridge } from "./i18n/I18nRuntimeBridge";
 import { initializeI18n } from "./i18n";
 import { resolveAppLanguage, resolveAppLanguageFromConfigString } from "./i18n/language";
 import "./index.css";
 
-const AGENTATION_ENABLED_PATHS = new Set(["/settings"]);
-const shouldRenderAgentation =
-  import.meta.env.DEV && AGENTATION_ENABLED_PATHS.has(window.location.pathname);
 const DEFAULT_THEME: Theme = "black";
 
 const getThemeFromConfigString = (configStr: string): Theme => {
@@ -59,7 +55,6 @@ const bootstrap = async () => {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/context-menu" element={<ContextMenuPage />} />
           </Routes>
-          {shouldRenderAgentation && <AgentationDevTools />}
         </BrowserRouter>
       </ThemeProvider>
     </React.StrictMode>,

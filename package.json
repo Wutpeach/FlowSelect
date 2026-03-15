@@ -26,9 +26,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "package:portable": "powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1",
-    "package:portable:skip-build": "powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1 -SkipBuild",
-    "agentation:mcp": "npx -y agentation-mcp server",
-    "agentation:doctor": "npx -y agentation-mcp doctor"
+    "package:portable:skip-build": "powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1 -SkipBuild"
   },
   "dependencies": {
     "@tauri-apps/api": "2.9.1",
@@ -52,7 +50,6 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
-    "agentation": "^2.2.1",
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.3",
     "eslint-plugin-react-hooks": "^7.0.1",

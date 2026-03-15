@@ -47,6 +47,7 @@ use zip::ZipArchive;
 const LEGACY_APP_IDENTIFIERS: &[&str] = &["com.flowselect.app"];
 const YTDLP_LATEST_CACHE_FILE_NAME: &str = "ytdlp-latest-cache.json";
 const YTDLP_LATEST_CACHE_TTL_MS: u128 = 60 * 60 * 1000;
+const YTDLP_SKIP_BOOTSTRAP_ENV: &str = "FLOWSELECT_YTDLP_SKIP_BOOTSTRAP";
 const PINTEREST_SIDECAR_LOCK_JSON: &str = include_str!("../pinterest-sidecar/lock.json");
 #[cfg(windows)]
 const WINDOWS_CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -1381,6 +1382,7 @@ fn ffprobe_executable_name() -> &'static str {
     "ffprobe"
 }
 
+#[cfg(target_os = "windows")]
 fn flowselect_cli_proxy_binary_filename() -> Result<String, String> {
     let target = current_runtime_sidecar_target()?;
     #[cfg(target_os = "windows")]
@@ -1393,6 +1395,7 @@ fn flowselect_cli_proxy_binary_filename() -> Result<String, String> {
     }
 }
 
+#[cfg(target_os = "windows")]
 fn flowselect_cli_proxy_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
     let file_name = flowselect_cli_proxy_binary_filename()?;
     let candidates = binary_candidate_paths(app, file_name.as_str());
@@ -1524,6 +1527,7 @@ fn resolve_runtime_binary_with_path_fallback(
     ))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn runtime_dependency_status_from_resolution(
     bundled_candidates: &[PathBuf],
     resolution: Result<PathBuf, String>,
@@ -1542,6 +1546,35 @@ fn runtime_dependency_status_from_resolution(
         }
         Err(err) => RuntimeDependencyStatusEntry::missing(err),
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn validate_non_windows_ytdlp_runtime(path: &Path) -> Result<(), String> {
+    let mut command = std::process::Command::new(path);
+    command
+        .arg("--version")
+        .env(YTDLP_SKIP_BOOTSTRAP_ENV, "1")
+        .stdin(std::process::Stdio::null());
+
+    let output = run_hidden_cli_command_output(&mut command).map_err(|err| {
+        format!("Failed to execute yt-dlp status probe at {:?}: {}", path, err)
+    })?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if stdout.is_empty() {
+            return Err("yt-dlp status probe succeeded without a version string".to_string());
+        }
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let detail = if stderr.is_empty() {
+        format!("yt-dlp status probe exited with code {:?}", output.status.code())
+    } else {
+        stderr
+    };
+    Err(detail)
 }
 
 fn inspect_deno_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
@@ -1580,7 +1613,27 @@ fn inspect_ytdlp_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry
         Err(err) => return RuntimeDependencyStatusEntry::missing(err),
     };
     let bundled_candidates = binary_candidate_paths(app, file_name);
-    runtime_dependency_status_from_resolution(&bundled_candidates, ytdlp_runtime_binary_path(app))
+    let resolved_path = match ytdlp_runtime_binary_path(app) {
+        Ok(path) => path,
+        Err(err) => return RuntimeDependencyStatusEntry::missing(err),
+    };
+    let source = if bundled_candidates
+        .iter()
+        .any(|candidate| candidate == &resolved_path)
+    {
+        RuntimeDependencySource::Bundled
+    } else {
+        RuntimeDependencySource::SystemPath
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Err(err) = validate_non_windows_ytdlp_runtime(&resolved_path) {
+            return RuntimeDependencyStatusEntry::missing_with_resolution(resolved_path, source, err);
+        }
+    }
+
+    RuntimeDependencyStatusEntry::ready(resolved_path, source)
 }
 
 fn inspect_pinterest_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry {
@@ -10398,6 +10451,19 @@ impl RuntimeDependencyStatusEntry {
         }
     }
 
+    fn missing_with_resolution(
+        path: PathBuf,
+        source: RuntimeDependencySource,
+        error: String,
+    ) -> Self {
+        Self {
+            state: "missing".to_string(),
+            source: Some(source.as_str().to_string()),
+            path: Some(path.to_string_lossy().to_string()),
+            error: Some(error),
+        }
+    }
+
     fn is_ready(&self) -> bool {
         self.state == "ready"
     }
@@ -11920,18 +11986,30 @@ async fn get_local_ytdlp_version(app: &AppHandle) -> Result<String, String> {
         })?;
 
     let mut current_version = String::new();
+    let mut stderr_lines: Vec<String> = Vec::new();
     while let Some(event) = rx.recv().await {
         match event {
             CommandEvent::Stdout(line) => {
                 current_version = String::from_utf8_lossy(&line).trim().to_string();
             }
-            CommandEvent::Stderr(_) => {}
+            CommandEvent::Stderr(line) => {
+                let trimmed = String::from_utf8_lossy(&line).trim().to_string();
+                if !trimmed.is_empty() {
+                    stderr_lines.push(trimmed);
+                }
+            }
             CommandEvent::Terminated(_) => break,
         }
     }
 
     if current_version.is_empty() {
-        return Err("Failed to get current yt-dlp version".to_string());
+        let stderr_detail = stderr_lines.last().cloned().unwrap_or_else(|| {
+            "yt-dlp produced no stdout version output".to_string()
+        });
+        return Err(format!(
+            "Failed to get current yt-dlp version from {:?}: {}",
+            ytdlp_path, stderr_detail
+        ));
     }
 
     Ok(current_version)
