@@ -103,7 +103,18 @@ function removeExistingDmgs(dmgDir) {
 
 function outputFileName(productName, version, arch) {
   const safeName = productName.replace(/\s+/g, "");
-  return `${safeName}_${version}_${arch}.dmg`;
+  const archLabel = normalizeArchitectureLabel(arch);
+  return `${safeName}_${version}_${archLabel}.dmg`;
+}
+
+function normalizeArchitectureLabel(arch) {
+  if (arch === "x86_64") {
+    return "x64";
+  }
+  if (arch === "aarch64") {
+    return "arm64";
+  }
+  return arch;
 }
 
 function main() {

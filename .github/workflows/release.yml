@@ -180,51 +180,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure macOS release inputs
-        env:
-          APPLE_CERTIFICATE_INPUT: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD_INPUT: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY_INPUT: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER_INPUT: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_INPUT: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_P8_INPUT: ${{ secrets.APPLE_API_KEY_P8 }}
-        run: |
-          provided=0
-          missing=()
-          for key in APPLE_CERTIFICATE_INPUT APPLE_CERTIFICATE_PASSWORD_INPUT APPLE_SIGNING_IDENTITY_INPUT APPLE_API_ISSUER_INPUT APPLE_API_KEY_INPUT APPLE_API_KEY_P8_INPUT; do
-            if [ -z "${!key:-}" ]; then
-              missing+=("$key")
-            else
-              provided=$((provided + 1))
-            fi
-          done
-
-          if [ "$provided" -eq 0 ]; then
-            echo "FLOWSELECT_MACOS_RELEASE_MODE=open-source" >> "$GITHUB_ENV"
-            echo "Building macOS release in open-source mode (helper DMG, no Apple signing required)."
-            exit 0
-          fi
-
-          if [ "$provided" -ne 6 ]; then
-            echo "Partial macOS signing configuration detected."
-            echo "Missing required secrets: ${missing[*]}"
-            echo "Provide all of APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_API_ISSUER, APPLE_API_KEY, APPLE_API_KEY_P8 or none of them."
-            exit 1
-          fi
-
-          echo "FLOWSELECT_MACOS_RELEASE_MODE=signed" >> "$GITHUB_ENV"
-          echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE_INPUT" >> "$GITHUB_ENV"
-          echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD_INPUT" >> "$GITHUB_ENV"
-          echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY_INPUT" >> "$GITHUB_ENV"
-          echo "APPLE_API_ISSUER=$APPLE_API_ISSUER_INPUT" >> "$GITHUB_ENV"
-          echo "APPLE_API_KEY=$APPLE_API_KEY_INPUT" >> "$GITHUB_ENV"
-
-          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_INPUT}.p8"
-          printf '%s' "$APPLE_API_KEY_P8_INPUT" > "$KEY_PATH"
-          chmod 600 "$KEY_PATH"
-          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-          echo "Building macOS release with Apple signing inputs enabled."
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -303,13 +258,6 @@ jobs:
           path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
-      - name: Cleanup App Store Connect API key
-        if: always()
-        run: |
-          if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -f "$APPLE_API_KEY_PATH" ]; then
-            rm -f "$APPLE_API_KEY_PATH"
-          fi
-
   create-release:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
@@ -349,18 +297,6 @@ jobs:
         with:
           name: dmg-installer-aarch64
           path: artifacts/dmg-arm
-
-      - name: Rename DMG files for clarity
-        run: |
-          # Rename Intel DMG
-          for f in artifacts/dmg-intel/*.dmg; do
-            mv "$f" "${f%.dmg}_x64.dmg"
-          done
-
-          # Rename ARM DMG
-          for f in artifacts/dmg-arm/*.dmg; do
-            mv "$f" "${f%.dmg}_arm64.dmg"
-          done
 
       - name: Extract version from tag
         id: version

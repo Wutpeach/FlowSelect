@@ -76,6 +76,7 @@ All buttons below open the GitHub Releases page. Pick the matching artifact for 
 
 - `Apple Silicon DMG`: for M-series Macs.
 - `Intel DMG`: for Intel-based Macs.
+- The current macOS release is distributed as an unsigned open-source DMG and does not depend on Apple Developer Program signing.
 - Install flow:
   1. Open the DMG and drag `FlowSelect.app` into `Applications`.
   2. Launch FlowSelect from `Applications`.
