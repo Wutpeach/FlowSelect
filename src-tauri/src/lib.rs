@@ -28,8 +28,10 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use clipboard_win::{formats, get_clipboard};
 use dirs::desktop_dir;
 use native_i18n::{
-    load_native_tray_labels, normalize_app_language, resolve_language_from_config_str,
-    NativeTrayLabels, DESKTOP_LANGUAGE_CHANGED_EVENT, FALLBACK_LANGUAGE, WS_ACTION_GET_LANGUAGE,
+    detect_system_locale, load_native_tray_labels, normalize_app_language,
+    persist_resolved_language_in_config, resolve_language_from_config_str,
+    resolve_startup_language_from_config_str, NativeTrayLabels, StartupLanguageSource,
+    DESKTOP_LANGUAGE_CHANGED_EVENT, FALLBACK_LANGUAGE, WS_ACTION_GET_LANGUAGE,
     WS_ACTION_LANGUAGE_CHANGED, WS_ACTION_LANGUAGE_INFO,
 };
 #[cfg(target_os = "macos")]
@@ -125,8 +127,39 @@ struct ProtectedImageResolutionResult {
 }
 
 fn resolve_current_app_language(app: &tauri::AppHandle) -> Result<&'static str, String> {
-    let config_str = get_config(app.clone())?;
-    Ok(resolve_language_from_config_str(&config_str).unwrap_or(FALLBACK_LANGUAGE))
+    let config_path = get_config_path(app)?;
+    let config_str = if config_path.exists() {
+        fs::read_to_string(&config_path).map_err(|e| format!("Failed to read config: {}", e))?
+    } else {
+        "{}".to_string()
+    };
+    let system_locale = detect_system_locale();
+    let decision = resolve_startup_language_from_config_str(&config_str, system_locale.as_deref());
+
+    if decision.should_persist {
+        if let Some(next_config) =
+            persist_resolved_language_in_config(&config_str, decision.language)
+        {
+            fs::write(&config_path, next_config)
+                .map_err(|e| format!("Failed to write config: {}", e))?;
+
+            let source = match decision.source {
+                StartupLanguageSource::Config => "saved config",
+                StartupLanguageSource::System => "system locale",
+                StartupLanguageSource::Fallback => "English fallback",
+            };
+            println!(
+                ">>> [Rust] Bootstrapped app language to {} from {}",
+                decision.language, source
+            );
+        } else {
+            println!(
+                ">>> [Rust] Skipped startup language persistence because config JSON is not an object"
+            );
+        }
+    }
+
+    Ok(decision.language)
 }
 
 fn load_current_native_tray_labels(app: &tauri::AppHandle) -> NativeTrayLabels {
@@ -1557,7 +1590,10 @@ fn validate_non_windows_ytdlp_runtime(path: &Path) -> Result<(), String> {
         .stdin(std::process::Stdio::null());
 
     let output = run_hidden_cli_command_output(&mut command).map_err(|err| {
-        format!("Failed to execute yt-dlp status probe at {:?}: {}", path, err)
+        format!(
+            "Failed to execute yt-dlp status probe at {:?}: {}",
+            path, err
+        )
     })?;
 
     if output.status.success() {
@@ -1570,7 +1606,10 @@ fn validate_non_windows_ytdlp_runtime(path: &Path) -> Result<(), String> {
 
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let detail = if stderr.is_empty() {
-        format!("yt-dlp status probe exited with code {:?}", output.status.code())
+        format!(
+            "yt-dlp status probe exited with code {:?}",
+            output.status.code()
+        )
     } else {
         stderr
     };
@@ -1629,7 +1668,11 @@ fn inspect_ytdlp_runtime_status(app: &AppHandle) -> RuntimeDependencyStatusEntry
     #[cfg(not(target_os = "windows"))]
     {
         if let Err(err) = validate_non_windows_ytdlp_runtime(&resolved_path) {
-            return RuntimeDependencyStatusEntry::missing_with_resolution(resolved_path, source, err);
+            return RuntimeDependencyStatusEntry::missing_with_resolution(
+                resolved_path,
+                source,
+                err,
+            );
         }
     }
 
@@ -12003,9 +12046,10 @@ async fn get_local_ytdlp_version(app: &AppHandle) -> Result<String, String> {
     }
 
     if current_version.is_empty() {
-        let stderr_detail = stderr_lines.last().cloned().unwrap_or_else(|| {
-            "yt-dlp produced no stdout version output".to_string()
-        });
+        let stderr_detail = stderr_lines
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "yt-dlp produced no stdout version output".to_string());
         return Err(format!(
             "Failed to get current yt-dlp version from {:?}: {}",
             ytdlp_path, stderr_detail
@@ -13406,14 +13450,7 @@ fn get_config(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 fn save_config(app: tauri::AppHandle, json: String) -> Result<(), String> {
     let config_path = get_config_path(&app)?;
-    let previous_language = if config_path.exists() {
-        fs::read_to_string(&config_path)
-            .ok()
-            .and_then(|config_str| resolve_language_from_config_str(&config_str))
-            .unwrap_or(FALLBACK_LANGUAGE)
-    } else {
-        FALLBACK_LANGUAGE
-    };
+    let previous_language = resolve_current_app_language(&app).unwrap_or(FALLBACK_LANGUAGE);
     let next_language = resolve_language_from_config_str(&json);
 
     fs::write(&config_path, &json).map_err(|e| format!("Failed to write config: {}", e))?;
@@ -14172,9 +14209,8 @@ async fn process_ws_message(text: &str, app: &AppHandle) -> WsResponse {
             },
         },
         WS_ACTION_GET_LANGUAGE => {
-            let language = get_config(app.clone())
+            let language = resolve_current_app_language(&app)
                 .ok()
-                .and_then(|config_str| resolve_language_from_config_str(&config_str))
                 .unwrap_or(FALLBACK_LANGUAGE);
             WsResponse {
                 success: true,

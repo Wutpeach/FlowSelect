@@ -41,3 +41,4 @@ socket2 = "0.5"
 sha2 = "0.10"
 semver = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+sys-locale = "0.3.2"

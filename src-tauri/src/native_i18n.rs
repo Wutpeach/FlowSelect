@@ -17,6 +17,20 @@ const DEFAULT_SHOW_WINDOW_LABEL: &str = "Show Window";
 const DEFAULT_SETTINGS_LABEL: &str = "Settings";
 const DEFAULT_QUIT_LABEL: &str = "Quit FlowSelect";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartupLanguageSource {
+    Config,
+    System,
+    Fallback,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartupLanguageDecision {
+    pub language: &'static str,
+    pub source: StartupLanguageSource,
+    pub should_persist: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativeTrayLabels {
     pub show_window: String,
@@ -51,18 +65,87 @@ pub fn normalize_app_language(value: Option<&str>) -> Option<&'static str> {
     None
 }
 
-pub fn resolve_language_from_config(config: &Value) -> &'static str {
+pub fn detect_system_locale() -> Option<String> {
+    sys_locale::get_locale()
+}
+
+pub fn get_configured_language(config: &Value) -> Option<&'static str> {
     normalize_app_language(
         config
             .get(LANGUAGE_CONFIG_KEY)
             .and_then(|value| value.as_str()),
     )
-    .unwrap_or(FALLBACK_LANGUAGE)
+}
+
+pub fn resolve_language_from_config(config: &Value) -> &'static str {
+    get_configured_language(config).unwrap_or(FALLBACK_LANGUAGE)
 }
 
 pub fn resolve_language_from_config_str(config_raw: &str) -> Option<&'static str> {
     let config: Value = serde_json::from_str(config_raw).ok()?;
     Some(resolve_language_from_config(&config))
+}
+
+pub fn resolve_startup_language(
+    config: Option<&Value>,
+    system_locale: Option<&str>,
+) -> StartupLanguageDecision {
+    if let Some(config) = config {
+        if let Some(language) = get_configured_language(config) {
+            return StartupLanguageDecision {
+                language,
+                source: StartupLanguageSource::Config,
+                should_persist: false,
+            };
+        }
+
+        if let Some(language) = normalize_app_language(system_locale) {
+            return StartupLanguageDecision {
+                language,
+                source: StartupLanguageSource::System,
+                should_persist: true,
+            };
+        }
+
+        return StartupLanguageDecision {
+            language: FALLBACK_LANGUAGE,
+            source: StartupLanguageSource::Fallback,
+            should_persist: true,
+        };
+    }
+
+    if let Some(language) = normalize_app_language(system_locale) {
+        return StartupLanguageDecision {
+            language,
+            source: StartupLanguageSource::System,
+            should_persist: false,
+        };
+    }
+
+    StartupLanguageDecision {
+        language: FALLBACK_LANGUAGE,
+        source: StartupLanguageSource::Fallback,
+        should_persist: false,
+    }
+}
+
+pub fn resolve_startup_language_from_config_str(
+    config_raw: &str,
+    system_locale: Option<&str>,
+) -> StartupLanguageDecision {
+    let config = serde_json::from_str::<Value>(config_raw).ok();
+    resolve_startup_language(config.as_ref(), system_locale)
+}
+
+pub fn persist_resolved_language_in_config(config_raw: &str, language: &str) -> Option<String> {
+    let normalized_language = normalize_app_language(Some(language))?;
+    let mut config: Value = serde_json::from_str(config_raw).ok()?;
+    let object = config.as_object_mut()?;
+    object.insert(
+        LANGUAGE_CONFIG_KEY.to_string(),
+        Value::String(normalized_language.to_string()),
+    );
+    serde_json::to_string(&config).ok()
 }
 
 pub fn load_native_tray_labels<R: Runtime>(app: &AppHandle<R>, language: &str) -> NativeTrayLabels {
@@ -217,6 +300,68 @@ mod tests {
 
         let config = serde_json::json!({ "language": "fr-FR" });
         assert_eq!(resolve_language_from_config(&config), "en");
+    }
+
+    #[test]
+    fn resolves_startup_language_from_saved_config_without_persisting() {
+        let config = serde_json::json!({ "language": "en-GB" });
+        let decision = resolve_startup_language(Some(&config), Some("zh-CN"));
+
+        assert_eq!(
+            decision,
+            StartupLanguageDecision {
+                language: "en",
+                source: StartupLanguageSource::Config,
+                should_persist: false,
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_startup_language_from_system_locale_when_config_language_is_missing() {
+        let config = serde_json::json!({ "theme": "black" });
+        let decision = resolve_startup_language(Some(&config), Some("zh-Hant"));
+
+        assert_eq!(
+            decision,
+            StartupLanguageDecision {
+                language: "zh-CN",
+                source: StartupLanguageSource::System,
+                should_persist: true,
+            }
+        );
+    }
+
+    #[test]
+    fn avoids_persisting_startup_language_when_config_json_is_invalid() {
+        let decision = resolve_startup_language_from_config_str("{", Some("zh-CN"));
+
+        assert_eq!(
+            decision,
+            StartupLanguageDecision {
+                language: "zh-CN",
+                source: StartupLanguageSource::System,
+                should_persist: false,
+            }
+        );
+    }
+
+    #[test]
+    fn persists_resolved_language_without_clobbering_other_config_keys() {
+        let persisted =
+            persist_resolved_language_in_config(r#"{"theme":"black","language":"fr-FR"}"#, "zh")
+                .expect("language should persist");
+        let parsed: Value =
+            serde_json::from_str(&persisted).expect("persisted config should parse");
+
+        assert_eq!(
+            parsed.get("theme"),
+            Some(&Value::String("black".to_string()))
+        );
+        assert_eq!(
+            parsed.get("language"),
+            Some(&Value::String("zh-CN".to_string()))
+        );
     }
 
     #[test]
