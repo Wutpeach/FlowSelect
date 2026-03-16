@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
-import { emit, listen } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { YtdlpVersionInfo } from "./types/ytdlp";
+import { APP_VERSION } from "./constants/appVersion";
+import type { AppUpdateInfo, AppUpdatePhase } from "./types/appUpdate";
 import type {
   RuntimeDependencyGatePhase,
   RuntimeDependencyGateStatePayload,
@@ -63,6 +66,14 @@ const summarizeDownloadError = (error?: string | null): string | null => {
     .find((line) => line.length > 0);
   if (!summary) return null;
   return summary.length > 96 ? `${summary.slice(0, 93)}...` : summary;
+};
+
+const summarizeAppUpdateError = (error: unknown): string | null => {
+  const errorString = String(error ?? "").trim();
+  if (!errorString) {
+    return null;
+  }
+  return summarizeDownloadError(errorString) ?? errorString;
 };
 
 const resolveRenameMediaEnabled = (config: Record<string, unknown>): boolean => {
@@ -583,7 +594,9 @@ function App() {
   const [pendingTranscodeActionTraceIds, setPendingTranscodeActionTraceIds] = useState<string[]>([]);
   const [queueNoticeMessage, setQueueNoticeMessage] = useState<string | null>(null);
   const [isQueuePopoverOpen, setIsQueuePopoverOpen] = useState(false);
-  const [ytdlpUpdate, setYtdlpUpdate] = useState<YtdlpVersionInfo | null>(null);
+  const [appUpdateInfo, setAppUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [appUpdatePhase, setAppUpdatePhase] = useState<AppUpdatePhase>("idle");
+  const [appUpdateError, setAppUpdateError] = useState<string | null>(null);
   const [runtimeDependencyStatus, setRuntimeDependencyStatus] = useState<RuntimeDependencyStatusSnapshot | null>(null);
   const [runtimeDependencyGateState, setRuntimeDependencyGateState] =
     useState<RuntimeDependencyGateStatePayload | null>(null);
@@ -591,7 +604,6 @@ function App() {
   const [isRuntimeRetryFeedbackVisible, setIsRuntimeRetryFeedbackVisible] = useState(false);
   const [isRuntimeRetryInFlight, setIsRuntimeRetryInFlight] = useState(false);
   const [showRuntimeSuccessIndicator, setShowRuntimeSuccessIndicator] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMinimized, setIsMinimized] = useState(true);
@@ -618,6 +630,7 @@ function App() {
   const isPanelHoveredRef = useRef(false);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
   const pendingDragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingAppUpdateRef = useRef<Update | null>(null);
   const previousTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
@@ -917,25 +930,76 @@ function App() {
     }
   }, []);
 
-  const refreshYtdlpVersion = useCallback(async () => {
-    const status = await refreshRuntimeDependencyStatus();
-    if (!status || status.ytDlp.state !== "ready") {
-      setYtdlpUpdate(null);
-      return null;
+  const replacePendingAppUpdate = useCallback((nextUpdate: Update | null) => {
+    const currentUpdate = pendingAppUpdateRef.current;
+    if (currentUpdate && currentUpdate !== nextUpdate) {
+      void currentUpdate.close().catch((err) => {
+        console.error("Failed to dispose previous updater handle:", err);
+      });
+    }
+    pendingAppUpdateRef.current = nextUpdate;
+  }, []);
+
+  const refreshAppUpdate = useCallback(async () => {
+    if (appUpdatePhase === "downloading" || appUpdatePhase === "installing") {
+      return appUpdateInfo;
     }
 
+    setAppUpdatePhase("checking");
+    setAppUpdateError(null);
+
     try {
-      console.log(">>> Checking yt-dlp version...");
-      const result = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
-      console.log(">>> yt-dlp version check result:", result);
-      setYtdlpUpdate(result.updateAvailable === true ? result : null);
-      return result;
+      const update = await check();
+      if (!update) {
+        replacePendingAppUpdate(null);
+        setAppUpdateInfo(null);
+        setAppUpdatePhase("idle");
+        return null;
+      }
+
+      replacePendingAppUpdate(update);
+      const nextInfo: AppUpdateInfo = {
+        current: update.currentVersion || APP_VERSION,
+        latest: update.version,
+        notes: update.body ?? null,
+        publishedAt: update.date ?? null,
+      };
+      setAppUpdateInfo(nextInfo);
+      setAppUpdatePhase("available");
+      return nextInfo;
     } catch (err) {
-      console.error(">>> yt-dlp version check failed:", err);
-      setYtdlpUpdate(null);
+      console.error(">>> App update check failed:", err);
+      replacePendingAppUpdate(null);
+      setAppUpdateInfo(null);
+      setAppUpdateError(summarizeAppUpdateError(err));
+      setAppUpdatePhase("idle");
       return null;
     }
-  }, [refreshRuntimeDependencyStatus]);
+  }, [appUpdateInfo, appUpdatePhase, replacePendingAppUpdate]);
+
+  const handleAppUpdateInstall = useCallback(async () => {
+    const update = pendingAppUpdateRef.current;
+    if (!update || appUpdatePhase === "downloading" || appUpdatePhase === "installing") {
+      return;
+    }
+
+    setAppUpdateError(null);
+    setAppUpdatePhase("downloading");
+
+    try {
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Finished") {
+          setAppUpdatePhase("installing");
+        }
+      });
+      setAppUpdatePhase("installing");
+      await relaunch();
+    } catch (err) {
+      console.error("Failed to install app update:", err);
+      setAppUpdateError(summarizeAppUpdateError(err));
+      setAppUpdatePhase("error");
+    }
+  }, [appUpdatePhase]);
 
   const loadRuntimeDependencyGateState = useCallback(async () => {
     try {
@@ -1107,8 +1171,9 @@ function App() {
       if (runtimeBootstrapAfterVisibleTimerRef.current !== null) {
         clearTimeout(runtimeBootstrapAfterVisibleTimerRef.current);
       }
+      replacePendingAppUpdate(null);
     };
-  }, []);
+  }, [replacePendingAppUpdate]);
 
   useEffect(() => {
     if (isInitialMount || hasTriggeredStartupRuntimeBootstrapRef.current) {
@@ -1295,21 +1360,10 @@ function App() {
     return () => { unlisten.then(fn => fn()); };
   }, [windowResized, hasPrimaryTask, isMacOS]);
 
-  // Check yt-dlp version on startup
+  // Check app update availability on startup
   useEffect(() => {
-    void refreshYtdlpVersion();
-  }, [refreshYtdlpVersion]);
-
-  // Sync yt-dlp version status with settings window updates
-  useEffect(() => {
-    const unlisten = listen<{ source: "main" | "settings" }>("ytdlp-version-refresh", (event) => {
-      if (event.payload.source === "main") {
-        return;
-      }
-      void refreshYtdlpVersion();
-    });
-    return () => { unlisten.then(fn => fn()); };
-  }, [refreshYtdlpVersion]);
+    void refreshAppUpdate();
+  }, [refreshAppUpdate]);
 
   useEffect(() => {
     const unlisten = listen<RuntimeDependencyGateStatePayload>(
@@ -2249,20 +2303,6 @@ function App() {
     await resetRenameCounter();
   };
 
-  // Handle yt-dlp update
-  const handleYtdlpUpdate = async () => {
-    setIsUpdating(true);
-    try {
-      await invoke<string>("update_ytdlp");
-      await emit("ytdlp-version-refresh", { source: "main" });
-      await refreshYtdlpVersion();
-    } catch (err) {
-      console.error("Failed to update yt-dlp:", err);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
   const handleRuntimeDependencyRecheck = async () => {
     resetIdleTimer({ expandIfMinimized: false });
     setIsRuntimeRetryInFlight(true);
@@ -2378,6 +2418,38 @@ function App() {
     pointerEvents: shouldShowMiniControls ? 'auto' : 'none',
     zIndex: 10,
   };
+  const shouldShowAppUpdateIndicator = !!appUpdateInfo && (
+    appUpdatePhase === "available"
+    || appUpdatePhase === "downloading"
+    || appUpdatePhase === "installing"
+    || appUpdatePhase === "error"
+  );
+  const appUpdateIndicatorTitle = (() => {
+    if (!appUpdateInfo) {
+      return "";
+    }
+
+    if (appUpdatePhase === "downloading") {
+      return t("app.actions.downloadAppUpdate");
+    }
+
+    if (appUpdatePhase === "installing") {
+      return t("app.actions.installAppUpdate");
+    }
+
+    if (appUpdatePhase === "error") {
+      const retryTitle = t("app.actions.retryAppUpdate", {
+        current: appUpdateInfo.current,
+        latest: appUpdateInfo.latest,
+      });
+      return appUpdateError ? `${retryTitle}\n${appUpdateError}` : retryTitle;
+    }
+
+    return t("app.actions.updateApp", {
+      current: appUpdateInfo.current,
+      latest: appUpdateInfo.latest,
+    });
+  })();
   const isPrimaryTaskCancelling = primaryTask?.kind === "download"
     ? cancellingTraceIds.includes(primaryTask.task.traceId)
     : false;
@@ -3685,12 +3757,14 @@ function App() {
         ) : null}
       </AnimatePresence>
 
-      {/* yt-dlp update indicator */}
-      {ytdlpUpdate && (
+      {/* App update indicator */}
+      {shouldShowAppUpdateIndicator && appUpdateInfo ? (
         <button
-          onClick={handleYtdlpUpdate}
+          onClick={() => {
+            void handleAppUpdateInstall();
+          }}
           onMouseDown={(e) => e.stopPropagation()}
-          disabled={isUpdating}
+          disabled={appUpdatePhase === "downloading" || appUpdatePhase === "installing"}
           style={{
             position: 'absolute',
             bottom: 8,
@@ -3700,7 +3774,7 @@ function App() {
             border: 'none',
             borderRadius: 4,
             backgroundColor: 'transparent',
-            cursor: isUpdating ? 'wait' : 'pointer',
+            cursor: appUpdatePhase === "downloading" || appUpdatePhase === "installing" ? 'wait' : 'pointer',
             padding: 0,
             display: 'flex',
             alignItems: 'center',
@@ -3711,14 +3785,9 @@ function App() {
             pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
             zIndex: 10,
           }}
-          title={isUpdating
-            ? t("app.actions.updating")
-            : t("app.actions.updateYtdlp", {
-                current: ytdlpUpdate.current,
-                latest: ytdlpUpdate.latest ?? "",
-              })}
+          title={appUpdateIndicatorTitle}
         >
-          {isUpdating ? (
+          {appUpdatePhase === "downloading" || appUpdatePhase === "installing" ? (
             <span
               style={{
                 width: 10,
@@ -3738,14 +3807,16 @@ function App() {
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
-                backgroundColor: colors.dangerSolid,
+                backgroundColor: appUpdatePhase === "error" ? colors.warningSolid : colors.dangerSolid,
                 display: 'block',
-                boxShadow: `0 0 6px ${colors.dangerGlow}`,
+                boxShadow: appUpdatePhase === "error"
+                  ? `0 0 6px ${colors.warningGlow}`
+                  : `0 0 6px ${colors.dangerGlow}`,
               }}
             />
           )}
         </button>
-      )}
+      ) : null}
 
       {/* Rename counter reset button - bottom left solid rectangle */}
       {renameMediaOnDownload && (

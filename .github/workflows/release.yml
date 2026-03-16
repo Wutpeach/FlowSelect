@@ -7,6 +7,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
 jobs:
   build-windows:
@@ -141,14 +143,14 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: msi-installer
-          path: src-tauri/target/release/bundle/msi/*.msi
+          path: src-tauri/target/release/bundle/msi/*
           if-no-files-found: error
 
       - name: Upload NSIS artifact
         uses: actions/upload-artifact@v6
         with:
           name: nsis-installer
-          path: src-tauri/target/release/bundle/nsis/*.exe
+          path: src-tauri/target/release/bundle/nsis/*
           if-no-files-found: error
 
       - name: Upload Windows portable artifact
@@ -248,6 +250,24 @@ jobs:
       - name: Build Tauri application bundle
         run: npm run tauri build -- --target ${{ matrix.target }} --bundles app
 
+      - name: Prepare macOS updater artifact
+        run: |
+          mkdir -p updater-assets
+
+          UPDATER_ARCHIVE=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name "*.app.tar.gz" | head -n 1)
+          if [[ -z "$UPDATER_ARCHIVE" ]]; then
+            echo "::error::Unable to find macOS updater archive"
+            exit 1
+          fi
+
+          if [[ ! -f "${UPDATER_ARCHIVE}.sig" ]]; then
+            echo "::error::Unable to find updater signature for $UPDATER_ARCHIVE"
+            exit 1
+          fi
+
+          cp "$UPDATER_ARCHIVE" "updater-assets/FlowSelect_${{ steps.version.outputs.version }}_${{ matrix.arch }}.app.tar.gz"
+          cp "${UPDATER_ARCHIVE}.sig" "updater-assets/FlowSelect_${{ steps.version.outputs.version }}_${{ matrix.arch }}.app.tar.gz.sig"
+
       - name: Package macOS DMG
         run: npm run package:macos-open-source-dmg -- --target ${{ matrix.target }} --arch ${{ matrix.arch }} --version "${{ steps.version.outputs.version }}"
 
@@ -256,6 +276,13 @@ jobs:
         with:
           name: dmg-installer-${{ matrix.arch }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+      - name: Upload macOS updater artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-updater-${{ matrix.arch }}
+          path: updater-assets/*
           if-no-files-found: error
 
   create-release:
@@ -298,6 +325,18 @@ jobs:
           name: dmg-installer-aarch64
           path: artifacts/dmg-arm
 
+      - name: Download macOS Intel updater artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: macos-updater-x86_64
+          path: artifacts/macos-updater-x64
+
+      - name: Download macOS ARM updater artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: macos-updater-aarch64
+          path: artifacts/macos-updater-arm64
+
       - name: Extract version from tag
         id: version
         run: |
@@ -324,6 +363,18 @@ jobs:
           echo "path=$RELEASE_NOTES" >> $GITHUB_OUTPUT
           echo "Using release notes: $RELEASE_NOTES"
 
+      - name: Generate updater manifest
+        run: |
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          node ./scripts/generate-updater-manifest.mjs \
+            --version "${{ steps.version.outputs.version }}" \
+            --release-tag "v${{ steps.version.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --notes-file "${{ steps.release_notes.outputs.path }}" \
+            --pub-date "$PUB_DATE" \
+            --artifacts-dir artifacts \
+            --output artifacts/updater/latest.json
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -338,3 +389,6 @@ jobs:
             artifacts/portable/*.zip
             artifacts/dmg-intel/*.dmg
             artifacts/dmg-arm/*.dmg
+            artifacts/macos-updater-x64/*.tar.gz
+            artifacts/macos-updater-arm64/*.tar.gz
+            artifacts/updater/latest.json
