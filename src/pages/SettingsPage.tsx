@@ -1453,7 +1453,7 @@ function SettingsPage() {
 
       {/* Footer */}
       <div style={{
-        padding: '12px 16px',
+        padding: '8px 16px',
         textAlign: 'center',
         borderTop: `1px solid ${colors.borderStart}`,
         background: 'transparent',
@@ -1471,7 +1471,14 @@ function SettingsPage() {
         >
           {`v${APP_VERSION}`}
         </span>
-        <div style={{ fontSize: 10, color: colors.textSecondary, opacity: 0.65, minHeight: 14, marginTop: 2 }}>
+        <div style={{
+          fontSize: 10,
+          color: colors.textSecondary,
+          opacity: 0.65,
+          minHeight: versionTapHint ? 12 : 0,
+          marginTop: versionTapHint ? 2 : 0,
+          lineHeight: 1.2,
+        }}>
           {versionTapHint}
         </div>
       </div>
