@@ -90,6 +90,11 @@
       "source": "pbakaus/impeccable",
       "sourceType": "github",
       "computedHash": "61855594bf79bc5b2665cfca3580b93840cfe645872c5a2deeaa5ad336570d5a"
+    },
+    "trellis-meta": {
+      "source": "mindfold-ai/Trellis",
+      "sourceType": "github",
+      "computedHash": "41f09ee6da7fcde404b4b32459a1feb39bc39ad7be2aff8d2d996dd38d5f6c08"
     }
   }
 }
