@@ -10494,6 +10494,7 @@ impl RuntimeDependencyStatusEntry {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn missing_with_resolution(
         path: PathBuf,
         source: RuntimeDependencySource,
