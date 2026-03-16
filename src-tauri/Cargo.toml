@@ -1,6 +1,6 @@
 [package]
 name = "flowselect"
-version = "0.2.7-rc3"
+version = "0.2.8"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
