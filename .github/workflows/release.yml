@@ -375,11 +375,11 @@ jobs:
             --artifacts-dir artifacts \
             --output artifacts/updater/latest.json
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release Draft
         uses: softprops/action-gh-release@v2
         with:
           name: FlowSelect v${{ steps.version.outputs.version }}
-          draft: false
+          draft: true
           prerelease: ${{ steps.version.outputs.prerelease }}
           generate_release_notes: false
           body_path: ${{ steps.release_notes.outputs.path }}
@@ -392,3 +392,14 @@ jobs:
             artifacts/macos-updater-x64/*.tar.gz
             artifacts/macos-updater-arm64/*.tar.gz
             artifacts/updater/latest.json
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+            gh release edit "$TAG" --draft=false --prerelease
+          else
+            gh release edit "$TAG" --draft=false
+          fi
