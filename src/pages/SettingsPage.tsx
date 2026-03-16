@@ -8,7 +8,13 @@ import { X, FolderOpen, Keyboard } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
-import { NeonFieldButton, NeonHint, NeonSection } from "../components/ui";
+import {
+  NeonDropdownField,
+  NeonFieldButton,
+  NeonHint,
+  NeonSection,
+  type NeonDropdownOption,
+} from "../components/ui";
 import { useTheme } from "../contexts/ThemeContext";
 import { saveOutputPath } from "../utils/outputPath";
 import { APP_VERSION } from "../constants/appVersion";
@@ -167,8 +173,6 @@ function SettingsPage() {
   const [ytdlpHint, setYtdlpHint] = useState("");
   const [pinterestHint, setPinterestHint] = useState("");
   const [runtimeHint, setRuntimeHint] = useState("");
-  const [renamePresetMenuOpen, setRenamePresetMenuOpen] = useState(false);
-  const [hoveredRenamePreset, setHoveredRenamePreset] = useState<RenameRulePreset | null>(null);
   const [isCloseHovered, setIsCloseHovered] = useState(false);
   const versionTapCountRef = useRef(0);
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -177,13 +181,12 @@ function SettingsPage() {
   const pinterestHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runtimeHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const supportLogExportInFlightRef = useRef(false);
-  const renamePresetMenuRef = useRef<HTMLDivElement | null>(null);
   const currentLanguage = normalizeAppLanguage(i18n.resolvedLanguage) ?? FALLBACK_LANGUAGE;
-  const languageOptions = SUPPORTED_APP_LANGUAGES.map((value) => ({
+  const languageOptions: Array<NeonDropdownOption<AppLanguage>> = SUPPORTED_APP_LANGUAGES.map((value) => ({
     value,
     label: t(`common:language.${value}`),
   }));
-  const renameRulePresetOptions: Array<{ value: RenameRulePreset; label: string }> = [
+  const renameRulePresetOptions: Array<NeonDropdownOption<RenameRulePreset>> = [
     {
       value: "desc_number",
       label: t("desktop:settings.rename.options.descending"),
@@ -518,36 +521,6 @@ function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (!renamePresetMenuOpen) return;
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const menuEl = renamePresetMenuRef.current;
-      if (!menuEl) return;
-      if (menuEl.contains(event.target as Node)) return;
-      setRenamePresetMenuOpen(false);
-    };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setRenamePresetMenuOpen(false);
-      }
-    };
-
-    window.addEventListener("mousedown", handlePointerDown);
-    window.addEventListener("keydown", handleEscape);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-      window.removeEventListener("keydown", handleEscape);
-    };
-  }, [renamePresetMenuOpen]);
-
-  useEffect(() => {
-    if (!renamePresetMenuOpen) {
-      setHoveredRenamePreset(null);
-    }
-  }, [renamePresetMenuOpen]);
-
-  useEffect(() => {
     const unlisten = listen<{ source: "main" | "settings" }>("ytdlp-version-refresh", (event) => {
       if (event.payload.source === "settings") {
         return;
@@ -833,11 +806,6 @@ function SettingsPage() {
   };
 
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
-  const renamePresetTriggerBorderColor = renamePresetMenuOpen ? colors.fieldBorderStrong : colors.fieldBorder;
-  const renamePresetPopupBorderColor = colors.fieldBorder;
-  const renamePresetLabel =
-    renameRulePresetOptions.find((option) => option.value === renameRulePreset)?.label ??
-    renameRulePresetOptions[0].label;
   const nestedLabelStyle: CSSProperties = {
     fontSize: 11,
     color: colors.textSecondary,
@@ -1118,90 +1086,15 @@ function SettingsPage() {
   ];
 
   const renderRenamePresetField = () => (
-    <div
-      ref={renamePresetMenuRef}
-      style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative' }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <label style={nestedLabelStyle}>
         {t("desktop:settings.rename.preset")}
       </label>
-      <NeonFieldButton
-        onClick={() =>
-          setRenamePresetMenuOpen((prev) => {
-            const nextOpen = !prev;
-            if (!nextOpen) setHoveredRenamePreset(null);
-            return nextOpen;
-          })
-        }
-        trailingContent={
-          <span style={{ fontSize: 11, color: colors.textSecondary }}>
-            {renamePresetMenuOpen ? "▴" : "▾"}
-          </span>
-        }
-        active={renamePresetMenuOpen}
-        style={{
-          height: 36,
-          padding: "0 10px",
-          border: `1px solid ${renamePresetTriggerBorderColor}`,
-          boxShadow: renamePresetMenuOpen
-            ? `inset 0 0 0 1px ${colors.fieldBorderStrong}, ${colors.panelShadow}`
-            : `inset 0 1px 0 ${colors.fieldInset}`,
-        }}
-      >
-        {renamePresetLabel}
-      </NeonFieldButton>
-      {renamePresetMenuOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            right: 0,
-            borderRadius: 8,
-            border: `1px solid ${renamePresetPopupBorderColor}`,
-            backgroundColor: colors.bgSecondary,
-            overflow: 'hidden',
-            zIndex: 20,
-            boxShadow: colors.panelShadowStrong,
-          }}
-        >
-          {renameRulePresetOptions.map((option, index) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => {
-                setRenamePresetMenuOpen(false);
-                setHoveredRenamePreset(null);
-                void handleRenameRulePresetChange(option.value);
-              }}
-              onMouseEnter={() => setHoveredRenamePreset(option.value)}
-              onMouseLeave={() => setHoveredRenamePreset((current) => (current === option.value ? null : current))}
-              style={{
-                width: '100%',
-                height: 34,
-                padding: '0 10px',
-                border: 'none',
-                borderBottom:
-                  index === renameRulePresetOptions.length - 1
-                    ? 'none'
-                    : `1px solid ${colors.borderEnd}`,
-                backgroundColor:
-                  renameRulePreset === option.value
-                    ? colors.accentSurfaceStrong
-                    : hoveredRenamePreset === option.value
-                      ? colors.fieldHoverBg
-                      : colors.bgSecondary,
-                color: colors.textPrimary,
-                fontSize: 12,
-                textAlign: 'left',
-                cursor: 'pointer',
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <NeonDropdownField
+        options={renameRulePresetOptions}
+        value={renameRulePreset}
+        onChange={handleRenameRulePresetChange}
+      />
     </div>
   );
 
@@ -1283,24 +1176,11 @@ function SettingsPage() {
           title={t("desktop:settings.language.title")}
           hint={t("desktop:settings.language.hint")}
         >
-          <div style={{ display: 'flex', gap: 8 }}>
-            {languageOptions.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => {
-                  void handleLanguageChange(option.value);
-                }}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  ...getSelectableOptionStyle(currentLanguage === option.value),
-                  fontSize: 12,
-                }}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <NeonDropdownField
+            options={languageOptions}
+            value={currentLanguage}
+            onChange={handleLanguageChange}
+          />
         </NeonSection>
 
         {/* Output Path */}
