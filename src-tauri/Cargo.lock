@@ -1040,7 +1040,7 @@ dependencies = [
 
 [[package]]
 name = "flowselect"
-version = "0.2.7"
+version = "0.2.7-rc3"
 dependencies = [
  "base64 0.22.1",
  "clipboard-win",

@@ -4,6 +4,7 @@ use regex::Regex;
 use semver::Version;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ffi::OsStr;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
@@ -13,7 +14,7 @@ use std::os::unix::fs::PermissionsExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -51,6 +52,8 @@ const YTDLP_LATEST_CACHE_FILE_NAME: &str = "ytdlp-latest-cache.json";
 const YTDLP_LATEST_CACHE_TTL_MS: u128 = 60 * 60 * 1000;
 const YTDLP_SKIP_BOOTSTRAP_ENV: &str = "FLOWSELECT_YTDLP_SKIP_BOOTSTRAP";
 const PINTEREST_SIDECAR_LOCK_JSON: &str = include_str!("../pinterest-sidecar/lock.json");
+const INSTALLER_RUNTIME_BOOTSTRAP_FLAG: &str = "--bootstrap-runtimes";
+const INSTALLER_RUNTIME_BOOTSTRAP_TRIGGER: &str = "installer_postinstall";
 #[cfg(windows)]
 const WINDOWS_CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -11951,6 +11954,19 @@ fn spawn_missing_managed_runtime_bootstrap(app: AppHandle, trigger: &'static str
     });
 }
 
+async fn bootstrap_missing_managed_runtimes_for_installer(
+    app: &AppHandle,
+) -> Result<Vec<String>, String> {
+    let initial_snapshot = get_runtime_dependency_status(app.clone());
+    let _ = sync_runtime_dependency_gate_state_from_snapshot(app, &initial_snapshot);
+
+    ensure_missing_managed_runtimes_ready(app, INSTALLER_RUNTIME_BOOTSTRAP_TRIGGER).await?;
+
+    let final_snapshot = get_runtime_dependency_status(app.clone());
+    let _ = sync_runtime_dependency_gate_state_from_snapshot(app, &final_snapshot);
+    Ok(runtime_dependency_missing_components(&final_snapshot))
+}
+
 fn ytdlp_binary_filename() -> Result<&'static str, String> {
     if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         Ok("yt-dlp-x86_64-pc-windows-msvc.exe")
@@ -14748,8 +14764,107 @@ fn get_ws_server_status(app: AppHandle) -> bool {
     is_running
 }
 
+fn is_installer_runtime_bootstrap_requested() -> bool {
+    std::env::args_os()
+        .skip(1)
+        .any(|arg| arg.as_os_str() == OsStr::new(INSTALLER_RUNTIME_BOOTSTRAP_FLAG))
+}
+
+fn installer_runtime_bootstrap_context() -> tauri::Context<tauri::Wry> {
+    let mut context = tauri::generate_context!();
+    context.config_mut().app.windows.clear();
+    context
+}
+
+fn run_installer_runtime_bootstrap_mode() -> i32 {
+    println!(">>> [Rust] Starting installer runtime bootstrap mode");
+    let exit_code = std::sync::Arc::new(AtomicI32::new(0));
+    let setup_exit_code = std::sync::Arc::clone(&exit_code);
+
+    let build_result = tauri::Builder::default()
+        .setup(move |app| {
+            let app_handle = app.handle().clone();
+            set_runtime_log_dir(&app_handle);
+            append_runtime_log_event(
+                "app",
+                "installer_runtime_bootstrap_start",
+                None,
+                serde_json::json!({
+                    "os": std::env::consts::OS,
+                    "arch": std::env::consts::ARCH,
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "trigger": INSTALLER_RUNTIME_BOOTSTRAP_TRIGGER,
+                }),
+            );
+
+            let bootstrap_result =
+                tauri::async_runtime::block_on(bootstrap_missing_managed_runtimes_for_installer(
+                    &app_handle,
+                ));
+
+            match bootstrap_result {
+                Ok(remaining_missing_components) => {
+                    setup_exit_code.store(0, Ordering::Relaxed);
+                    append_runtime_log_event(
+                        "app",
+                        "installer_runtime_bootstrap_complete",
+                        None,
+                        serde_json::json!({
+                            "trigger": INSTALLER_RUNTIME_BOOTSTRAP_TRIGGER,
+                            "success": true,
+                            "remainingMissingComponents": remaining_missing_components,
+                        }),
+                    );
+                    Ok(())
+                }
+                Err(err) => {
+                    setup_exit_code.store(1, Ordering::Relaxed);
+                    append_runtime_log_event(
+                        "app",
+                        "installer_runtime_bootstrap_complete",
+                        None,
+                        serde_json::json!({
+                            "trigger": INSTALLER_RUNTIME_BOOTSTRAP_TRIGGER,
+                            "success": false,
+                            "error": err,
+                        }),
+                    );
+                    Ok(())
+                }
+            }
+        })
+        .build(installer_runtime_bootstrap_context());
+
+    match build_result {
+        Ok(app) => {
+            let run_exit_code = std::sync::Arc::clone(&exit_code);
+            let exit_code = app.run_return(move |app_handle, event| {
+                if matches!(event, tauri::RunEvent::Ready) {
+                    app_handle.exit(run_exit_code.load(Ordering::Relaxed));
+                }
+            });
+            println!(
+                ">>> [Rust] Installer runtime bootstrap mode exited with code {}",
+                exit_code
+            );
+            exit_code
+        }
+        Err(err) => {
+            eprintln!(
+                ">>> [Rust] Installer runtime bootstrap mode failed before app launch: {}",
+                err
+            );
+            1
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if is_installer_runtime_bootstrap_requested() {
+        std::process::exit(run_installer_runtime_bootstrap_mode());
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, cwd| {
             println!(
