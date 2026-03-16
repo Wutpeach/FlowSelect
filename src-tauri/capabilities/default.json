@@ -22,6 +22,7 @@
     "shell:allow-spawn",
     "shell:allow-stdin-write",
     "global-shortcut:default",
+    "clipboard-manager:allow-read-image",
     "updater:default"
   ]
 }

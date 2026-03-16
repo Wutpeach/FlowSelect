@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { readImage as readClipboardImage } from "@tauri-apps/plugin-clipboard-manager";
 import { open } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -84,6 +85,66 @@ const resolveRenameMediaEnabled = (config: Record<string, unknown>): boolean => 
     return !config.videoKeepOriginalName;
   }
   return false;
+};
+
+const readClipboardImageDataUrl = async (): Promise<string | null> => {
+  const clipboardImage = await readClipboardImage();
+  const [{ width, height }, rgba] = await Promise.all([
+    clipboardImage.size(),
+    clipboardImage.rgba(),
+  ]);
+
+  if (width <= 0 || height <= 0) {
+    throw new Error(`Clipboard image has invalid dimensions: ${width}x${height}`);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Failed to create a canvas context for clipboard image paste");
+  }
+
+  const imageData = new ImageData(new Uint8ClampedArray(rgba), width, height);
+  context.putImageData(imageData, 0, 0);
+
+  return canvas.toDataURL("image/png");
+};
+
+const fileToDataUrl = async (file: Blob): Promise<string> => {
+  const arrayBuffer = await file.arrayBuffer();
+  const base64 = btoa(
+    new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ""),
+  );
+  const mimeType = file.type || "application/octet-stream";
+  return `data:${mimeType};base64,${base64}`;
+};
+
+const extractClipboardImageFile = (clipboardData: DataTransfer | null): File | null => {
+  if (!clipboardData) {
+    return null;
+  }
+
+  for (const file of Array.from(clipboardData.files)) {
+    if (file.type.startsWith("image/")) {
+      return file;
+    }
+  }
+
+  for (const item of Array.from(clipboardData.items)) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) {
+      continue;
+    }
+
+    const file = item.getAsFile();
+    if (file) {
+      return file;
+    }
+  }
+
+  return null;
 };
 
 type DownloadStage = "preparing" | "downloading" | "merging" | "post_processing";
@@ -628,6 +689,7 @@ function App() {
   const cancellingTraceIdsRef = useRef<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanelHoveredRef = useRef(false);
+  const pasteHandlerRef = useRef<(event: ClipboardEvent) => void>(() => undefined);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
   const pendingDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const pendingAppUpdateRef = useRef<Update | null>(null);
@@ -1793,12 +1855,11 @@ function App() {
     await openCurrentOutputFolder();
   };
 
-  // Handle paste event - check for video URL first, then image URL, then clipboard files
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    e.preventDefault();
+  // Handle paste event - check for video URL first, then image URL, then clipboard images/files.
+  const handlePaste = async (clipboardData: DataTransfer | null) => {
     resetIdleTimer();
 
-    const text = e.clipboardData.getData("text/plain");
+    const text = clipboardData?.getData("text/plain") ?? "";
 
     // 1. Check if clipboard text is a video URL (highest priority)
     if (text && isVideoUrl(text)) {
@@ -1836,7 +1897,91 @@ function App() {
       return;
     }
 
-    // 2. Otherwise, continue with file processing logic
+    // 3. Try the image/file payload exposed directly on the paste event first.
+    const pastedImageFile = extractClipboardImageFile(clipboardData);
+    if (pastedImageFile) {
+      console.log(
+        "Detected clipboard image file from paste event:",
+        pastedImageFile.name || "<unnamed>",
+      );
+      resetDownloadOutcome();
+      setIsProcessing(true);
+
+      try {
+        const dataUrl = await fileToDataUrl(pastedImageFile);
+        const result = await invoke<string>("save_data_url", {
+          dataUrl,
+          targetDir: outputPath || null,
+          originalFilename: pastedImageFile.name || undefined,
+        });
+        console.log("Save clipboard image file result:", result);
+      } catch (err) {
+        console.error("Failed to save clipboard image file:", err);
+        checkSequenceOverflow(err);
+      }
+
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
+    }
+
+    // 4. Some screenshot tools expose the image only through pasted HTML.
+    const pastedHtml = clipboardData?.getData("text/html") ?? "";
+    const pastedHtmlImageUrl = pastedHtml ? extractImageUrlFromHtml(pastedHtml) : null;
+    if (pastedHtmlImageUrl) {
+      console.log("Detected clipboard image from HTML payload:", pastedHtmlImageUrl);
+      resetDownloadOutcome();
+      setIsProcessing(true);
+
+      try {
+        if (pastedHtmlImageUrl.startsWith("data:image/")) {
+          const result = await invoke<string>("save_data_url", {
+            dataUrl: pastedHtmlImageUrl,
+            targetDir: outputPath || null,
+          });
+          console.log("Save clipboard HTML image result:", result);
+        } else {
+          const result = await invoke<string>("download_image", {
+            url: pastedHtmlImageUrl,
+            targetDir: outputPath || null,
+          });
+          console.log("Download clipboard HTML image result:", result);
+        }
+      } catch (err) {
+        console.error("Failed to process clipboard HTML image:", err);
+        checkSequenceOverflow(err);
+      }
+
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
+    }
+
+    // 5. Try reading a clipboard image through the official Tauri plugin.
+    try {
+      const clipboardImageDataUrl = await readClipboardImageDataUrl();
+      if (clipboardImageDataUrl) {
+        console.log("Detected clipboard image, saving to output folder");
+        resetDownloadOutcome();
+        setIsProcessing(true);
+
+        try {
+          const result = await invoke<string>("save_data_url", {
+            dataUrl: clipboardImageDataUrl,
+            targetDir: outputPath || null,
+          });
+          console.log("Save clipboard image result:", result);
+        } catch (err) {
+          console.error("Failed to save clipboard image:", err);
+          checkSequenceOverflow(err);
+        }
+
+        setTimeout(() => setIsProcessing(false), 1000);
+        return;
+      }
+    } catch (err) {
+      console.warn("Clipboard image is not available for paste:", err);
+    }
+
+    // 6. Otherwise, continue with file processing logic.
     try {
       const paths = await invoke<string[]>("get_clipboard_files");
 
@@ -1857,12 +2002,28 @@ function App() {
 
         setTimeout(() => setIsProcessing(false), 1000);
       } else {
-        console.warn("No files in clipboard");
+        console.warn("No pasteable clipboard image or files detected");
       }
     } catch (err) {
       console.warn("Failed to get clipboard files:", err);
     }
   };
+
+  pasteHandlerRef.current = (event: ClipboardEvent) => {
+    event.preventDefault();
+    void handlePaste(event.clipboardData);
+  };
+
+  useEffect(() => {
+    const handleWindowPaste = (event: ClipboardEvent) => {
+      pasteHandlerRef.current(event);
+    };
+
+    window.addEventListener("paste", handleWindowPaste);
+    return () => {
+      window.removeEventListener("paste", handleWindowPaste);
+    };
+  }, []);
 
   // Check if URL looks like an image
   const isImageUrl = (url: string): boolean => {
@@ -2623,7 +2784,6 @@ function App() {
       }}
       onDrop={handleDrop}
       onDragLeave={() => setIsHovering(false)}
-      onPaste={handlePaste}
       onMouseEnter={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         setMousePos({
