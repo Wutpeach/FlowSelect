@@ -59,6 +59,17 @@ function findRequiredFile(files, pattern, label) {
   return match;
 }
 
+function findRequiredFileByPatterns(files, patterns, label) {
+  for (const pattern of patterns) {
+    const match = files.find((filePath) => pattern.test(path.basename(filePath)));
+    if (match) {
+      return match;
+    }
+  }
+
+  throw new Error(`Unable to find ${label} matching any of: ${patterns.map(String).join(", ")}`);
+}
+
 function readTrimmed(filePath) {
   return fs.readFileSync(filePath, "utf8").trim();
 }
@@ -89,10 +100,38 @@ function main() {
 
   const windowsAsset = findRequiredFile(files, /^FlowSelect_.*_x64-setup\.exe$/, "Windows updater asset");
   const windowsSig = findRequiredFile(files, /^FlowSelect_.*_x64-setup\.exe\.sig$/, "Windows updater signature");
-  const darwinX64Asset = findRequiredFile(files, /^FlowSelect_.*_x64\.app\.tar\.gz$/, "macOS x64 updater asset");
-  const darwinX64Sig = findRequiredFile(files, /^FlowSelect_.*_x64\.app\.tar\.gz\.sig$/, "macOS x64 updater signature");
-  const darwinArm64Asset = findRequiredFile(files, /^FlowSelect_.*_arm64\.app\.tar\.gz$/, "macOS arm64 updater asset");
-  const darwinArm64Sig = findRequiredFile(files, /^FlowSelect_.*_arm64\.app\.tar\.gz\.sig$/, "macOS arm64 updater signature");
+  const darwinX64Asset = findRequiredFileByPatterns(
+    files,
+    [
+      /^FlowSelect_.*_x64\.app\.tar\.gz$/,
+      /^FlowSelect_.*_x86_64\.app\.tar\.gz$/,
+    ],
+    "macOS x64 updater asset",
+  );
+  const darwinX64Sig = findRequiredFileByPatterns(
+    files,
+    [
+      /^FlowSelect_.*_x64\.app\.tar\.gz\.sig$/,
+      /^FlowSelect_.*_x86_64\.app\.tar\.gz\.sig$/,
+    ],
+    "macOS x64 updater signature",
+  );
+  const darwinArm64Asset = findRequiredFileByPatterns(
+    files,
+    [
+      /^FlowSelect_.*_arm64\.app\.tar\.gz$/,
+      /^FlowSelect_.*_aarch64\.app\.tar\.gz$/,
+    ],
+    "macOS arm64 updater asset",
+  );
+  const darwinArm64Sig = findRequiredFileByPatterns(
+    files,
+    [
+      /^FlowSelect_.*_arm64\.app\.tar\.gz\.sig$/,
+      /^FlowSelect_.*_aarch64\.app\.tar\.gz\.sig$/,
+    ],
+    "macOS arm64 updater signature",
+  );
 
   const manifest = {
     version,
