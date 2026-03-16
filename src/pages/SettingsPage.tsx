@@ -244,7 +244,7 @@ function SettingsPage() {
   }, []);
 
   const refreshYtdlpVersion = useCallback(async () => {
-    const status = runtimeDependencyStatus ?? await refreshRuntimeDependencyStatus();
+    const status = await refreshRuntimeDependencyStatus();
     if (!status || status.ytDlp.state !== "ready") {
       setYtdlpInfo(null);
       return null;
@@ -253,14 +253,13 @@ function SettingsPage() {
     try {
       const versionInfo = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
       setYtdlpInfo(versionInfo);
-      void refreshRuntimeDependencyStatus();
       return versionInfo;
     } catch (err) {
       console.error("Failed to check yt-dlp version:", err);
       setYtdlpInfo(null);
       return null;
     }
-  }, [refreshRuntimeDependencyStatus, runtimeDependencyStatus]);
+  }, [refreshRuntimeDependencyStatus]);
 
   const refreshPinterestDownloaderInfo = useCallback(async () => {
     try {

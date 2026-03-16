@@ -918,7 +918,7 @@ function App() {
   }, []);
 
   const refreshYtdlpVersion = useCallback(async () => {
-    const status = runtimeDependencyStatus ?? await refreshRuntimeDependencyStatus();
+    const status = await refreshRuntimeDependencyStatus();
     if (!status || status.ytDlp.state !== "ready") {
       setYtdlpUpdate(null);
       return null;
@@ -929,14 +929,13 @@ function App() {
       const result = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
       console.log(">>> yt-dlp version check result:", result);
       setYtdlpUpdate(result.updateAvailable === true ? result : null);
-      void refreshRuntimeDependencyStatus();
       return result;
     } catch (err) {
       console.error(">>> yt-dlp version check failed:", err);
       setYtdlpUpdate(null);
       return null;
     }
-  }, [refreshRuntimeDependencyStatus, runtimeDependencyStatus]);
+  }, [refreshRuntimeDependencyStatus]);
 
   const loadRuntimeDependencyGateState = useCallback(async () => {
     try {
