@@ -132,32 +132,44 @@ jobs:
         run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target x86_64-pc-windows-msvc
 
       - name: Build Tauri application
-        run: npm run tauri build
+        run: npm run tauri:build
+
+      - name: Normalize Windows installer artifact names
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $nsisDir = "src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Unable to find NSIS installer in $nsisDir"
+          }
+
+          $installerSig = "$($installer.FullName).sig"
+          if (-not (Test-Path $installerSig)) {
+            throw "Unable to find NSIS installer signature: $installerSig"
+          }
+
+          $normalizedInstallerPath = Join-Path $nsisDir ("FlowSelect_{0}_windows_x64_installer.exe" -f $version)
+          Move-Item $installer.FullName $normalizedInstallerPath -Force
+          Move-Item $installerSig "${normalizedInstallerPath}.sig" -Force
 
       - name: Package Windows portable ZIP
         shell: pwsh
         run: |
           powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1 -Version "${{ steps.version.outputs.version }}" -SkipBuild -SkipYtdlpUpdate
 
-      - name: Upload MSI artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: msi-installer
-          path: src-tauri/target/release/bundle/msi/*
-          if-no-files-found: error
-
       - name: Upload NSIS artifact
         uses: actions/upload-artifact@v6
         with:
-          name: nsis-installer
-          path: src-tauri/target/release/bundle/nsis/*
+          name: windows-installer
+          path: src-tauri/target/release/bundle/nsis/FlowSelect_*_windows_x64_installer.exe*
           if-no-files-found: error
 
       - name: Upload Windows portable artifact
         uses: actions/upload-artifact@v6
         with:
           name: windows-portable
-          path: src-tauri/target/release/bundle/portable/*.zip
+          path: src-tauri/target/release/bundle/portable/FlowSelect_*_windows_x64_portable.zip
           if-no-files-found: error
 
   build-macos:
@@ -248,7 +260,7 @@ jobs:
         run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target ${{ matrix.target }}
 
       - name: Build Tauri application bundle
-        run: npm run tauri build -- --target ${{ matrix.target }} --bundles app
+        run: node ./scripts/run-tauri.mjs build --target ${{ matrix.target }} --bundles app
 
       - name: Prepare macOS updater artifact
         run: |
@@ -265,8 +277,15 @@ jobs:
             exit 1
           fi
 
-          cp "$UPDATER_ARCHIVE" "updater-assets/FlowSelect_${{ steps.version.outputs.version }}_${{ matrix.arch }}.app.tar.gz"
-          cp "${UPDATER_ARCHIVE}.sig" "updater-assets/FlowSelect_${{ steps.version.outputs.version }}_${{ matrix.arch }}.app.tar.gz.sig"
+          ARCH_LABEL="${{ matrix.arch }}"
+          if [[ "$ARCH_LABEL" == "x86_64" ]]; then
+            ARCH_LABEL="x64"
+          elif [[ "$ARCH_LABEL" == "aarch64" ]]; then
+            ARCH_LABEL="arm64"
+          fi
+
+          cp "$UPDATER_ARCHIVE" "updater-assets/FlowSelect_${{ steps.version.outputs.version }}_updater_macos_${ARCH_LABEL}.app.tar.gz"
+          cp "${UPDATER_ARCHIVE}.sig" "updater-assets/FlowSelect_${{ steps.version.outputs.version }}_updater_macos_${ARCH_LABEL}.app.tar.gz.sig"
 
       - name: Package macOS DMG
         run: npm run package:macos-open-source-dmg -- --target ${{ matrix.target }} --arch ${{ matrix.arch }} --version "${{ steps.version.outputs.version }}"
@@ -295,23 +314,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Download MSI artifact
+      - name: Download Windows installer artifact
         uses: actions/download-artifact@v5
         with:
-          name: msi-installer
-          path: artifacts/msi
-
-      - name: Download NSIS artifact
-        uses: actions/download-artifact@v5
-        with:
-          name: nsis-installer
-          path: artifacts/nsis
+          name: windows-installer
+          path: artifacts/windows-installer
 
       - name: Download Windows portable artifact
         uses: actions/download-artifact@v5
         with:
           name: windows-portable
-          path: artifacts/portable
+          path: artifacts/windows-portable
 
       - name: Download macOS Intel DMG
         uses: actions/download-artifact@v5
@@ -384,9 +397,8 @@ jobs:
           generate_release_notes: false
           body_path: ${{ steps.release_notes.outputs.path }}
           files: |
-            artifacts/msi/*.msi
-            artifacts/nsis/*.exe
-            artifacts/portable/*.zip
+            artifacts/windows-installer/*.exe
+            artifacts/windows-portable/*.zip
             artifacts/dmg-intel/*.dmg
             artifacts/dmg-arm/*.dmg
             artifacts/macos-updater-x64/*.tar.gz

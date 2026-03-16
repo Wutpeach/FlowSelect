@@ -170,15 +170,19 @@ npm install
 ### 启动开发环境
 
 ```bash
-npm run tauri dev
+npm run tauri:dev
 ```
 
 ### 构建桌面应用
 
 ```bash
 npm run build
-npm run tauri build
+npm run tauri:build
 ```
+
+`npm run tauri:build` 会按平台自动选择发布包：
+- Windows 默认只生成 `NSIS` 安装包，不再生成 `MSI`
+- macOS 默认生成 `app` bundle，随后可配合仓库脚本继续打自定义 `DMG`
 
 ### 常用检查命令
 

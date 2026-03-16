@@ -72,7 +72,7 @@ try {
 
   if (-not $SkipBuild) {
     Write-Host ">>> Building Tauri app (no bundle)..."
-    npx tauri build --no-bundle
+    node ./scripts/run-tauri.mjs build --no-bundle
     if ($LASTEXITCODE -ne 0) {
       throw "Tauri build failed with exit code $LASTEXITCODE"
     }
@@ -89,7 +89,7 @@ try {
   $portableRoot = "src-tauri/target/release/bundle/portable"
   $portableDir = Join-Path $portableRoot "FlowSelect_portable"
   $stagingDir = Join-Path $portableRoot ("FlowSelect_portable_staging_{0}" -f $PID)
-  $portableZip = Join-Path $portableRoot ("FlowSelect_{0}_x64_portable.zip" -f $Version)
+  $portableZip = Join-Path $portableRoot ("FlowSelect_{0}_windows_x64_portable.zip" -f $Version)
 
   $appExeCandidates = @(
     "src-tauri/target/release/flowselect.exe",

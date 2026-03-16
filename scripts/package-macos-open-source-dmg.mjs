@@ -102,7 +102,7 @@ function removeExistingDmgs(dmgDir) {
 function outputFileName(productName, version, arch) {
   const safeName = productName.replace(/\s+/g, "");
   const archLabel = normalizeArchitectureLabel(arch);
-  return `${safeName}_${version}_${archLabel}.dmg`;
+  return `${safeName}_${version}_macos_${archLabel}_installer.dmg`;
 }
 
 function normalizeArchitectureLabel(arch) {

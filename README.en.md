@@ -170,15 +170,19 @@ npm install
 ### Run in development
 
 ```bash
-npm run tauri dev
+npm run tauri:dev
 ```
 
 ### Build the desktop app
 
 ```bash
 npm run build
-npm run tauri build
+npm run tauri:build
 ```
+
+`npm run tauri:build` now applies platform defaults:
+- Windows builds only the `NSIS` installer and skips `MSI`
+- macOS builds the `app` bundle so the repository packaging script can produce the custom `DMG`
 
 ### Useful checks
 

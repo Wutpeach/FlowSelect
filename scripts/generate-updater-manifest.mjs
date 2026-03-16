@@ -98,11 +98,26 @@ function main() {
 
   const files = listFilesRecursive(artifactsDir);
 
-  const windowsAsset = findRequiredFile(files, /^FlowSelect_.*_x64-setup\.exe$/, "Windows updater asset");
-  const windowsSig = findRequiredFile(files, /^FlowSelect_.*_x64-setup\.exe\.sig$/, "Windows updater signature");
+  const windowsAsset = findRequiredFileByPatterns(
+    files,
+    [
+      /^FlowSelect_.*_windows_x64_installer\.exe$/,
+      /^FlowSelect_.*_x64-setup\.exe$/,
+    ],
+    "Windows updater asset",
+  );
+  const windowsSig = findRequiredFileByPatterns(
+    files,
+    [
+      /^FlowSelect_.*_windows_x64_installer\.exe\.sig$/,
+      /^FlowSelect_.*_x64-setup\.exe\.sig$/,
+    ],
+    "Windows updater signature",
+  );
   const darwinX64Asset = findRequiredFileByPatterns(
     files,
     [
+      /^FlowSelect_.*_updater_macos_x64\.app\.tar\.gz$/,
       /^FlowSelect_.*_x64\.app\.tar\.gz$/,
       /^FlowSelect_.*_x86_64\.app\.tar\.gz$/,
     ],
@@ -111,6 +126,7 @@ function main() {
   const darwinX64Sig = findRequiredFileByPatterns(
     files,
     [
+      /^FlowSelect_.*_updater_macos_x64\.app\.tar\.gz\.sig$/,
       /^FlowSelect_.*_x64\.app\.tar\.gz\.sig$/,
       /^FlowSelect_.*_x86_64\.app\.tar\.gz\.sig$/,
     ],
@@ -119,6 +135,7 @@ function main() {
   const darwinArm64Asset = findRequiredFileByPatterns(
     files,
     [
+      /^FlowSelect_.*_updater_macos_arm64\.app\.tar\.gz$/,
       /^FlowSelect_.*_arm64\.app\.tar\.gz$/,
       /^FlowSelect_.*_aarch64\.app\.tar\.gz$/,
     ],
@@ -127,6 +144,7 @@ function main() {
   const darwinArm64Sig = findRequiredFileByPatterns(
     files,
     [
+      /^FlowSelect_.*_updater_macos_arm64\.app\.tar\.gz\.sig$/,
       /^FlowSelect_.*_arm64\.app\.tar\.gz\.sig$/,
       /^FlowSelect_.*_aarch64\.app\.tar\.gz\.sig$/,
     ],
