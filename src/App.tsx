@@ -694,6 +694,7 @@ function App() {
   const pendingDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const pendingAppUpdateRef = useRef<Update | null>(null);
   const previousTaskCountRef = useRef(0);
+  const ongoingTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
 
@@ -735,6 +736,8 @@ function App() {
   const primaryTranscodeTask = activeTranscodeQueueTasks[0] ?? activeTranscodeProgressTask;
   const totalDownloadTaskCount = videoQueueState.totalCount;
   const totalTranscodeTaskCount = videoTranscodeQueueState.totalCount;
+  const ongoingTranscodeTaskCount = videoTranscodeQueueState.activeCount + videoTranscodeQueueState.pendingCount;
+  const ongoingTaskCount = totalDownloadTaskCount + ongoingTranscodeTaskCount;
   const totalTaskCount = totalDownloadTaskCount + totalTranscodeTaskCount;
   const primaryTask = downloadProgress && primaryDownloadTask
     ? {
@@ -755,7 +758,7 @@ function App() {
             || !Number.isFinite(primaryTranscodeTask.progressPercent),
         }
       : null;
-  const hasPrimaryTask = primaryTask !== null;
+  const hasOngoingTask = ongoingTaskCount > 0;
   const remainingDownloadCount = Math.max(
     0,
     totalDownloadTaskCount - (primaryTask?.kind === "download" ? 1 : 0),
@@ -769,6 +772,10 @@ function App() {
     setDownloadCancelled(false);
     setDownloadErrorMessage(null);
   }, []);
+
+  useEffect(() => {
+    ongoingTaskCountRef.current = ongoingTaskCount;
+  }, [ongoingTaskCount]);
 
   const showQueueNotice = useCallback((message: string) => {
     setQueueNoticeMessage(message);
@@ -843,6 +850,17 @@ function App() {
     }
   }, []);
 
+  const clearWindowIdleTimers = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (queueIdleDelayTimerRef.current !== null) {
+      clearTimeout(queueIdleDelayTimerRef.current);
+      queueIdleDelayTimerRef.current = null;
+    }
+  }, []);
+
   const scheduleIdleAfterTaskSettlement = useCallback((delayMs = 5000) => {
     if (queueIdleDelayTimerRef.current !== null) {
       clearTimeout(queueIdleDelayTimerRef.current);
@@ -851,10 +869,21 @@ function App() {
       queueIdleDelayTimerRef.current = null;
       if (idleTimerRef.current) {
         clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = null;
       }
-      if (!isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
+      if (
+        ongoingTaskCountRef.current === 0
+        && !isDraggingRef.current
+        && !isPanelHoveredRef.current
+        && !isContextMenuOpenRef.current
+      ) {
         idleTimerRef.current = window.setTimeout(() => {
-          if (isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) {
+          if (
+            ongoingTaskCountRef.current > 0
+            || isDraggingRef.current
+            || isPanelHoveredRef.current
+            || isContextMenuOpenRef.current
+          ) {
             return;
           }
           setIsMinimized(true);
@@ -873,7 +902,7 @@ function App() {
   }, [updateContextMenuOpen]);
 
   // Expand window from icon mode
-  const expandWindow = async () => {
+  const expandWindow = useCallback(async () => {
     if (isMacOS || !windowResized) {
       setWindowResized(false);
       setIsMinimized(false);
@@ -894,7 +923,20 @@ function App() {
       console.error('Failed to expand window:', err);
       setIsMinimized(false);
     }
-  };
+  }, [isMacOS, windowResized]);
+
+  useEffect(() => {
+    if (!hasOngoingTask) {
+      return;
+    }
+
+    clearWindowIdleTimers();
+    if (isMinimized || windowResized) {
+      void expandWindow();
+      return;
+    }
+    setIsMinimized(false);
+  }, [clearWindowIdleTimers, expandWindow, hasOngoingTask, isMinimized, windowResized]);
 
   // Shrink window after minimize animation completes
   const handleAnimationComplete = async () => {
@@ -1119,6 +1161,12 @@ function App() {
   }, [refreshRuntimeDependencyGateState, refreshRuntimeDependencyStatus]);
 
   const enqueueVideoDownload = useCallback((request: string | QueuedVideoDownloadRequest) => {
+    clearWindowIdleTimers();
+    if (isMinimized || windowResized) {
+      void expandWindow();
+    } else {
+      setIsMinimized(false);
+    }
     resetDownloadOutcome();
     const payload = typeof request === "string" ? { url: request } : request;
     void invoke<QueuedVideoDownloadAck>("queue_video_download", payload).catch((err) => {
@@ -1127,7 +1175,7 @@ function App() {
       setDownloadCancelled(true);
       setDownloadErrorMessage(summarizeDownloadError(String(err)));
     });
-  }, [resetDownloadOutcome]);
+  }, [clearWindowIdleTimers, expandWindow, isMinimized, resetDownloadOutcome, windowResized]);
 
   const cancelVideoTask = useCallback(async (
     traceId: string,
@@ -1443,8 +1491,9 @@ function App() {
 
       if (idleTimerRef.current) {
         clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = null;
       }
-      if (!hasPrimaryTask && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
+      if (!hasOngoingTask && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
         idleTimerRef.current = window.setTimeout(() => {
           if (isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
           setIsMinimized(true);
@@ -1459,7 +1508,7 @@ function App() {
       }, 100);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [windowResized, hasPrimaryTask, isMacOS]);
+  }, [windowResized, hasOngoingTask, isMacOS]);
 
   // Check app update availability on startup
   useEffect(() => {
@@ -1739,6 +1788,7 @@ function App() {
   const resetIdleTimer = ({ expandIfMinimized = true }: { expandIfMinimized?: boolean } = {}) => {
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
     }
     const wasMinimized = isMinimized;
 
@@ -1755,10 +1805,10 @@ function App() {
     }
 
     // 活跃任务进行中、拖拽中或鼠标仍停留在面板内时不启动 idle timer
-    if (primaryTask || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
+    if (ongoingTaskCountRef.current > 0 || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
 
     idleTimerRef.current = window.setTimeout(() => {
-      if (isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
+      if (ongoingTaskCountRef.current > 0 || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
       setIsMinimized(true);
       setShowEdgeGlow(false); // 缩小时立即隐藏边缘光
     }, 3000);
@@ -3472,12 +3522,12 @@ function App() {
         onMouseDown={(e) => e.stopPropagation()}
         visible={shouldShowMiniControls}
         tone="danger"
-        size={16}
+        size={18}
         radius={999}
         style={{
           position: 'absolute',
-          top: 8,
-          right: 8,
+          top: 10,
+          right: 10,
           zIndex: 10,
           transitionDelay: !isMinimized ? '0.2s' : '0s',
         }}
@@ -3485,8 +3535,8 @@ function App() {
       >
         <span
           style={{
-            width: 9,
-            height: 9,
+            width: 8,
+            height: 8,
             borderRadius: '50%',
             backgroundColor: 'currentColor',
             display: 'block',

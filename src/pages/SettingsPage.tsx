@@ -183,6 +183,7 @@ function SettingsPage() {
   const [pinterestHint, setPinterestHint] = useState("");
   const [runtimeHint, setRuntimeHint] = useState("");
   const [hoveredThemeOption, setHoveredThemeOption] = useState<"black" | "white" | null>(null);
+  const [hoveredShortcutAction, setHoveredShortcutAction] = useState<"confirm" | "cancel" | null>(null);
   const versionTapCountRef = useRef(0);
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -834,152 +835,205 @@ function SettingsPage() {
   };
   const statusDotStyle: CSSProperties = getStatusDotStyle(colors.dangerSolid, colors.dangerGlow);
   const runtimeStatusDotStyle: CSSProperties = getStatusDotStyle(colors.warningSolid, colors.warningGlow);
+  const downloaderBodyStyle: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    minHeight: 0,
+    flex: 1,
+  };
+  const downloaderMetaRowStyle: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    minWidth: 0,
+  };
+  const downloaderStatusSlotStyle: CSSProperties = {
+    width: 14,
+    height: 14,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  };
+  const downloaderDescriptionStyle: CSSProperties = {
+    fontSize: 11,
+    lineHeight: 1.2,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    opacity: 0.94,
+  };
+  const downloaderFooterStyle: CSSProperties = {
+    display: "grid",
+    gap: 4,
+    marginTop: "auto",
+    minWidth: 0,
+  };
+  const downloaderStatusTextStyle: CSSProperties = {
+    width: "100%",
+    minWidth: 0,
+    fontSize: 10,
+    lineHeight: 1.2,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    opacity: 0.85,
+  };
+  const downloaderActionRowStyle: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+    minHeight: 28,
+  };
+  const getShortcutActionStyle = (
+    action: "confirm" | "cancel",
+    enabled = true,
+  ): CSSProperties => ({
+    flex: 1,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    userSelect: "none",
+    ...getSelectableOptionStyle(
+      colors,
+      action === "confirm" && enabled,
+      hoveredShortcutAction === action && enabled,
+    ),
+    opacity: enabled ? 1 : 0.5,
+    cursor: enabled ? "pointer" : "not-allowed",
+  });
   const downloaderCards = [
     {
       id: "ytdlp",
       title: "yt-dlp",
       body: (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={downloaderBodyStyle}>
+          <div style={downloaderMetaRowStyle}>
             <span style={{ fontSize: 12, color: colors.textPrimary }}>
               {t("desktop:settings.downloaders.ytdlp.version", { version: ytdlpCurrentVersion })}
             </span>
             {ytdlpInfo?.updateAvailable ? (
-              <span
-                style={statusDotStyle}
-                title={ytdlpStatus.message}
-              />
+              <span style={downloaderStatusSlotStyle} title={ytdlpStatus.message}>
+                <span style={statusDotStyle} />
+              </span>
             ) : null}
           </div>
           <span
             style={{
-              fontSize: 11,
               color: ytdlpHint ? colors.accentText : colors.textSecondary,
-              opacity: 0.94,
-              lineHeight: 1.2,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              ...downloaderDescriptionStyle,
             }}
           >
             {ytdlpHint || t("desktop:settings.downloaders.ytdlp.description")}
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+          <div style={downloaderFooterStyle}>
             <span
               style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: 10,
                 color: ytdlpStatus.color,
-                opacity: 0.85,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                ...downloaderStatusTextStyle,
               }}
+              title={ytdlpStatus.message}
             >
               {ytdlpStatus.message}
             </span>
-            <NeonButton
-              type="button"
-              variant={isUpdatingYtdlp ? "outline" : "ghost"}
-              size="sm"
-              onClick={handleYtdlpUpdate}
-              disabled={isUpdatingYtdlp}
-              style={{
-                minWidth: 78,
-                fontSize: 11,
-                gap: 6,
-                padding: '5px 10px',
-                cursor: isUpdatingYtdlp ? 'wait' : 'pointer',
-              }}
-            >
-              {isUpdatingYtdlp ? (
-                <span style={spinnerStyle} />
-              ) : null}
-              {isUpdatingYtdlp
-                ? t("desktop:settings.downloaders.ytdlp.updating")
-                : t("desktop:settings.downloaders.ytdlp.button")}
-            </NeonButton>
+            <div style={downloaderActionRowStyle}>
+              <NeonButton
+                type="button"
+                variant={isUpdatingYtdlp ? "outline" : "ghost"}
+                size="sm"
+                onClick={handleYtdlpUpdate}
+                disabled={isUpdatingYtdlp}
+                style={{
+                  minWidth: 78,
+                  minHeight: 28,
+                  fontSize: 10.5,
+                  gap: 6,
+                  padding: "4px 10px",
+                  cursor: isUpdatingYtdlp ? "wait" : "pointer",
+                }}
+              >
+                {isUpdatingYtdlp ? (
+                  <span style={spinnerStyle} />
+                ) : null}
+                {isUpdatingYtdlp
+                  ? t("desktop:settings.downloaders.ytdlp.updating")
+                  : t("desktop:settings.downloaders.ytdlp.button")}
+              </NeonButton>
+            </div>
           </div>
-        </>
+        </div>
       ),
     },
     {
       id: "pinterest",
       title: "pin-dlp",
       body: (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={downloaderBodyStyle}>
+          <div style={downloaderMetaRowStyle}>
             <span style={{ fontSize: 12, color: colors.textPrimary }}>
               {t("desktop:settings.downloaders.pinterest.version", { version: pinterestCurrentVersion })}
             </span>
           </div>
           <span
             style={{
-              fontSize: 11,
               color: pinterestHint ? colors.accentText : colors.textSecondary,
-              opacity: 0.94,
-              lineHeight: 1.2,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              ...downloaderDescriptionStyle,
             }}
           >
             {pinterestHint || t("desktop:settings.downloaders.pinterest.description")}
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+          <div style={downloaderFooterStyle}>
             <span
               style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: 10,
                 color: colors.textSecondary,
-                opacity: 0.85,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                ...downloaderStatusTextStyle,
               }}
+              title={pinterestStatusMessage}
             >
               {pinterestStatusMessage}
             </span>
-            <NeonButton
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void openFlowSelectReleases()}
-              style={{ minWidth: 78, fontSize: 11, padding: '5px 10px' }}
-            >
-              {t("desktop:settings.downloaders.pinterest.releasesButton")}
-            </NeonButton>
+            <div style={downloaderActionRowStyle}>
+              <NeonButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void openFlowSelectReleases()}
+                style={{ minWidth: 78, minHeight: 28, fontSize: 10.5, padding: "4px 10px" }}
+              >
+                {t("desktop:settings.downloaders.pinterest.releasesButton")}
+              </NeonButton>
+            </div>
           </div>
-        </>
+        </div>
       ),
     },
     {
       id: "runtime",
       title: "runtime",
       body: (
-        <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={downloaderBodyStyle}>
+          <div style={downloaderMetaRowStyle}>
             <span style={{ fontSize: 12, color: colors.textPrimary }}>
               {t("desktop:settings.downloaders.runtime.phaseLabel", { phase: runtimeGatePhaseLabel })}
             </span>
             {(runtimeGatePhase === "awaiting_confirmation"
               || runtimeGatePhase === "blocked_by_user"
               || runtimeGatePhase === "failed") ? (
-              <span style={runtimeStatusDotStyle} />
+              <span style={downloaderStatusSlotStyle}>
+                <span style={runtimeStatusDotStyle} />
+              </span>
             ) : null}
           </div>
           <span
             style={{
-              fontSize: 11,
               color: runtimeGateIsBusy ? colors.warningText : colors.textSecondary,
-              opacity: 0.94,
-              lineHeight: 1.2,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              ...downloaderDescriptionStyle,
             }}
+            title={runtimeDescriptionText}
           >
             {runtimeDescriptionText}
           </span>
@@ -1013,35 +1067,29 @@ function SettingsPage() {
               />
             </div>
           ) : null}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+          <div style={downloaderFooterStyle}>
             <span
               style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: 10,
                 color: runtimeGateColor,
-                opacity: 0.85,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
+                ...downloaderStatusTextStyle,
               }}
               title={runtimeDetailText}
             >
               {runtimeDetailText}
             </span>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={downloaderActionRowStyle}>
               <NeonButton
                 type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => void handleRuntimeDependencyRecheck()}
-                style={{ minWidth: 62, fontSize: 11, padding: "5px 8px" }}
+                style={{ minWidth: 62, minHeight: 28, fontSize: 10.5, padding: "4px 8px" }}
               >
                 {t("desktop:settings.downloaders.runtime.recheckButton")}
               </NeonButton>
             </div>
           </div>
-        </>
+        </div>
       ),
     },
   ];
@@ -1174,23 +1222,29 @@ function SettingsPage() {
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
-                <NeonButton
-                  variant="default"
-                  size="sm"
+                <button
+                  type="button"
                   onClick={confirmShortcut}
                   disabled={!recordedKeys}
-                  className="flex-1"
+                  onMouseEnter={() => {
+                    if (recordedKeys) {
+                      setHoveredShortcutAction("confirm");
+                    }
+                  }}
+                  onMouseLeave={() => setHoveredShortcutAction((current) => (current === "confirm" ? null : current))}
+                  style={getShortcutActionStyle("confirm", Boolean(recordedKeys))}
                 >
                   {t("desktop:settings.shortcut.confirm")}
-                </NeonButton>
-                <NeonButton
-                  variant="ghost"
-                  size="sm"
+                </button>
+                <button
+                  type="button"
                   onClick={cancelRecording}
-                  className="flex-1"
+                  onMouseEnter={() => setHoveredShortcutAction("cancel")}
+                  onMouseLeave={() => setHoveredShortcutAction((current) => (current === "cancel" ? null : current))}
+                  style={getShortcutActionStyle("cancel")}
                 >
                   {t("desktop:settings.shortcut.cancel")}
-                </NeonButton>
+                </button>
               </div>
             </div>
           ) : (

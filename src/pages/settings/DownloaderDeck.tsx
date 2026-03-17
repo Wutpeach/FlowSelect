@@ -165,11 +165,11 @@ export function DownloaderDeck({ cards, style, ...props }: DownloaderDeckProps) 
       className="rounded-xl p-0"
       style={{
         height: "100%",
-        padding: "10px 12px",
+        padding: "9px 11px",
         borderRadius: 12,
-        display: "grid",
-        alignContent: "start",
-        gap: 6,
+        display: "flex",
+        flexDirection: "column",
+        gap: 5,
         overflow: "hidden",
         pointerEvents: interactive ? "auto" : "none",
         userSelect: interactive ? "auto" : "none",
@@ -178,10 +178,8 @@ export function DownloaderDeck({ cards, style, ...props }: DownloaderDeckProps) 
       <div style={{ fontSize: 12, fontWeight: 600, color: colors.textPrimary }}>
         {card.title}
       </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        <div style={{ display: "grid", gap: 6 }}>
-          {card.body}
-        </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minHeight: 0 }}>
+        {card.body}
       </div>
     </NeonCard>
   );
