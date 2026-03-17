@@ -6,16 +6,25 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { NeonToggle } from "../components/ui/neon-toggle";
 import { NeonButton } from "../components/ui/neon-button";
 import {
   NeonDropdownField,
   NeonFieldButton,
   NeonHint,
+  NeonIconButton,
+  NeonInput,
   NeonSection,
+  NeonToggle,
   type NeonDropdownOption,
 } from "../components/ui";
 import { useTheme } from "../contexts/ThemeContext";
+import {
+  getFieldSurfaceStyle,
+  getCompactLabelStyle,
+  getPanelShellStyle,
+  getSelectableOptionStyle,
+  getStatusDotStyle,
+} from "../components/ui/shared-styles";
 import { saveOutputPath } from "../utils/outputPath";
 import { APP_VERSION } from "../constants/appVersion";
 import { DownloaderDeck } from "./settings/DownloaderDeck";
@@ -173,7 +182,7 @@ function SettingsPage() {
   const [ytdlpHint, setYtdlpHint] = useState("");
   const [pinterestHint, setPinterestHint] = useState("");
   const [runtimeHint, setRuntimeHint] = useState("");
-  const [isCloseHovered, setIsCloseHovered] = useState(false);
+  const [hoveredThemeOption, setHoveredThemeOption] = useState<"black" | "white" | null>(null);
   const versionTapCountRef = useRef(0);
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -806,48 +815,14 @@ function SettingsPage() {
   };
 
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
-  const nestedLabelStyle: CSSProperties = {
-    fontSize: 11,
-    color: colors.textSecondary,
-    display: 'block',
-    minHeight: 14,
-    lineHeight: '14px',
-    letterSpacing: 0.18,
-  };
-  const compactFieldStyle: CSSProperties = {
-    width: '100%',
-    height: 36,
-    boxSizing: 'border-box',
-    padding: '0 10px',
-    borderRadius: 8,
-    border: `1px solid ${colors.fieldBorder}`,
-    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-    color: colors.textPrimary,
-    fontSize: 12,
-    outline: 'none',
-    boxShadow: `inset 0 1px 0 ${colors.fieldInset}`,
-    transition: 'border-color 0.18s ease, box-shadow 0.18s ease',
-  };
   const panelStyle: CSSProperties = {
     width: '100%',
     height: '100%',
-    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-    borderRadius: 12,
+    ...getPanelShellStyle(colors, { radius: 16 }),
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
-    border: 'none',
-    boxShadow: `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
   };
-  const getSelectableOptionStyle = (active: boolean): CSSProperties => ({
-    borderRadius: 8,
-    border: active ? `1px solid ${colors.accentBorder}` : `1px solid ${colors.fieldBorder}`,
-    backgroundColor: active ? colors.accentSurface : 'transparent',
-    boxShadow: active ? `inset 0 0 0 1px ${colors.accentBorder}` : `inset 0 1px 0 ${colors.fieldInset}`,
-    color: active ? colors.accentText : colors.textSecondary,
-    cursor: 'pointer',
-    transition: 'border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease',
-  });
   const spinnerStyle: CSSProperties = {
     width: 10,
     height: 10,
@@ -857,22 +832,8 @@ function SettingsPage() {
     animation: 'spin 0.75s linear infinite',
     transformOrigin: '50% 50%',
   };
-  const statusDotStyle: CSSProperties = {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    backgroundColor: colors.dangerSolid,
-    boxShadow: `0 0 6px ${colors.dangerGlow}`,
-    flexShrink: 0,
-  };
-  const runtimeStatusDotStyle: CSSProperties = {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    backgroundColor: colors.warningSolid,
-    boxShadow: `0 0 6px ${colors.warningGlow}`,
-    flexShrink: 0,
-  };
+  const statusDotStyle: CSSProperties = getStatusDotStyle(colors.dangerSolid, colors.dangerGlow);
+  const runtimeStatusDotStyle: CSSProperties = getStatusDotStyle(colors.warningSolid, colors.warningGlow);
   const downloaderCards = [
     {
       id: "ytdlp",
@@ -1087,7 +1048,7 @@ function SettingsPage() {
 
   const renderRenamePresetField = () => (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <label style={nestedLabelStyle}>
+      <label style={getCompactLabelStyle(colors)}>
         {t("desktop:settings.rename.preset")}
       </label>
       <NeonDropdownField
@@ -1107,39 +1068,30 @@ function SettingsPage() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 16px',
+          padding: '14px 16px 12px',
           borderBottom: `1px solid ${colors.borderStart}`,
           background: 'transparent',
         }}
       >
-        <h2 style={{ fontSize: 14, fontWeight: 500, color: colors.textPrimary, margin: 0 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
           {t("desktop:settings.title")}
         </h2>
-        <button
+        <NeonIconButton
           onClick={closeWindow}
-          onMouseEnter={() => setIsCloseHovered(true)}
-          onMouseLeave={() => setIsCloseHovered(false)}
+          tone="danger"
+          size={20}
           style={{
-            padding: 4,
-            color: isCloseHovered ? colors.controlMutedHover : colors.controlMuted,
-            backgroundColor: 'transparent',
-            border: 'none',
-            cursor: 'pointer',
-            borderRadius: 4,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'color 0.18s ease',
+            marginRight: -2,
           }}
         >
           <X size={16} />
-        </button>
+        </NeonIconButton>
       </div>
 
       {/* Content */}
       <div style={{
         flex: 1,
-        padding: 16,
+        padding: 18,
         overflowY: 'auto',
         scrollbarWidth: 'none',  // Firefox
         msOverflowStyle: 'none', // IE/Edge
@@ -1149,22 +1101,22 @@ function SettingsPage() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={() => setTheme('black')}
+              onMouseEnter={() => setHoveredThemeOption("black")}
+              onMouseLeave={() => setHoveredThemeOption((current) => (current === "black" ? null : current))}
               style={{
                 flex: 1,
-                padding: '8px 12px',
-                ...getSelectableOptionStyle(theme === 'black'),
-                fontSize: 12,
+                ...getSelectableOptionStyle(colors, theme === 'black', hoveredThemeOption === "black"),
               }}
             >
               {t("desktop:settings.theme.black")}
             </button>
             <button
               onClick={() => setTheme('white')}
+              onMouseEnter={() => setHoveredThemeOption("white")}
+              onMouseLeave={() => setHoveredThemeOption((current) => (current === "white" ? null : current))}
               style={{
                 flex: 1,
-                padding: '8px 12px',
-                ...getSelectableOptionStyle(theme === 'white'),
-                fontSize: 12,
+                ...getSelectableOptionStyle(colors, theme === 'white', hoveredThemeOption === "white"),
               }}
             >
               {t("desktop:settings.theme.white")}
@@ -1205,17 +1157,16 @@ function SettingsPage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                padding: '10px 12px',
-                background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                borderRadius: 8,
+                ...getFieldSurfaceStyle(colors, {
+                  active: true,
+                  highlighted: true,
+                  padding: '10px 12px',
+                }),
                 textAlign: 'left',
                 fontSize: 12,
                 cursor: 'default',
-                transition: 'border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, color 0.18s ease',
                 boxSizing: 'border-box',
                 color: colors.textPrimary,
-                border: `1px solid ${colors.accentBorder}`,
-                boxShadow: `inset 0 0 0 1px ${colors.accentBorder}`,
               }}>
                 <Keyboard size={14} style={{ color: colors.accentText, flexShrink: 0 }} />
                 <span>
@@ -1268,15 +1219,13 @@ function SettingsPage() {
               {renameRulePreset === "prefix_number" ? (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={nestedLabelStyle}>
+                    <label style={getCompactLabelStyle(colors)}>
                       {t("desktop:settings.rename.prefix")}
                     </label>
-                    <input
-                      type="text"
+                    <NeonInput
                       value={renamePrefix}
                       onChange={(e) => void handleRenamePrefixChange(e.target.value)}
                       placeholder={t("desktop:settings.rename.prefixPlaceholder")}
-                      style={compactFieldStyle}
                     />
                   </div>
                   {renderRenamePresetField()}
@@ -1286,15 +1235,13 @@ function SettingsPage() {
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={nestedLabelStyle}>
+                <label style={getCompactLabelStyle(colors)}>
                   {t("desktop:settings.rename.suffix")}
                 </label>
-                <input
-                  type="text"
+                <NeonInput
                   value={renameSuffix}
                   onChange={(e) => void handleRenameSuffixChange(e.target.value)}
                   placeholder={t("desktop:settings.rename.suffixPlaceholder")}
-                  style={compactFieldStyle}
                 />
               </div>
 

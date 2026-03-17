@@ -5,7 +5,7 @@ import { listen, emit } from '@tauri-apps/api/event';
 export type Theme = 'black' | 'white';
 const DEFAULT_THEME: Theme = 'black';
 
-interface ThemeColors {
+export interface ThemeColors {
   // 背景
   bgPrimary: string;
   bgSecondary: string;

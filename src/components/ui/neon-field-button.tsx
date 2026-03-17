@@ -1,6 +1,7 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../contexts/ThemeContext";
+import { COMPACT_EASE, getFieldSurfaceStyle } from "./shared-styles";
 
 interface NeonFieldButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   leadingIcon?: ReactNode;
@@ -15,10 +16,17 @@ export function NeonFieldButton({
   disabled,
   className,
   style,
+  onMouseEnter,
+  onMouseLeave,
+  onFocus,
+  onBlur,
   children,
   ...props
 }: NeonFieldButtonProps) {
   const { colors } = useTheme();
+  const [isHovered, setIsHovered] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const highlighted = isHovered || isFocused;
 
   return (
     <button
@@ -31,18 +39,31 @@ export function NeonFieldButton({
         alignItems: "center",
         justifyContent: "space-between",
         gap: 8,
-        padding: "10px 12px",
-        borderRadius: 8,
-        border: `1px solid ${active ? colors.fieldBorderStrong : colors.fieldBorder}`,
-        background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-        boxShadow: active
-          ? `inset 0 0 0 1px ${colors.fieldBorderStrong}, ${colors.panelShadow}`
-          : `inset 0 1px 0 ${colors.fieldInset}`,
-        color: active ? colors.textPrimary : colors.textSecondary,
+        ...getFieldSurfaceStyle(colors, {
+          active,
+          highlighted,
+          padding: "10px 12px",
+        }),
+        color: active || highlighted ? colors.textPrimary : colors.textSecondary,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.65 : 1,
-        transition: "border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, color 0.18s ease",
         ...style,
+      }}
+      onMouseEnter={(event) => {
+        setIsHovered(true);
+        onMouseEnter?.(event);
+      }}
+      onMouseLeave={(event) => {
+        setIsHovered(false);
+        onMouseLeave?.(event);
+      }}
+      onFocus={(event) => {
+        setIsFocused(true);
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        setIsFocused(false);
+        onBlur?.(event);
       }}
       {...props}
     >
@@ -56,7 +77,13 @@ export function NeonFieldButton({
         }}
       >
         {leadingIcon ? (
-          <span style={{ color: active ? colors.accentText : colors.textSecondary, flexShrink: 0 }}>
+          <span
+            style={{
+              color: active || highlighted ? colors.accentText : colors.textSecondary,
+              flexShrink: 0,
+              transition: `color 0.18s ${COMPACT_EASE}`,
+            }}
+          >
             {leadingIcon}
           </span>
         ) : null}
@@ -72,11 +99,7 @@ export function NeonFieldButton({
           {children}
         </span>
       </span>
-      {trailingContent ? (
-        <span style={{ flexShrink: 0 }}>
-          {trailingContent}
-        </span>
-      ) : null}
+      {trailingContent ? <span style={{ flexShrink: 0 }}>{trailingContent}</span> : null}
     </button>
   );
 }

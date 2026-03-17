@@ -3,6 +3,7 @@ export { NeonCard } from "./neon-card";
 export { NeonFieldButton } from "./neon-field-button";
 export { NeonDropdownField } from "./neon-dropdown-field";
 export { NeonHint } from "./neon-hint";
+export { NeonIconButton } from "./neon-icon-button";
 export { NeonToggle } from "./neon-toggle";
 export { NeonSection } from "./neon-section";
 export { NeonInput } from "./neon-input";

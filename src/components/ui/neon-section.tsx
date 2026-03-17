@@ -1,6 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../contexts/ThemeContext";
+import { getCompactLabelStyle } from "./shared-styles";
 
 interface NeonSectionProps extends HTMLAttributes<HTMLElement> {
   title: string;
@@ -22,16 +23,13 @@ export function NeonSection({
   return (
     <section
       className={cn("flex flex-col", className)}
-      style={{ marginBottom: 20, ...style }}
+      style={{ marginBottom: 18, ...style }}
       {...props}
     >
-      <div style={{ display: "grid", gap: hint ? 4 : 0, marginBottom: 8 }}>
+      <div style={{ display: "grid", gap: hint ? 3 : 0, marginBottom: 9 }}>
         <span
           style={{
-            fontSize: 11,
-            color: colors.textSecondary,
-            display: "block",
-            letterSpacing: 0.18,
+            ...getCompactLabelStyle(colors),
           }}
         >
           {title}
@@ -40,18 +38,16 @@ export function NeonSection({
           <div
             style={{
               fontSize: 10,
-              lineHeight: "1.35",
+              lineHeight: "1.4",
               color: colors.textSecondary,
-              opacity: 0.82,
+              opacity: 0.78,
             }}
           >
             {hint}
           </div>
         ) : null}
       </div>
-      <div style={{ display: "grid", gap: contentGap }}>
-        {children}
-      </div>
+      <div style={{ display: "grid", gap: contentGap }}>{children}</div>
     </section>
   );
 }

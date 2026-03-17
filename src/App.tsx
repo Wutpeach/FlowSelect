@@ -10,6 +10,8 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { NeonIconButton } from "./components/ui";
+import { COMPACT_EASE, getInsetCardStyle, getPanelShellStyle } from "./components/ui/shared-styles";
 import { APP_VERSION } from "./constants/appVersion";
 import type { AppUpdateInfo, AppUpdatePhase } from "./types/appUpdate";
 import type {
@@ -671,10 +673,7 @@ function App() {
   const [windowResized, setWindowResized] = useState(false);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
   const [isInitialMount, setIsInitialMount] = useState(true);
-  const [isResetCounterHovered, setIsResetCounterHovered] = useState(false);
   const [isResetCounterActive, setIsResetCounterActive] = useState(false);
-  const [isCloseHovered, setIsCloseHovered] = useState(false);
-  const [isSettingsHovered, setIsSettingsHovered] = useState(false);
   const [isProgressCancelHovered, setIsProgressCancelHovered] = useState(false);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
@@ -1205,7 +1204,7 @@ function App() {
     refreshRuntimeDependencyStatus,
   ]);
 
-  // Startup animation: brief delay to trigger bounce effect
+  // Startup animation: brief delay to trigger a compact reveal.
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsInitialMount(false);
@@ -2560,25 +2559,8 @@ function App() {
     : primaryTask?.kind === "download"
       ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px ${colors.accentGlow}`
     : isHovering
-      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 24px ${colors.accentGlow}, inset 0 0 42px ${colors.accentSurfaceStrong}`
+      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 18px ${colors.accentGlow}, inset 0 0 28px ${colors.accentSurfaceStrong}`
       : `inset 0 0 0 1px ${colors.borderStart}`;
-  const miniControlStyle: CSSProperties = {
-    position: 'absolute',
-    width: 16,
-    height: 16,
-    border: 'none',
-    borderRadius: 4,
-    backgroundColor: 'transparent',
-    padding: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: shouldShowMiniControls ? 1 : 0,
-    transition: 'opacity 0.2s ease',
-    transitionDelay: !isMinimized ? '0.2s' : '0s',
-    pointerEvents: shouldShowMiniControls ? 'auto' : 'none',
-    zIndex: 10,
-  };
   const shouldShowAppUpdateIndicator = !!appUpdateInfo && (
     appUpdatePhase === "available"
     || appUpdatePhase === "downloading"
@@ -2807,15 +2789,15 @@ function App() {
       onContextMenu={handleContextMenu}
       initial={false}
       animate={{
-        scale: isInitialMount ? 0 : (isMinimized ? 0.3 : 1),
+        scale: isInitialMount ? 0.82 : (isMinimized ? 0.3 : 1),
         borderRadius: isMinimized ? 100 : 16,
       }}
       transition={{
         scale: isInitialMount
-          ? { duration: 0.6, ease: [0.34, 1.56, 0.64, 1] }
+          ? { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
           : { type: 'spring', stiffness: 400, damping: 30 },
         borderRadius: isInitialMount
-          ? { duration: 0.6, ease: [0.34, 1.56, 0.64, 1] }
+          ? { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
           : { type: 'spring', stiffness: 400, damping: 30 },
       }}
       onAnimationComplete={handleAnimationComplete}
@@ -2830,11 +2812,11 @@ function App() {
         alignItems: 'center',
         gap: 8,
         outline: 'none',
-        borderRadius: panelRadius,
+        ...getPanelShellStyle(colors, {
+          radius: panelRadius,
+          boxShadow: containerBoxShadow,
+        }),
         overflow: 'hidden',
-        background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-        border: 'none',
-        boxShadow: containerBoxShadow,
         willChange: 'transform',
       }}
     >
@@ -3070,10 +3052,7 @@ function App() {
                               alignItems: 'center',
                               gap: 8,
                               padding: '8px 9px',
-                              borderRadius: 8,
-                              background: `linear-gradient(180deg, ${colors.bgPrimary} 0%, ${colors.bgSecondary} 100%)`,
-                              border: `1px solid ${colors.borderStart}`,
-                              boxShadow: `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
+                              ...getInsetCardStyle(colors),
                             }}
                           >
                             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -3240,10 +3219,7 @@ function App() {
                               flexDirection: 'column',
                               gap: 7,
                               padding: '8px 9px',
-                              borderRadius: 8,
-                              background: `linear-gradient(180deg, ${colors.bgPrimary} 0%, ${colors.bgSecondary} 100%)`,
-                              border: `1px solid ${isFailedTask ? colors.dangerBorder : colors.borderStart}`,
-                              boxShadow: `inset 0 0 0 1px ${isFailedTask ? colors.dangerBorder : colors.borderStart}, ${colors.panelShadow}`,
+                              ...getInsetCardStyle(colors, isFailedTask ? colors.dangerBorder : colors.borderStart),
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -3395,7 +3371,7 @@ function App() {
       ) : null}
 
       {/* Close button - top right circle */}
-      <button
+      <NeonIconButton
         onClick={async () => {
           setShowEdgeGlow(false);
           await closeContextMenuWindow().catch(() => undefined);
@@ -3406,29 +3382,29 @@ function App() {
           }
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        onMouseEnter={() => setIsCloseHovered(true)}
-        onMouseLeave={() => setIsCloseHovered(false)}
+        visible={shouldShowMiniControls}
+        tone="danger"
+        size={16}
         style={{
+          position: 'absolute',
           top: 8,
           right: 8,
-          ...miniControlStyle,
-          cursor: 'pointer',
+          zIndex: 10,
+          transitionDelay: !isMinimized ? '0.2s' : '0s',
         }}
         title={t("app.actions.hideWindow")}
       >
         <span
           style={{
-            width: 10,
-            height: 10,
+            width: 9,
+            height: 9,
             borderRadius: '50%',
-            backgroundColor: isCloseHovered ? colors.dangerSolid : colors.controlMuted,
-            boxShadow: isCloseHovered ? `0 0 6px ${colors.dangerGlow}` : 'none',
-            transition: 'background-color 0.2s ease',
+            backgroundColor: 'currentColor',
             display: 'block',
             pointerEvents: 'none',
           }}
         />
-      </button>
+      </NeonIconButton>
 
       {/* 中央图标 */}
       <AnimatePresence mode="wait">
@@ -3980,16 +3956,17 @@ function App() {
 
       {/* Rename counter reset button - bottom left solid rectangle */}
       {renameMediaOnDownload && (
-        <button
+        <NeonIconButton
           onClick={handleResetRenameCounter}
           onMouseDown={(e) => e.stopPropagation()}
-          onMouseEnter={() => setIsResetCounterHovered(true)}
-          onMouseLeave={() => setIsResetCounterHovered(false)}
+          visible={shouldShowMiniControls}
+          size={16}
           style={{
+            position: 'absolute',
             bottom: 8,
             left: 8,
-            ...miniControlStyle,
-            cursor: 'pointer',
+            zIndex: 10,
+            transitionDelay: !isMinimized ? '0.2s' : '0s',
           }}
           title={t("app.actions.resetRenameCounter")}
         >
@@ -3999,30 +3976,27 @@ function App() {
               y="1"
               width="8"
               height="8"
-              fill={
-                isResetCounterActive
-                  ? colors.accentSolid
-                  : (isResetCounterHovered ? colors.controlMutedHover : colors.controlMuted)
-              }
+              fill={isResetCounterActive ? colors.accentSolid : 'currentColor'}
               stroke="none"
               rx="1"
-              style={{ transition: 'fill 0.2s ease' }}
+              style={{ transition: `fill 0.18s ${COMPACT_EASE}` }}
             />
           </svg>
-        </button>
+        </NeonIconButton>
       )}
 
       {/* Settings button - bottom right rectangle */}
-      <button
+      <NeonIconButton
         onClick={openSettings}
         onMouseDown={(e) => e.stopPropagation()}
-        onMouseEnter={() => setIsSettingsHovered(true)}
-        onMouseLeave={() => setIsSettingsHovered(false)}
+        visible={shouldShowMiniControls}
+        size={16}
         style={{
+          position: 'absolute',
           bottom: 8,
           right: 8,
-          ...miniControlStyle,
-          cursor: 'pointer',
+          zIndex: 10,
+          transitionDelay: !isMinimized ? '0.2s' : '0s',
         }}
         title={t("app.actions.settings")}
       >
@@ -4033,13 +4007,13 @@ function App() {
             width="8"
             height="8"
             fill="none"
-            stroke={isSettingsHovered ? colors.controlStrokeHover : colors.controlStroke}
+            stroke="currentColor"
             strokeWidth="1.5"
             rx="1"
-            style={{ transition: 'stroke 0.2s ease' }}
+            style={{ transition: `stroke 0.18s ${COMPACT_EASE}` }}
           />
         </svg>
-      </button>
+      </NeonIconButton>
 
     </motion.div>
   );

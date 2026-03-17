@@ -1,5 +1,7 @@
 import React from "react";
-import { useTheme } from '../../contexts/ThemeContext';
+
+import { useTheme } from "../../contexts/ThemeContext";
+import { COMPACT_EASE, getFieldSurfaceBackground } from "./shared-styles";
 
 interface NeonButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'default' | 'outline' | 'ghost';
@@ -12,53 +14,103 @@ export function NeonButton({
   disabled,
   style,
   children,
+  onMouseEnter,
+  onMouseLeave,
+  onMouseDown,
+  onMouseUp,
+  onFocus,
+  onBlur,
   ...props
 }: NeonButtonProps) {
   const { colors } = useTheme();
+  const [isHovered, setIsHovered] = React.useState(false);
+  const [isPressed, setIsPressed] = React.useState(false);
+  const [isFocused, setIsFocused] = React.useState(false);
   const baseStyle: React.CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
-    fontWeight: 500,
+    gap: 6,
+    borderRadius: 10,
+    fontWeight: 600,
     border: '1px solid transparent',
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.5 : 1,
-    transition: 'background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, transform 0.18s ease',
-    boxShadow: `inset 0 1px 0 ${colors.fieldInset}`,
+    transition: [
+      `background 0.18s ${COMPACT_EASE}`,
+      `border-color 0.18s ${COMPACT_EASE}`,
+      `box-shadow 0.18s ${COMPACT_EASE}`,
+      `color 0.18s ${COMPACT_EASE}`,
+      `transform 0.18s ${COMPACT_EASE}`,
+    ].join(', '),
     outline: 'none',
+    transform: disabled ? 'translateY(0)' : isPressed ? 'translateY(1px) scale(0.985)' : isHovered ? 'translateY(-1px)' : 'translateY(0)',
   };
 
   const variantStyles: Record<string, React.CSSProperties> = {
     default: {
-      backgroundColor: colors.accentSolid,
+      background: `linear-gradient(180deg, ${colors.accentText} 0%, ${colors.accentSolid} 100%)`,
       color: colors.knobBg,
       borderColor: colors.accentBorder,
-      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.18), 0 10px 18px ${colors.accentGlow}`,
+      boxShadow: isFocused || isHovered
+        ? `inset 0 1px 0 rgba(255,255,255,0.18), 0 0 0 1px ${colors.accentBorder}, 0 12px 22px ${colors.accentGlow}`
+        : `inset 0 1px 0 rgba(255,255,255,0.18), 0 10px 18px ${colors.accentGlow}`,
     },
     outline: {
-      backgroundColor: colors.accentSurface,
-      color: colors.accentText,
-      borderColor: colors.accentBorder,
-      boxShadow: `inset 0 0 0 1px ${colors.accentBorder}`,
+      background: (isFocused || isHovered)
+        ? `linear-gradient(180deg, ${colors.accentSurfaceStrong} 0%, ${colors.accentSurface} 100%)`
+        : getFieldSurfaceBackground(colors),
+      color: isFocused || isHovered ? colors.textPrimary : colors.accentText,
+      borderColor: isFocused ? colors.fieldBorderStrong : colors.accentBorder,
+      boxShadow: isFocused || isHovered
+        ? `inset 0 0 0 1px ${isFocused ? colors.fieldBorderStrong : colors.accentBorder}, 0 10px 18px ${colors.accentGlow}`
+        : `inset 0 1px 0 ${colors.fieldInset}`,
     },
     ghost: {
-      backgroundColor: 'transparent',
-      color: colors.textSecondary,
-      borderColor: colors.fieldBorder,
-      boxShadow: `inset 0 0 0 1px ${colors.fieldBorder}`,
+      background: isFocused || isHovered ? getFieldSurfaceBackground(colors) : 'transparent',
+      color: isFocused || isHovered ? colors.textPrimary : colors.textSecondary,
+      borderColor: isFocused ? colors.fieldBorderStrong : colors.fieldBorder,
+      boxShadow: isFocused || isHovered
+        ? `inset 0 0 0 1px ${isFocused ? colors.fieldBorderStrong : colors.fieldBorder}`
+        : 'none',
     },
   };
 
   const sizeStyles: Record<string, React.CSSProperties> = {
-    sm: { padding: '6px 12px', fontSize: 14 },
-    md: { padding: '8px 16px', fontSize: 14 },
-    lg: { padding: '12px 24px', fontSize: 16 },
+    sm: { minHeight: 32, padding: '6px 12px', fontSize: 12 },
+    md: { minHeight: 36, padding: '8px 14px', fontSize: 13 },
+    lg: { minHeight: 40, padding: '10px 18px', fontSize: 14 },
   };
 
   return (
     <button
       disabled={disabled}
+      onMouseEnter={(event) => {
+        setIsHovered(true);
+        onMouseEnter?.(event);
+      }}
+      onMouseLeave={(event) => {
+        setIsHovered(false);
+        setIsPressed(false);
+        onMouseLeave?.(event);
+      }}
+      onMouseDown={(event) => {
+        setIsPressed(true);
+        onMouseDown?.(event);
+      }}
+      onMouseUp={(event) => {
+        setIsPressed(false);
+        onMouseUp?.(event);
+      }}
+      onFocus={(event) => {
+        setIsFocused(true);
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        setIsFocused(false);
+        setIsPressed(false);
+        onBlur?.(event);
+      }}
       style={{
         ...baseStyle,
         ...variantStyles[variant],
