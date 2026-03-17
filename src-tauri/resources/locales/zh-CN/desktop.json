@@ -24,6 +24,7 @@
     },
     "queue": {
       "label": "队列",
+      "title": "任务队列",
       "meta": "{{downloadCount}} 个下载 · {{transcodeCount}} 个转码",
       "downloadCountSummary": "{{count}} 个下载",
       "transcodeCountSummary": "{{count}} 个转码",
@@ -33,8 +34,8 @@
       "cancelling": "取消中...",
       "waiting": "等待中...",
       "cancellingCurrent": "正在取消当前下载...",
-      "cancellingCurrentTranscode": "正在退出当前转码...",
       "remainingSummary": "剩余 {{downloadCount}} 个下载 · {{transcodeCount}} 个转码",
+      "sourceQueuedForTranscode": "源素材已获取，已加入转码队列",
       "transcodeCompleted": "兼容 MP4 已就绪",
       "transcodeFailedNotice": "转码失败",
       "currentTasksAria": "当前任务：{{count}}",
@@ -42,8 +43,6 @@
       "showList": "显示当前任务",
       "cancelTask": "取消下载",
       "cancellingTask": "正在取消下载",
-      "cancelTranscode": "退出转码",
-      "cancellingTranscode": "正在退出转码",
       "retryTranscode": "重试",
       "removeTranscode": "移除",
       "removeTranscodeHint": "仅从队列中移除"
@@ -78,7 +77,6 @@
     "actions": {
       "hideWindow": "隐藏窗口",
       "cancelCurrentTask": "取消当前任务",
-      "exitCurrentTranscode": "退出当前转码",
       "updateYtdlp": "更新 yt-dlp：{{current}} → {{latest}}",
       "updating": "更新中...",
       "resetRenameCounter": "重置重命名计数",
