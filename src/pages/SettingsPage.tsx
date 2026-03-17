@@ -57,6 +57,11 @@ const ILLEGAL_FILENAME_CHARS = /[/\\:*?"<>|]/g;
 const VERSION_TAP_THRESHOLD = 5;
 const VERSION_TAP_RESET_MS = 1500;
 const VERSION_TAP_HINT_DURATION_MS = 2200;
+const COMPACT_THEME_BUTTON_HEIGHT = 34;
+const COMPACT_THEME_BUTTON_PADDING = "6px 10px";
+const COMPACT_SHORTCUT_ACTION_HEIGHT = 32;
+const COMPACT_SHORTCUT_ACTION_MIN_WIDTH = 74;
+const COMPACT_SHORTCUT_ACTION_PADDING = "6px 12px";
 const SHORTCUT_KEY_ALIASES: Record<string, string> = {
   CONTROL: "Ctrl",
   CTRL: "Ctrl",
@@ -892,7 +897,7 @@ function SettingsPage() {
     action: "confirm" | "cancel",
     enabled = true,
   ): CSSProperties => ({
-    flex: 1,
+    flex: "1 1 0",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -903,6 +908,11 @@ function SettingsPage() {
       action === "confirm" && enabled,
       hoveredShortcutAction === action && enabled,
     ),
+    minWidth: COMPACT_SHORTCUT_ACTION_MIN_WIDTH,
+    minHeight: COMPACT_SHORTCUT_ACTION_HEIGHT,
+    padding: COMPACT_SHORTCUT_ACTION_PADDING,
+    fontSize: 11,
+    lineHeight: 1,
     opacity: enabled ? 1 : 0.5,
     cursor: enabled ? "pointer" : "not-allowed",
   });
@@ -1148,23 +1158,33 @@ function SettingsPage() {
         <NeonSection title={t("desktop:settings.theme.title")}>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
+              type="button"
               onClick={() => setTheme('black')}
               onMouseEnter={() => setHoveredThemeOption("black")}
               onMouseLeave={() => setHoveredThemeOption((current) => (current === "black" ? null : current))}
               style={{
                 flex: 1,
                 ...getSelectableOptionStyle(colors, theme === 'black', hoveredThemeOption === "black"),
+                minHeight: COMPACT_THEME_BUTTON_HEIGHT,
+                padding: COMPACT_THEME_BUTTON_PADDING,
+                fontSize: 11.5,
+                lineHeight: 1,
               }}
             >
               {t("desktop:settings.theme.black")}
             </button>
             <button
+              type="button"
               onClick={() => setTheme('white')}
               onMouseEnter={() => setHoveredThemeOption("white")}
               onMouseLeave={() => setHoveredThemeOption((current) => (current === "white" ? null : current))}
               style={{
                 flex: 1,
                 ...getSelectableOptionStyle(colors, theme === 'white', hoveredThemeOption === "white"),
+                minHeight: COMPACT_THEME_BUTTON_HEIGHT,
+                padding: COMPACT_THEME_BUTTON_PADDING,
+                fontSize: 11.5,
+                lineHeight: 1,
               }}
             >
               {t("desktop:settings.theme.white")}
@@ -1221,7 +1241,14 @@ function SettingsPage() {
                   {formatShortcutForDisplay(recordedKeys, isMacOS) || t("desktop:settings.shortcut.press")}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8, boxSizing: 'border-box' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  marginTop: 8,
+                  boxSizing: 'border-box',
+                }}
+              >
                 <button
                   type="button"
                   onClick={confirmShortcut}
