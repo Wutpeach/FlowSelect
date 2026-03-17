@@ -6,12 +6,14 @@ interface NeonIconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   visible?: boolean;
   tone?: "default" | "danger";
   size?: number;
+  radius?: number;
 }
 
 export function NeonIconButton({
   visible = true,
   tone = "default",
   size = 18,
+  radius,
   style,
   onMouseEnter,
   onMouseLeave,
@@ -34,6 +36,7 @@ export function NeonIconButton({
           highlighted,
           tone,
           size,
+          radius,
         }),
         ...style,
       }}

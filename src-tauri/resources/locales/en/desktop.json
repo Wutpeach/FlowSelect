@@ -24,7 +24,6 @@
     },
     "queue": {
       "label": "Queue",
-      "title": "Task queue",
       "meta": "{{downloadCount}} downloads · {{transcodeCount}} transcodes",
       "downloadCountSummary": "{{count}} downloads",
       "transcodeCountSummary": "{{count}} transcodes",
@@ -34,8 +33,8 @@
       "cancelling": "Cancelling...",
       "waiting": "Waiting...",
       "cancellingCurrent": "Cancelling current download...",
+      "cancellingCurrentTranscode": "Exiting current transcode...",
       "remainingSummary": "{{downloadCount}} downloads · {{transcodeCount}} transcodes remaining",
-      "sourceQueuedForTranscode": "Source media ready, added to transcode queue",
       "transcodeCompleted": "Compatible MP4 ready",
       "transcodeFailedNotice": "Transcode failed",
       "currentTasksAria": "Current tasks: {{count}}",
@@ -43,6 +42,8 @@
       "showList": "Show current tasks",
       "cancelTask": "Cancel download",
       "cancellingTask": "Cancelling download",
+      "cancelTranscode": "Exit transcode",
+      "cancellingTranscode": "Exiting transcode...",
       "retryTranscode": "Retry",
       "removeTranscode": "Remove",
       "removeTranscodeHint": "Remove from queue only"
@@ -77,6 +78,7 @@
     "actions": {
       "hideWindow": "Hide window",
       "cancelCurrentTask": "Cancel current task",
+      "exitCurrentTranscode": "Exit current transcode",
       "updateYtdlp": "Update yt-dlp: {{current}} → {{latest}}",
       "updating": "Updating...",
       "resetRenameCounter": "Reset rename counter",

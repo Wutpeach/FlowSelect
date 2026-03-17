@@ -93,7 +93,7 @@ export const getSelectableOptionStyle = (
     ? `linear-gradient(180deg, ${colors.accentSurfaceStrong} 0%, ${colors.accentSurface} 100%)`
     : getFieldSurfaceBackground(colors),
   boxShadow: active
-    ? `inset 0 0 0 1px ${colors.accentBorder}, 0 10px 18px ${colors.accentGlow}`
+    ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 1px 0 ${colors.fieldInset}`
     : highlighted
       ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}`
       : `inset 0 1px 0 ${colors.fieldInset}`,

@@ -816,6 +816,12 @@ static DOWNLOAD_CHILDREN: LazyLock<Mutex<HashMap<String, u32>>> =
 // Cancellation markers for active downloads keyed by trace id.
 static DOWNLOAD_CANCELLED: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
+// Store active transcode ffmpeg child PIDs by trace id.
+static TRANSCODE_CHILDREN: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+// Cancellation markers for active/pending transcodes keyed by trace id.
+static TRANSCODE_CANCELLED: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 // Incremental sequence for download trace ids.
 static DOWNLOAD_TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
 static PROTECTED_IMAGE_WS_REQUEST_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -3827,6 +3833,47 @@ fn build_ae_safe_temp_output_path(target_path: &Path) -> PathBuf {
     }
 }
 
+fn cleanup_transcode_temp_outputs_for_target(target_path: &Path) {
+    let Some(parent) = target_path.parent() else {
+        return;
+    };
+    let stem = target_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("video");
+    let temp_prefix = format!("{}_flowselect_tmp", stem);
+    let Ok(entries) = fs::read_dir(parent) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ext = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.eq_ignore_ascii_case("mp4"))
+            .unwrap_or(false);
+        let stem_matches = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .map(|value| value == temp_prefix || value.starts_with(&format!("{}_", temp_prefix)))
+            .unwrap_or(false);
+
+        if ext && stem_matches {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
+fn cleanup_cancelled_transcode_artifacts(source_path: &Path) {
+    let visible_output_path = build_ae_safe_visible_output_path(source_path);
+    cleanup_transcode_temp_outputs_for_target(&visible_output_path);
+    if source_path.exists() {
+        let _ = fs::remove_file(source_path);
+    }
+}
+
 fn replace_file_preserving_backup(temp_path: &Path, target_path: &Path) -> Result<(), String> {
     if !target_path.exists() {
         return fs::rename(temp_path, target_path).map_err(|e| {
@@ -3916,14 +3963,36 @@ async fn run_ffmpeg_capture_output(
     app: &AppHandle,
     args: Vec<String>,
     context: &str,
+    tracked_transcode_trace_id: Option<&str>,
 ) -> Result<std::process::Output, String> {
     ensure_managed_ffmpeg_runtime_ready(app, context).await?;
     let ffmpeg_path = ffmpeg_binary_path(app)?;
     let ffmpeg_path_display = ffmpeg_path.to_string_lossy().to_string();
+    let tracked_transcode_trace_id = tracked_transcode_trace_id.map(str::to_string);
     let output = tokio::task::spawn_blocking(move || {
+        if let Some(trace_id) = tracked_transcode_trace_id.as_deref() {
+            if is_transcode_cancelled(trace_id) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "Transcode cancelled before ffmpeg start",
+                ));
+            }
+        }
+
         let mut command = std::process::Command::new(&ffmpeg_path);
         command.args(args);
-        configure_hidden_cli_command(&mut command).output()
+        let child = configure_hidden_cli_command(&mut command).spawn()?;
+        if let Some(trace_id) = tracked_transcode_trace_id.as_deref() {
+            register_transcode_child(trace_id, child.id());
+            if is_transcode_cancelled(trace_id) {
+                force_kill_process(child.id());
+            }
+        }
+        let wait_result = child.wait_with_output();
+        if let Some(trace_id) = tracked_transcode_trace_id.as_deref() {
+            clear_transcode_child(trace_id);
+        }
+        wait_result
     })
     .await
     .map_err(|e| format!("Failed to await {}: {}", context, e))?
@@ -3937,8 +4006,13 @@ async fn run_ffmpeg_capture_output(
     Ok(output)
 }
 
-async fn run_ffmpeg_with_args(app: &AppHandle, args: Vec<String>) -> Result<(), String> {
-    let output = run_ffmpeg_capture_output(app, args, "ffmpeg task").await?;
+async fn run_ffmpeg_with_args(
+    app: &AppHandle,
+    args: Vec<String>,
+    tracked_transcode_trace_id: Option<&str>,
+) -> Result<(), String> {
+    let output =
+        run_ffmpeg_capture_output(app, args, "ffmpeg task", tracked_transcode_trace_id).await?;
 
     if !output.status.success() {
         return Err(extract_process_failure_message(
@@ -3954,7 +4028,7 @@ async fn normalize_video_output_for_ae(
     app: &AppHandle,
     source_path: &Path,
     trace_id: &str,
-) -> Result<String, String> {
+) -> Result<Option<String>, String> {
     if !source_path.exists() {
         return Err(format!(
             "Downloaded file disappeared before normalization: {:?}",
@@ -3995,6 +4069,10 @@ async fn normalize_video_output_for_ae(
         .map(MediaProbeSummary::normalization_plan)
         .unwrap_or(AeSafeNormalizationPlan::FullTranscode);
 
+    if is_transcode_cancelled(trace_id) {
+        return Ok(None);
+    }
+
     if let Some(summary) = probe_summary.as_ref() {
         println!(
             ">>> [Rust] AE-safe probe summary: path={:?}, containers={:?}, hasVideo={}, hasAudio={}, video={:?}, audio={:?}, plan={}",
@@ -4014,7 +4092,7 @@ async fn normalize_video_output_for_ae(
     }
 
     if plan == AeSafeNormalizationPlan::Skip {
-        return Ok(source_path.to_string_lossy().to_string());
+        return Ok(Some(source_path.to_string_lossy().to_string()));
     }
 
     let initial_stage = if plan == AeSafeNormalizationPlan::RemuxOnly {
@@ -4038,6 +4116,9 @@ async fn normalize_video_output_for_ae(
     if temp_output_path.exists() {
         let _ = fs::remove_file(&temp_output_path);
     }
+    if is_transcode_cancelled(trace_id) {
+        return Ok(None);
+    }
 
     let normalization_result: Result<(), String> = match plan {
         AeSafeNormalizationPlan::Skip => Ok(()),
@@ -4059,7 +4140,7 @@ async fn normalize_video_output_for_ae(
                 "+faststart".to_string(),
                 temp_output_path.to_string_lossy().to_string(),
             ];
-            run_ffmpeg_with_args(app, ffmpeg_args)
+            run_ffmpeg_with_args(app, ffmpeg_args, Some(trace_id))
                 .await
                 .map_err(|e| format!("AE-safe remux failed: {}", e))
         }
@@ -4085,7 +4166,7 @@ async fn normalize_video_output_for_ae(
                 "+faststart".to_string(),
                 temp_output_path.to_string_lossy().to_string(),
             ];
-            run_ffmpeg_with_args(app, ffmpeg_args)
+            run_ffmpeg_with_args(app, ffmpeg_args, Some(trace_id))
                 .await
                 .map_err(|e| format!("AE-safe audio transcode failed: {}", e))
         }
@@ -4117,7 +4198,9 @@ async fn normalize_video_output_for_ae(
             };
 
             if let Some(gpu_encoder) = resolve_precise_clip_hw_encoder(app) {
-                match run_ffmpeg_with_args(app, build_args(gpu_encoder.as_str())).await {
+                match run_ffmpeg_with_args(app, build_args(gpu_encoder.as_str()), Some(trace_id))
+                    .await
+                {
                     Ok(_) => Ok(()),
                     Err(err) => {
                         println!(
@@ -4137,7 +4220,7 @@ async fn normalize_video_output_for_ae(
                         if temp_output_path.exists() {
                             let _ = fs::remove_file(&temp_output_path);
                         }
-                        run_ffmpeg_with_args(app, build_args("libx264"))
+                        run_ffmpeg_with_args(app, build_args("libx264"), Some(trace_id))
                             .await
                             .map_err(|cpu_err| {
                                 format!(
@@ -4149,7 +4232,7 @@ async fn normalize_video_output_for_ae(
                 }
             } else {
                 println!(">>> [Rust] AE-safe full transcode using CPU encoder libx264");
-                run_ffmpeg_with_args(app, build_args("libx264"))
+                run_ffmpeg_with_args(app, build_args("libx264"), Some(trace_id))
                     .await
                     .map_err(|e| format!("AE-safe full transcode failed: {}", e))
             }
@@ -4157,7 +4240,15 @@ async fn normalize_video_output_for_ae(
     };
     if let Err(err) = normalization_result {
         let _ = fs::remove_file(&temp_output_path);
+        if is_transcode_cancelled(trace_id) {
+            return Ok(None);
+        }
         return Err(err);
+    }
+
+    if is_transcode_cancelled(trace_id) {
+        let _ = fs::remove_file(&temp_output_path);
+        return Ok(None);
     }
 
     set_active_video_transcode_stage(
@@ -4186,7 +4277,7 @@ async fn normalize_video_output_for_ae(
             "plan": plan.as_str(),
         }),
     );
-    Ok(visible_output_path.to_string_lossy().to_string())
+    Ok(Some(visible_output_path.to_string_lossy().to_string()))
 }
 
 fn cleanup_residual_audio_artifacts(final_path: &str) {
@@ -4587,7 +4678,8 @@ async fn slice_cached_source_to_output(
     ]);
     ffmpeg_args.push(output_str.clone());
 
-    let ffmpeg_output = run_ffmpeg_capture_output(app, ffmpeg_args, "ffmpeg slicing task").await?;
+    let ffmpeg_output =
+        run_ffmpeg_capture_output(app, ffmpeg_args, "ffmpeg slicing task", None).await?;
 
     if !ffmpeg_output.status.success() {
         let stderr_message = String::from_utf8_lossy(&ffmpeg_output.stderr)
@@ -5298,6 +5390,26 @@ fn clear_download_runtime(trace_id: &str) {
     DOWNLOAD_CANCELLED.lock().unwrap().remove(trace_id);
 }
 
+fn register_transcode_child(trace_id: &str, pid: u32) {
+    TRANSCODE_CHILDREN
+        .lock()
+        .unwrap()
+        .insert(trace_id.to_string(), pid);
+}
+
+fn clear_transcode_child(trace_id: &str) {
+    TRANSCODE_CHILDREN.lock().unwrap().remove(trace_id);
+}
+
+fn is_transcode_cancelled(trace_id: &str) -> bool {
+    TRANSCODE_CANCELLED.lock().unwrap().contains(trace_id)
+}
+
+fn clear_transcode_runtime(trace_id: &str) {
+    clear_transcode_child(trace_id);
+    TRANSCODE_CANCELLED.lock().unwrap().remove(trace_id);
+}
+
 fn remove_pending_video_task(app: &AppHandle, trace_id: &str) -> bool {
     let payloads = {
         let mut state = VIDEO_TASK_QUEUE_STATE.lock().unwrap();
@@ -5554,6 +5666,93 @@ fn mark_video_transcode_failed(
     }
 }
 
+fn mark_video_transcode_cancelled(
+    app: &AppHandle,
+    trace_id: &str,
+) -> Option<VideoTranscodeTaskPayload> {
+    let removed = {
+        let mut state = lock_mutex_or_recover(
+            &VIDEO_TRANSCODE_QUEUE_STATE,
+            "transcode queue cancel active",
+        );
+        let active = state
+            .active
+            .take()
+            .filter(|task| task.trace_id == trace_id)?;
+        Some((
+            active,
+            build_video_transcode_queue_count_payload(&state),
+            build_video_transcode_queue_detail_payload(&state),
+        ))
+    };
+
+    if let Some((task, count_payload, detail_payload)) = removed {
+        let payload = task.detail_payload();
+        emit_video_transcode_queue_state(app, count_payload, detail_payload);
+        let _ = app.emit("video-transcode-removed", payload.clone());
+        cleanup_cancelled_transcode_artifacts(Path::new(&task.source_path));
+        append_runtime_log_event(
+            "transcode",
+            "cancelled",
+            Some(trace_id),
+            serde_json::json!({
+                "label": payload.label,
+                "sourcePath": payload.source_path,
+                "sourceFormat": payload.source_format,
+                "targetFormat": payload.target_format,
+            }),
+        );
+        Some(payload)
+    } else {
+        None
+    }
+}
+
+fn cancel_pending_video_transcode_task(app: &AppHandle, trace_id: &str) -> bool {
+    let removed = {
+        let mut state = lock_mutex_or_recover(
+            &VIDEO_TRANSCODE_QUEUE_STATE,
+            "transcode queue cancel pending",
+        );
+        let index = state
+            .pending
+            .iter()
+            .position(|task| task.trace_id == trace_id);
+        let Some(index) = index else {
+            return false;
+        };
+        let task = state.pending.remove(index);
+        task.map(|task| {
+            (
+                task,
+                build_video_transcode_queue_count_payload(&state),
+                build_video_transcode_queue_detail_payload(&state),
+            )
+        })
+    };
+
+    if let Some((task, count_payload, detail_payload)) = removed {
+        let payload = task.detail_payload();
+        emit_video_transcode_queue_state(app, count_payload, detail_payload);
+        let _ = app.emit("video-transcode-removed", payload.clone());
+        cleanup_cancelled_transcode_artifacts(Path::new(&task.source_path));
+        append_runtime_log_event(
+            "transcode",
+            "cancelled",
+            Some(trace_id),
+            serde_json::json!({
+                "label": payload.label,
+                "sourcePath": payload.source_path,
+                "sourceFormat": payload.source_format,
+                "targetFormat": payload.target_format,
+            }),
+        );
+        true
+    } else {
+        false
+    }
+}
+
 fn retry_failed_video_transcode_task(app: &AppHandle, trace_id: &str) -> Result<bool, String> {
     let retried = {
         let mut state =
@@ -5650,7 +5849,7 @@ fn remove_failed_video_transcode_task(app: &AppHandle, trace_id: &str) -> bool {
 async fn execute_video_transcode_task(
     app: AppHandle,
     task: VideoTranscodeTask,
-) -> Result<String, String> {
+) -> Result<Option<String>, String> {
     normalize_video_output_for_ae(&app, Path::new(&task.source_path), task.trace_id.as_str()).await
 }
 
@@ -5658,17 +5857,21 @@ async fn process_video_transcode_queue(app: AppHandle) {
     while let Some(task) = try_start_next_video_transcode_task(&app) {
         let trace_id = task.trace_id.clone();
         match execute_video_transcode_task(app.clone(), task).await {
-            Ok(final_path) => {
+            Ok(Some(final_path)) => {
                 if let Some(payload) =
                     mark_video_transcode_complete(&app, trace_id.as_str(), final_path.clone())
                 {
                     spawn_send_to_ae(&app, payload.file_path);
                 }
             }
+            Ok(None) => {
+                let _ = mark_video_transcode_cancelled(&app, trace_id.as_str());
+            }
             Err(err) => {
                 let _ = mark_video_transcode_failed(&app, trace_id.as_str(), err);
             }
         }
+        clear_transcode_runtime(trace_id.as_str());
     }
 }
 
@@ -7394,6 +7597,16 @@ fn kill_download_child_process(trace_id: &str) {
     }
 }
 
+fn kill_transcode_child_process(trace_id: &str) {
+    if let Some(pid) = TRANSCODE_CHILDREN.lock().unwrap().remove(trace_id) {
+        println!(
+            ">>> [Rust] Force killing transcode ffmpeg process with PID: {}",
+            pid
+        );
+        force_kill_process(pid);
+    }
+}
+
 fn request_graceful_stop(pid: u32) {
     #[cfg(windows)]
     {
@@ -7693,6 +7906,50 @@ async fn cancel_download(app: AppHandle, trace_id: String) -> Result<bool, Strin
     tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
 
     // 3. 清理临时文件
+    Ok(true)
+}
+
+#[tauri::command]
+async fn cancel_transcode(app: AppHandle, trace_id: String) -> Result<bool, String> {
+    println!(
+        ">>> [Rust] cancel_transcode called for trace_id={}",
+        trace_id
+    );
+
+    let target_trace_id = trace_id.trim();
+    if target_trace_id.is_empty() {
+        return Ok(false);
+    }
+
+    if cancel_pending_video_transcode_task(&app, target_trace_id) {
+        clear_transcode_runtime(target_trace_id);
+        return Ok(true);
+    }
+
+    let is_active = {
+        let state = lock_mutex_or_recover(&VIDEO_TRANSCODE_QUEUE_STATE, "transcode queue cancel");
+        state
+            .active
+            .as_ref()
+            .map(|task| task.trace_id == target_trace_id)
+            .unwrap_or(false)
+    };
+
+    if !is_active {
+        return Ok(false);
+    }
+
+    TRANSCODE_CANCELLED
+        .lock()
+        .unwrap()
+        .insert(target_trace_id.to_string());
+    kill_transcode_child_process(target_trace_id);
+    append_runtime_log_event(
+        "transcode",
+        "cancel_requested",
+        Some(target_trace_id),
+        serde_json::json!({}),
+    );
     Ok(true)
 }
 
@@ -14797,10 +15054,9 @@ fn run_installer_runtime_bootstrap_mode() -> i32 {
                 }),
             );
 
-            let bootstrap_result =
-                tauri::async_runtime::block_on(bootstrap_missing_managed_runtimes_for_installer(
-                    &app_handle,
-                ));
+            let bootstrap_result = tauri::async_runtime::block_on(
+                bootstrap_missing_managed_runtimes_for_installer(&app_handle),
+            );
 
             match bootstrap_result {
                 Ok(remaining_missing_components) => {
@@ -14917,6 +15173,7 @@ pub fn run() {
             download_video,
             queue_video_download,
             cancel_download,
+            cancel_transcode,
             retry_transcode,
             remove_transcode,
             send_to_ae,
