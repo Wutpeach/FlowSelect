@@ -54,6 +54,7 @@ const YTDLP_SKIP_BOOTSTRAP_ENV: &str = "FLOWSELECT_YTDLP_SKIP_BOOTSTRAP";
 const PINTEREST_SIDECAR_LOCK_JSON: &str = include_str!("../pinterest-sidecar/lock.json");
 const INSTALLER_RUNTIME_BOOTSTRAP_FLAG: &str = "--bootstrap-runtimes";
 const INSTALLER_RUNTIME_BOOTSTRAP_TRIGGER: &str = "installer_postinstall";
+const SINGLE_INSTANCE_IN_DEV_ENV: &str = "FLOWSELECT_ENABLE_SINGLE_INSTANCE_IN_DEV";
 #[cfg(windows)]
 const WINDOWS_CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -15027,8 +15028,16 @@ fn is_installer_runtime_bootstrap_requested() -> bool {
         .any(|arg| arg.as_os_str() == OsStr::new(INSTALLER_RUNTIME_BOOTSTRAP_FLAG))
 }
 
+fn app_tauri_context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
+
+fn should_enable_single_instance() -> bool {
+    !cfg!(debug_assertions) || std::env::var_os(SINGLE_INSTANCE_IN_DEV_ENV).is_some()
+}
+
 fn installer_runtime_bootstrap_context() -> tauri::Context<tauri::Wry> {
-    let mut context = tauri::generate_context!();
+    let mut context = app_tauri_context();
     context.config_mut().app.windows.clear();
     context
 }
@@ -15121,14 +15130,24 @@ pub fn run() {
         std::process::exit(run_installer_runtime_bootstrap_mode());
     }
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, cwd| {
+    let mut builder = tauri::Builder::default();
+
+    if should_enable_single_instance() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, cwd| {
             println!(
                 ">>> [Rust] Blocked duplicate app launch and focused existing window (cwd: {:?})",
                 cwd
             );
             show_main_window(app, None);
-        }))
+        }));
+    } else {
+        println!(
+            ">>> [Rust] Single-instance plugin disabled in debug build; set {}=1 to re-enable",
+            SINGLE_INSTANCE_IN_DEV_ENV
+        );
+    }
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
@@ -15378,7 +15397,7 @@ pub fn run() {
                 }
             }
         })
-        .build(tauri::generate_context!())
+        .build(app_tauri_context())
         .expect("error while building tauri application")
         .run(|_app, event| match event {
             tauri::RunEvent::Exit => {}
