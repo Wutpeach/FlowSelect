@@ -20,6 +20,7 @@
     endSec: null,
   };
   const localeUtils = window.FlowSelectLocaleUtils || null;
+  const controlStyleUtils = window.FlowSelectControlStyleUtils || null;
   const FALLBACK_LANGUAGE = localeUtils?.FALLBACK_LANGUAGE || 'en';
   let currentBundle = {
     language: FALLBACK_LANGUAGE,
@@ -125,10 +126,17 @@
   }
 
   function isControlBarReady(container) {
-    return isRenderableControlBar(container) && hasRenderableNativeControlChild(container);
+    if (controlStyleUtils?.isControlBarReady) {
+      return controlStyleUtils.isControlBarReady(container, {
+        excludeClasses: BUTTON_CLASSES,
+      });
+    }
+
+    return isRenderableControlBarFallback(container) &&
+      hasRenderableNativeControlChildFallback(container);
   }
 
-  function isRenderableControlBar(container) {
+  function isRenderableControlBarFallback(container) {
     if (!(container instanceof HTMLElement) || !container.isConnected) {
       return false;
     }
@@ -149,14 +157,19 @@
       rect.left < window.innerWidth;
   }
 
-  function hasRenderableNativeControlChild(container) {
-    return Array.from(container.children).some((child) => {
+  function hasRenderableNativeControlChildFallback(container) {
+    const children = Array.from(container.children).filter((child) => child instanceof HTMLElement);
+    if (children.length === 0) {
+      return false;
+    }
+
+    return children.some((child) => {
       if (!(child instanceof HTMLElement)) {
         return false;
       }
 
       const isInjectedButton = BUTTON_CLASSES.some((className) => child.classList.contains(className));
-      if (isInjectedButton || !child.classList.contains('ytp-button')) {
+      if (isInjectedButton) {
         return false;
       }
 

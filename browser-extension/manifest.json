@@ -39,7 +39,7 @@
     },
     {
       "matches": ["https://www.youtube.com/*", "https://youtube.com/*"],
-      "js": ["locale-utils.js", "youtube-detector.js"],
+      "js": ["locale-utils.js", "control-style-utils.js", "youtube-detector.js"],
       "css": ["flowselect-shared.css", "youtube-button.css"],
       "run_at": "document_idle"
     },
