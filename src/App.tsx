@@ -695,7 +695,9 @@ function App() {
   const pendingAppUpdateRef = useRef<Update | null>(null);
   const previousTaskCountRef = useRef(0);
   const ongoingTaskCountRef = useRef(0);
+  const runtimeGateBusyRef = useRef(false);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
+  const previousRuntimeGateBusyRef = useRef(false);
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
 
   // Window size constants
@@ -739,6 +741,8 @@ function App() {
   const ongoingTranscodeTaskCount = videoTranscodeQueueState.activeCount + videoTranscodeQueueState.pendingCount;
   const ongoingTaskCount = totalDownloadTaskCount + ongoingTranscodeTaskCount;
   const totalTaskCount = totalDownloadTaskCount + totalTranscodeTaskCount;
+  const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
+  const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
   const primaryTask = downloadProgress && primaryDownloadTask
     ? {
         kind: "download" as const,
@@ -759,6 +763,7 @@ function App() {
         }
       : null;
   const hasOngoingTask = ongoingTaskCount > 0;
+  const hasBlockingForegroundWork = hasOngoingTask || runtimeGateIsBusy;
   const remainingDownloadCount = Math.max(
     0,
     totalDownloadTaskCount - (primaryTask?.kind === "download" ? 1 : 0),
@@ -776,6 +781,10 @@ function App() {
   useEffect(() => {
     ongoingTaskCountRef.current = ongoingTaskCount;
   }, [ongoingTaskCount]);
+
+  useEffect(() => {
+    runtimeGateBusyRef.current = runtimeGateIsBusy;
+  }, [runtimeGateIsBusy]);
 
   const showQueueNotice = useCallback((message: string) => {
     setQueueNoticeMessage(message);
@@ -873,6 +882,7 @@ function App() {
       }
       if (
         ongoingTaskCountRef.current === 0
+        && !runtimeGateBusyRef.current
         && !isDraggingRef.current
         && !isPanelHoveredRef.current
         && !isContextMenuOpenRef.current
@@ -880,6 +890,7 @@ function App() {
         idleTimerRef.current = window.setTimeout(() => {
           if (
             ongoingTaskCountRef.current > 0
+            || runtimeGateBusyRef.current
             || isDraggingRef.current
             || isPanelHoveredRef.current
             || isContextMenuOpenRef.current
@@ -1493,9 +1504,9 @@ function App() {
         clearTimeout(idleTimerRef.current);
         idleTimerRef.current = null;
       }
-      if (!hasOngoingTask && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
+      if (!hasBlockingForegroundWork && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
         idleTimerRef.current = window.setTimeout(() => {
-          if (isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
+          if (runtimeGateBusyRef.current || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
           setIsMinimized(true);
           setShowEdgeGlow(false);
         }, 3000);
@@ -1508,7 +1519,7 @@ function App() {
       }, 100);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [windowResized, hasOngoingTask, isMacOS]);
+  }, [windowResized, hasBlockingForegroundWork, isMacOS]);
 
   // Check app update availability on startup
   useEffect(() => {
@@ -1519,7 +1530,11 @@ function App() {
     const unlisten = listen<RuntimeDependencyGateStatePayload>(
       "runtime-dependency-gate-state",
       (event) => {
-        setRuntimeDependencyGateState(event.payload);
+        const nextGateState = event.payload;
+        setRuntimeDependencyGateState(nextGateState);
+        if (runtimeGateIsActive(nextGateState.phase)) {
+          return;
+        }
         void refreshRuntimeDependencyStatus();
       },
     );
@@ -1785,7 +1800,7 @@ function App() {
   }, [devMode]);
 
   // Idle auto-minimize: reset timer helper
-  const resetIdleTimer = ({ expandIfMinimized = true }: { expandIfMinimized?: boolean } = {}) => {
+  const resetIdleTimer = useCallback(({ expandIfMinimized = true }: { expandIfMinimized?: boolean } = {}) => {
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
@@ -1805,14 +1820,52 @@ function App() {
     }
 
     // 活跃任务进行中、拖拽中或鼠标仍停留在面板内时不启动 idle timer
-    if (ongoingTaskCountRef.current > 0 || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
+    if (
+      ongoingTaskCountRef.current > 0
+      || runtimeGateBusyRef.current
+      || isDraggingRef.current
+      || isPanelHoveredRef.current
+      || isContextMenuOpenRef.current
+    ) return;
 
     idleTimerRef.current = window.setTimeout(() => {
-      if (ongoingTaskCountRef.current > 0 || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
+      if (
+        ongoingTaskCountRef.current > 0
+        || runtimeGateBusyRef.current
+        || isDraggingRef.current
+        || isPanelHoveredRef.current
+        || isContextMenuOpenRef.current
+      ) return;
       setIsMinimized(true);
       setShowEdgeGlow(false); // 缩小时立即隐藏边缘光
     }, 3000);
-  };
+  }, [expandWindow, isMinimized]);
+
+  useEffect(() => {
+    const wasBusy = previousRuntimeGateBusyRef.current;
+    previousRuntimeGateBusyRef.current = runtimeGateIsBusy;
+
+    if (runtimeGateIsBusy) {
+      clearWindowIdleTimers();
+      if (isMinimized || windowResized) {
+        void expandWindow();
+      } else {
+        setIsMinimized(false);
+      }
+      return;
+    }
+
+    if (wasBusy) {
+      resetIdleTimer({ expandIfMinimized: false });
+    }
+  }, [
+    clearWindowIdleTimers,
+    expandWindow,
+    isMinimized,
+    resetIdleTimer,
+    runtimeGateIsBusy,
+    windowResized,
+  ]);
 
   // Start idle timer on mount
   useEffect(() => {
@@ -2767,13 +2820,11 @@ function App() {
   const primaryTaskTrackStroke = primaryTask?.kind === "transcode"
     ? colors.transcodeTrack
     : colors.progressBgStroke;
-  const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
   const runtimeMissingComponents = runtimeDependencyGateState?.missingComponents.length
     ? runtimeDependencyGateState.missingComponents
     : getMissingRuntimeComponentsFromStatus(runtimeDependencyStatus);
   const hasRuntimeGateIssue = runtimeGatePhaseNeedsAttention(runtimeGatePhase)
     || runtimeMissingComponents.length > 0;
-  const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
   const runtimeGateRequiresManualAction = runtimeGateNeedsManualAction(runtimeGatePhase)
     || (
       !runtimeGateIsBusy
