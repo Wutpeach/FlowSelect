@@ -117,10 +117,64 @@
     const rightControls = document.querySelector('.ytp-right-controls');
     if (!rightControls) return;
     if (rightControls.hasAttribute(PROCESSED_ATTR)) return;
+    if (!isControlBarReady(rightControls)) return;
 
     console.log('[FlowSelect YouTube] Video detected:', videoId);
     injectControlButtons(rightControls);
     rightControls.setAttribute(PROCESSED_ATTR, 'true');
+  }
+
+  function isControlBarReady(container) {
+    return isRenderableControlBar(container) && hasRenderableNativeControlChild(container);
+  }
+
+  function isRenderableControlBar(container) {
+    if (!(container instanceof HTMLElement) || !container.isConnected) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(container);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+
+    const rect = container.getBoundingClientRect();
+    if (rect.width < 16 || rect.height < 16) {
+      return false;
+    }
+
+    return rect.bottom > 0 &&
+      rect.right > 0 &&
+      rect.top < window.innerHeight &&
+      rect.left < window.innerWidth;
+  }
+
+  function hasRenderableNativeControlChild(container) {
+    return Array.from(container.children).some((child) => {
+      if (!(child instanceof HTMLElement)) {
+        return false;
+      }
+
+      const isInjectedButton = BUTTON_CLASSES.some((className) => child.classList.contains(className));
+      if (isInjectedButton || !child.classList.contains('ytp-button')) {
+        return false;
+      }
+
+      const style = window.getComputedStyle(child);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return false;
+      }
+
+      const rect = child.getBoundingClientRect();
+      if (rect.width < 8 || rect.height < 8) {
+        return false;
+      }
+
+      return rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth;
+    });
   }
 
   function getCurrentPlaybackSeconds() {

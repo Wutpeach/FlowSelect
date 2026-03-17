@@ -10,7 +10,8 @@ const WS_URL = 'ws://127.0.0.1:39527';
 const WS_RECONNECT_ALARM = 'flowselect-ws-reconnect';
 const REQUEST_TIMEOUT_MS = 7000;
 const CONNECTING_WAIT_TIMEOUT_MS = 500;
-const VIDEO_SELECTION_CONNECT_TIMEOUT_MS = 2500;
+const VIDEO_SELECTION_CONNECT_TIMEOUT_MS = 3500;
+const VIDEO_SELECTION_RETRY_CONNECT_TIMEOUT_MS = 5000;
 const PROTECTED_IMAGE_DRAG_TTL_MS = 2 * 60 * 1000;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15000;
 const CONNECTING_STATUS_TEXT = 'Connecting';
@@ -264,6 +265,37 @@ function buildRequestFailure(code, requestId = null) {
     message: code,
     data,
   };
+}
+
+function shouldRetryVideoSelectionRequest(result) {
+  if (result?.success) {
+    return false;
+  }
+
+  const code = result?.data?.code || result?.message || '';
+  return code === 'not_connected' || code === 'send_failed';
+}
+
+function resetSocketForRetry() {
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  clearReconnectAlarm();
+
+  if (!ws) {
+    return;
+  }
+
+  const socket = ws;
+  detachSocketHandlers(socket);
+  ws = null;
+
+  try {
+    socket.close();
+  } catch (_) {
+    // Ignore close failures while forcing a fresh connection for retry.
+  }
 }
 
 function normalizeHttpUrl(raw) {
@@ -823,7 +855,7 @@ async function sendRequestToApp(action, data = {}, timeoutMs = REQUEST_TIMEOUT_M
 }
 
 function queueVideoSelectionToApp(data) {
-  return sendRequestToApp(
+  const sendSelectionRequest = () => sendRequestToApp(
     'video_selected',
     data,
     REQUEST_TIMEOUT_MS,
@@ -832,6 +864,28 @@ function queueVideoSelectionToApp(data) {
       forceConnect: true,
     }
   );
+
+  return sendSelectionRequest().then(async (result) => {
+    if (!shouldRetryVideoSelectionRequest(result)) {
+      return result;
+    }
+
+    console.info(
+      '[FlowSelect] Retrying video selection after recoverable connection failure:',
+      result?.data?.code || result?.message || 'unknown'
+    );
+    resetSocketForRetry();
+
+    const connected = await ensureConnection(
+      VIDEO_SELECTION_RETRY_CONNECT_TIMEOUT_MS,
+      { force: true }
+    );
+    if (!connected) {
+      return result;
+    }
+
+    return sendSelectionRequest();
+  });
 }
 
 function normalizeVideoCandidates(rawCandidates) {
