@@ -144,6 +144,11 @@ Extension capabilities include:
   - YouTube clip IN/OUT points
   - YouTube and Bilibili screenshot capture and save
 
+GitHub Releases also ship a versioned browser-extension archive:
+
+- `FlowSelect_<version>_browser_extension.zip`
+- Extract it, then use the included `browser-extension/` directory with "Load unpacked"
+
 ## Architecture at a glance
 
 - [`src/`](./src): React frontend for the floating window, settings window, and context menu window
@@ -184,6 +189,15 @@ npm run tauri:build
 - Windows builds only the `NSIS` installer and skips `MSI`
 - macOS builds the `app` bundle so the repository packaging script can produce the custom `DMG`
 
+To package the browser extension by itself:
+
+```bash
+npm run package:browser-extension
+```
+
+- Default output path: `dist/browser-extension/FlowSelect_<version>_browser_extension.zip`
+- `npm run package:portable` also emits the same browser-extension ZIP into `src-tauri/target/release/bundle/portable/` so local release packaging includes it
+
 ### Useful checks
 
 ```bash
@@ -219,7 +233,7 @@ npm run test
 1. Open your browser's extensions page.
 2. Enable Developer Mode.
 3. Choose "Load unpacked".
-4. Select the [`browser-extension/`](./browser-extension) folder.
+4. Select the [`browser-extension/`](./browser-extension) folder, or download `FlowSelect_<version>_browser_extension.zip` from GitHub Releases and select the extracted `browser-extension/` folder.
 5. Start the FlowSelect desktop app.
 6. Open the extension popup and confirm it shows `Connected`.
 
@@ -242,4 +256,5 @@ FlowSelect/
 - If the versioned note is missing, that command scaffolds `release-notes/v<version>.md` from `release-notes/TEMPLATE.md`.
 - Fill in and commit `release-notes/v<version>.md` before pushing a release tag.
 - GitHub Releases are created from tags and expect the matching release-note file in the tagged commit.
+- GitHub Releases also include `FlowSelect_<version>_browser_extension.zip` for browser-extension updates.
 - This public repository contains product source and release assets only; private AI and Trellis workflow files are intentionally excluded.

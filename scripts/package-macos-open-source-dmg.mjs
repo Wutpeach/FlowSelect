@@ -141,6 +141,7 @@ function main() {
   const dmgDir = join(bundleRoot, "dmg");
   const appBundlePath = findAppBundle(macosBundleDir);
   const outputPath = join(dmgDir, outputFileName(productName, version, arch));
+  const browserExtensionOutputPath = join(dmgDir, `FlowSelect_${version}_browser_extension.zip`);
   const stagingRoot = mkdtempSync(join(tmpdir(), "flowselect-macos-dmg-"));
   const stagingDir = join(stagingRoot, "staging");
   const readmeOutputPath = join(stagingDir, "Install FlowSelect on macOS.txt");
@@ -169,7 +170,25 @@ function main() {
     rmSync(stagingRoot, { recursive: true, force: true });
   }
 
-  console.log(JSON.stringify({ target, arch, appBundlePath, outputPath }, null, 2));
+  run(process.execPath, [
+    join(repoRoot, "scripts", "package-browser-extension.mjs"),
+    "--version",
+    version,
+    "--output-dir",
+    dmgDir,
+  ]);
+
+  if (!existsSync(browserExtensionOutputPath)) {
+    throw new Error(`Missing packaged browser extension ZIP: ${browserExtensionOutputPath}`);
+  }
+
+  console.log(JSON.stringify({
+    target,
+    arch,
+    appBundlePath,
+    outputPath,
+    browserExtensionOutputPath,
+  }, null, 2));
 }
 
 main();

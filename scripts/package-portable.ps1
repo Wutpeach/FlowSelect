@@ -90,6 +90,7 @@ try {
   $portableDir = Join-Path $portableRoot "FlowSelect_portable"
   $stagingDir = Join-Path $portableRoot ("FlowSelect_portable_staging_{0}" -f $PID)
   $portableZip = Join-Path $portableRoot ("FlowSelect_{0}_windows_x64_portable.zip" -f $Version)
+  $browserExtensionZip = Join-Path $portableRoot ("FlowSelect_{0}_browser_extension.zip" -f $Version)
 
   $appExeCandidates = @(
     "src-tauri/target/release/flowselect.exe",
@@ -141,10 +142,23 @@ try {
     }
   }
 
+  Write-Host ">>> Packaging browser extension ZIP..."
+  node ./scripts/package-browser-extension.mjs --version $Version --output-dir $portableRoot
+  if ($LASTEXITCODE -ne 0) {
+    throw "Browser extension packaging failed with exit code $LASTEXITCODE"
+  }
+  if (-not (Test-Path $browserExtensionZip)) {
+    throw "Cannot find browser extension package: $browserExtensionZip"
+  }
+
   $artifact = Get-Item $portableZip
+  $browserExtensionArtifact = Get-Item $browserExtensionZip
   Write-Host ">>> Portable package ready:"
   Write-Host ">>> Path: $($artifact.FullName)"
   Write-Host ">>> Size: $($artifact.Length) bytes"
+  Write-Host ">>> Browser extension package ready:"
+  Write-Host ">>> Path: $($browserExtensionArtifact.FullName)"
+  Write-Host ">>> Size: $($browserExtensionArtifact.Length) bytes"
 } finally {
   Pop-Location
 }

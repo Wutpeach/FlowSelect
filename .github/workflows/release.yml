@@ -388,6 +388,12 @@ jobs:
             --artifacts-dir artifacts \
             --output artifacts/updater/latest.json
 
+      - name: Package browser extension release asset
+        run: |
+          node ./scripts/package-browser-extension.mjs \
+            --version "${{ steps.version.outputs.version }}" \
+            --output-dir artifacts/browser-extension
+
       - name: Create GitHub Release Draft
         uses: softprops/action-gh-release@v2
         with:
@@ -403,6 +409,7 @@ jobs:
             artifacts/dmg-arm/*.dmg
             artifacts/macos-updater-x64/*.tar.gz
             artifacts/macos-updater-arm64/*.tar.gz
+            artifacts/browser-extension/*.zip
             artifacts/updater/latest.json
 
       - name: Publish GitHub Release
