@@ -714,8 +714,15 @@ function App() {
   const SETTINGS_WINDOW_WIDTH = 320;
   const SETTINGS_WINDOW_HEIGHT = 400;
   const SETTINGS_WINDOW_GAP = 16;
+  const totalDownloadTaskCount = videoQueueState.totalCount;
   const downloadQueueTasks = videoQueueDetail.tasks;
   const activeDownloadQueueTasks = downloadQueueTasks.filter((task) => task.status === "active");
+  const downloadProgressTaskCount = Object.keys(downloadProgressByTrace).length;
+  const foregroundDownloadTaskCount = Math.max(
+    totalDownloadTaskCount,
+    downloadQueueTasks.length,
+    downloadProgressTaskCount,
+  );
   const primaryDownloadTask = activeDownloadQueueTasks[0] ?? null;
   const primaryDownloadProgress = primaryDownloadTask
     ? downloadProgressByTrace[primaryDownloadTask.traceId] ?? null
@@ -736,10 +743,9 @@ function App() {
   const activeTranscodeProgressTask = Object.values(transcodeProgressByTrace).find((task) => task.status === "active") ?? null;
   const activeTranscodeQueueTasks = transcodeQueueTasks.filter((task) => task.status === "active");
   const primaryTranscodeTask = activeTranscodeQueueTasks[0] ?? activeTranscodeProgressTask;
-  const totalDownloadTaskCount = videoQueueState.totalCount;
   const totalTranscodeTaskCount = videoTranscodeQueueState.totalCount;
   const ongoingTranscodeTaskCount = videoTranscodeQueueState.activeCount + videoTranscodeQueueState.pendingCount;
-  const ongoingTaskCount = totalDownloadTaskCount + ongoingTranscodeTaskCount;
+  const ongoingTaskCount = foregroundDownloadTaskCount + ongoingTranscodeTaskCount;
   const totalTaskCount = totalDownloadTaskCount + totalTranscodeTaskCount;
   const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
   const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
@@ -1587,9 +1593,6 @@ function App() {
     const unlisten = listen<VideoQueueStatePayload>("video-queue-count", (event) => {
       const normalized = normalizeVideoQueueState(event.payload);
       setVideoQueueState(normalized);
-      if (normalized.activeCount === 0) {
-        setDownloadProgressByTrace((current) => (Object.keys(current).length === 0 ? current : {}));
-      }
       if (normalized.totalCount === 0) {
         clearCancellingTraceIds();
       }
@@ -1602,6 +1605,15 @@ function App() {
       const normalized = normalizeVideoQueueDetail(event.payload);
       setVideoQueueDetail(normalized);
       const liveTraceIds = new Set(normalized.tasks.map((task) => task.traceId));
+      // Detail reflects the task list the UI is actually rendering, so reconcile progress here
+      // instead of clearing it on count events that may arrive slightly earlier.
+      setDownloadProgressByTrace((current) => {
+        const nextEntries = Object.entries(current).filter(([traceId]) => liveTraceIds.has(traceId));
+        if (nextEntries.length === Object.keys(current).length) {
+          return current;
+        }
+        return Object.fromEntries(nextEntries);
+      });
       setCancellingTraceIds((current) => {
         const next = current.filter((traceId) => liveTraceIds.has(traceId));
         if (next.length === current.length) {
