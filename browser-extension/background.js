@@ -170,13 +170,13 @@ async function initializeLanguageState() {
   return currentLanguage;
 }
 
-function requestLanguageFromApp() {
-  if (!isConnected()) {
+function requestLanguageFromApp(socket = ws) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
     return false;
   }
 
   try {
-    ws.send(JSON.stringify({ action: WS_ACTION_GET_LANGUAGE }));
+    socket.send(JSON.stringify({ action: WS_ACTION_GET_LANGUAGE }));
     return true;
   } catch (error) {
     console.error('[FlowSelect] Failed to request language from desktop app:', error);
@@ -198,6 +198,21 @@ function unavailableStatusText() {
 
 function hasUnavailableIssue() {
   return lastConnectionIssue === OFFLINE_STATUS_TEXT;
+}
+
+function isCurrentSocket(socket) {
+  return ws === socket;
+}
+
+function detachSocketHandlers(socket) {
+  if (!socket) {
+    return;
+  }
+
+  socket.onopen = null;
+  socket.onmessage = null;
+  socket.onclose = null;
+  socket.onerror = null;
 }
 
 function connectionState() {
@@ -479,27 +494,46 @@ function connect(options = {}) {
   }
   clearReconnectAlarm();
 
+  if (ws) {
+    detachSocketHandlers(ws);
+  }
+
   const shouldNotifyConnecting = reconnectAttempts === 0 && !hasUnavailableIssue();
   if (shouldNotifyConnecting) {
     lastConnectionIssue = CONNECTING_STATUS_TEXT;
     notifyConnectionStatus();
   }
 
-  ws = new WebSocket(WS_URL);
+  const socket = new WebSocket(WS_URL);
+  ws = socket;
 
-  ws.onopen = () => {
+  socket.onopen = () => {
+    if (!isCurrentSocket(socket)) {
+      return;
+    }
+
     console.info('[FlowSelect] Connected to desktop app');
     reconnectAttempts = 0;
     lastConnectionIssue = '';
     notifyConnectionStatus();
     clearReconnectAlarm();
-    // Query current theme after connection
-    ws.send(JSON.stringify({ action: 'get_theme' }));
-    requestLanguageFromApp();
+
+    try {
+      // Query current theme after connection.
+      socket.send(JSON.stringify({ action: 'get_theme' }));
+    } catch (error) {
+      console.warn('[FlowSelect] Failed to request theme from desktop app:', error);
+    }
+
+    requestLanguageFromApp(socket);
     void bootstrapDownloadPreferencesSync();
   };
 
-  ws.onmessage = (event) => {
+  socket.onmessage = (event) => {
+    if (!isCurrentSocket(socket)) {
+      return;
+    }
+
     try {
       const message = JSON.parse(event.data);
       if (handlePendingRequestResponse(message)) {
@@ -511,20 +545,30 @@ function connect(options = {}) {
     }
   };
 
-  ws.onclose = () => {
+  socket.onclose = () => {
+    if (!isCurrentSocket(socket)) {
+      return;
+    }
+
     console.info('[FlowSelect] Disconnected');
     rejectPendingRequests('ws_closed');
+    detachSocketHandlers(socket);
     ws = null;
     lastConnectionIssue = unavailableStatusText();
     notifyConnectionStatus();
     scheduleReconnect();
   };
 
-  ws.onerror = () => {
+  socket.onerror = () => {
+    if (!isCurrentSocket(socket)) {
+      return;
+    }
+
     if (!isConnected()) {
       lastConnectionIssue = unavailableStatusText();
       console.warn('[FlowSelect] WebSocket unavailable. Open the FlowSelect desktop app to enable browser-extension features.');
       notifyConnectionStatus();
+      scheduleReconnect();
       return;
     }
     console.error('[FlowSelect] WebSocket error while connected.');
