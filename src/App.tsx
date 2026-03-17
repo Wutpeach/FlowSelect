@@ -30,6 +30,11 @@ import {
   type PinterestVideoCandidate,
 } from "./utils/pinterest";
 import { extractImageUrlFromHtml } from "./utils/imageDrag";
+import {
+  shouldIgnorePanelDoubleClickTarget,
+  shouldOpenOutputFolderFromPanelMouseDownDoubleClick,
+  WINDOW_DRAG_START_THRESHOLD,
+} from "./utils/mainPanelInteractions";
 import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImageDrag";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
@@ -398,12 +403,6 @@ const EMPTY_VIDEO_TRANSCODE_QUEUE_STATE: VideoTranscodeQueueStatePayload = {
 const EMPTY_VIDEO_TRANSCODE_QUEUE_DETAIL: VideoTranscodeQueueDetailPayload = {
   tasks: [],
 };
-
-const PANEL_DOUBLE_CLICK_IGNORE_SELECTOR = "button, [data-panel-double-click='ignore']";
-const WINDOW_DRAG_START_THRESHOLD = 6;
-
-const shouldIgnorePanelDoubleClickTarget = (target: EventTarget | null): boolean =>
-  target instanceof Element && target.closest(PANEL_DOUBLE_CLICK_IGNORE_SELECTOR) !== null;
 
 const normalizeVideoQueueState = (
   payload: Partial<VideoQueueStatePayload> | null | undefined,
@@ -1945,6 +1944,21 @@ function App() {
     }
   };
 
+  const canDoubleClickOpenOutputFolder =
+    !isMinimized &&
+    !isProcessing &&
+    !primaryTask &&
+    totalTaskCount === 0 &&
+    !isQueuePopoverOpen;
+
+  const triggerPanelOutputFolderShortcut = async (e: React.MouseEvent<HTMLDivElement>) => {
+    pendingDragStartRef.current = null;
+    e.preventDefault();
+    e.stopPropagation();
+    resetIdleTimer();
+    await openCurrentOutputFolder();
+  };
+
   const handlePanelMouseDown = async (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // 只响应左键
     if (isContextMenuOpen) {
@@ -1955,10 +1969,23 @@ function App() {
       resetIdleTimer();
       return;
     }
-    if (shouldIgnorePanelDoubleClickTarget(e.target)) {
+    const targetIgnored = shouldIgnorePanelDoubleClickTarget(e.target);
+    if (targetIgnored) {
       pendingDragStartRef.current = null;
       return;
     }
+
+    if (shouldOpenOutputFolderFromPanelMouseDownDoubleClick({
+      isMacOS,
+      button: e.button,
+      detail: e.detail,
+      canDoubleClickOpenOutputFolder,
+      targetIgnored,
+    })) {
+      await triggerPanelOutputFolderShortcut(e);
+      return;
+    }
+
     pendingDragStartRef.current = { x: e.clientX, y: e.clientY };
   };
 
@@ -1990,15 +2017,10 @@ function App() {
     resetIdleTimer();
   };
 
-  const canDoubleClickOpenOutputFolder =
-    !isMinimized &&
-    !isProcessing &&
-    !primaryTask &&
-    totalTaskCount === 0 &&
-    !isQueuePopoverOpen;
-
   const handlePanelDoubleClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-    pendingDragStartRef.current = null;
+    if (isMacOS) {
+      return;
+    }
 
     if (e.button !== 0 || !canDoubleClickOpenOutputFolder) {
       return;
@@ -2007,10 +2029,7 @@ function App() {
       return;
     }
 
-    e.preventDefault();
-    e.stopPropagation();
-    resetIdleTimer();
-    await openCurrentOutputFolder();
+    await triggerPanelOutputFolderShortcut(e);
   };
 
   // Handle paste event - check for video URL first, then image URL, then clipboard images/files.
