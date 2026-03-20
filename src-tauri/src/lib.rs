@@ -629,6 +629,147 @@ impl MediaProbeSummary {
     }
 }
 
+const AE_SAFE_AUDIO_BITRATE: &str = "320k";
+const AE_SAFE_LIBX264_CRF: &str = "18";
+const AE_SAFE_NVENC_CQ: &str = "19";
+const AE_SAFE_QSV_GLOBAL_QUALITY: &str = "19";
+const AE_SAFE_AMF_QVBR_QUALITY_LEVEL: &str = "19";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AeSafeVideoEncoderKind {
+    Libx264,
+    Nvenc,
+    Qsv,
+    Amf,
+    Generic,
+}
+
+fn classify_ae_safe_video_encoder(video_encoder: &str) -> AeSafeVideoEncoderKind {
+    match video_encoder.to_ascii_lowercase().as_str() {
+        "libx264" => AeSafeVideoEncoderKind::Libx264,
+        "h264_nvenc" => AeSafeVideoEncoderKind::Nvenc,
+        "h264_qsv" => AeSafeVideoEncoderKind::Qsv,
+        "h264_amf" => AeSafeVideoEncoderKind::Amf,
+        _ => AeSafeVideoEncoderKind::Generic,
+    }
+}
+
+fn build_ae_safe_full_transcode_args(
+    video_encoder: &str,
+    source_path: &Path,
+    temp_output_path: &Path,
+) -> (Vec<String>, &'static str) {
+    let mut args = vec![
+        "-y".to_string(),
+        "-hide_banner".to_string(),
+        "-loglevel".to_string(),
+        "error".to_string(),
+        "-i".to_string(),
+        source_path.to_string_lossy().to_string(),
+        "-map".to_string(),
+        "0:v:0".to_string(),
+        "-map".to_string(),
+        "0:a?".to_string(),
+        "-c:v".to_string(),
+        video_encoder.to_string(),
+    ];
+
+    let strategy = match classify_ae_safe_video_encoder(video_encoder) {
+        AeSafeVideoEncoderKind::Libx264 => {
+            args.extend([
+                "-preset".to_string(),
+                "slow".to_string(),
+                "-crf".to_string(),
+                AE_SAFE_LIBX264_CRF.to_string(),
+                "-profile:v".to_string(),
+                "high".to_string(),
+            ]);
+            "libx264_crf18_slow_profile_high"
+        }
+        AeSafeVideoEncoderKind::Nvenc => {
+            args.extend([
+                "-preset".to_string(),
+                "p6".to_string(),
+                "-tune".to_string(),
+                "hq".to_string(),
+                "-profile:v".to_string(),
+                "high".to_string(),
+                "-rc".to_string(),
+                "vbr".to_string(),
+                "-cq".to_string(),
+                AE_SAFE_NVENC_CQ.to_string(),
+                "-rc-lookahead".to_string(),
+                "32".to_string(),
+                "-spatial-aq".to_string(),
+                "1".to_string(),
+                "-aq-strength".to_string(),
+                "8".to_string(),
+                "-temporal-aq".to_string(),
+                "1".to_string(),
+            ]);
+            "nvenc_vbr_cq19_p6_lookahead32_aq"
+        }
+        AeSafeVideoEncoderKind::Qsv => {
+            args.extend([
+                "-preset".to_string(),
+                "slower".to_string(),
+                "-profile:v".to_string(),
+                "high".to_string(),
+                "-global_quality".to_string(),
+                AE_SAFE_QSV_GLOBAL_QUALITY.to_string(),
+                "-look_ahead".to_string(),
+                "1".to_string(),
+                "-look_ahead_depth".to_string(),
+                "40".to_string(),
+                "-extbrc".to_string(),
+                "1".to_string(),
+                "-adaptive_i".to_string(),
+                "1".to_string(),
+                "-adaptive_b".to_string(),
+                "1".to_string(),
+                "-rdo".to_string(),
+                "1".to_string(),
+            ]);
+            "qsv_global_quality19_slower_lookahead40_extbrc"
+        }
+        AeSafeVideoEncoderKind::Amf => {
+            args.extend([
+                "-usage".to_string(),
+                "high_quality".to_string(),
+                "-quality".to_string(),
+                "quality".to_string(),
+                "-preset".to_string(),
+                "quality".to_string(),
+                "-profile:v".to_string(),
+                "high".to_string(),
+                "-rc".to_string(),
+                "hqvbr".to_string(),
+                "-qvbr_quality_level".to_string(),
+                AE_SAFE_AMF_QVBR_QUALITY_LEVEL.to_string(),
+            ]);
+            "amf_hqvbr_q19_usage_high_quality"
+        }
+        AeSafeVideoEncoderKind::Generic => {
+            args.extend(["-profile:v".to_string(), "high".to_string()]);
+            "generic_profile_high"
+        }
+    };
+
+    args.extend([
+        "-pix_fmt".to_string(),
+        "yuv420p".to_string(),
+        "-c:a".to_string(),
+        "aac".to_string(),
+        "-b:a".to_string(),
+        AE_SAFE_AUDIO_BITRATE.to_string(),
+        "-movflags".to_string(),
+        "+faststart".to_string(),
+        temp_output_path.to_string_lossy().to_string(),
+    ]);
+
+    (args, strategy)
+}
+
 #[derive(Clone, Debug)]
 enum QueuedVideoTask {
     Douyin {
@@ -4161,7 +4302,7 @@ async fn normalize_video_output_for_ae(
                 "-c:a".to_string(),
                 "aac".to_string(),
                 "-b:a".to_string(),
-                "320k".to_string(),
+                AE_SAFE_AUDIO_BITRATE.to_string(),
                 "-movflags".to_string(),
                 "+faststart".to_string(),
                 temp_output_path.to_string_lossy().to_string(),
@@ -4171,36 +4312,28 @@ async fn normalize_video_output_for_ae(
                 .map_err(|e| format!("AE-safe audio transcode failed: {}", e))
         }
         AeSafeNormalizationPlan::FullTranscode => {
-            let build_args = |video_encoder: &str| {
-                vec![
-                    "-y".to_string(),
-                    "-hide_banner".to_string(),
-                    "-loglevel".to_string(),
-                    "error".to_string(),
-                    "-i".to_string(),
-                    source_path.to_string_lossy().to_string(),
-                    "-map".to_string(),
-                    "0:v:0".to_string(),
-                    "-map".to_string(),
-                    "0:a?".to_string(),
-                    "-c:v".to_string(),
-                    video_encoder.to_string(),
-                    "-pix_fmt".to_string(),
-                    "yuv420p".to_string(),
-                    "-c:a".to_string(),
-                    "aac".to_string(),
-                    "-b:a".to_string(),
-                    "320k".to_string(),
-                    "-movflags".to_string(),
-                    "+faststart".to_string(),
-                    temp_output_path.to_string_lossy().to_string(),
-                ]
-            };
-
             if let Some(gpu_encoder) = resolve_precise_clip_hw_encoder(app) {
-                match run_ffmpeg_with_args(app, build_args(gpu_encoder.as_str()), Some(trace_id))
-                    .await
-                {
+                let (ffmpeg_args, strategy) = build_ae_safe_full_transcode_args(
+                    gpu_encoder.as_str(),
+                    source_path,
+                    &temp_output_path,
+                );
+                println!(
+                    ">>> [Rust] AE-safe full transcode strategy: encoder={}, strategy={}",
+                    gpu_encoder, strategy
+                );
+                append_runtime_log_event(
+                    "transcode",
+                    "full_transcode_strategy",
+                    Some(trace_id),
+                    serde_json::json!({
+                        "path": source_path.to_string_lossy().to_string(),
+                        "videoEncoder": gpu_encoder,
+                        "strategy": strategy,
+                        "audioBitrate": AE_SAFE_AUDIO_BITRATE,
+                    }),
+                );
+                match run_ffmpeg_with_args(app, ffmpeg_args, Some(trace_id)).await {
                     Ok(_) => Ok(()),
                     Err(err) => {
                         println!(
@@ -4220,7 +4353,28 @@ async fn normalize_video_output_for_ae(
                         if temp_output_path.exists() {
                             let _ = fs::remove_file(&temp_output_path);
                         }
-                        run_ffmpeg_with_args(app, build_args("libx264"), Some(trace_id))
+                        let (cpu_args, cpu_strategy) = build_ae_safe_full_transcode_args(
+                            "libx264",
+                            source_path,
+                            &temp_output_path,
+                        );
+                        println!(
+                            ">>> [Rust] AE-safe CPU fallback transcode strategy: encoder=libx264, strategy={}",
+                            cpu_strategy
+                        );
+                        append_runtime_log_event(
+                            "transcode",
+                            "full_transcode_strategy",
+                            Some(trace_id),
+                            serde_json::json!({
+                                "path": source_path.to_string_lossy().to_string(),
+                                "videoEncoder": "libx264",
+                                "strategy": cpu_strategy,
+                                "reason": "gpu_fallback",
+                                "audioBitrate": AE_SAFE_AUDIO_BITRATE,
+                            }),
+                        );
+                        run_ffmpeg_with_args(app, cpu_args, Some(trace_id))
                             .await
                             .map_err(|cpu_err| {
                                 format!(
@@ -4231,8 +4385,25 @@ async fn normalize_video_output_for_ae(
                     }
                 }
             } else {
-                println!(">>> [Rust] AE-safe full transcode using CPU encoder libx264");
-                run_ffmpeg_with_args(app, build_args("libx264"), Some(trace_id))
+                let (cpu_args, cpu_strategy) =
+                    build_ae_safe_full_transcode_args("libx264", source_path, &temp_output_path);
+                println!(
+                    ">>> [Rust] AE-safe full transcode using CPU encoder libx264 with strategy={}",
+                    cpu_strategy
+                );
+                append_runtime_log_event(
+                    "transcode",
+                    "full_transcode_strategy",
+                    Some(trace_id),
+                    serde_json::json!({
+                        "path": source_path.to_string_lossy().to_string(),
+                        "videoEncoder": "libx264",
+                        "strategy": cpu_strategy,
+                        "reason": "cpu_only",
+                        "audioBitrate": AE_SAFE_AUDIO_BITRATE,
+                    }),
+                );
+                run_ffmpeg_with_args(app, cpu_args, Some(trace_id))
                     .await
                     .map_err(|e| format!("AE-safe full transcode failed: {}", e))
             }
@@ -16299,5 +16470,85 @@ At least one output file must be specified"#;
 
         assert!(err.contains("ffmpeg probe failed"));
         assert!(err.contains("No such file or directory"));
+    }
+
+    #[test]
+    fn ae_safe_full_transcode_args_for_libx264_include_explicit_quality_controls() {
+        let (args, strategy) = build_ae_safe_full_transcode_args(
+            "libx264",
+            Path::new(r"C:\Temp\input.mkv"),
+            Path::new(r"C:\Temp\output.mp4"),
+        );
+        let rendered = args.join(" ");
+
+        assert_eq!(strategy, "libx264_crf18_slow_profile_high");
+        assert!(rendered.contains("-c:v libx264"));
+        assert!(rendered.contains("-preset slow"));
+        assert!(rendered.contains("-crf 18"));
+        assert!(rendered.contains("-profile:v high"));
+        assert!(rendered.contains("-pix_fmt yuv420p"));
+        assert!(rendered.contains("-b:a 320k"));
+    }
+
+    #[test]
+    fn ae_safe_full_transcode_args_for_nvenc_include_explicit_quality_controls() {
+        let (args, strategy) = build_ae_safe_full_transcode_args(
+            "h264_nvenc",
+            Path::new(r"C:\Temp\input.mkv"),
+            Path::new(r"C:\Temp\output.mp4"),
+        );
+        let rendered = args.join(" ");
+
+        assert_eq!(strategy, "nvenc_vbr_cq19_p6_lookahead32_aq");
+        assert!(rendered.contains("-c:v h264_nvenc"));
+        assert!(rendered.contains("-preset p6"));
+        assert!(rendered.contains("-tune hq"));
+        assert!(rendered.contains("-profile:v high"));
+        assert!(rendered.contains("-rc vbr"));
+        assert!(rendered.contains("-cq 19"));
+        assert!(rendered.contains("-rc-lookahead 32"));
+        assert!(rendered.contains("-spatial-aq 1"));
+        assert!(rendered.contains("-temporal-aq 1"));
+    }
+
+    #[test]
+    fn ae_safe_full_transcode_args_for_qsv_include_explicit_quality_controls() {
+        let (args, strategy) = build_ae_safe_full_transcode_args(
+            "h264_qsv",
+            Path::new(r"C:\Temp\input.mkv"),
+            Path::new(r"C:\Temp\output.mp4"),
+        );
+        let rendered = args.join(" ");
+
+        assert_eq!(strategy, "qsv_global_quality19_slower_lookahead40_extbrc");
+        assert!(rendered.contains("-c:v h264_qsv"));
+        assert!(rendered.contains("-preset slower"));
+        assert!(rendered.contains("-profile:v high"));
+        assert!(rendered.contains("-global_quality 19"));
+        assert!(rendered.contains("-look_ahead 1"));
+        assert!(rendered.contains("-look_ahead_depth 40"));
+        assert!(rendered.contains("-extbrc 1"));
+        assert!(rendered.contains("-adaptive_i 1"));
+        assert!(rendered.contains("-adaptive_b 1"));
+        assert!(rendered.contains("-rdo 1"));
+    }
+
+    #[test]
+    fn ae_safe_full_transcode_args_for_amf_include_explicit_quality_controls() {
+        let (args, strategy) = build_ae_safe_full_transcode_args(
+            "h264_amf",
+            Path::new(r"C:\Temp\input.mkv"),
+            Path::new(r"C:\Temp\output.mp4"),
+        );
+        let rendered = args.join(" ");
+
+        assert_eq!(strategy, "amf_hqvbr_q19_usage_high_quality");
+        assert!(rendered.contains("-c:v h264_amf"));
+        assert!(rendered.contains("-usage high_quality"));
+        assert!(rendered.contains("-quality quality"));
+        assert!(rendered.contains("-preset quality"));
+        assert!(rendered.contains("-profile:v high"));
+        assert!(rendered.contains("-rc hqvbr"));
+        assert!(rendered.contains("-qvbr_quality_level 19"));
     }
 }
