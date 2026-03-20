@@ -5025,7 +5025,7 @@ async fn download_full_source_to_slice_cache(
             Ok(Some(event)) => match event {
                 CommandEvent::Stdout(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    log_cli_output_line(">>> [yt-dlp cache]", &line_str);
+                    log_ytdlp_cli_output_line(">>> [yt-dlp cache]", &line_str);
                     let heartbeat_event = process_ytdlp_output_line(
                         app,
                         &line_str,
@@ -5046,7 +5046,7 @@ async fn download_full_source_to_slice_cache(
                 }
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    log_cli_output_line(">>> [yt-dlp cache stderr]", &line_str);
+                    log_ytdlp_cli_output_line(">>> [yt-dlp cache stderr]", &line_str);
                     stderr_buffer.push_str(&line_str);
                     stderr_buffer.push('\n');
                     let heartbeat_event = process_ytdlp_output_line(
@@ -5709,26 +5709,53 @@ fn render_terminal_ffmpeg_progress_line(
     render_terminal_progress_line(format!(">>> [ffmpeg] {}", parts.join(" · ")).as_str());
 }
 
+fn render_terminal_ytdlp_progress_line(
+    stage: DownloadProgressStage,
+    progress_percent: Option<f32>,
+    speed: &str,
+    eta: &str,
+) {
+    let mut parts = vec![stage.label().trim_end_matches("...").to_string()];
+
+    if let Some(percent) = progress_percent
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(|value| value.round() as u32)
+    {
+        parts.push(format!("{percent}%"));
+    }
+
+    let speed = speed.trim();
+    if !speed.is_empty() && speed != "Downloading..." && speed != "N/A" {
+        parts.push(speed.to_string());
+    }
+
+    let eta = eta.trim();
+    if !eta.is_empty() && eta != "N/A" {
+        parts.push(format!("ETA {eta}"));
+    }
+
+    render_terminal_progress_line(format!(">>> [yt-dlp] {}", parts.join(" · ")).as_str());
+}
+
 fn is_terminal_progress_output_line(line: &str) -> bool {
     parse_progress(line).is_some()
         || (parse_ffmpeg_time_seconds(line).is_some() && line.contains("speed="))
 }
 
-fn log_cli_output_line(prefix: &str, raw_line: &str) {
+fn should_suppress_terminal_ytdlp_line(line: &str) -> bool {
+    is_terminal_progress_output_line(line) || should_retry_youtube_without_cookies(line)
+}
+
+fn log_ytdlp_cli_output_line(prefix: &str, raw_line: &str) {
     for raw_segment in raw_line.replace('\r', "\n").lines() {
         let normalized_line = strip_ansi_escape_sequences(raw_segment);
         let normalized_line = normalized_line.trim();
-        if normalized_line.is_empty() {
+        if normalized_line.is_empty() || should_suppress_terminal_ytdlp_line(normalized_line) {
             continue;
         }
 
-        let rendered_message = format!("{} {}", prefix, normalized_line);
-        if is_terminal_progress_output_line(normalized_line) {
-            render_terminal_progress_line(rendered_message.as_str());
-        } else {
-            finish_terminal_progress_line();
-            println!("{}", rendered_message);
-        }
+        finish_terminal_progress_line();
+        println!("{} {}", prefix, normalized_line);
     }
 }
 
@@ -7844,7 +7871,7 @@ async fn download_video_internal(
             Ok(Some(event)) => match event {
                 CommandEvent::Stdout(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    log_cli_output_line(">>> [yt-dlp]", &line_str);
+                    log_ytdlp_cli_output_line(">>> [yt-dlp]", &line_str);
                     stdout_buffer.push_str(&line_str);
                     stdout_buffer.push('\n');
                     let heartbeat_event = process_ytdlp_output_line(
@@ -7867,7 +7894,7 @@ async fn download_video_internal(
                 }
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    log_cli_output_line(">>> [yt-dlp stderr]", &line_str);
+                    log_ytdlp_cli_output_line(">>> [yt-dlp stderr]", &line_str);
                     stderr_buffer.push_str(&line_str);
                     stderr_buffer.push('\n');
                     let heartbeat_event = process_ytdlp_output_line(
@@ -11220,6 +11247,12 @@ fn process_ytdlp_output_line(
                 progress_speed.as_str(),
                 progress_eta.as_str(),
             );
+            render_terminal_ytdlp_progress_line(
+                DownloadProgressStage::Downloading,
+                Some(progress_percent),
+                progress_speed.as_str(),
+                progress_eta.as_str(),
+            );
             *last_stage = DownloadProgressStage::Downloading;
         } else if let Some(stage) = infer_ytdlp_stage(normalized_line) {
             let stage_status = infer_ytdlp_stage_status(stage, normalized_line);
@@ -11242,6 +11275,7 @@ fn process_ytdlp_output_line(
                 );
             }
             maybe_log_runtime_progress(trace_id, stage, -1.0, stage_status.as_str(), "");
+            render_terminal_ytdlp_progress_line(stage, None, stage_status.as_str(), "");
             *last_stage = stage;
             heartbeat_state.last_stage_status = Some(stage_status);
             heartbeat_event.soft_heartbeat = true;
@@ -16974,6 +17008,22 @@ At least one output file must be specified"#;
         ));
         assert!(!is_terminal_progress_output_line(
             "[ffmpeg] Merging formats into \"C:\\Users\\10\\Downloads\\sample.mkv\""
+        ));
+    }
+
+    #[test]
+    fn terminal_ytdlp_suppression_filters_progress_and_transient_youtube_warnings() {
+        assert!(should_suppress_terminal_ytdlp_line(
+            "[download]  88.4% of   11.14MiB at   10.48MiB/s ETA 00:00"
+        ));
+        assert!(should_suppress_terminal_ytdlp_line(
+            "WARNING: [youtube] Lj4LMlGr4og: n challenge solving failed: Some formats may be missing."
+        ));
+        assert!(should_suppress_terminal_ytdlp_line(
+            "ERROR: [youtube] Lj4LMlGr4og: Requested format is not available. Use --list-formats for a list of available formats"
+        ));
+        assert!(!should_suppress_terminal_ytdlp_line(
+            "[download] Destination: C:\\Users\\10\\Downloads\\sample.mp4"
         ));
     }
 
