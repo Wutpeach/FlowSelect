@@ -1001,6 +1001,12 @@ struct RuntimeProgressLogState {
     last_logged_at_ms: u128,
 }
 
+#[derive(Default)]
+struct TerminalProgressLineState {
+    active: bool,
+    last_rendered_len: usize,
+}
+
 // Store active yt-dlp child PIDs by trace id.
 static DOWNLOAD_CHILDREN: LazyLock<Mutex<HashMap<String, u32>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -1044,6 +1050,8 @@ static RUNTIME_LOG_DIR: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mute
 static RUNTIME_LOG_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static RUNTIME_LOG_PROGRESS_STATE: LazyLock<Mutex<HashMap<String, RuntimeProgressLogState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static TERMINAL_PROGRESS_LINE_STATE: LazyLock<Mutex<TerminalProgressLineState>> =
+    LazyLock::new(|| Mutex::new(TerminalProgressLineState::default()));
 const MAX_CONCURRENT_VIDEO_DOWNLOADS: usize = 3;
 const MAX_CONCURRENT_VIDEO_TRANSCODES: usize = 1;
 const DIRECT_CANDIDATE_CACHE_TTL_MS: u128 = 5 * 60 * 1000;
@@ -4304,6 +4312,13 @@ fn maybe_emit_ffmpeg_transcode_progress(
     state.last_emitted_percent_bucket = percent_bucket;
     state.last_emitted_eta_seconds = eta_seconds;
 
+    render_terminal_ffmpeg_progress_line(
+        stage,
+        progress_percent,
+        eta_seconds,
+        state.last_speed_ratio,
+    );
+
     set_active_video_transcode_stage(
         app,
         trace_id,
@@ -4408,6 +4423,7 @@ async fn run_ffmpeg_with_transcode_progress(
                 stderr_buffer.push('\n');
             }
             CommandEvent::Terminated(payload) => {
+                finish_terminal_progress_line();
                 clear_transcode_child(trace_id);
                 if payload.code == Some(0) {
                     return Ok(());
@@ -4432,6 +4448,7 @@ async fn run_ffmpeg_with_transcode_progress(
         }
     }
 
+    finish_terminal_progress_line();
     clear_transcode_child(trace_id);
     Err("ffmpeg task ended without a termination event".to_string())
 }
@@ -5008,7 +5025,7 @@ async fn download_full_source_to_slice_cache(
             Ok(Some(event)) => match event {
                 CommandEvent::Stdout(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    println!(">>> [yt-dlp cache] {}", line_str);
+                    log_cli_output_line(">>> [yt-dlp cache]", &line_str);
                     let heartbeat_event = process_ytdlp_output_line(
                         app,
                         &line_str,
@@ -5029,7 +5046,7 @@ async fn download_full_source_to_slice_cache(
                 }
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    println!(">>> [yt-dlp cache stderr] {}", line_str);
+                    log_cli_output_line(">>> [yt-dlp cache stderr]", &line_str);
                     stderr_buffer.push_str(&line_str);
                     stderr_buffer.push('\n');
                     let heartbeat_event = process_ytdlp_output_line(
@@ -5051,6 +5068,7 @@ async fn download_full_source_to_slice_cache(
                     }
                 }
                 CommandEvent::Terminated(payload) => {
+                    finish_terminal_progress_line();
                     clear_download_child(trace_id);
                     if payload.code == Some(0) {
                         if slice_cache_file_size_if_valid(cache_path).is_some() {
@@ -5082,6 +5100,7 @@ async fn download_full_source_to_slice_cache(
         }
 
         if is_download_cancelled(trace_id) {
+            finish_terminal_progress_line();
             kill_download_child_process(trace_id);
             cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
             return Err("Download cancelled".to_string());
@@ -5093,12 +5112,14 @@ async fn download_full_source_to_slice_cache(
             last_soft_heartbeat_at = None;
         }
         if is_watchdog_timeout_candidate(last_hard_heartbeat_at, last_soft_heartbeat_at, now) {
+            finish_terminal_progress_line();
             terminate_download_child_process_with_grace(trace_id).await;
             cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
             return Err("Slice cache source download stalled".to_string());
         }
     }
 
+    finish_terminal_progress_line();
     clear_download_child(trace_id);
     cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
     Err("Slice cache source download ended unexpectedly".to_string())
@@ -5613,6 +5634,104 @@ fn excerpt_runtime_lines(raw: &str, max_lines: usize) -> Vec<String> {
     lines
 }
 
+fn finish_terminal_progress_line() {
+    let should_finish = {
+        let mut state = TERMINAL_PROGRESS_LINE_STATE.lock().unwrap();
+        if !state.active {
+            false
+        } else {
+            state.active = false;
+            state.last_rendered_len = 0;
+            true
+        }
+    };
+
+    if should_finish {
+        print!("\n");
+        let _ = std::io::stdout().flush();
+    }
+}
+
+fn render_terminal_progress_line(message: &str) {
+    let padding_len = {
+        let mut state = TERMINAL_PROGRESS_LINE_STATE.lock().unwrap();
+        let rendered_len = message.chars().count();
+        let padding_len = state.last_rendered_len.saturating_sub(rendered_len);
+        state.active = true;
+        state.last_rendered_len = rendered_len;
+        padding_len
+    };
+
+    let padding = if padding_len == 0 {
+        String::new()
+    } else {
+        " ".repeat(padding_len)
+    };
+    print!("\r{}{}", message, padding);
+    let _ = std::io::stdout().flush();
+}
+
+fn format_terminal_eta_clock(total_seconds: u64) -> String {
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+fn render_terminal_ffmpeg_progress_line(
+    stage: VideoTranscodeStage,
+    progress_percent: Option<f32>,
+    eta_seconds: Option<u64>,
+    speed_ratio: Option<f64>,
+) {
+    let mut parts = vec![stage.status_text().trim_end_matches("...").to_string()];
+
+    if let Some(percent) = progress_percent
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(|value| value.round() as u32)
+    {
+        parts.push(format!("{percent}%"));
+    }
+
+    if let Some(speed_ratio) = speed_ratio.filter(|value| value.is_finite() && *value > 0.0) {
+        parts.push(format!("{speed_ratio:.2}x"));
+    }
+
+    if let Some(eta_seconds) = eta_seconds {
+        parts.push(format!("ETA {}", format_terminal_eta_clock(eta_seconds)));
+    }
+
+    render_terminal_progress_line(format!(">>> [ffmpeg] {}", parts.join(" · ")).as_str());
+}
+
+fn is_terminal_progress_output_line(line: &str) -> bool {
+    parse_progress(line).is_some()
+        || (parse_ffmpeg_time_seconds(line).is_some() && line.contains("speed="))
+}
+
+fn log_cli_output_line(prefix: &str, raw_line: &str) {
+    for raw_segment in raw_line.replace('\r', "\n").lines() {
+        let normalized_line = strip_ansi_escape_sequences(raw_segment);
+        let normalized_line = normalized_line.trim();
+        if normalized_line.is_empty() {
+            continue;
+        }
+
+        let rendered_message = format!("{} {}", prefix, normalized_line);
+        if is_terminal_progress_output_line(normalized_line) {
+            render_terminal_progress_line(rendered_message.as_str());
+        } else {
+            finish_terminal_progress_line();
+            println!("{}", rendered_message);
+        }
+    }
+}
+
 fn read_runtime_log_lines(log_dir: &Path) -> Vec<String> {
     let mut lines = Vec::new();
 
@@ -5742,14 +5861,6 @@ fn emit_video_transcode_queue_state(
     count_payload: VideoTranscodeQueueCountPayload,
     detail_payload: VideoTranscodeQueueDetailPayload,
 ) {
-    println!(
-        ">>> [Rust] Video transcode queue updated: active={}, pending={}, failed={}, total={}, max={}",
-        count_payload.active_count,
-        count_payload.pending_count,
-        count_payload.failed_count,
-        count_payload.total_count,
-        count_payload.max_concurrent
-    );
     let _ = app.emit("video-transcode-queue-count", count_payload);
     let _ = app.emit("video-transcode-queue-detail", detail_payload);
 }
@@ -7733,7 +7844,7 @@ async fn download_video_internal(
             Ok(Some(event)) => match event {
                 CommandEvent::Stdout(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    println!(">>> [yt-dlp] {}", line_str);
+                    log_cli_output_line(">>> [yt-dlp]", &line_str);
                     stdout_buffer.push_str(&line_str);
                     stdout_buffer.push('\n');
                     let heartbeat_event = process_ytdlp_output_line(
@@ -7756,7 +7867,7 @@ async fn download_video_internal(
                 }
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    println!(">>> [yt-dlp stderr] {}", line_str);
+                    log_cli_output_line(">>> [yt-dlp stderr]", &line_str);
                     stderr_buffer.push_str(&line_str);
                     stderr_buffer.push('\n');
                     let heartbeat_event = process_ytdlp_output_line(
@@ -7778,6 +7889,7 @@ async fn download_video_internal(
                     }
                 }
                 CommandEvent::Terminated(payload) => {
+                    finish_terminal_progress_line();
                     // Clear download PID
                     clear_download_child(trace_id.as_str());
 
@@ -8001,6 +8113,7 @@ async fn download_video_internal(
         }
 
         if is_watchdog_timeout_candidate(last_hard_heartbeat_at, last_soft_heartbeat_at, now) {
+            finish_terminal_progress_line();
             let hard_elapsed_secs = now.duration_since(last_hard_heartbeat_at).as_secs();
             let soft_elapsed_secs =
                 last_soft_heartbeat_at.map(|soft_at| now.duration_since(soft_at).as_secs());
@@ -8061,6 +8174,7 @@ async fn download_video_internal(
     }
 
     // Fallback if loop exits without Terminated event
+    finish_terminal_progress_line();
     cleanup_extension_cookies_file(&extension_cookies_path);
     cleanup_part_files_for_output_root(&output_dir);
     cleanup_captured_ytdlp_artifacts(&captured_artifact_paths, None);
@@ -8107,6 +8221,7 @@ async fn download_video_internal(
 
 fn kill_download_child_process(trace_id: &str) {
     if let Some(pid) = DOWNLOAD_CHILDREN.lock().unwrap().remove(trace_id) {
+        finish_terminal_progress_line();
         println!(">>> [Rust] Force killing yt-dlp process with PID: {}", pid);
         force_kill_process(pid);
     }
@@ -8114,6 +8229,7 @@ fn kill_download_child_process(trace_id: &str) {
 
 fn kill_transcode_child_process(trace_id: &str) {
     if let Some(pid) = TRANSCODE_CHILDREN.lock().unwrap().remove(trace_id) {
+        finish_terminal_progress_line();
         println!(
             ">>> [Rust] Force killing transcode ffmpeg process with PID: {}",
             pid
@@ -14783,8 +14899,6 @@ fn set_window_size(app: AppHandle, width: u32, height: u32) -> Result<(), String
 #[tauri::command]
 fn set_window_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        #[cfg(target_os = "windows")]
-        println!(">>> [Rust] set_window_position physical=({}, {})", x, y);
         window
             .set_position(tauri::PhysicalPosition::new(x, y))
             .map_err(|e| format!("Failed to set window position: {}", e))
@@ -16845,6 +16959,22 @@ At least one output file must be specified"#;
 
         assert!((out_time - 83.45).abs() < 0.000_1);
         assert!((speed - 1.37).abs() < 0.000_1);
+    }
+
+    #[test]
+    fn terminal_progress_output_detection_matches_ytdlp_and_ffmpeg_progress_lines() {
+        assert!(is_terminal_progress_output_line(
+            "[download]  88.4% of   11.14MiB at   10.48MiB/s ETA 00:00"
+        ));
+        assert!(is_terminal_progress_output_line(
+            "frame=  402 fps=0.0 q=23.0 size=    2048kB time=00:00:16.73 bitrate=1002.8kbits/s speed=1.52x"
+        ));
+        assert!(!is_terminal_progress_output_line(
+            "[download] Destination: C:\\Users\\10\\Downloads\\sample.mp4"
+        ));
+        assert!(!is_terminal_progress_output_line(
+            "[ffmpeg] Merging formats into \"C:\\Users\\10\\Downloads\\sample.mkv\""
+        ));
     }
 
     #[test]
