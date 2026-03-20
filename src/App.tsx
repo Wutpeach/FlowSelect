@@ -203,6 +203,7 @@ type VideoTranscodeTaskPayload = {
   status: VideoTranscodeTaskStatus;
   stage?: VideoTranscodeStage | null;
   progressPercent?: number | null;
+  etaSeconds?: number | null;
   sourcePath?: string | null;
   sourceFormat?: string | null;
   targetFormat?: string | null;
@@ -329,6 +330,30 @@ const getTranscodeStageLabel = (stage: VideoTranscodeStage): string => {
   const translationKey = stage === "finalizing_mp4" ? "finalizingMp4" : stage;
   return i18n.t(`desktop:app.transcodeStage.${translationKey}`);
 };
+
+const formatEtaClock = (etaSeconds: number): string => {
+  const safeSeconds = Math.max(0, Math.floor(etaSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+};
+
+const getTranscodeEtaLabel = (etaSeconds: number | null | undefined): string | null => {
+  if (typeof etaSeconds !== "number" || !Number.isFinite(etaSeconds) || etaSeconds < 0) {
+    return null;
+  }
+  return i18n.t("desktop:app.downloadStatus.eta", {
+    eta: formatEtaClock(etaSeconds),
+  });
+};
+
+const joinStatusParts = (...parts: Array<string | null | undefined>): string =>
+  parts.filter((part): part is string => typeof part === "string" && part.trim().length > 0).join(" · ");
 
 const DOWNLOAD_STAGE_ORDER: Record<DownloadStage, number> = {
   preparing: 0,
@@ -469,6 +494,9 @@ const normalizeVideoTranscodeTask = (
   const safeProgressPercent = Number.isFinite(task.progressPercent)
     ? Math.max(0, Math.min(100, Number(task.progressPercent)))
     : null;
+  const safeEtaSeconds = Number.isFinite(task.etaSeconds)
+    ? Math.max(0, Math.floor(Number(task.etaSeconds)))
+    : null;
   const trimOptional = (value: unknown): string | null =>
     typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
@@ -478,6 +506,7 @@ const normalizeVideoTranscodeTask = (
     status,
     stage: normalizeVideoTranscodeStage(task.stage, status),
     progressPercent: safeProgressPercent,
+    etaSeconds: safeEtaSeconds,
     sourcePath: trimOptional(task.sourcePath),
     sourceFormat: trimOptional(task.sourceFormat),
     targetFormat: trimOptional(task.targetFormat),
@@ -566,27 +595,29 @@ const mergeVideoTranscodeTask = (
   status: liveTask?.status ?? baseTask.status,
 });
 
-const getTranscodeTaskStatusText = (task: VideoTranscodeTaskPayload): string => {
+const getTranscodeTaskStatusText = (
+  task: VideoTranscodeTaskPayload,
+  options?: { includePercent?: boolean },
+): string => {
+  const includePercent = options?.includePercent ?? true;
   if (task.status === "pending") {
     return i18n.t("desktop:app.queue.waiting");
   }
 
   const effectiveStage = task.stage ?? (task.status === "failed" ? "failed" : "analyzing");
   const stageLabel = getTranscodeStageLabel(effectiveStage);
+  const etaLabel = getTranscodeEtaLabel(task.etaSeconds);
 
   if (task.status === "failed") {
     return stageLabel;
   }
 
   const progressPercent = task.progressPercent;
-  if (typeof progressPercent === "number" && Number.isFinite(progressPercent) && progressPercent >= 0) {
-    return i18n.t("desktop:app.queue.percentStatus", {
-      percent: Math.round(progressPercent),
-      status: stageLabel,
-    });
+  if (includePercent && typeof progressPercent === "number" && Number.isFinite(progressPercent) && progressPercent >= 0) {
+    return joinStatusParts(`${Math.round(progressPercent)}%`, stageLabel, etaLabel);
   }
 
-  return stageLabel;
+  return joinStatusParts(stageLabel, etaLabel);
 };
 
 const getVideoTranscodeTaskProgressPercent = (task: VideoTranscodeTaskPayload): number => {
@@ -752,7 +783,7 @@ function App() {
           kind: "transcode" as const,
           task: primaryTranscodeTask,
           percent: primaryTranscodeTask.progressPercent ?? -1,
-          statusText: getTranscodeStageLabel(primaryTranscodeTask.stage ?? "analyzing"),
+          statusText: getTranscodeTaskStatusText(primaryTranscodeTask, { includePercent: false }),
           indeterminate:
             typeof primaryTranscodeTask.progressPercent !== "number"
             || !Number.isFinite(primaryTranscodeTask.progressPercent),

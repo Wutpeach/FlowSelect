@@ -556,6 +556,7 @@ struct MediaProbeStream {
 #[derive(Debug, Default, serde::Deserialize)]
 struct MediaProbeFormat {
     format_name: Option<String>,
+    duration: Option<String>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -572,6 +573,7 @@ struct MediaProbeSummary {
     has_audio_stream: bool,
     video_codec: Option<String>,
     audio_codec: Option<String>,
+    duration_seconds: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -634,6 +636,42 @@ const AE_SAFE_LIBX264_CRF: &str = "18";
 const AE_SAFE_NVENC_CQ: &str = "19";
 const AE_SAFE_QSV_GLOBAL_QUALITY: &str = "19";
 const AE_SAFE_AMF_QVBR_QUALITY_LEVEL: &str = "19";
+
+fn parse_clock_time_seconds(raw: &str) -> Option<f64> {
+    let mut parts = raw.trim().split(':');
+    let hours = parts.next()?.trim().parse::<f64>().ok()?;
+    let minutes = parts.next()?.trim().parse::<f64>().ok()?;
+    let seconds = parts.next()?.trim().parse::<f64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(hours * 3600.0 + minutes * 60.0 + seconds)
+}
+
+fn parse_ffprobe_duration_seconds(raw: Option<&str>) -> Option<f64> {
+    raw.and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn parse_ffmpeg_probe_duration_seconds(line: &str) -> Option<f64> {
+    let duration_part = line.strip_prefix("Duration: ")?;
+    let time_part = duration_part.split(',').next()?.trim();
+    parse_clock_time_seconds(time_part).filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn parse_ffmpeg_progress_out_time_seconds(line: &str) -> Option<f64> {
+    let value = line.strip_prefix("out_time=")?;
+    parse_clock_time_seconds(value).filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+}
+
+fn parse_ffmpeg_progress_speed_ratio(line: &str) -> Option<f64> {
+    let value = line.strip_prefix("speed=")?.trim();
+    let value = value.strip_suffix('x').unwrap_or(value);
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|speed| speed.is_finite() && *speed > 0.0)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AeSafeVideoEncoderKind {
@@ -869,6 +907,17 @@ enum VideoTranscodeStage {
     Failed,
 }
 
+impl VideoTranscodeStage {
+    fn status_text(self) -> &'static str {
+        match self {
+            Self::Analyzing => "Analyzing source media...",
+            Self::Transcoding => "Transcoding media...",
+            Self::FinalizingMp4 => "Finalizing compatible MP4...",
+            Self::Failed => "Transcode failed",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct VideoTranscodeTask {
     trace_id: String,
@@ -879,6 +928,7 @@ struct VideoTranscodeTask {
     status: VideoTranscodeTaskStatus,
     stage: Option<VideoTranscodeStage>,
     progress_percent: Option<f32>,
+    eta_seconds: Option<u64>,
     error: Option<String>,
 }
 
@@ -890,6 +940,7 @@ impl VideoTranscodeTask {
             status: self.status,
             stage: self.stage,
             progress_percent: self.progress_percent,
+            eta_seconds: self.eta_seconds,
             source_path: Some(self.source_path.clone()),
             source_format: self.source_format.clone(),
             target_format: Some(self.target_format.clone()),
@@ -3132,6 +3183,8 @@ struct VideoTranscodeTaskPayload {
     stage: Option<VideoTranscodeStage>,
     #[serde(rename = "progressPercent")]
     progress_percent: Option<f32>,
+    #[serde(rename = "etaSeconds")]
+    eta_seconds: Option<u64>,
     #[serde(rename = "sourcePath")]
     source_path: Option<String>,
     #[serde(rename = "sourceFormat")]
@@ -3663,6 +3716,7 @@ fn parse_ffmpeg_probe_summary_output(
     let mut has_audio_stream = false;
     let mut video_codec = None;
     let mut audio_codec = None;
+    let mut duration_seconds = None;
 
     for line in stderr.lines().map(str::trim) {
         if container_names.is_empty() {
@@ -3670,6 +3724,10 @@ fn parse_ffmpeg_probe_summary_output(
                 container_names = parsed_containers;
                 continue;
             }
+        }
+
+        if duration_seconds.is_none() {
+            duration_seconds = parse_ffmpeg_probe_duration_seconds(line);
         }
 
         if line.contains("Video:") {
@@ -3705,6 +3763,7 @@ fn parse_ffmpeg_probe_summary_output(
         has_audio_stream,
         video_codec,
         audio_codec,
+        duration_seconds,
     })
 }
 
@@ -3720,7 +3779,7 @@ fn probe_media_summary_with_ffprobe(
             "-print_format",
             "json",
             "-show_entries",
-            "format=format_name:stream=codec_type,codec_name",
+            "format=format_name,duration:stream=codec_type,codec_name",
         ])
         .arg(target_path);
     let output = configure_hidden_cli_command(&mut command)
@@ -3739,7 +3798,8 @@ fn probe_media_summary_with_ffprobe(
         .map_err(|e| format!("Failed to parse ffprobe JSON: {}", e))?;
     let container_names = probe
         .format
-        .and_then(|format| format.format_name)
+        .as_ref()
+        .and_then(|format| format.format_name.as_ref())
         .map(|value| {
             value
                 .split(',')
@@ -3748,6 +3808,12 @@ fn probe_media_summary_with_ffprobe(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let duration_seconds = parse_ffprobe_duration_seconds(
+        probe
+            .format
+            .as_ref()
+            .and_then(|format| format.duration.as_deref()),
+    );
     let mut has_video_stream = false;
     let mut has_audio_stream = false;
     let mut video_codec = None;
@@ -3777,6 +3843,7 @@ fn probe_media_summary_with_ffprobe(
         has_audio_stream,
         video_codec,
         audio_codec,
+        duration_seconds,
     })
 }
 
@@ -3868,6 +3935,7 @@ async fn prepare_transcode_task_from_download(
         status: VideoTranscodeTaskStatus::Pending,
         stage: None,
         progress_percent: None,
+        eta_seconds: None,
         error: None,
     }))
 }
@@ -4147,13 +4215,246 @@ async fn run_ffmpeg_capture_output(
     Ok(output)
 }
 
+#[derive(Default)]
+struct FfmpegTranscodeProgressRuntimeState {
+    last_processed_seconds: Option<f64>,
+    last_speed_ratio: Option<f64>,
+    last_emitted_percent_bucket: Option<u64>,
+    last_emitted_eta_seconds: Option<u64>,
+}
+
+fn with_ffmpeg_progress_pipe_args(args: Vec<String>) -> Vec<String> {
+    let Some((output_path, head)) = args.split_last() else {
+        return args;
+    };
+
+    let mut progress_args = Vec::with_capacity(args.len() + 3);
+    progress_args.extend(head.iter().cloned());
+    progress_args.extend([
+        "-progress".to_string(),
+        "pipe:1".to_string(),
+        "-nostats".to_string(),
+    ]);
+    progress_args.push(output_path.clone());
+    progress_args
+}
+
+fn compute_ffmpeg_transcode_eta_seconds(
+    total_duration_seconds: Option<f64>,
+    processed_seconds: Option<f64>,
+    speed_ratio: Option<f64>,
+    started_at: std::time::Instant,
+) -> Option<u64> {
+    let total_duration_seconds = total_duration_seconds.filter(|value| *value > 0.0)?;
+    let processed_seconds = processed_seconds
+        .filter(|value| value.is_finite() && *value >= 0.0)?
+        .min(total_duration_seconds);
+    let remaining_seconds = (total_duration_seconds - processed_seconds).max(0.0);
+
+    if remaining_seconds <= 0.05 {
+        return Some(0);
+    }
+
+    let effective_speed = speed_ratio
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .or_else(|| {
+            let elapsed_wall_seconds = started_at.elapsed().as_secs_f64();
+            if elapsed_wall_seconds <= 0.0 || processed_seconds <= 0.0 {
+                None
+            } else {
+                Some(processed_seconds / elapsed_wall_seconds)
+            }
+        })?;
+
+    Some((remaining_seconds / effective_speed).max(0.0).round() as u64)
+}
+
+fn maybe_emit_ffmpeg_transcode_progress(
+    app: &AppHandle,
+    trace_id: &str,
+    stage: VideoTranscodeStage,
+    total_duration_seconds: Option<f64>,
+    state: &mut FfmpegTranscodeProgressRuntimeState,
+    started_at: std::time::Instant,
+    force_emit: bool,
+) {
+    let progress_percent = match (state.last_processed_seconds, total_duration_seconds) {
+        (Some(processed_seconds), Some(total_duration_seconds))
+            if total_duration_seconds.is_finite() && total_duration_seconds > 0.0 =>
+        {
+            Some(((processed_seconds / total_duration_seconds) * 100.0).clamp(0.0, 100.0) as f32)
+        }
+        _ => None,
+    };
+    let eta_seconds = compute_ffmpeg_transcode_eta_seconds(
+        total_duration_seconds,
+        state.last_processed_seconds,
+        state.last_speed_ratio,
+        started_at,
+    );
+    let percent_bucket = progress_percent.map(|value| value.floor() as u64);
+    let should_emit = force_emit
+        || state.last_emitted_percent_bucket != percent_bucket
+        || state.last_emitted_eta_seconds != eta_seconds;
+
+    if !should_emit {
+        return;
+    }
+
+    state.last_emitted_percent_bucket = percent_bucket;
+    state.last_emitted_eta_seconds = eta_seconds;
+
+    set_active_video_transcode_stage(
+        app,
+        trace_id,
+        stage,
+        progress_percent,
+        eta_seconds,
+        stage.status_text(),
+    );
+}
+
+async fn run_ffmpeg_with_transcode_progress(
+    app: &AppHandle,
+    args: Vec<String>,
+    trace_id: &str,
+    progress_stage: VideoTranscodeStage,
+    total_duration_seconds: Option<f64>,
+) -> Result<(), String> {
+    ensure_managed_ffmpeg_runtime_ready(app, "ffmpeg task").await?;
+    let ffmpeg_path = ffmpeg_binary_path(app)?;
+    let ffmpeg_path_display = ffmpeg_path.to_string_lossy().to_string();
+    let progress_args = with_ffmpeg_progress_pipe_args(args);
+    let mut command =
+        spawn_streaming_cli_command(&ffmpeg_path, &progress_args, &[]).map_err(|e| {
+            format!(
+                "Failed to spawn ffmpeg task using {}: {}",
+                ffmpeg_path_display, e
+            )
+        })?;
+
+    register_transcode_child(trace_id, command.pid);
+    if is_transcode_cancelled(trace_id) {
+        force_kill_process(command.pid);
+    }
+
+    let started_at = std::time::Instant::now();
+    let mut stderr_buffer = String::new();
+    let mut progress_state = FfmpegTranscodeProgressRuntimeState::default();
+
+    while let Some(event) = command.rx.recv().await {
+        match event {
+            CommandEvent::Stdout(line) => {
+                let line = String::from_utf8_lossy(&line);
+                let normalized_line = strip_ansi_escape_sequences(&line).trim().to_string();
+                if normalized_line.is_empty() {
+                    continue;
+                }
+
+                if let Some(processed_seconds) =
+                    parse_ffmpeg_progress_out_time_seconds(normalized_line.as_str())
+                {
+                    progress_state.last_processed_seconds = Some(processed_seconds);
+                    maybe_emit_ffmpeg_transcode_progress(
+                        app,
+                        trace_id,
+                        progress_stage,
+                        total_duration_seconds,
+                        &mut progress_state,
+                        started_at,
+                        false,
+                    );
+                    continue;
+                }
+
+                if let Some(speed_ratio) =
+                    parse_ffmpeg_progress_speed_ratio(normalized_line.as_str())
+                {
+                    progress_state.last_speed_ratio = Some(speed_ratio);
+                    maybe_emit_ffmpeg_transcode_progress(
+                        app,
+                        trace_id,
+                        progress_stage,
+                        total_duration_seconds,
+                        &mut progress_state,
+                        started_at,
+                        false,
+                    );
+                    continue;
+                }
+
+                if normalized_line == "progress=end" {
+                    progress_state.last_processed_seconds = total_duration_seconds
+                        .or(progress_state.last_processed_seconds)
+                        .or(Some(0.0));
+                    maybe_emit_ffmpeg_transcode_progress(
+                        app,
+                        trace_id,
+                        progress_stage,
+                        total_duration_seconds,
+                        &mut progress_state,
+                        started_at,
+                        true,
+                    );
+                }
+            }
+            CommandEvent::Stderr(line) => {
+                let line = String::from_utf8_lossy(&line);
+                let normalized_line = strip_ansi_escape_sequences(&line).trim().to_string();
+                if normalized_line.is_empty() {
+                    continue;
+                }
+                stderr_buffer.push_str(normalized_line.as_str());
+                stderr_buffer.push('\n');
+            }
+            CommandEvent::Terminated(payload) => {
+                clear_transcode_child(trace_id);
+                if payload.code == Some(0) {
+                    return Ok(());
+                }
+                let failure = stderr_buffer
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| {
+                        payload
+                            .code
+                            .map(|code| format!("ffmpeg exited with code {}", code))
+                            .unwrap_or_else(|| "ffmpeg exited without a status code".to_string())
+                    });
+                return Err(failure);
+            }
+        }
+
+        if is_transcode_cancelled(trace_id) {
+            force_kill_process(command.pid);
+        }
+    }
+
+    clear_transcode_child(trace_id);
+    Err("ffmpeg task ended without a termination event".to_string())
+}
+
 async fn run_ffmpeg_with_args(
     app: &AppHandle,
     args: Vec<String>,
     tracked_transcode_trace_id: Option<&str>,
+    progress_stage: Option<VideoTranscodeStage>,
+    total_duration_seconds: Option<f64>,
 ) -> Result<(), String> {
-    let output =
-        run_ffmpeg_capture_output(app, args, "ffmpeg task", tracked_transcode_trace_id).await?;
+    if let Some(trace_id) = tracked_transcode_trace_id {
+        return run_ffmpeg_with_transcode_progress(
+            app,
+            args,
+            trace_id,
+            progress_stage.unwrap_or(VideoTranscodeStage::Transcoding),
+            total_duration_seconds,
+        )
+        .await;
+    }
+
+    let output = run_ffmpeg_capture_output(app, args, "ffmpeg task", None).await?;
 
     if !output.status.success() {
         return Err(extract_process_failure_message(
@@ -4182,6 +4483,7 @@ async fn normalize_video_output_for_ae(
         trace_id,
         VideoTranscodeStage::Analyzing,
         None,
+        None,
         "Analyzing source media...",
     );
 
@@ -4209,6 +4511,9 @@ async fn normalize_video_output_for_ae(
         .as_ref()
         .map(MediaProbeSummary::normalization_plan)
         .unwrap_or(AeSafeNormalizationPlan::FullTranscode);
+    let transcode_duration_seconds = probe_summary
+        .as_ref()
+        .and_then(|summary| summary.duration_seconds);
 
     if is_transcode_cancelled(trace_id) {
         return Ok(None);
@@ -4241,7 +4546,7 @@ async fn normalize_video_output_for_ae(
     } else {
         VideoTranscodeStage::Transcoding
     };
-    set_active_video_transcode_stage(app, trace_id, initial_stage, None, plan.status_text());
+    set_active_video_transcode_stage(app, trace_id, initial_stage, None, None, plan.status_text());
     append_runtime_log_event(
         "transcode",
         "start",
@@ -4281,9 +4586,15 @@ async fn normalize_video_output_for_ae(
                 "+faststart".to_string(),
                 temp_output_path.to_string_lossy().to_string(),
             ];
-            run_ffmpeg_with_args(app, ffmpeg_args, Some(trace_id))
-                .await
-                .map_err(|e| format!("AE-safe remux failed: {}", e))
+            run_ffmpeg_with_args(
+                app,
+                ffmpeg_args,
+                Some(trace_id),
+                Some(VideoTranscodeStage::FinalizingMp4),
+                transcode_duration_seconds,
+            )
+            .await
+            .map_err(|e| format!("AE-safe remux failed: {}", e))
         }
         AeSafeNormalizationPlan::AudioTranscode => {
             let ffmpeg_args = vec![
@@ -4307,9 +4618,15 @@ async fn normalize_video_output_for_ae(
                 "+faststart".to_string(),
                 temp_output_path.to_string_lossy().to_string(),
             ];
-            run_ffmpeg_with_args(app, ffmpeg_args, Some(trace_id))
-                .await
-                .map_err(|e| format!("AE-safe audio transcode failed: {}", e))
+            run_ffmpeg_with_args(
+                app,
+                ffmpeg_args,
+                Some(trace_id),
+                Some(VideoTranscodeStage::Transcoding),
+                transcode_duration_seconds,
+            )
+            .await
+            .map_err(|e| format!("AE-safe audio transcode failed: {}", e))
         }
         AeSafeNormalizationPlan::FullTranscode => {
             if let Some(gpu_encoder) = resolve_precise_clip_hw_encoder(app) {
@@ -4333,7 +4650,15 @@ async fn normalize_video_output_for_ae(
                         "audioBitrate": AE_SAFE_AUDIO_BITRATE,
                     }),
                 );
-                match run_ffmpeg_with_args(app, ffmpeg_args, Some(trace_id)).await {
+                match run_ffmpeg_with_args(
+                    app,
+                    ffmpeg_args,
+                    Some(trace_id),
+                    Some(VideoTranscodeStage::Transcoding),
+                    transcode_duration_seconds,
+                )
+                .await
+                {
                     Ok(_) => Ok(()),
                     Err(err) => {
                         println!(
@@ -4374,14 +4699,20 @@ async fn normalize_video_output_for_ae(
                                 "audioBitrate": AE_SAFE_AUDIO_BITRATE,
                             }),
                         );
-                        run_ffmpeg_with_args(app, cpu_args, Some(trace_id))
-                            .await
-                            .map_err(|cpu_err| {
-                                format!(
-                                    "AE-safe full transcode failed after GPU fallback: {}",
-                                    cpu_err
-                                )
-                            })
+                        run_ffmpeg_with_args(
+                            app,
+                            cpu_args,
+                            Some(trace_id),
+                            Some(VideoTranscodeStage::Transcoding),
+                            transcode_duration_seconds,
+                        )
+                        .await
+                        .map_err(|cpu_err| {
+                            format!(
+                                "AE-safe full transcode failed after GPU fallback: {}",
+                                cpu_err
+                            )
+                        })
                     }
                 }
             } else {
@@ -4403,9 +4734,15 @@ async fn normalize_video_output_for_ae(
                         "audioBitrate": AE_SAFE_AUDIO_BITRATE,
                     }),
                 );
-                run_ffmpeg_with_args(app, cpu_args, Some(trace_id))
-                    .await
-                    .map_err(|e| format!("AE-safe full transcode failed: {}", e))
+                run_ffmpeg_with_args(
+                    app,
+                    cpu_args,
+                    Some(trace_id),
+                    Some(VideoTranscodeStage::Transcoding),
+                    transcode_duration_seconds,
+                )
+                .await
+                .map_err(|e| format!("AE-safe full transcode failed: {}", e))
             }
         }
     };
@@ -4426,6 +4763,7 @@ async fn normalize_video_output_for_ae(
         app,
         trace_id,
         VideoTranscodeStage::FinalizingMp4,
+        None,
         None,
         "Replacing original file with AE-safe MP4...",
     );
@@ -5681,6 +6019,7 @@ fn try_start_next_video_transcode_task(app: &AppHandle) -> Option<VideoTranscode
             task.status = VideoTranscodeTaskStatus::Active;
             task.stage = None;
             task.progress_percent = None;
+            task.eta_seconds = None;
             task.error = None;
             state.active = Some(task.clone());
             Some((
@@ -5704,6 +6043,7 @@ fn set_active_video_transcode_stage(
     trace_id: &str,
     stage: VideoTranscodeStage,
     progress_percent: Option<f32>,
+    eta_seconds: Option<u64>,
     status_text: &str,
 ) {
     let updated = {
@@ -5717,6 +6057,7 @@ fn set_active_video_transcode_stage(
             active.status = VideoTranscodeTaskStatus::Active;
             active.stage = Some(stage);
             active.progress_percent = progress_percent;
+            active.eta_seconds = eta_seconds;
             active.error = None;
             let payload = active.detail_payload();
             Some((
@@ -5739,6 +6080,7 @@ fn set_active_video_transcode_stage(
             serde_json::json!({
                 "stage": stage,
                 "progressPercent": progress_percent,
+                "etaSeconds": eta_seconds,
                 "status": sanitize_runtime_text(status_text),
             }),
         );
@@ -5807,6 +6149,7 @@ fn mark_video_transcode_failed(
         active.status = VideoTranscodeTaskStatus::Failed;
         active.stage = Some(VideoTranscodeStage::Failed);
         active.progress_percent = None;
+        active.eta_seconds = None;
         active.error = Some(error);
         state.failed.push_back(active.clone());
         Some((
@@ -5949,6 +6292,7 @@ fn retry_failed_video_transcode_task(app: &AppHandle, trace_id: &str) -> Result<
         task.status = VideoTranscodeTaskStatus::Pending;
         task.stage = None;
         task.progress_percent = None;
+        task.eta_seconds = None;
         task.error = None;
         state.pending.push_front(task.clone());
         (
@@ -16459,6 +16803,7 @@ At least one output file must be specified"#;
         assert!(summary.has_audio_stream);
         assert_eq!(summary.video_codec.as_deref(), Some("h264"));
         assert_eq!(summary.audio_codec.as_deref(), Some("aac"));
+        assert_eq!(summary.duration_seconds, Some(10.0));
         assert!(summary.is_ae_safe());
     }
 
@@ -16470,6 +16815,36 @@ At least one output file must be specified"#;
 
         assert!(err.contains("ffmpeg probe failed"));
         assert!(err.contains("No such file or directory"));
+    }
+
+    #[test]
+    fn parse_ffprobe_duration_seconds_accepts_only_positive_finite_values() {
+        assert_eq!(parse_ffprobe_duration_seconds(Some("12.5")), Some(12.5));
+        assert_eq!(parse_ffprobe_duration_seconds(Some("0")), None);
+        assert_eq!(parse_ffprobe_duration_seconds(Some("-1")), None);
+        assert_eq!(parse_ffprobe_duration_seconds(Some("NaN")), None);
+        assert_eq!(parse_ffprobe_duration_seconds(None), None);
+    }
+
+    #[test]
+    fn parse_ffmpeg_probe_duration_seconds_reads_duration_header() {
+        let parsed = parse_ffmpeg_probe_duration_seconds(
+            "Duration: 00:01:23.50, start: 0.000000, bitrate: 612 kb/s",
+        )
+        .expect("expected ffmpeg duration header to parse");
+
+        assert!((parsed - 83.5).abs() < 0.000_1);
+    }
+
+    #[test]
+    fn parse_ffmpeg_progress_lines_read_out_time_and_speed() {
+        let out_time = parse_ffmpeg_progress_out_time_seconds("out_time=00:01:23.45")
+            .expect("expected out_time to parse");
+        let speed = parse_ffmpeg_progress_speed_ratio("speed=1.37x")
+            .expect("expected speed ratio to parse");
+
+        assert!((out_time - 83.45).abs() < 0.000_1);
+        assert!((speed - 1.37).abs() < 0.000_1);
     }
 
     #[test]
