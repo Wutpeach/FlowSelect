@@ -4678,6 +4678,14 @@ async fn normalize_video_output_for_ae(
                 {
                     Ok(_) => Ok(()),
                     Err(err) => {
+                        if is_transcode_cancelled(trace_id) {
+                            println!(
+                                ">>> [Rust] AE-safe GPU transcode cancelled during {} run. Skipping CPU fallback.",
+                                gpu_encoder
+                            );
+                            let _ = fs::remove_file(&temp_output_path);
+                            return Ok(None);
+                        }
                         println!(
                             ">>> [Rust] AE-safe GPU transcode failed with {}: {}. Falling back to CPU.",
                             gpu_encoder, err
