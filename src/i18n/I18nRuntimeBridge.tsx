@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../runtime/event";
 
 import {
   DESKTOP_LANGUAGE_CHANGED_EVENT,

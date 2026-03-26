@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "../runtime/core";
+import { emit } from "../runtime/event";
+import { getCurrentWindow } from "../runtime/window";
 import { useTheme } from "../contexts/ThemeContext";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
@@ -22,7 +22,7 @@ function ContextMenuPage() {
     const currentWindow = getCurrentWindow();
     let isMounted = true;
     let unlistenFocus: (() => void) | null = null;
-    let unlistenTauriBlur: (() => void) | null = null;
+    let unlistenBlur: (() => void) | null = null;
     const armDismissTimer = window.setTimeout(() => {
       dismissArmedRef.current = true;
     }, 150);
@@ -48,7 +48,7 @@ function ContextMenuPage() {
       });
 
     currentWindow
-      .listen("tauri://blur", () => {
+      .onBlur(() => {
         if (shouldIgnoreDismiss()) {
           return;
         }
@@ -56,7 +56,7 @@ function ContextMenuPage() {
       })
       .then((fn) => {
         if (isMounted) {
-          unlistenTauriBlur = fn;
+          unlistenBlur = fn;
         } else {
           fn();
         }
@@ -91,8 +91,8 @@ function ContextMenuPage() {
       if (unlistenFocus) {
         unlistenFocus();
       }
-      if (unlistenTauriBlur) {
-        unlistenTauriBlur();
+      if (unlistenBlur) {
+        unlistenBlur();
       }
     };
   }, [requestClose]);

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, emit } from '@tauri-apps/api/event';
+import { invoke } from '../runtime/core';
+import { listen, emit } from '../runtime/event';
 
 export type Theme = 'black' | 'white';
 const DEFAULT_THEME: Theme = 'black';

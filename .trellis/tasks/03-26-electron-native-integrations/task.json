@@ -1,0 +1,51 @@
+{
+  "id": "electron-native-integrations",
+  "name": "electron-native-integrations",
+  "title": "Electron native integrations and extension transport",
+  "description": "Port native desktop integrations such as tray, shortcuts, autostart, dialogs, updater, relaunch, and extension WebSocket transport into Electron main process services.",
+  "status": "completed",
+  "dev_type": "fullstack",
+  "scope": "native-integrations",
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-03-26",
+  "completedAt": "2026-03-26T21:11:28.4409172+08:00",
+  "branch": "task/03-26-electron-native-integrations",
+  "base_branch": "main",
+  "worktree_path": "D:\\trellis-worktrees\\task\\03-26-electron-native-integrations",
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "03-26-migrate-tauri-to-electron",
+  "relatedFiles": [
+    "browser-extension/background.js",
+    "src-tauri/src/lib.rs",
+    "src/App.tsx",
+    "src/pages/SettingsPage.tsx",
+    "src/pages/ContextMenuPage.tsx"
+  ],
+  "notes": "Keep the extension WebSocket host and action protocol stable by default. Any protocol break requires an explicit follow-up ADR and browser-extension migration path.",
+  "meta": {}
+}

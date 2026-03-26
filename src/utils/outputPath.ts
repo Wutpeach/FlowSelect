@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { invoke } from "../runtime/core";
+import { emit } from "../runtime/event";
 
 type AppConfig = Record<string, unknown> & {
   outputPath?: string;

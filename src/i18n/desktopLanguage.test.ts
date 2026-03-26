@@ -14,7 +14,7 @@ const { invokeMock, i18nState, changeLanguageMock } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@tauri-apps/api/core", () => ({
+vi.mock("../runtime/core", () => ({
   invoke: invokeMock,
 }));
 

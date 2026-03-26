@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
-import { readImage as readClipboardImage } from "@tauri-apps/plugin-clipboard-manager";
-import { open } from "@tauri-apps/plugin-dialog";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { listen } from "./runtime/event";
+import { invoke } from "./runtime/core";
+import { WebviewWindow, currentMonitor, getCurrentWindow, PhysicalPosition } from "./runtime/window";
+import { readImage as readClipboardImage } from "./runtime/clipboard";
+import { open } from "./runtime/dialog";
+import { relaunch } from "./runtime/process";
+import { check, type Update } from "./runtime/updater";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -91,6 +90,9 @@ const resolveRenameMediaEnabled = (config: Record<string, unknown>): boolean => 
 
 const readClipboardImageDataUrl = async (): Promise<string | null> => {
   const clipboardImage = await readClipboardImage();
+  if (!clipboardImage) {
+    return null;
+  }
   const [{ width, height }, rgba] = await Promise.all([
     clipboardImage.size(),
     clipboardImage.rgba(),
