@@ -140,3 +140,20 @@ Renderer updater contract:
 
 - Windows installer builds may surface an update from `window.flowselect.updater.check()`.
 - macOS unsigned builds should return `null` from `window.flowselect.updater.check()` and keep manual release links as the visible update path.
+
+## Download Runtime Core
+
+- The Electron-owned runtime core now lives under `src/electron-runtime/`.
+- It is intentionally transport-agnostic: the package exposes queue/runtime services without importing `electron` directly, so preload/main integration can wrap it later.
+- `src/electron-runtime/commandRouter.ts` is the current compatibility adapter for stable renderer command names. It owns the runtime-backed mapping for `queue_video_download`, `cancel_download`, and runtime dependency status/bootstrap commands while tolerating both camelCase and snake_case payload keys during the migration.
+- Current package responsibilities:
+  - bundled-vs-managed runtime path resolution
+  - runtime dependency gate state
+  - hidden CLI spawning via Node (`windowsHide`)
+  - direct-download execution
+  - yt-dlp execution and progress parsing
+  - Pinterest sidecar execution from direct video hints
+  - queue concurrency and cancel semantics
+- Migration decision:
+  - once the Electron shell is wired to this package, `flowselect-cli-proxy` is no longer the steady-state Windows hidden-process strategy
+  - keep the proxy/build scripts in place only until the Tauri entrypoints are removed by the later cutover task
