@@ -1,9 +1,4 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { X, FolderOpen, Keyboard } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NeonButton } from "../components/ui/neon-button";
@@ -18,6 +13,12 @@ import {
   type NeonDropdownOption,
 } from "../components/ui";
 import { useTheme } from "../contexts/ThemeContext";
+import {
+  desktopCommands,
+  desktopCurrentWindow,
+  desktopEvents,
+  desktopSystem,
+} from "../desktop/runtime";
 import {
   getFieldSurfaceStyle,
   getCompactLabelStyle,
@@ -251,7 +252,7 @@ function SettingsPage() {
 
   const refreshRuntimeDependencyStatus = useCallback(async () => {
     try {
-      const status = await invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
+      const status = await desktopCommands.invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
       setRuntimeDependencyStatus(status);
       return status;
     } catch (err) {
@@ -269,7 +270,7 @@ function SettingsPage() {
     }
 
     try {
-      const versionInfo = await invoke<YtdlpVersionInfo>("check_ytdlp_version");
+      const versionInfo = await desktopCommands.invoke<YtdlpVersionInfo>("check_ytdlp_version");
       setYtdlpInfo(versionInfo);
       return versionInfo;
     } catch (err) {
@@ -281,7 +282,7 @@ function SettingsPage() {
 
   const refreshPinterestDownloaderInfo = useCallback(async () => {
     try {
-      const info = await invoke<PinterestDownloaderInfo>("get_pinterest_downloader_info");
+      const info = await desktopCommands.invoke<PinterestDownloaderInfo>("get_pinterest_downloader_info");
       setPinterestInfo(info);
     } catch (err) {
       console.error("Failed to load Pinterest downloader info:", err);
@@ -291,7 +292,7 @@ function SettingsPage() {
 
   const refreshRuntimeDependencyGateState = useCallback(async () => {
     try {
-      const state = await invoke<RuntimeDependencyGateStatePayload>("refresh_runtime_dependency_gate_state");
+      const state = await desktopCommands.invoke<RuntimeDependencyGateStatePayload>("refresh_runtime_dependency_gate_state");
       setRuntimeDependencyGateState(state);
       return state;
     } catch (err) {
@@ -404,7 +405,7 @@ function SettingsPage() {
   useEffect(() => {
     const loadConfig = async () => {
       try {
-        const configStr = await invoke<string>("get_config");
+        const configStr = await desktopCommands.invoke<string>("get_config");
         const config = JSON.parse(configStr) as Record<string, unknown>;
         if (typeof config.outputPath === "string") {
           setOutputPath(config.outputPath);
@@ -439,7 +440,7 @@ function SettingsPage() {
 
     const loadAutostart = async () => {
       try {
-        const enabled = await invoke<boolean>("get_autostart");
+        const enabled = await desktopCommands.invoke<boolean>("get_autostart");
         setAutostart(enabled);
       } catch (err) {
         console.error("Failed to get autostart status:", err);
@@ -455,7 +456,7 @@ function SettingsPage() {
 
     const loadShortcut = async () => {
       try {
-        const current = await invoke<string>("get_current_shortcut");
+        const current = await desktopCommands.invoke<string>("get_current_shortcut");
         setShortcut(current);
       } catch (err) {
         console.error("Failed to load shortcut:", err);
@@ -470,7 +471,7 @@ function SettingsPage() {
   ]);
 
   useEffect(() => {
-    const unlisten = listen<{ path: string }>("output-path-changed", (event) => {
+    const unlisten = desktopEvents.on<{ path: string }>("output-path-changed", (event) => {
       setOutputPath(event.payload.path);
     });
 
@@ -536,7 +537,7 @@ function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    const unlisten = listen<{ source: "main" | "settings" }>("ytdlp-version-refresh", (event) => {
+    const unlisten = desktopEvents.on<{ source: "main" | "settings" }>("ytdlp-version-refresh", (event) => {
       if (event.payload.source === "settings") {
         return;
       }
@@ -551,7 +552,7 @@ function SettingsPage() {
   }, [refreshYtdlpVersion, showYtdlpHint, t]);
 
   useEffect(() => {
-    const unlisten = listen<RuntimeDependencyGateStatePayload>(
+    const unlisten = desktopEvents.on<RuntimeDependencyGateStatePayload>(
       "runtime-dependency-gate-state",
       (event) => {
         setRuntimeDependencyGateState(event.payload);
@@ -589,12 +590,12 @@ function SettingsPage() {
   const confirmShortcut = async () => {
     if (!recordedKeys) return;
     try {
-      await invoke("register_shortcut", { shortcut: recordedKeys });
+      await desktopCommands.invoke("register_shortcut", { shortcut: recordedKeys });
       // 保存到配置
-      const configStr = await invoke<string>("get_config");
+      const configStr = await desktopCommands.invoke<string>("get_config");
       const config = JSON.parse(configStr);
       config.shortcut = recordedKeys;
-      await invoke("save_config", { json: JSON.stringify(config) });
+      await desktopCommands.invoke("save_config", { json: JSON.stringify(config) });
 
       setShortcut(recordedKeys);
       setIsRecording(false);
@@ -606,7 +607,7 @@ function SettingsPage() {
 
   const selectOutputPath = async () => {
     try {
-      const selected = await open({
+      const selected = await desktopSystem.openDialog({
         directory: true,
         multiple: false,
         title: t("desktop:settings.outputFolder.dialogTitle"),
@@ -623,8 +624,8 @@ function SettingsPage() {
   const handleYtdlpUpdate = async () => {
     setIsUpdatingYtdlp(true);
     try {
-      const latestVersion = await invoke<string>("update_ytdlp");
-      await emit("ytdlp-version-refresh", { source: "settings" });
+      const latestVersion = await desktopCommands.invoke<string>("update_ytdlp");
+      await desktopEvents.emit("ytdlp-version-refresh", { source: "settings" });
       await refreshYtdlpVersion();
       showYtdlpHint(t("desktop:settings.downloaders.ytdlp.updatedTo", { version: latestVersion }));
     } catch (err) {
@@ -637,7 +638,7 @@ function SettingsPage() {
 
   const openFlowSelectReleases = async () => {
     try {
-      await openUrl("https://github.com/Wutpeach/FlowSelect/releases");
+      await desktopSystem.openExternal("https://github.com/Wutpeach/FlowSelect/releases");
     } catch (err) {
       console.error("Failed to open FlowSelect releases:", err);
       showPinterestHint(t("desktop:settings.downloaders.pinterest.openReleasesFailed"));
@@ -659,7 +660,7 @@ function SettingsPage() {
   const toggleAutostart = async () => {
     try {
       const newValue = !autostart;
-      await invoke("set_autostart", { enabled: newValue });
+      await desktopCommands.invoke("set_autostart", { enabled: newValue });
       setAutostart(newValue);
     } catch (err) {
       console.error("Failed to toggle autostart:", err);
@@ -670,12 +671,12 @@ function SettingsPage() {
     try {
       const newValue = !renameMediaOnDownload;
       setRenameMediaOnDownload(newValue);
-      const configStr = await invoke<string>("get_config");
+      const configStr = await desktopCommands.invoke<string>("get_config");
       const config = JSON.parse(configStr);
       config.renameMediaOnDownload = newValue;
       config.videoKeepOriginalName = !newValue;
-      await invoke<void>("save_config", { json: JSON.stringify(config) });
-      await emit("rename-setting-changed", { enabled: newValue });
+      await desktopCommands.invoke<void>("save_config", { json: JSON.stringify(config) });
+      await desktopEvents.emit("rename-setting-changed", { enabled: newValue });
     } catch (err) {
       console.error("Failed to toggle rename media:", err);
     }
@@ -689,7 +690,7 @@ function SettingsPage() {
     }>,
   ) => {
     try {
-      const configStr = await invoke<string>("get_config");
+      const configStr = await desktopCommands.invoke<string>("get_config");
       const config = JSON.parse(configStr);
       if (updates.renameRulePreset !== undefined) {
         config.renameRulePreset = updates.renameRulePreset;
@@ -700,7 +701,7 @@ function SettingsPage() {
       if (updates.renameSuffix !== undefined) {
         config.renameSuffix = updates.renameSuffix;
       }
-      await invoke<void>("save_config", { json: JSON.stringify(config) });
+      await desktopCommands.invoke<void>("save_config", { json: JSON.stringify(config) });
     } catch (err) {
       console.error("Failed to save rename rule config:", err);
     }
@@ -736,13 +737,13 @@ function SettingsPage() {
     if (supportLogExportInFlightRef.current) return;
     supportLogExportInFlightRef.current = true;
     try {
-      const logPath = await invoke<string>("export_support_log");
+      const logPath = await desktopCommands.invoke<string>("export_support_log");
       const fileName = logPath.split(/[/\\]/).pop() ?? logPath;
       const logDir = getParentDirectory(logPath);
 
       if (logDir) {
         try {
-          await invoke<void>("open_folder", { path: logDir });
+          await desktopCommands.invoke<void>("open_folder", { path: logDir });
           showVersionTapHint(
             t("desktop:settings.supportLog.exportedAndOpened", { fileName }),
           );
@@ -791,23 +792,23 @@ function SettingsPage() {
   const toggleAePortal = async () => {
     const newValue = !aePortalEnabled;
     setAePortalEnabled(newValue);
-    const configStr = await invoke<string>("get_config");
+    const configStr = await desktopCommands.invoke<string>("get_config");
     const config = JSON.parse(configStr);
     config.aePortalEnabled = newValue;
-    await invoke("save_config", { json: JSON.stringify(config) });
+    await desktopCommands.invoke("save_config", { json: JSON.stringify(config) });
   };
 
   const selectAeExePath = async () => {
-    const selected = await open({
+    const selected = await desktopSystem.openDialog({
       filters: [{ name: t("desktop:settings.aePortal.executableFilter"), extensions: ["exe"] }],
       title: t("desktop:settings.aePortal.dialogTitle"),
     });
     if (selected) {
       setAeExePath(selected as string);
-      const configStr = await invoke<string>("get_config");
+      const configStr = await desktopCommands.invoke<string>("get_config");
       const config = JSON.parse(configStr);
       config.aeExePath = selected;
-      await invoke("save_config", { json: JSON.stringify(config) });
+      await desktopCommands.invoke("save_config", { json: JSON.stringify(config) });
     }
   };
 
@@ -817,7 +818,9 @@ function SettingsPage() {
   };
 
   const closeWindow = () => {
-    getCurrentWindow().close();
+    void desktopCurrentWindow.close().catch((err) => {
+      console.error("Failed to close settings window:", err);
+    });
   };
 
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);

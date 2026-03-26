@@ -28,6 +28,7 @@ export type FlowSelectRendererCommand =
   | "register_shortcut"
   | "remove_transcode"
   | "reset_rename_counter"
+  | "retry_transcode"
   | "save_config"
   | "save_data_url"
   | "set_autostart"
@@ -38,6 +39,7 @@ export type FlowSelectRendererCommand =
 
 export type FlowSelectAppEvent =
   | "context-menu-closed"
+  | "devmode-changed"
   | "language-changed"
   | "output-path-changed"
   | "rename-setting-changed"
