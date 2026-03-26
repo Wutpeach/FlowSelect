@@ -2053,7 +2053,7 @@ function App() {
       return;
     }
 
-    // 5. Try reading a clipboard image through the official Tauri plugin.
+    // 5. Try reading a clipboard image through the desktop bridge.
     try {
       const clipboardImageDataUrl = await readClipboardImageDataUrl();
       if (clipboardImageDataUrl) {
@@ -2412,7 +2412,7 @@ function App() {
       // 收集所有文件路径
       const filePaths: string[] = [];
       for (const file of Array.from(e.dataTransfer.files)) {
-        // 尝试获取本地路径 (Electron/Tauri 环境)
+        // 尝试获取本地路径（桌面环境）
         const path = (file as any).path;
         if (path) {
           filePaths.push(path);
@@ -2457,8 +2457,8 @@ function App() {
       return;
     }
 
-    // If not a URL and no files, let Tauri handle it
-    console.log("Not an image URL and no files, letting Tauri handle it");
+    // If not a URL and no files, let the desktop runtime handle it
+    console.log("Not an image URL and no files, letting the desktop runtime handle it");
   };
 
   // Open settings window

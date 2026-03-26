@@ -48,7 +48,7 @@ const resolveBundledCandidates = (
   fileName: string,
 ): string[] => {
   const candidates = [
-    path.join(environment.repoRoot, "src-tauri", "binaries", fileName),
+    path.join(environment.repoRoot, "desktop-assets", "binaries", fileName),
   ];
   if (environment.resourceDir) {
     candidates.push(path.join(environment.resourceDir, "binaries", fileName));

@@ -81,10 +81,6 @@ updateJsonFile("package-lock.json", (lockfile) => {
   }
 });
 
-updateJsonFile("src-tauri/tauri.conf.json", (tauriConfig) => {
-  tauriConfig.version = nextVersion;
-});
-
 updateTextFile("browser-extension/manifest.json", (manifestJson) => {
   const versionFieldPattern = /^(\s*"version"\s*:\s*")[^"]+(")/m;
   if (!versionFieldPattern.test(manifestJson)) {
@@ -95,19 +91,6 @@ updateTextFile("browser-extension/manifest.json", (manifestJson) => {
     versionFieldPattern,
     `$1${nextVersion}$2`,
   );
-});
-
-updateTextFile("src-tauri/Cargo.toml", (cargoToml) => {
-  const sections = cargoToml.split(/\n(?=\[)/);
-  const nextSections = sections.map((section) => {
-    if (!section.startsWith("[package]")) {
-      return section;
-    }
-
-    return section.replace(/^version\s*=\s*"[^"]+"$/m, `version = "${nextVersion}"`);
-  });
-
-  return nextSections.join("\n");
 });
 
 updateTextFile("src/constants/appVersion.ts", () => {

@@ -5,10 +5,10 @@ import { spawnSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const sidecarDir = join(repoRoot, "src-tauri", "pinterest-sidecar");
+const sidecarDir = join(repoRoot, "desktop-assets", "pinterest-sidecar");
 const lockPath = join(sidecarDir, "lock.json");
-const binariesDir = join(repoRoot, "src-tauri", "binaries");
-const buildRoot = join(repoRoot, "src-tauri", "target", "pinterest-sidecar");
+const binariesDir = join(repoRoot, "desktop-assets", "binaries");
+const buildRoot = join(repoRoot, "build", "pinterest-sidecar");
 
 const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 

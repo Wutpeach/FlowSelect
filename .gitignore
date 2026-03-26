@@ -14,7 +14,6 @@ dist-electron
 dist-release
 dist-ssr
 build
-src-tauri/target
 *.local
 .env*
 cookiefile*
@@ -49,11 +48,9 @@ gcm-diagnose.log
 AGENTS.md
 CLAUDE.md
 
-# Tauri sidecar binaries (downloaded in CI)
-src-tauri/binaries/*.exe
-src-tauri/binaries/flowselect-cli-proxy-*
-src-tauri/binaries/pinterest-dl-*
-src-tauri/runtime-proxy/target/
+# Desktop runtime binaries (downloaded or built in CI)
+desktop-assets/binaries/*.exe
+desktop-assets/binaries/pinterest-dl-*
 
 # Python cache artifacts
 __pycache__/

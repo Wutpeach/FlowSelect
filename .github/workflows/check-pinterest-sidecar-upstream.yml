@@ -79,15 +79,15 @@ jobs:
               "",
               updateAvailable ? "Action required:" : "Current state:",
               updateAvailable
-                ? "- Review the upstream release notes and decide whether to bump `src-tauri/pinterest-sidecar/lock.json`."
+                ? "- Review the upstream release notes and decide whether to bump `desktop-assets/pinterest-sidecar/lock.json`."
                 : "- The lockfile already matches or exceeds the latest stable PyPI release.",
               updateAvailable ? "- Run the Pinterest sidecar build, smoke, and regression checks before shipping the next app release." : null,
               "",
               "Required verification commands:",
               "- `node ./scripts/build-pinterest-sidecar.mjs --target x86_64-pc-windows-msvc`",
               "- `npm run smoke:pinterest-sidecar -- --mode binary --target x86_64-pc-windows-msvc`",
+              "- `npm run type-check`",
               "- `npm test`",
-              "- `cargo test --manifest-path src-tauri/Cargo.toml`",
               "",
               `Workflow run: ${runUrl}`,
             ].filter(Boolean).join("\n");

@@ -46,17 +46,14 @@ async function syncTarget(contract, targetRoot) {
 async function main() {
   const contract = await readJson(contractPath);
   const sourceRoot = path.join(repoRoot, contract.paths.source);
-  const desktopTargetRoot = path.join(repoRoot, contract.paths.desktopResources);
   const extensionTargetRoot = path.join(repoRoot, contract.paths.extensionResources);
 
   await ensureSourceLocales(contract, sourceRoot);
-  await syncTarget(contract, desktopTargetRoot);
   await syncTarget(contract, extensionTargetRoot);
 
   console.log(
     `Synced locales for ${contract.supportedLanguages.length} languages and ${contract.namespaces.length} namespaces.`,
   );
-  console.log(`Desktop resources: ${path.relative(repoRoot, desktopTargetRoot)}`);
   console.log(`Extension resources: ${path.relative(repoRoot, extensionTargetRoot)}`);
 }
 

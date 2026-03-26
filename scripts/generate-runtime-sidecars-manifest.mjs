@@ -94,7 +94,7 @@ function main() {
   const minAppVersion = minAppVersionRaw || undefined;
   const lockPath = lockArg
     ? resolve(repoRoot, lockArg)
-    : join(repoRoot, "src-tauri", "pinterest-sidecar", "lock.json");
+    : join(repoRoot, "desktop-assets", "pinterest-sidecar", "lock.json");
 
   if (!assetsDirArg) {
     throw new Error("Missing required --assets-dir");

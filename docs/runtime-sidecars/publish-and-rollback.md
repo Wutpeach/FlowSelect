@@ -17,7 +17,7 @@ Workflow file: `.github/workflows/publish-runtime-sidecars.yml`
   - `x86_64-pc-windows-msvc`
   - `x86_64-apple-darwin`
   - `aarch64-apple-darwin`
-- `runtime-sidecars-manifest.json` generated from `src-tauri/pinterest-sidecar/lock.json`
+- `runtime-sidecars-manifest.json` generated from `desktop-assets/pinterest-sidecar/lock.json`
 
 ### Manifest URLs
 
@@ -48,5 +48,5 @@ Use this when a newly published sidecar manifest must be reverted.
 
 ## Notes
 
-- `flowselectSidecarVersion` and `upstreamVersion` must always come from `src-tauri/pinterest-sidecar/lock.json`.
+- `flowselectSidecarVersion` and `upstreamVersion` must always come from `desktop-assets/pinterest-sidecar/lock.json`.
 - Rollback is manifest-pointer based; clients fetch latest manifest and naturally follow the rollback target URLs.
