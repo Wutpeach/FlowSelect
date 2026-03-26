@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const lockPath = join(repoRoot, "src-tauri", "pinterest-sidecar", "lock.json");
+const lockPath = join(repoRoot, "desktop-assets", "pinterest-sidecar", "lock.json");
 const versionCollator = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: "base",

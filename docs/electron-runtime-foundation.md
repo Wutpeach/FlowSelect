@@ -1,25 +1,19 @@
 # Electron Runtime Foundation
 
-This document freezes the runtime boundary for FlowSelect's Tauri-to-Electron migration. It is the tracked counterpart to the local Trellis task artifacts and should be treated as the repo-visible contract for later implementation tasks.
+This document freezes the runtime boundary for FlowSelect after the Electron cutover. It should be treated as the repo-visible contract for the current desktop runtime, preload bridge, and packaging flow.
 
 ## Current Ownership Snapshot
 
-- Renderer files currently depend on Tauri APIs/plugins from:
-  - `src/App.tsx`
-  - `src/pages/SettingsPage.tsx`
-  - `src/pages/ContextMenuPage.tsx`
-  - `src/contexts/ThemeContext.tsx`
-  - `src/main.tsx`
-- Native runtime ownership currently lives in:
+- Renderer runtime access now flows through:
+  - `src/desktop/runtime.ts`
+  - `src/types/electronBridge.ts`
+- Native runtime ownership lives in:
   - `electron/main.mts`
   - `electron/preload.mts`
-  - `src/desktop/runtime.ts`
-- Legacy migration assets that still stay repo-visible live in:
-  - `src-tauri/src/lib.rs`
-  - `src-tauri/src/native_i18n.rs`
-  - `src-tauri/binaries/`
-  - `src-tauri/pinterest-sidecar/`
-  - `src-tauri/tauri.conf.json` (version-sync target only)
+- Repo-visible desktop assets live in:
+  - `desktop-assets/binaries/`
+  - `desktop-assets/icons/`
+  - `desktop-assets/pinterest-sidecar/`
 - Browser-extension transport currently lives in:
   - `browser-extension/background.js`
 - Current release/build packaging lives in:
@@ -29,23 +23,23 @@ This document freezes the runtime boundary for FlowSelect's Tauri-to-Electron mi
   - `scripts/package-portable.ps1`
   - `scripts/package-macos-open-source-dmg.mjs`
 
-## Replacement Matrix
+## Compatibility Matrix
 
-| Current surface | Electron replacement | Contract |
+| Legacy surface | Electron replacement | Contract |
 |-----------------|----------------------|----------|
-| `@tauri-apps/api/core.invoke` | `window.flowselect.commands.invoke` | Keep current command names and payload keys stable during migration. |
-| `@tauri-apps/api/event.listen` / `emit` | `window.flowselect.events.on` / `emit` | Keep current event names and payload shapes stable. |
+| Legacy renderer invoke boundary | `window.flowselect.commands.invoke` | Keep current command names and payload keys stable across the Electron runtime. |
+| Legacy renderer event boundary | `window.flowselect.events.on` / `emit` | Keep current event names and payload shapes stable. |
 | `WebviewWindow.getByLabel(...)` | `window.flowselect.windows.has` / `focus` | Keep labels `main`, `settings`, `context-menu`. |
 | `new WebviewWindow("settings", ...)` | `window.flowselect.windows.openSettings(...)` | Electron main owns BrowserWindow creation. |
 | `new WebviewWindow("context-menu", ...)` | `window.flowselect.windows.openContextMenu(...)` | Electron main owns BrowserWindow creation and parent wiring. |
 | `getCurrentWindow()` + `currentMonitor()` | `window.flowselect.currentWindow.*` and `window.flowselect.system.currentMonitor()` | Keep logical-position math in the renderer-facing contract. |
-| `plugin-dialog.open(...)` | `window.flowselect.system.openDialog(...)` | Dialog invocation stays main-owned. |
-| `plugin-clipboard-manager.readImage()` | `window.flowselect.clipboard.readImage()` | Return structured pixel data, not Node/Electron handles. |
-| `plugin-opener.openUrl(...)` | `window.flowselect.system.openExternal(...)` | External opens stay main-owned. |
-| `plugin-process.relaunch()` | `window.flowselect.system.relaunch()` | Relaunch remains preload-mediated only. |
-| `plugin-updater.check()` / `Update.downloadAndInstall(...)` | `window.flowselect.updater.check()` / `downloadAndInstall()` | Do not leak raw updater objects into renderer. |
-| Tauri tray/global-shortcut/autostart/single-instance plugins | Electron main process services | Preserve user-visible behavior unless a later contract change explicitly documents a break. |
-| Rust loopback WS server | Electron main `ws` server | Keep host, port, action names, and `requestId` correlation stable. |
+| Legacy desktop dialog open | `window.flowselect.system.openDialog(...)` | Dialog invocation stays main-owned. |
+| Legacy clipboard image read | `window.flowselect.clipboard.readImage()` | Return structured pixel data, not Node/Electron handles. |
+| Legacy external open | `window.flowselect.system.openExternal(...)` | External opens stay main-owned. |
+| Legacy relaunch request | `window.flowselect.system.relaunch()` | Relaunch remains preload-mediated only. |
+| Legacy updater check/install surface | `window.flowselect.updater.check()` / `downloadAndInstall()` | Do not leak raw updater objects into renderer. |
+| Legacy tray/global-shortcut/autostart/single-instance behavior | Electron main process services | Preserve user-visible behavior unless a later contract change explicitly documents a break. |
+| Legacy loopback WS server | Electron main `ws` server | Keep host, port, action names, and `requestId` correlation stable. |
 
 ## Preload Bridge
 
@@ -64,7 +58,7 @@ Required namespaces:
 Renderer rule:
 
 - New Electron-migrated renderer files must use the preload bridge.
-- New renderer code must not import `electron`, Node built-ins, or `@tauri-apps/*`.
+- New renderer code must not import `electron`, Node built-ins, or deprecated desktop-runtime packages directly.
 
 ## Browser Extension Compatibility
 
@@ -142,7 +136,7 @@ Autostart remains runtime-owned OS state, not a `settings.json` key.
   - macOS users stay on the manual release-install path in Phase 1
 - Keep GitHub Releases and `release-notes/v<version>.md` as the canonical release flow.
 - Keep the browser-extension ZIP as a separate release asset.
-- Keep Electron packaging `asar = false` in Phase 1 so the packaged app can continue resolving `dist/`, `locales/`, and `src-tauri/binaries/` through the existing repo-root-relative runtime contract until cleanup work lands.
+- Keep Electron packaging `asar = false` so the packaged app can continue resolving `dist/`, `locales/`, and `desktop-assets/binaries/` through the existing repo-root-relative runtime contract.
 
 Renderer updater contract:
 
@@ -162,6 +156,6 @@ Renderer updater contract:
   - yt-dlp execution and progress parsing
   - Pinterest sidecar execution from direct video hints
   - queue concurrency and cancel semantics
-- Migration decision:
-  - once the Electron shell is wired to this package, `flowselect-cli-proxy` is no longer the steady-state Windows hidden-process strategy
-  - keep the proxy/build scripts in place only until the Tauri entrypoints are removed by the later cutover task
+- Current decision:
+  - legacy runtime proxy binaries are no longer part of the supported Electron runtime path
+  - runtime spawning, packaging, and release scripts should treat the Electron-owned bridge and `desktop-assets/` as the only desktop source of truth

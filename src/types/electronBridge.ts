@@ -2,8 +2,8 @@ import type { AppUpdateInfo } from "./appUpdate";
 
 export type FlowSelectWindowLabel = "main" | "settings" | "context-menu";
 
-// These command names intentionally match the current renderer-facing Tauri commands.
-// The Electron migration changes transport ownership first, not the command vocabulary.
+// These command names intentionally preserve the stable renderer command vocabulary
+// while the transport stays fully Electron-owned.
 export type FlowSelectRendererCommand =
   | "begin_open_output_folder_from_context_menu"
   | "begin_pick_output_folder_from_context_menu"

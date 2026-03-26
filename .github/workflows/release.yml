@@ -50,8 +50,8 @@ jobs:
         shell: pwsh
         run: |
           $downloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-          New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" -MaximumRetryCount 3 -RetryIntervalSec 5
+          New-Item -ItemType Directory -Force -Path "desktop-assets/binaries" | Out-Null
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "desktop-assets/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" -MaximumRetryCount 3 -RetryIntervalSec 5
 
       - name: Download Deno
         shell: pwsh
@@ -66,7 +66,7 @@ jobs:
 
           Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -MaximumRetryCount 3 -RetryIntervalSec 5
           Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
-          Copy-Item (Join-Path $extractDir "deno.exe") "src-tauri/binaries/deno.exe" -Force
+          Copy-Item (Join-Path $extractDir "deno.exe") "desktop-assets/binaries/deno.exe" -Force
 
       - name: Download FFmpeg
         shell: pwsh
@@ -87,7 +87,7 @@ jobs:
             throw "ffmpeg.exe not found in extracted archive"
           }
 
-          Copy-Item $ffmpegBinary.FullName "src-tauri/binaries/ffmpeg.exe" -Force
+          Copy-Item $ffmpegBinary.FullName "desktop-assets/binaries/ffmpeg.exe" -Force
 
       - name: Build Pinterest sidecar
         run: node ./scripts/build-pinterest-sidecar.mjs --target x86_64-pc-windows-msvc
@@ -171,11 +171,11 @@ jobs:
 
       - name: Download yt-dlp
         run: |
-          mkdir -p src-tauri/binaries
+          mkdir -p desktop-assets/binaries
           curl -fL --retry 3 --retry-delay 5 \
             "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" \
-            -o "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
-          chmod +x "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
+            -o "desktop-assets/binaries/yt-dlp-${{ matrix.target }}"
+          chmod +x "desktop-assets/binaries/yt-dlp-${{ matrix.target }}"
 
       - name: Download Deno
         run: |
@@ -183,8 +183,8 @@ jobs:
             "https://github.com/denoland/deno/releases/latest/download/${{ matrix.deno_asset }}" \
             -o "$RUNNER_TEMP/flowselect-deno.zip"
           unzip -o "$RUNNER_TEMP/flowselect-deno.zip" -d "$RUNNER_TEMP/flowselect-deno"
-          cp "$RUNNER_TEMP/flowselect-deno/deno" "src-tauri/binaries/deno"
-          chmod +x "src-tauri/binaries/deno"
+          cp "$RUNNER_TEMP/flowselect-deno/deno" "desktop-assets/binaries/deno"
+          chmod +x "desktop-assets/binaries/deno"
 
       - name: Download FFmpeg
         run: |
@@ -197,8 +197,8 @@ jobs:
             echo "::error::ffmpeg binary not found in extracted archive"
             exit 1
           fi
-          cp "$FFMPEG_BINARY" "src-tauri/binaries/ffmpeg"
-          chmod +x "src-tauri/binaries/ffmpeg"
+          cp "$FFMPEG_BINARY" "desktop-assets/binaries/ffmpeg"
+          chmod +x "desktop-assets/binaries/ffmpeg"
 
       - name: Build Pinterest sidecar
         run: node ./scripts/build-pinterest-sidecar.mjs --target ${{ matrix.target }}

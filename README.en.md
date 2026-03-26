@@ -151,10 +151,11 @@ GitHub Releases also ship a versioned browser-extension archive:
 
 - [`src/`](./src): React frontend for the floating window, settings window, and context menu window
 - [`electron/`](./electron): Electron main-process code and preload bridge
-- [`src-tauri/`](./src-tauri): retained legacy Tauri sources, sidecar assets, and version-sync targets during migration
+- [`desktop-assets/`](./desktop-assets): icons, sidecar sources, and runtime binaries used by the Electron packaging/runtime path
 - [`browser-extension/`](./browser-extension): Companion browser extension sources
 - [`scripts/`](./scripts): repo automation such as version bumps, dev startup helpers, and portable packaging
 - [`release-notes/`](./release-notes): versioned release notes used by the release workflow
+- [`docs/electron-parity-verification.md`](./docs/electron-parity-verification.md): Electron parity verification and release acceptance matrix
 
 ## Quick start
 
@@ -264,7 +265,7 @@ npm run test
 FlowSelect/
 |-- src/                React UI
 |-- electron/           Electron main/preload runtime
-|-- src-tauri/          Legacy migration assets and version-sync targets
+|-- desktop-assets/     Electron runtime assets and sidecar sources
 |-- browser-extension/  Chromium extension
 |-- scripts/            Dev and packaging helpers
 |-- release-notes/      Versioned release notes
@@ -280,4 +281,5 @@ FlowSelect/
 - GitHub Releases are created from tags and the Electron release pipeline publishes the Windows installer, Windows portable ZIP, macOS ZIP, macOS DMG, and the Windows `latest.json` update manifest.
 - The matching release-note file must exist in the tagged commit.
 - GitHub Releases also include `FlowSelect_<version>_browser_extension.zip` for browser-extension updates.
+- The parity gate and cleanup verification matrix lives in [`docs/electron-parity-verification.md`](./docs/electron-parity-verification.md).
 - This public repository contains product source and release assets only; private AI and Trellis workflow files are intentionally excluded.

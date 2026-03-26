@@ -151,10 +151,11 @@ GitHub Releases 也会附带一个版本化扩展包：
 
 - [`src/`](./src)：React 前端，包含主悬浮窗、设置页和右键菜单窗口
 - [`electron/`](./electron)：Electron 主进程与 preload bridge
-- [`src-tauri/`](./src-tauri)：迁移期间保留的旧 Tauri 源码、sidecar 资源和版本入口同步目标
+- [`desktop-assets/`](./desktop-assets)：Electron 打包与下载运行时使用的图标、sidecar 源和运行时二进制资源
 - [`browser-extension/`](./browser-extension)：配套浏览器扩展源码
 - [`scripts/`](./scripts)：版本号更新、开发启动、便携包打包等脚本
 - [`release-notes/`](./release-notes)：发布流程依赖的版本说明文件
+- [`docs/electron-parity-verification.md`](./docs/electron-parity-verification.md)：Electron parity verification 与 release acceptance matrix
 
 ## 快速开始
 
@@ -264,7 +265,7 @@ npm run test
 FlowSelect/
 |-- src/                React UI
 |-- electron/           Electron main/preload runtime
-|-- src-tauri/          Legacy migration assets and version-sync targets
+|-- desktop-assets/     Electron runtime assets and sidecar sources
 |-- browser-extension/  Chromium extension
 |-- scripts/            Dev and packaging helpers
 |-- release-notes/      Versioned release notes
@@ -280,4 +281,5 @@ FlowSelect/
 - GitHub Releases 由标签触发，Electron 发布链路会产出 Windows 安装包、Windows Portable ZIP、macOS ZIP、macOS DMG，以及 Windows `latest.json` 更新清单。
 - 对应版本的 release note 文件必须已经存在于被打标签的提交中。
 - GitHub Releases 还会附带 `FlowSelect_<version>_browser_extension.zip`，用于分发浏览器扩展更新。
+- parity gate 与 cleanup 验证矩阵见 [`docs/electron-parity-verification.md`](./docs/electron-parity-verification.md)。
 - 公开仓库只包含产品源码与发布文件；私有 AI / Trellis 工作流配置不会随仓库公开。

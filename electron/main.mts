@@ -101,11 +101,11 @@ const YTDLP_FORMAT_SELECTOR_DATA_SAVER = [
 ].join("");
 const PINTEREST_LOCK_PATH = join(
   repoRoot,
-  "src-tauri",
+  "desktop-assets",
   "pinterest-sidecar",
   "lock.json",
 );
-const BINARY_DIR = join(repoRoot, "src-tauri", "binaries");
+const BINARY_DIR = join(repoRoot, "desktop-assets", "binaries");
 
 let tray = null;
 let registeredShortcut = "";

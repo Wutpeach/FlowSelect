@@ -42,7 +42,7 @@ jobs:
           node - <<'NODE'
           const fs = require("node:fs");
 
-          const lock = JSON.parse(fs.readFileSync("src-tauri/pinterest-sidecar/lock.json", "utf8"));
+          const lock = JSON.parse(fs.readFileSync("desktop-assets/pinterest-sidecar/lock.json", "utf8"));
           const flowselectSidecarVersion = String(lock?.flowselectSidecarVersion ?? "").trim();
           const upstreamVersion = String(lock?.upstream?.version ?? "").trim();
 
@@ -142,7 +142,7 @@ jobs:
           const target = "${{ matrix.target }}";
           const assetName = "${{ matrix.asset_name }}";
           const repoRoot = process.cwd();
-          const source = path.join(repoRoot, "src-tauri", "binaries", assetName);
+          const source = path.join(repoRoot, "desktop-assets", "binaries", assetName);
           const targetDir = path.join(repoRoot, "runtime-sidecars", target);
           const destination = path.join(targetDir, assetName);
 

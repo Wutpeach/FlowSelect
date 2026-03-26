@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const sidecarDir = join(repoRoot, "src-tauri", "pinterest-sidecar");
+const sidecarDir = join(repoRoot, "desktop-assets", "pinterest-sidecar");
 
 function parseArgs(argv) {
   const parsed = {};
@@ -61,7 +61,7 @@ function localPython() {
 
 function binaryPath(target) {
   const ext = target.endsWith("-windows-msvc") ? ".exe" : "";
-  return join(repoRoot, "src-tauri", "binaries", `pinterest-dl-${target}${ext}`);
+  return join(repoRoot, "desktop-assets", "binaries", `pinterest-dl-${target}${ext}`);
 }
 
 function run(command, args) {

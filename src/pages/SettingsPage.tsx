@@ -1124,7 +1124,6 @@ function SettingsPage() {
     <div style={panelStyle}>
       {/* Draggable Header */}
       <div
-        data-tauri-drag-region
         style={{
           display: 'flex',
           alignItems: 'center',

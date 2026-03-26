@@ -18,7 +18,6 @@ type LocaleContract = {
   };
   paths: {
     source: string;
-    desktopResources: string;
     extensionResources: string;
   };
 };

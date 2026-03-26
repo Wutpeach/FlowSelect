@@ -14,13 +14,13 @@ export default {
     "dist/**/*",
     "dist-electron/**/*",
     "locales/**/*",
-    "src-tauri/binaries/**/*",
-    "src-tauri/pinterest-sidecar/lock.json",
+    "desktop-assets/binaries/**/*",
+    "desktop-assets/pinterest-sidecar/lock.json",
     "app-icon.png",
     "public/favicon.ico",
   ],
   win: {
-    icon: "src-tauri/icons/icon.ico",
+    icon: "desktop-assets/icons/icon.ico",
     target: [
       {
         target: "nsis",
@@ -35,7 +35,7 @@ export default {
     allowToChangeInstallationDirectory: true,
   },
   mac: {
-    icon: "src-tauri/icons/icon.icns",
+    icon: "desktop-assets/icons/icon.icns",
     target: ["zip"],
     artifactName: "FlowSelect_${version}_macos_${arch}.${ext}",
     category: "public.app-category.utilities",

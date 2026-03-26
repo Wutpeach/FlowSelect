@@ -27,7 +27,7 @@ afterEach(() => {
 describe("inspectRuntimeDependencyStatus", () => {
   it("marks bundled and managed paths as ready when files exist", () => {
     const environment = createEnvironment();
-    const binariesDir = path.join(environment.repoRoot, "src-tauri", "binaries");
+    const binariesDir = path.join(environment.repoRoot, "desktop-assets", "binaries");
     const ffmpegRealDir = path.join(
       environment.configDir,
       "runtimes",

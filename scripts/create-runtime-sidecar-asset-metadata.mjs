@@ -51,7 +51,7 @@ function main() {
   const lockArg = String(args.lock ?? "").trim();
   const lockPath = lockArg
     ? resolve(repoRoot, lockArg)
-    : join(repoRoot, "src-tauri", "pinterest-sidecar", "lock.json");
+    : join(repoRoot, "desktop-assets", "pinterest-sidecar", "lock.json");
 
   if (!target) {
     throw new Error("Missing required --target");
