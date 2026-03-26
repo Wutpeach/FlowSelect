@@ -14,8 +14,10 @@ const { invokeMock, i18nState, changeLanguageMock } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: invokeMock,
+vi.mock("../desktop/runtime", () => ({
+  desktopCommands: {
+    invoke: invokeMock,
+  },
 }));
 
 vi.mock("./index", () => ({

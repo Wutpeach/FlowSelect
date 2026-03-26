@@ -1,0 +1,54 @@
+{
+  "id": "electron-release-cutover",
+  "name": "electron-release-cutover",
+  "title": "Electron release pipeline cutover",
+  "description": "Replace Tauri-specific dev/build/release tooling with Electron packaging, updater, CI, and documentation flows.",
+  "status": "completed",
+  "dev_type": "fullstack",
+  "scope": "release-cutover",
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-03-26",
+  "completedAt": "2026-03-26T22:13:11.9247308+08:00",
+  "branch": "task/03-26-electron-release-cutover",
+  "base_branch": "main",
+  "worktree_path": "D:\\trellis-worktrees\\task\\03-26-electron-release-cutover",
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "03-26-migrate-tauri-to-electron",
+  "relatedFiles": [
+    "package.json",
+    "scripts/run-tauri.mjs",
+    "scripts/dev-all.mjs",
+    "scripts/package-portable.ps1",
+    "src-tauri/tauri.conf.json",
+    ".github/workflows/",
+    "README.md",
+    "README.en.md"
+  ],
+  "notes": "Default packaging target is Electron builder with Windows NSIS and macOS DMG/zip updater artifacts. Preserve the repository versioning contract centered on `npm run version:set -- <version>`.",
+  "meta": {}
+}

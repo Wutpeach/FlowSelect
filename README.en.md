@@ -14,13 +14,13 @@
     <img alt="Latest release" src="https://img.shields.io/github/v/release/Wutpeach/FlowSelect?display_name=tag" />
     <img alt="Release workflow" src="https://img.shields.io/github/actions/workflow/status/Wutpeach/FlowSelect/release.yml?label=release" />
     <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-111827" />
-    <img alt="Tauri v2" src="https://img.shields.io/badge/Tauri-v2-24C8DB" />
+    <img alt="Electron 41" src="https://img.shields.io/badge/Electron-41-47848F" />
     <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB" />
     <img alt="TypeScript 5.8" src="https://img.shields.io/badge/TypeScript-5.8-3178C6" />
   </p>
 </div>
 
-FlowSelect is a compact Tauri desktop collector for files, images, and web video. It gives you a small always-on-top window that can accept drag and drop, paste actions, and optional browser-extension picks, then save everything into a controlled output folder.
+FlowSelect is a compact Electron desktop collector for files, images, and web video. It gives you a small always-on-top window that can accept drag and drop, paste actions, and optional browser-extension picks, then save everything into a controlled output folder.
 
 ## Screenshots / Preview
 
@@ -58,13 +58,11 @@ All buttons below open the GitHub Releases page. Pick the matching artifact for 
 ### Windows
 
 <p>
-  <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="Windows MSI" src="https://img.shields.io/badge/Windows-MSI-0078D4?logo=windows&logoColor=white" /></a>
-  <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="Windows NSIS EXE" src="https://img.shields.io/badge/Windows-NSIS_EXE-2563EB?logo=windows&logoColor=white" /></a>
+  <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="Windows Installer EXE" src="https://img.shields.io/badge/Windows-Installer_EXE-2563EB?logo=windows&logoColor=white" /></a>
   <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="Windows Portable ZIP" src="https://img.shields.io/badge/Windows-Portable_ZIP-0F6CBD?logo=windows&logoColor=white" /></a>
 </p>
 
-- `MSI`: best for a standard installer flow.
-- `NSIS EXE`: alternate installer format for Windows distribution.
+- `Installer EXE`: the Electron Builder Windows installer for normal distribution.
 - `Portable ZIP`: unzip and run without installing.
 
 ### macOS
@@ -152,7 +150,8 @@ GitHub Releases also ship a versioned browser-extension archive:
 ## Architecture at a glance
 
 - [`src/`](./src): React frontend for the floating window, settings window, and context menu window
-- [`src-tauri/`](./src-tauri): Rust and Tauri backend for file handling, downloads, queue management, tray integration, shortcuts, and the extension WebSocket server
+- [`electron/`](./electron): Electron main-process code and preload bridge
+- [`src-tauri/`](./src-tauri): retained legacy Tauri sources, sidecar assets, and version-sync targets during migration
 - [`browser-extension/`](./browser-extension): Companion browser extension sources
 - [`scripts/`](./scripts): repo automation such as version bumps, dev startup helpers, and portable packaging
 - [`release-notes/`](./release-notes): versioned release notes used by the release workflow
@@ -161,10 +160,9 @@ GitHub Releases also ship a versioned browser-extension archive:
 
 ### Requirements
 
-- Node.js 18+
+- Node.js 20+
 - npm
-- Rust stable toolchain
-- Tauri system dependencies for your platform
+- Python 3.13+ only if you want to build the bundled Pinterest sidecar or reproduce the release packaging flow locally
 
 ### Install dependencies
 
@@ -175,19 +173,42 @@ npm install
 ### Run in development
 
 ```bash
-npm run tauri:dev
+npm run dev
 ```
 
-### Build the desktop app
+### Build the desktop app code
 
 ```bash
 npm run build
-npm run tauri:build
 ```
 
-`npm run tauri:build` now applies platform defaults:
-- Windows builds only the `NSIS` installer and skips `MSI`
-- macOS builds the `app` bundle so the repository packaging script can produce the custom `DMG`
+### Package desktop artifacts
+
+Windows installer:
+
+```bash
+npm run package:win
+```
+
+Windows portable ZIP:
+
+```bash
+npm run package:portable
+```
+
+macOS unsigned open-source DMG plus ZIP:
+
+```bash
+npm run package:macos-open-source-dmg -- --arch x86_64
+# or
+npm run package:macos-open-source-dmg -- --arch aarch64
+```
+
+Typical output paths:
+- Windows installer: `dist-release/FlowSelect_<version>_windows_x64_installer.exe`
+- Windows portable ZIP: `dist-release/portable/FlowSelect_<version>_windows_x64_portable.zip`
+- macOS ZIP: `dist-release/FlowSelect_<version>_macos_<arch>.zip`
+- macOS DMG: `dist-release/dmg/FlowSelect_<version>_macos_<arch>_installer.dmg`
 
 To package the browser extension by itself:
 
@@ -196,7 +217,7 @@ npm run package:browser-extension
 ```
 
 - Default output path: `dist/browser-extension/FlowSelect_<version>_browser_extension.zip`
-- `npm run package:portable` also emits the same browser-extension ZIP into `src-tauri/target/release/bundle/portable/` so local release packaging includes it
+- `npm run package:portable` also emits the same browser-extension ZIP into `dist-release/portable/` so local release packaging includes it
 
 ### Useful checks
 
@@ -242,7 +263,8 @@ npm run test
 ```text
 FlowSelect/
 |-- src/                React UI
-|-- src-tauri/          Rust backend and Tauri config
+|-- electron/           Electron main/preload runtime
+|-- src-tauri/          Legacy migration assets and version-sync targets
 |-- browser-extension/  Chromium extension
 |-- scripts/            Dev and packaging helpers
 |-- release-notes/      Versioned release notes
@@ -255,6 +277,7 @@ FlowSelect/
 - Use `npm run version:set -- <version>` for version bumps.
 - If the versioned note is missing, that command scaffolds `release-notes/v<version>.md` from `release-notes/TEMPLATE.md`.
 - Fill in and commit `release-notes/v<version>.md` before pushing a release tag.
-- GitHub Releases are created from tags and expect the matching release-note file in the tagged commit.
+- GitHub Releases are created from tags and the Electron release pipeline publishes the Windows installer, Windows portable ZIP, macOS ZIP, macOS DMG, and the Windows `latest.json` update manifest.
+- The matching release-note file must exist in the tagged commit.
 - GitHub Releases also include `FlowSelect_<version>_browser_extension.zip` for browser-extension updates.
 - This public repository contains product source and release assets only; private AI and Trellis workflow files are intentionally excluded.

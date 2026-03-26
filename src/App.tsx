@@ -1,19 +1,19 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
-import { readImage as readClipboardImage } from "@tauri-apps/plugin-clipboard-manager";
-import { open } from "@tauri-apps/plugin-dialog";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NeonIconButton } from "./components/ui";
 import { COMPACT_EASE, getInsetCardStyle, getPanelShellStyle } from "./components/ui/shared-styles";
-import { APP_VERSION } from "./constants/appVersion";
 import type { AppUpdateInfo, AppUpdatePhase } from "./types/appUpdate";
+import {
+  desktopClipboard,
+  desktopCommands,
+  desktopCurrentWindow,
+  desktopEvents,
+  desktopSystem,
+  desktopUpdater,
+  desktopWindows,
+} from "./desktop/runtime";
 import type {
   RuntimeDependencyGatePhase,
   RuntimeDependencyGateStatePayload,
@@ -90,11 +90,12 @@ const resolveRenameMediaEnabled = (config: Record<string, unknown>): boolean => 
 };
 
 const readClipboardImageDataUrl = async (): Promise<string | null> => {
-  const clipboardImage = await readClipboardImage();
-  const [{ width, height }, rgba] = await Promise.all([
-    clipboardImage.size(),
-    clipboardImage.rgba(),
-  ]);
+  const clipboardImage = await desktopClipboard.readImage();
+  if (!clipboardImage) {
+    return null;
+  }
+
+  const { width, height } = clipboardImage;
 
   if (width <= 0 || height <= 0) {
     throw new Error(`Clipboard image has invalid dimensions: ${width}x${height}`);
@@ -109,7 +110,11 @@ const readClipboardImageDataUrl = async (): Promise<string | null> => {
     throw new Error("Failed to create a canvas context for clipboard image paste");
   }
 
-  const imageData = new ImageData(new Uint8ClampedArray(rgba), width, height);
+  const imageData = new ImageData(
+    new Uint8ClampedArray(clipboardImage.rgba),
+    width,
+    height,
+  );
   context.putImageData(imageData, 0, 0);
 
   return canvas.toDataURL("image/png");
@@ -723,7 +728,6 @@ function App() {
   const pasteHandlerRef = useRef<(event: ClipboardEvent) => void>(() => undefined);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
   const pendingDragStartRef = useRef<{ x: number; y: number } | null>(null);
-  const pendingAppUpdateRef = useRef<Update | null>(null);
   const previousTaskCountRef = useRef(0);
   const ongoingTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
@@ -875,7 +879,7 @@ function App() {
 
   const openCurrentOutputFolder = useCallback(async () => {
     try {
-      await invoke<void>("open_current_output_folder");
+      await desktopCommands.invoke<void>("open_current_output_folder");
     } catch (err) {
       console.error("Failed to open current output folder:", err);
     }
@@ -925,9 +929,8 @@ function App() {
   }, []);
 
   const closeContextMenuWindow = useCallback(async () => {
-    const existing = await WebviewWindow.getByLabel("context-menu");
-    if (existing) {
-      await existing.close().catch(() => undefined);
+    if (await desktopWindows.has("context-menu")) {
+      await desktopWindows.close("context-menu").catch(() => undefined);
     }
     updateContextMenuOpen(false);
   }, [updateContextMenuOpen]);
@@ -942,11 +945,11 @@ function App() {
 
     try {
       // Expand window first, then animate
-      const window = getCurrentWindow();
+      const window = desktopCurrentWindow;
       const pos = await window.outerPosition();
       await Promise.all([
-        invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
-        invoke('set_window_position', { x: pos.x, y: pos.y }),
+        desktopCommands.invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
+        desktopCommands.invoke('set_window_position', { x: pos.x, y: pos.y }),
       ]);
       setWindowResized(false);
       setIsMinimized(false);
@@ -978,11 +981,11 @@ function App() {
       try {
         // Shrink window - content is already at top-left due to transformOrigin
         setWindowResized(true);
-        const window = getCurrentWindow();
+        const window = desktopCurrentWindow;
         const pos = await window.outerPosition();
         await Promise.all([
-          invoke('set_window_size', { width: ICON_SIZE, height: ICON_SIZE }),
-          invoke('set_window_position', { x: pos.x, y: pos.y }),
+          desktopCommands.invoke('set_window_size', { width: ICON_SIZE, height: ICON_SIZE }),
+          desktopCommands.invoke('set_window_position', { x: pos.x, y: pos.y }),
         ]);
       } catch (err) {
         console.error('Failed to shrink window:', err);
@@ -1067,7 +1070,7 @@ function App() {
 
   const refreshRuntimeDependencyStatus = useCallback(async () => {
     try {
-      const status = await invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
+      const status = await desktopCommands.invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
       setRuntimeDependencyStatus(status);
       return status;
     } catch (err) {
@@ -1077,56 +1080,32 @@ function App() {
     }
   }, []);
 
-  const replacePendingAppUpdate = useCallback((nextUpdate: Update | null) => {
-    const currentUpdate = pendingAppUpdateRef.current;
-    if (currentUpdate && currentUpdate !== nextUpdate) {
-      void currentUpdate.close().catch((err) => {
-        console.error("Failed to dispose previous updater handle:", err);
-      });
-    }
-    pendingAppUpdateRef.current = nextUpdate;
-  }, []);
-
   const refreshAppUpdate = useCallback(async () => {
-    if (appUpdatePhase === "downloading" || appUpdatePhase === "installing") {
-      return appUpdateInfo;
-    }
-
     setAppUpdatePhase("checking");
     setAppUpdateError(null);
 
     try {
-      const update = await check();
-      if (!update) {
-        replacePendingAppUpdate(null);
+      const updateInfo = await desktopUpdater.check();
+      if (!updateInfo) {
         setAppUpdateInfo(null);
         setAppUpdatePhase("idle");
         return null;
       }
 
-      replacePendingAppUpdate(update);
-      const nextInfo: AppUpdateInfo = {
-        current: update.currentVersion || APP_VERSION,
-        latest: update.version,
-        notes: update.body ?? null,
-        publishedAt: update.date ?? null,
-      };
-      setAppUpdateInfo(nextInfo);
+      setAppUpdateInfo(updateInfo);
       setAppUpdatePhase("available");
-      return nextInfo;
+      return updateInfo;
     } catch (err) {
       console.error(">>> App update check failed:", err);
-      replacePendingAppUpdate(null);
       setAppUpdateInfo(null);
       setAppUpdateError(summarizeAppUpdateError(err));
       setAppUpdatePhase("idle");
       return null;
     }
-  }, [appUpdateInfo, appUpdatePhase, replacePendingAppUpdate]);
+  }, []);
 
   const handleAppUpdateInstall = useCallback(async () => {
-    const update = pendingAppUpdateRef.current;
-    if (!update || appUpdatePhase === "downloading" || appUpdatePhase === "installing") {
+    if (!appUpdateInfo || appUpdatePhase === "downloading" || appUpdatePhase === "installing") {
       return;
     }
 
@@ -1134,23 +1113,19 @@ function App() {
     setAppUpdatePhase("downloading");
 
     try {
-      await update.downloadAndInstall((event) => {
-        if (event.event === "Finished") {
-          setAppUpdatePhase("installing");
-        }
-      });
+      await desktopUpdater.downloadAndInstall();
       setAppUpdatePhase("installing");
-      await relaunch();
+      await desktopSystem.relaunch();
     } catch (err) {
       console.error("Failed to install app update:", err);
       setAppUpdateError(summarizeAppUpdateError(err));
       setAppUpdatePhase("error");
     }
-  }, [appUpdatePhase]);
+  }, [appUpdateInfo, appUpdatePhase]);
 
   const loadRuntimeDependencyGateState = useCallback(async () => {
     try {
-      const state = await invoke<RuntimeDependencyGateStatePayload>("get_runtime_dependency_gate_state");
+      const state = await desktopCommands.invoke<RuntimeDependencyGateStatePayload>("get_runtime_dependency_gate_state");
       setRuntimeDependencyGateState(state);
       return state;
     } catch (err) {
@@ -1162,7 +1137,7 @@ function App() {
 
   const refreshRuntimeDependencyGateState = useCallback(async () => {
     try {
-      const state = await invoke<RuntimeDependencyGateStatePayload>("refresh_runtime_dependency_gate_state");
+      const state = await desktopCommands.invoke<RuntimeDependencyGateStatePayload>("refresh_runtime_dependency_gate_state");
       setRuntimeDependencyGateState(state);
       return state;
     } catch (err) {
@@ -1174,7 +1149,7 @@ function App() {
 
   const startRuntimeDependencyBootstrap = useCallback(async () => {
     try {
-      const state = await invoke<RuntimeDependencyGateStatePayload>("start_runtime_dependency_bootstrap");
+      const state = await desktopCommands.invoke<RuntimeDependencyGateStatePayload>("start_runtime_dependency_bootstrap");
       setRuntimeDependencyGateState(state);
       return state;
     } catch (err) {
@@ -1200,7 +1175,7 @@ function App() {
     }
     resetDownloadOutcome();
     const payload = typeof request === "string" ? { url: request } : request;
-    void invoke<QueuedVideoDownloadAck>("queue_video_download", payload).catch((err) => {
+    void desktopCommands.invoke<QueuedVideoDownloadAck>("queue_video_download", payload).catch((err) => {
       console.error("Failed to queue video download:", err);
       checkSequenceOverflow(err);
       setDownloadCancelled(true);
@@ -1223,7 +1198,7 @@ function App() {
     }
 
     try {
-      const cancelled = await invoke<boolean>("cancel_download", { traceId });
+      const cancelled = await desktopCommands.invoke<boolean>("cancel_download", { traceId });
       if (!cancelled) {
         removeCancellingTraceId(traceId);
       }
@@ -1245,7 +1220,7 @@ function App() {
     addPendingTranscodeActionTraceId(traceId);
 
     try {
-      const retried = await invoke<boolean>("retry_transcode", { traceId });
+      const retried = await desktopCommands.invoke<boolean>("retry_transcode", { traceId });
       if (!retried) {
         console.warn("Transcode retry was ignored for trace:", traceId);
       }
@@ -1264,7 +1239,7 @@ function App() {
     addPendingTranscodeActionTraceId(traceId);
 
     try {
-      const removed = await invoke<boolean>("remove_transcode", { traceId });
+      const removed = await desktopCommands.invoke<boolean>("remove_transcode", { traceId });
       if (!removed) {
         console.warn("Transcode remove was ignored for trace:", traceId);
       }
@@ -1283,7 +1258,7 @@ function App() {
     addPendingTranscodeActionTraceId(traceId);
 
     try {
-      const cancelled = await invoke<boolean>("cancel_transcode", { traceId });
+      const cancelled = await desktopCommands.invoke<boolean>("cancel_transcode", { traceId });
       if (!cancelled) {
         removePendingTranscodeActionTraceId(traceId);
         console.warn("Transcode cancel was ignored for trace:", traceId);
@@ -1298,7 +1273,7 @@ function App() {
   useEffect(() => {
     const loadConfig = async () => {
       try {
-        const configStr = await invoke<string>("get_config");
+        const configStr = await desktopCommands.invoke<string>("get_config");
         console.log("Loaded config:", configStr);
         const config = JSON.parse(configStr) as Record<string, unknown>;
         applyRuntimeConfig(config);
@@ -1351,9 +1326,8 @@ function App() {
       if (runtimeBootstrapAfterVisibleTimerRef.current !== null) {
         clearTimeout(runtimeBootstrapAfterVisibleTimerRef.current);
       }
-      replacePendingAppUpdate(null);
     };
-  }, [replacePendingAppUpdate]);
+  }, []);
 
   useEffect(() => {
     if (isInitialMount || hasTriggeredStartupRuntimeBootstrapRef.current) {
@@ -1388,7 +1362,7 @@ function App() {
 
   // Listen for video download progress events
   useEffect(() => {
-    const unlistenProgress = listen<DownloadProgressPayload>(
+    const unlistenProgress = desktopEvents.on<DownloadProgressPayload>(
       "video-download-progress",
       async (event) => {
         const payload = event.payload;
@@ -1418,11 +1392,11 @@ function App() {
         // 直接恢复窗口大小（避免闭包问题）
         if (!isMacOS) {
           try {
-            const win = getCurrentWindow();
+            const win = desktopCurrentWindow;
             const pos = await win.outerPosition();
             await Promise.all([
-              invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
-              invoke('set_window_position', { x: pos.x, y: pos.y }),
+              desktopCommands.invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
+              desktopCommands.invoke('set_window_position', { x: pos.x, y: pos.y }),
             ]);
             setWindowResized(false);
           } catch (err) {
@@ -1433,7 +1407,7 @@ function App() {
         }
       }
     );
-    const unlistenComplete = listen<DownloadResult>(
+    const unlistenComplete = desktopEvents.on<DownloadResult>(
       "video-download-complete",
       (event) => {
         console.log(">>> [Frontend] video-download-complete received:", event);
@@ -1470,14 +1444,14 @@ function App() {
 
   // Listen for output path changes from settings window
   useEffect(() => {
-    const unlisten = listen<{ path: string }>("output-path-changed", (event) => {
+    const unlisten = desktopEvents.on<{ path: string }>("output-path-changed", (event) => {
       setOutputPath(event.payload.path);
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
 
   useEffect(() => {
-    const unlisten = listen<void>("context-menu-closed", () => {
+    const unlisten = desktopEvents.on<void>("context-menu-closed", () => {
       updateContextMenuOpen(false);
     });
 
@@ -1488,7 +1462,7 @@ function App() {
 
   // Listen for devMode changes from settings window
   useEffect(() => {
-    const unlisten = listen<{ enabled: boolean }>("devmode-changed", (event) => {
+    const unlisten = desktopEvents.on<{ enabled: boolean }>("devmode-changed", (event) => {
       setDevMode(event.payload.enabled);
     });
     return () => { unlisten.then(fn => fn()); };
@@ -1496,7 +1470,7 @@ function App() {
 
   // Listen for rename toggle changes from settings window
   useEffect(() => {
-    const unlisten = listen<{ enabled: boolean }>("rename-setting-changed", (event) => {
+    const unlisten = desktopEvents.on<{ enabled: boolean }>("rename-setting-changed", (event) => {
       setRenameMediaOnDownload(Boolean(event.payload.enabled));
     });
     return () => { unlisten.then(fn => fn()); };
@@ -1504,11 +1478,11 @@ function App() {
 
   // Listen for shortcut show event
   useEffect(() => {
-    const unlisten = listen<void>("shortcut-show", async () => {
+    const unlisten = desktopEvents.on<void>("shortcut-show", async () => {
       // 如果窗口处于图标模式（已缩小），需要先恢复窗口大小
       if (windowResized && !isMacOS) {
         try {
-          await invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE });
+          await desktopCommands.invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE });
           setWindowResized(false);
         } catch (err) {
           console.error('Failed to restore window size:', err);
@@ -1547,7 +1521,7 @@ function App() {
   }, [refreshAppUpdate]);
 
   useEffect(() => {
-    const unlisten = listen<RuntimeDependencyGateStatePayload>(
+    const unlisten = desktopEvents.on<RuntimeDependencyGateStatePayload>(
       "runtime-dependency-gate-state",
       (event) => {
         setRuntimeDependencyGateState(event.payload);
@@ -1600,7 +1574,7 @@ function App() {
   }, [refreshRuntimeDependencyContext, runtimeDependencyGateState?.phase, totalTaskCount]);
 
   useEffect(() => {
-    const unlisten = listen<VideoQueueStatePayload>("video-queue-count", (event) => {
+    const unlisten = desktopEvents.on<VideoQueueStatePayload>("video-queue-count", (event) => {
       const normalized = normalizeVideoQueueState(event.payload);
       setVideoQueueState(normalized);
       if (normalized.activeCount === 0) {
@@ -1614,7 +1588,7 @@ function App() {
   }, [clearCancellingTraceIds]);
 
   useEffect(() => {
-    const unlisten = listen<VideoQueueDetailPayload>("video-queue-detail", (event) => {
+    const unlisten = desktopEvents.on<VideoQueueDetailPayload>("video-queue-detail", (event) => {
       const normalized = normalizeVideoQueueDetail(event.payload);
       setVideoQueueDetail(normalized);
       const liveTraceIds = new Set(normalized.tasks.map((task) => task.traceId));
@@ -1631,7 +1605,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const unlistenCount = listen<VideoTranscodeQueueStatePayload>("video-transcode-queue-count", (event) => {
+    const unlistenCount = desktopEvents.on<VideoTranscodeQueueStatePayload>("video-transcode-queue-count", (event) => {
       const normalized = normalizeVideoTranscodeQueueState(event.payload);
       setVideoTranscodeQueueState(normalized);
       if (normalized.activeCount === 0) {
@@ -1639,12 +1613,12 @@ function App() {
       }
     });
 
-    const unlistenDetail = listen<VideoTranscodeQueueDetailPayload>("video-transcode-queue-detail", (event) => {
+    const unlistenDetail = desktopEvents.on<VideoTranscodeQueueDetailPayload>("video-transcode-queue-detail", (event) => {
       const normalized = normalizeVideoTranscodeQueueDetail(event.payload);
       setVideoTranscodeQueueDetail(normalized);
     });
 
-    const unlistenProgress = listen<VideoTranscodeTaskPayload>("video-transcode-progress", async (event) => {
+    const unlistenProgress = desktopEvents.on<VideoTranscodeTaskPayload>("video-transcode-progress", async (event) => {
       const normalized = normalizeVideoTranscodeTask(event.payload);
       if (!normalized) {
         return;
@@ -1677,11 +1651,11 @@ function App() {
 
       if (!isMacOS) {
         try {
-          const win = getCurrentWindow();
+          const win = desktopCurrentWindow;
           const pos = await win.outerPosition();
           await Promise.all([
-            invoke("set_window_size", { width: FULL_SIZE, height: FULL_SIZE }),
-            invoke("set_window_position", { x: pos.x, y: pos.y }),
+            desktopCommands.invoke("set_window_size", { width: FULL_SIZE, height: FULL_SIZE }),
+            desktopCommands.invoke("set_window_position", { x: pos.x, y: pos.y }),
           ]);
           setWindowResized(false);
         } catch (err) {
@@ -1692,7 +1666,7 @@ function App() {
       }
     });
 
-    const unlistenQueued = listen<VideoTranscodeTaskPayload>("video-transcode-queued", (event) => {
+    const unlistenQueued = desktopEvents.on<VideoTranscodeTaskPayload>("video-transcode-queued", (event) => {
       const normalized = normalizeVideoTranscodeTask(event.payload);
       if (!normalized) {
         return;
@@ -1702,7 +1676,7 @@ function App() {
       }));
     });
 
-    const unlistenRetried = listen<VideoTranscodeTaskPayload>("video-transcode-retried", (event) => {
+    const unlistenRetried = desktopEvents.on<VideoTranscodeTaskPayload>("video-transcode-retried", (event) => {
       const normalized = normalizeVideoTranscodeTask(event.payload);
       if (!normalized) {
         return;
@@ -1718,7 +1692,7 @@ function App() {
       });
     });
 
-    const unlistenRemoved = listen<VideoTranscodeTaskPayload>("video-transcode-removed", (event) => {
+    const unlistenRemoved = desktopEvents.on<VideoTranscodeTaskPayload>("video-transcode-removed", (event) => {
       const normalized = normalizeVideoTranscodeTask(event.payload);
       if (!normalized) {
         return;
@@ -1738,7 +1712,7 @@ function App() {
       scheduleIdleAfterTaskSettlement(3500);
     });
 
-    const unlistenFailed = listen<VideoTranscodeTaskPayload>("video-transcode-failed", (event) => {
+    const unlistenFailed = desktopEvents.on<VideoTranscodeTaskPayload>("video-transcode-failed", (event) => {
       const normalized = normalizeVideoTranscodeTask(event.payload);
       if (!normalized) {
         return;
@@ -1763,7 +1737,7 @@ function App() {
       scheduleIdleAfterTaskSettlement(3500);
     });
 
-    const unlistenComplete = listen<VideoTranscodeCompletePayload>("video-transcode-complete", (event) => {
+    const unlistenComplete = desktopEvents.on<VideoTranscodeCompletePayload>("video-transcode-complete", (event) => {
       const payload = event.payload;
       removePendingTranscodeActionTraceId(payload.traceId);
       setVideoTranscodeQueueDetail((current) => ({
@@ -1903,7 +1877,7 @@ function App() {
     }
 
     try {
-      await getCurrentWindow().startDragging();
+      await desktopCurrentWindow.startDragging();
     } finally {
       // Windows 上 await 返回 = 拖拽结束
       isDraggingRef.current = false;
@@ -2001,13 +1975,13 @@ function App() {
       try {
         // Distinguish between Data URL and HTTP URL
         if (text.startsWith("data:image/")) {
-          const result = await invoke<string>("save_data_url", {
+          const result = await desktopCommands.invoke<string>("save_data_url", {
             dataUrl: text,
             targetDir: outputPath || null,
           });
           console.log("Save data URL result:", result);
         } else {
-          const result = await invoke<string>("download_image", {
+          const result = await desktopCommands.invoke<string>("download_image", {
             url: text,
             targetDir: outputPath || null,
           });
@@ -2033,7 +2007,7 @@ function App() {
 
       try {
         const dataUrl = await fileToDataUrl(pastedImageFile);
-        const result = await invoke<string>("save_data_url", {
+        const result = await desktopCommands.invoke<string>("save_data_url", {
           dataUrl,
           targetDir: outputPath || null,
           originalFilename: pastedImageFile.name || undefined,
@@ -2058,13 +2032,13 @@ function App() {
 
       try {
         if (pastedHtmlImageUrl.startsWith("data:image/")) {
-          const result = await invoke<string>("save_data_url", {
+          const result = await desktopCommands.invoke<string>("save_data_url", {
             dataUrl: pastedHtmlImageUrl,
             targetDir: outputPath || null,
           });
           console.log("Save clipboard HTML image result:", result);
         } else {
-          const result = await invoke<string>("download_image", {
+          const result = await desktopCommands.invoke<string>("download_image", {
             url: pastedHtmlImageUrl,
             targetDir: outputPath || null,
           });
@@ -2088,7 +2062,7 @@ function App() {
         setIsProcessing(true);
 
         try {
-          const result = await invoke<string>("save_data_url", {
+          const result = await desktopCommands.invoke<string>("save_data_url", {
             dataUrl: clipboardImageDataUrl,
             targetDir: outputPath || null,
           });
@@ -2107,7 +2081,7 @@ function App() {
 
     // 6. Otherwise, continue with file processing logic.
     try {
-      const paths = await invoke<string[]>("get_clipboard_files");
+      const paths = await desktopCommands.invoke<string[]>("get_clipboard_files");
 
       if (paths && paths.length > 0) {
         console.log("Clipboard files from backend:", paths);
@@ -2115,7 +2089,7 @@ function App() {
         setIsProcessing(true);
 
         try {
-          await invoke("process_files", {
+          await desktopCommands.invoke("process_files", {
             paths,
             targetDir: outputPath || null
           });
@@ -2189,7 +2163,7 @@ function App() {
       if (entry?.isDirectory) {
         console.log("检测到文件夹拖拽，触发目录选择对话框");
         try {
-          const selected = await open({
+          const selected = await desktopSystem.openDialog({
             directory: true,
             multiple: false,
             title: t("app.drop.directoryDialogTitle"),
@@ -2250,7 +2224,7 @@ function App() {
       setIsProcessing(true);
 
       try {
-        const copyResult = await invoke<string>("process_files", {
+        const copyResult = await desktopCommands.invoke<string>("process_files", {
           paths: [localPath],
           targetDir: outputPath || null,
         });
@@ -2288,7 +2262,7 @@ function App() {
           resetDownloadOutcome();
           setIsProcessing(true);
           try {
-            await invoke<string>("download_image", {
+            await desktopCommands.invoke<string>("download_image", {
               url: imageUrl,
               targetDir: outputPath || null,
             });
@@ -2369,7 +2343,7 @@ function App() {
 
         // Distinguish between Data URL, file:// URL, and HTTP URL
         if (resolvedImageUrl.startsWith("data:image/")) {
-          const result = await invoke<string>("save_data_url", {
+          const result = await desktopCommands.invoke<string>("save_data_url", {
             dataUrl: resolvedImageUrl,
             targetDir: outputPath || null,
           });
@@ -2380,7 +2354,7 @@ function App() {
           console.log("Detected local file:", localPath);
 
           // First try to copy from local path
-          const copyResult = await invoke<string>("process_files", {
+          const copyResult = await desktopCommands.invoke<string>("process_files", {
             paths: [localPath],
             targetDir: outputPath || null,
           });
@@ -2400,7 +2374,7 @@ function App() {
                   new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
                 );
                 const dataUrl = `data:${file.type};base64,${base64}`;
-                const saveResult = await invoke<string>("save_data_url", {
+                const saveResult = await desktopCommands.invoke<string>("save_data_url", {
                   dataUrl,
                   targetDir: outputPath || null,
                   originalFilename: file.name,
@@ -2413,7 +2387,7 @@ function App() {
             }
           }
         } else {
-          const result = await invoke<string>("download_image", {
+          const result = await desktopCommands.invoke<string>("download_image", {
             url: resolvedImageUrl,
             targetDir: outputPath || null,
             protectedImageFallback,
@@ -2448,7 +2422,7 @@ function App() {
       if (filePaths.length > 0) {
         // 有本地路径，直接复制文件
         try {
-          const copyResult = await invoke<string>("process_files", {
+          const copyResult = await desktopCommands.invoke<string>("process_files", {
             paths: filePaths,
             targetDir: outputPath || null,
           });
@@ -2467,7 +2441,7 @@ function App() {
             );
             const mimeType = file.type || "application/octet-stream";
             const dataUrl = `data:${mimeType};base64,${base64}`;
-            await invoke<string>("save_data_url", {
+            await desktopCommands.invoke<string>("save_data_url", {
               dataUrl,
               targetDir: outputPath || null,
               originalFilename: file.name,
@@ -2493,20 +2467,19 @@ function App() {
       await closeContextMenuWindow();
     }
 
-    const existing = await WebviewWindow.getByLabel("settings");
-    if (existing) {
-      await existing.setFocus();
+    if (await desktopWindows.has("settings")) {
+      await desktopWindows.focus("settings");
       return;
     }
 
-    const currentWindow = getCurrentWindow();
+    const currentWindow = desktopCurrentWindow;
     let settingsPosition: { x: number; y: number } | null = null;
     try {
       const [outerPosition, outerSize, scaleFactor, monitor] = await Promise.all([
         currentWindow.outerPosition(),
         currentWindow.outerSize(),
         currentWindow.scaleFactor(),
-        currentMonitor(),
+        desktopSystem.currentMonitor(),
       ]);
 
       const gapPx = SETTINGS_WINDOW_GAP * scaleFactor;
@@ -2541,19 +2514,14 @@ function App() {
     }
 
     const baseOptions = {
-      url: "/settings",
       title: t("app.windows.settingsTitle"),
       width: SETTINGS_WINDOW_WIDTH,
       height: SETTINGS_WINDOW_HEIGHT,
-      decorations: false,
-      transparent: true,
-      resizable: false,
       alwaysOnTop: true,
-      shadow: false,
     };
 
     if (settingsPosition) {
-      new WebviewWindow("settings", {
+      await desktopWindows.openSettings({
         ...baseOptions,
         center: false,
         x: settingsPosition.x,
@@ -2562,7 +2530,7 @@ function App() {
       return;
     }
 
-    new WebviewWindow("settings", {
+    await desktopWindows.openSettings({
       ...baseOptions,
       center: true,
     });
@@ -2570,7 +2538,7 @@ function App() {
 
   const resetRenameCounter = async () => {
     try {
-      await invoke<boolean>("reset_rename_counter");
+      await desktopCommands.invoke<boolean>("reset_rename_counter");
     } catch (err) {
       console.error("Failed to reset rename counter:", err);
     }
@@ -2620,14 +2588,17 @@ function App() {
     try {
       await closeContextMenuWindow();
 
-      const currentWindow = getCurrentWindow();
+      const currentWindow = desktopCurrentWindow;
       const [outerPosition, scaleFactor, monitor] = await Promise.all([
         currentWindow.outerPosition(),
         currentWindow.scaleFactor(),
-        currentMonitor(),
+        desktopSystem.currentMonitor(),
       ]);
 
-      const logicalWindowPosition = new PhysicalPosition(outerPosition).toLogical(scaleFactor);
+      const logicalWindowPosition = {
+        x: outerPosition.x / scaleFactor,
+        y: outerPosition.y / scaleFactor,
+      };
       let x = logicalWindowPosition.x + e.clientX;
       let y = logicalWindowPosition.y + e.clientY;
 
@@ -2655,19 +2626,14 @@ function App() {
         y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
       }
 
-      new WebviewWindow("context-menu", {
-        url: "/context-menu",
+      await desktopWindows.openContextMenu({
         title: t("app.windows.contextMenuTitle"),
         x,
         y,
         width: CONTEXT_MENU_WIDTH,
         height: CONTEXT_MENU_HEIGHT,
-        decorations: false,
-        transparent: true,
-        resizable: false,
         alwaysOnTop: true,
         skipTaskbar: true,
-        shadow: false,
         focus: true,
         parent: "main",
       });
@@ -3545,7 +3511,7 @@ function App() {
           setShowEdgeGlow(false);
           await closeContextMenuWindow().catch(() => undefined);
           try {
-            await getCurrentWindow().hide();
+            await desktopCurrentWindow.hide();
           } catch (err) {
             console.error("Failed to hide main window:", err);
           }

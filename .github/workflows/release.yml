@@ -6,9 +6,7 @@ on:
       - "v*"
 
 env:
-  CARGO_TERM_COLOR: always
-  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
 jobs:
   build-windows:
@@ -21,49 +19,61 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *"-"* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Update version in config files
+        shell: pwsh
+        run: node ./scripts/update-version.mjs "${{ steps.version.outputs.version }}"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
         with:
-          workspaces: './src-tauri -> target'
+          python-version: "3.13"
 
       - name: Download yt-dlp
         shell: pwsh
         run: |
           $downloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-
-          New-Item -ItemType Directory -Force -Path "src-tauri/binaries"
+          New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
           Invoke-WebRequest -Uri $downloadUrl -OutFile "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe" -MaximumRetryCount 3 -RetryIntervalSec 5
-
-          Write-Host "Downloaded yt-dlp from: $downloadUrl"
 
       - name: Download Deno
         shell: pwsh
         run: |
           $downloadUrl = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP "flowselect-deno.zip"
+          $extractDir = Join-Path $env:RUNNER_TEMP "flowselect-deno"
 
-          # 下载 zip 文件
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "deno.zip" -MaximumRetryCount 3 -RetryIntervalSec 5
+          if (Test-Path $extractDir) {
+            Remove-Item $extractDir -Recurse -Force
+          }
 
-          # 解压到 binaries 目录 (保持文件名为 deno.exe)
-          Expand-Archive -Path "deno.zip" -DestinationPath "src-tauri/binaries" -Force
-
-          # 清理 zip 文件
-          Remove-Item "deno.zip"
-
-          Write-Host "Downloaded Deno from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -MaximumRetryCount 3 -RetryIntervalSec 5
+          Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+          Copy-Item (Join-Path $extractDir "deno.exe") "src-tauri/binaries/deno.exe" -Force
 
       - name: Download FFmpeg
         shell: pwsh
         run: |
-          $downloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-          $zipPath = Join-Path $env:RUNNER_TEMP "ffmpeg-release-essentials.zip"
-          $extractDir = Join-Path $env:RUNNER_TEMP "ffmpeg-release-essentials"
+          $downloadUrl = "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-windows-x64.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP "flowselect-ffmpeg.zip"
+          $extractDir = Join-Path $env:RUNNER_TEMP "flowselect-ffmpeg"
 
           if (Test-Path $extractDir) {
             Remove-Item $extractDir -Recurse -Force
@@ -77,53 +87,7 @@ jobs:
             throw "ffmpeg.exe not found in extracted archive"
           }
 
-          New-Item -ItemType Directory -Force -Path "src-tauri/binaries" | Out-Null
           Copy-Item $ffmpegBinary.FullName "src-tauri/binaries/ffmpeg.exe" -Force
-
-          Write-Host "Downloaded FFmpeg from: $downloadUrl"
-
-      - name: Extract version from tag
-        id: version
-        shell: bash
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          BUILD_VERSION=$VERSION
-
-          if [[ "$VERSION" == *"-"* ]]; then
-            BASE_VERSION=${VERSION%%-*}
-            PRE_RELEASE=${VERSION#*-}
-            PRE_RELEASE_NUMBER=$(echo "$PRE_RELEASE" | grep -oE '[0-9]+' | tail -n 1)
-
-            if [[ -z "$PRE_RELEASE_NUMBER" ]]; then
-              PRE_RELEASE_NUMBER=1
-            fi
-
-            if (( PRE_RELEASE_NUMBER > 65535 )); then
-              echo "MSI pre-release identifier cannot exceed 65535: $PRE_RELEASE_NUMBER"
-              exit 1
-            fi
-
-            BUILD_VERSION="${BASE_VERSION}-${PRE_RELEASE_NUMBER}"
-          fi
-
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "build_version=$BUILD_VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
-          echo "MSI-safe build version: $BUILD_VERSION"
-
-      - name: Update version in config files
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.build_version }}"
-          node ./scripts/update-version.mjs $version
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
 
       - name: Build Pinterest sidecar
         run: node ./scripts/build-pinterest-sidecar.mjs --target x86_64-pc-windows-msvc
@@ -131,45 +95,26 @@ jobs:
       - name: Smoke test Pinterest sidecar
         run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target x86_64-pc-windows-msvc
 
-      - name: Build Tauri application
-        run: npm run tauri:build
-
-      - name: Normalize Windows installer artifact names
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.version }}"
-          $nsisDir = "src-tauri/target/release/bundle/nsis"
-          $installer = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe" | Select-Object -First 1
-          if (-not $installer) {
-            throw "Unable to find NSIS installer in $nsisDir"
-          }
-
-          $installerSig = "$($installer.FullName).sig"
-          if (-not (Test-Path $installerSig)) {
-            throw "Unable to find NSIS installer signature: $installerSig"
-          }
-
-          $normalizedInstallerPath = Join-Path $nsisDir ("FlowSelect_{0}_windows_x64_installer.exe" -f $version)
-          Move-Item $installer.FullName $normalizedInstallerPath -Force
-          Move-Item $installerSig "${normalizedInstallerPath}.sig" -Force
+      - name: Build Windows NSIS installer
+        run: npm run package:win
 
       - name: Package Windows portable ZIP
         shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1 -Version "${{ steps.version.outputs.version }}" -SkipBuild -SkipYtdlpUpdate
+          powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1 -Version "${{ steps.version.outputs.version }}"
 
-      - name: Upload NSIS artifact
+      - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v6
         with:
           name: windows-installer
-          path: src-tauri/target/release/bundle/nsis/FlowSelect_*_windows_x64_installer.exe*
+          path: dist-release/FlowSelect_*_windows_x64_installer.exe
           if-no-files-found: error
 
       - name: Upload Windows portable artifact
         uses: actions/upload-artifact@v6
         with:
           name: windows-portable
-          path: src-tauri/target/release/bundle/portable/FlowSelect_*_windows_x64_portable.zip
+          path: dist-release/portable/FlowSelect_*_windows_x64_portable.zip
           if-no-files-found: error
 
   build-macos:
@@ -180,13 +125,15 @@ jobs:
           - runner: macos-15-intel
             arch: x86_64
             target: x86_64-apple-darwin
-            yt_dlp_asset: yt-dlp_macos
+            artifact_arch: x64
             deno_asset: deno-x86_64-apple-darwin.zip
+            ffmpeg_asset: ffmpeg-osx-x64.zip
           - runner: macos-15
             arch: aarch64
             target: aarch64-apple-darwin
-            yt_dlp_asset: yt-dlp_macos
+            artifact_arch: arm64
             deno_asset: deno-aarch64-apple-darwin.zip
+            ffmpeg_asset: ffmpeg-osx-arm64.zip
 
     runs-on: ${{ matrix.runner }}
 
@@ -197,53 +144,22 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
-
-      - name: Download yt-dlp
-        run: |
-          DOWNLOAD_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/${{ matrix.yt_dlp_asset }}"
-
-          mkdir -p src-tauri/binaries
-          curl -fL --retry 3 --retry-delay 5 "$DOWNLOAD_URL" -o "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
-          chmod +x "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
-
-          echo "Downloaded yt-dlp from: $DOWNLOAD_URL"
-
-      - name: Download Deno
-        run: |
-          DOWNLOAD_URL="https://github.com/denoland/deno/releases/latest/download/${{ matrix.deno_asset }}"
-
-          curl -fL --retry 3 --retry-delay 5 "$DOWNLOAD_URL" -o deno.zip
-          unzip -o deno.zip -d src-tauri/binaries
-
-          # Keep simple name for resources (not sidecar)
-          chmod +x src-tauri/binaries/deno
-          rm deno.zip
-
-          echo "Downloaded Deno from: $DOWNLOAD_URL"
+          node-version: "20"
+          cache: "npm"
 
       - name: Extract version from tag
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *"-"* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Update version in config files
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          node ./scripts/update-version.mjs "$VERSION"
+        run: node ./scripts/update-version.mjs "${{ steps.version.outputs.version }}"
 
       - name: Install frontend dependencies
         run: npm ci
@@ -251,7 +167,38 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.13'
+          python-version: "3.13"
+
+      - name: Download yt-dlp
+        run: |
+          mkdir -p src-tauri/binaries
+          curl -fL --retry 3 --retry-delay 5 \
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" \
+            -o "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
+          chmod +x "src-tauri/binaries/yt-dlp-${{ matrix.target }}"
+
+      - name: Download Deno
+        run: |
+          curl -fL --retry 3 --retry-delay 5 \
+            "https://github.com/denoland/deno/releases/latest/download/${{ matrix.deno_asset }}" \
+            -o "$RUNNER_TEMP/flowselect-deno.zip"
+          unzip -o "$RUNNER_TEMP/flowselect-deno.zip" -d "$RUNNER_TEMP/flowselect-deno"
+          cp "$RUNNER_TEMP/flowselect-deno/deno" "src-tauri/binaries/deno"
+          chmod +x "src-tauri/binaries/deno"
+
+      - name: Download FFmpeg
+        run: |
+          curl -fL --retry 3 --retry-delay 5 \
+            "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/${{ matrix.ffmpeg_asset }}" \
+            -o "$RUNNER_TEMP/flowselect-ffmpeg.zip"
+          unzip -o "$RUNNER_TEMP/flowselect-ffmpeg.zip" -d "$RUNNER_TEMP/flowselect-ffmpeg"
+          FFMPEG_BINARY=$(find "$RUNNER_TEMP/flowselect-ffmpeg" -type f -name "ffmpeg" | head -n 1)
+          if [[ -z "$FFMPEG_BINARY" ]]; then
+            echo "::error::ffmpeg binary not found in extracted archive"
+            exit 1
+          fi
+          cp "$FFMPEG_BINARY" "src-tauri/binaries/ffmpeg"
+          chmod +x "src-tauri/binaries/ffmpeg"
 
       - name: Build Pinterest sidecar
         run: node ./scripts/build-pinterest-sidecar.mjs --target ${{ matrix.target }}
@@ -259,49 +206,22 @@ jobs:
       - name: Smoke test Pinterest sidecar
         run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target ${{ matrix.target }}
 
-      - name: Build Tauri application bundle
-        run: node ./scripts/run-tauri.mjs build --target ${{ matrix.target }} --bundles app
-
-      - name: Prepare macOS updater artifact
+      - name: Package macOS ZIP and open-source DMG
         run: |
-          mkdir -p updater-assets
+          npm run package:macos-open-source-dmg -- --arch ${{ matrix.arch }} --version "${{ steps.version.outputs.version }}"
 
-          UPDATER_ARCHIVE=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name "*.app.tar.gz" | head -n 1)
-          if [[ -z "$UPDATER_ARCHIVE" ]]; then
-            echo "::error::Unable to find macOS updater archive"
-            exit 1
-          fi
-
-          if [[ ! -f "${UPDATER_ARCHIVE}.sig" ]]; then
-            echo "::error::Unable to find updater signature for $UPDATER_ARCHIVE"
-            exit 1
-          fi
-
-          ARCH_LABEL="${{ matrix.arch }}"
-          if [[ "$ARCH_LABEL" == "x86_64" ]]; then
-            ARCH_LABEL="x64"
-          elif [[ "$ARCH_LABEL" == "aarch64" ]]; then
-            ARCH_LABEL="arm64"
-          fi
-
-          cp "$UPDATER_ARCHIVE" "updater-assets/FlowSelect_${{ steps.version.outputs.version }}_updater_macos_${ARCH_LABEL}.app.tar.gz"
-          cp "${UPDATER_ARCHIVE}.sig" "updater-assets/FlowSelect_${{ steps.version.outputs.version }}_updater_macos_${ARCH_LABEL}.app.tar.gz.sig"
-
-      - name: Package macOS DMG
-        run: npm run package:macos-open-source-dmg -- --target ${{ matrix.target }} --arch ${{ matrix.arch }} --version "${{ steps.version.outputs.version }}"
-
-      - name: Upload DMG artifact
+      - name: Upload macOS DMG artifact
         uses: actions/upload-artifact@v6
         with:
-          name: dmg-installer-${{ matrix.arch }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          name: macos-dmg-${{ matrix.artifact_arch }}
+          path: dist-release/dmg/FlowSelect_*_macos_${{ matrix.artifact_arch }}_installer.dmg
           if-no-files-found: error
 
-      - name: Upload macOS updater artifact
+      - name: Upload macOS ZIP artifact
         uses: actions/upload-artifact@v6
         with:
-          name: macos-updater-${{ matrix.arch }}
-          path: updater-assets/*
+          name: macos-zip-${{ matrix.artifact_arch }}
+          path: dist-release/FlowSelect_*_macos_${{ matrix.artifact_arch }}.zip
           if-no-files-found: error
 
   create-release:
@@ -313,6 +233,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
 
       - name: Download Windows installer artifact
         uses: actions/download-artifact@v5
@@ -326,41 +251,39 @@ jobs:
           name: windows-portable
           path: artifacts/windows-portable
 
-      - name: Download macOS Intel DMG
+      - name: Download macOS x64 DMG
         uses: actions/download-artifact@v5
         with:
-          name: dmg-installer-x86_64
-          path: artifacts/dmg-intel
+          name: macos-dmg-x64
+          path: artifacts/macos-dmg-x64
 
-      - name: Download macOS ARM DMG
+      - name: Download macOS arm64 DMG
         uses: actions/download-artifact@v5
         with:
-          name: dmg-installer-aarch64
-          path: artifacts/dmg-arm
+          name: macos-dmg-arm64
+          path: artifacts/macos-dmg-arm64
 
-      - name: Download macOS Intel updater artifact
+      - name: Download macOS x64 ZIP
         uses: actions/download-artifact@v5
         with:
-          name: macos-updater-x86_64
-          path: artifacts/macos-updater-x64
+          name: macos-zip-x64
+          path: artifacts/macos-zip-x64
 
-      - name: Download macOS ARM updater artifact
+      - name: Download macOS arm64 ZIP
         uses: actions/download-artifact@v5
         with:
-          name: macos-updater-aarch64
-          path: artifacts/macos-updater-arm64
+          name: macos-zip-arm64
+          path: artifacts/macos-zip-arm64
 
       - name: Extract version from tag
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-          # Check if pre-release
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           if [[ "$VERSION" == *"-"* ]]; then
-            echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Resolve release notes
@@ -373,8 +296,7 @@ jobs:
             exit 1
           fi
 
-          echo "path=$RELEASE_NOTES" >> $GITHUB_OUTPUT
-          echo "Using release notes: $RELEASE_NOTES"
+          echo "path=$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
 
       - name: Generate updater manifest
         run: |
@@ -405,10 +327,10 @@ jobs:
           files: |
             artifacts/windows-installer/*.exe
             artifacts/windows-portable/*.zip
-            artifacts/dmg-intel/*.dmg
-            artifacts/dmg-arm/*.dmg
-            artifacts/macos-updater-x64/*.tar.gz
-            artifacts/macos-updater-arm64/*.tar.gz
+            artifacts/macos-dmg-x64/*.dmg
+            artifacts/macos-dmg-arm64/*.dmg
+            artifacts/macos-zip-x64/*.zip
+            artifacts/macos-zip-arm64/*.zip
             artifacts/browser-extension/*.zip
             artifacts/updater/latest.json
 

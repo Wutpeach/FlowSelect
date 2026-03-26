@@ -1,12 +1,11 @@
-import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { desktopCommands, desktopEvents } from "../desktop/runtime";
 
 type AppConfig = Record<string, unknown> & {
   outputPath?: string;
 };
 
 export async function saveOutputPath(nextOutputPath: string): Promise<boolean> {
-  const configStr = await invoke<string>("get_config");
+  const configStr = await desktopCommands.invoke<string>("get_config");
   const config = JSON.parse(configStr) as AppConfig;
   const previousOutputPath =
     typeof config.outputPath === "string" ? config.outputPath : "";
@@ -16,11 +15,11 @@ export async function saveOutputPath(nextOutputPath: string): Promise<boolean> {
   }
 
   config.outputPath = nextOutputPath;
-  await invoke<void>("save_config", { json: JSON.stringify(config) });
-  await emit("output-path-changed", { path: nextOutputPath });
+  await desktopCommands.invoke<void>("save_config", { json: JSON.stringify(config) });
+  await desktopEvents.emit("output-path-changed", { path: nextOutputPath });
 
   try {
-    await invoke<boolean>("reset_rename_counter");
+    await desktopCommands.invoke<boolean>("reset_rename_counter");
   } catch (err) {
     console.error("Failed to reset rename counter after output path change:", err);
   }

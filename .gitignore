@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 .venv
 dist
+dist-electron
+dist-release
 dist-ssr
 build
 src-tauri/target

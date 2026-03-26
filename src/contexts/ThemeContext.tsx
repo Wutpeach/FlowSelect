@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, emit } from '@tauri-apps/api/event';
+import { desktopCommands, desktopEvents } from '../desktop/runtime';
 
 export type Theme = 'black' | 'white';
 const DEFAULT_THEME: Theme = 'black';
@@ -258,7 +257,7 @@ export function ThemeProvider({
     let isDisposed = false;
 
     if (initialTheme === undefined) {
-      void invoke<string>('get_config')
+      void desktopCommands.invoke<string>('get_config')
         .then((cfgStr) => {
           if (isDisposed) {
             return;
@@ -271,7 +270,7 @@ export function ThemeProvider({
     }
 
     // 监听其他窗口的主题变更
-    const unlisten = listen<Theme>('theme-changed', (event) => {
+    const unlisten = desktopEvents.on<Theme>('theme-changed', (event) => {
       setThemeState(event.payload);
     });
 
@@ -284,13 +283,13 @@ export function ThemeProvider({
   const setTheme = async (t: Theme) => {
     setThemeState(t);
     // 通知其他窗口
-    await emit('theme-changed', t);
+    await desktopEvents.emit('theme-changed', t);
     // 广播到浏览器扩展
-    await invoke('broadcast_theme', { theme: t });
+    await desktopCommands.invoke('broadcast_theme', { theme: t });
     // 保存到配置
-    const cfgStr = await invoke<string>('get_config');
+    const cfgStr = await desktopCommands.invoke<string>('get_config');
     const cfg = JSON.parse(cfgStr);
-    await invoke('save_config', { json: JSON.stringify({ ...cfg, theme: t }) });
+    await desktopCommands.invoke('save_config', { json: JSON.stringify({ ...cfg, theme: t }) });
   };
 
   return (

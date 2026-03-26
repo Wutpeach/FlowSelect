@@ -1,11 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { invoke } from "@tauri-apps/api/core";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
 import SettingsPage from "./pages/SettingsPage";
 import ContextMenuPage from "./pages/ContextMenuPage";
 import { ThemeProvider, type Theme } from "./contexts/ThemeContext";
+import { desktopCommands } from "./desktop/runtime";
 import { I18nRuntimeBridge } from "./i18n/I18nRuntimeBridge";
 import { initializeI18n } from "./i18n";
 import { resolveAppLanguage, resolveAppLanguageFromConfigString } from "./i18n/language";
@@ -27,7 +27,7 @@ const resolveBootstrapState = async (): Promise<{
   initialLanguage: "en" | "zh-CN";
 }> => {
   try {
-    const configStr = await invoke<string>("get_config");
+    const configStr = await desktopCommands.invoke<string>("get_config");
     return {
       initialTheme: getThemeFromConfigString(configStr),
       initialLanguage: resolveAppLanguageFromConfigString(configStr, navigator.language),
@@ -44,18 +44,21 @@ const resolveBootstrapState = async (): Promise<{
 const bootstrap = async () => {
   const { initialTheme, initialLanguage } = await resolveBootstrapState();
   await initializeI18n(initialLanguage);
+  const Router = window.flowselect && window.location.protocol === "file:"
+    ? HashRouter
+    : BrowserRouter;
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <ThemeProvider initialTheme={initialTheme}>
-        <BrowserRouter>
+        <Router>
           <I18nRuntimeBridge />
           <Routes>
             <Route path="/" element={<App />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/context-menu" element={<ContextMenuPage />} />
           </Routes>
-        </BrowserRouter>
+        </Router>
       </ThemeProvider>
     </React.StrictMode>,
   );
