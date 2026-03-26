@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { desktopCommands } from "../desktop/runtime";
 
 import i18n from "./index";
 import {
@@ -22,11 +22,11 @@ const parseConfig = (configStr: string): AppConfig => {
 };
 
 export async function changeDesktopLanguage(nextLanguage: AppLanguage): Promise<void> {
-  const configStr = await invoke<string>("get_config");
+  const configStr = await desktopCommands.invoke<string>("get_config");
   const config = parseConfig(configStr);
 
   config[LANGUAGE_CONFIG_KEY] = nextLanguage;
-  await invoke<void>("save_config", { json: JSON.stringify(config) });
+  await desktopCommands.invoke<void>("save_config", { json: JSON.stringify(config) });
 
   if (i18n.resolvedLanguage !== nextLanguage) {
     await i18n.changeLanguage(nextLanguage);

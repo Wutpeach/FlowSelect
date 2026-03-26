@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { desktopEvents } from "../desktop/runtime";
 
 import {
   DESKTOP_LANGUAGE_CHANGED_EVENT,
@@ -10,7 +10,7 @@ import { normalizeAppLanguage } from "./language";
 
 export function I18nRuntimeBridge() {
   useEffect(() => {
-    const unlisten = listen<LanguageChangedEventPayload>(
+    const unlisten = desktopEvents.on<LanguageChangedEventPayload>(
       DESKTOP_LANGUAGE_CHANGED_EVENT,
       (event) => {
         const nextLanguage = normalizeAppLanguage(event.payload.language);

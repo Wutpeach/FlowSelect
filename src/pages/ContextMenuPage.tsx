@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTheme } from "../contexts/ThemeContext";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
+import {
+  desktopCommands,
+  desktopCurrentWindow,
+  desktopEvents,
+} from "../desktop/runtime";
 
 function ContextMenuPage() {
   const { t } = useTranslation("desktop");
@@ -14,15 +16,15 @@ function ContextMenuPage() {
 
   const requestClose = useCallback(async () => {
     dismissArmedRef.current = false;
-    await emit("context-menu-closed").catch(() => undefined);
-    await getCurrentWindow().close().catch(() => undefined);
+    await desktopEvents.emit("context-menu-closed", undefined).catch(() => undefined);
+    await desktopCurrentWindow.close().catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    const currentWindow = getCurrentWindow();
+    const currentWindow = desktopCurrentWindow;
     let isMounted = true;
     let unlistenFocus: (() => void) | null = null;
-    let unlistenTauriBlur: (() => void) | null = null;
+    let unlistenBlur: (() => void) | null = null;
     const armDismissTimer = window.setTimeout(() => {
       dismissArmedRef.current = true;
     }, 150);
@@ -48,7 +50,7 @@ function ContextMenuPage() {
       });
 
     currentWindow
-      .listen("tauri://blur", () => {
+      .onBlur(() => {
         if (shouldIgnoreDismiss()) {
           return;
         }
@@ -56,7 +58,7 @@ function ContextMenuPage() {
       })
       .then((fn) => {
         if (isMounted) {
-          unlistenTauriBlur = fn;
+          unlistenBlur = fn;
         } else {
           fn();
         }
@@ -91,15 +93,15 @@ function ContextMenuPage() {
       if (unlistenFocus) {
         unlistenFocus();
       }
-      if (unlistenTauriBlur) {
-        unlistenTauriBlur();
+      if (unlistenBlur) {
+        unlistenBlur();
       }
     };
   }, [requestClose]);
 
   const openOutputFolder = async () => {
     try {
-      await invoke<void>("begin_open_output_folder_from_context_menu");
+      await desktopCommands.invoke<void>("begin_open_output_folder_from_context_menu");
     } catch (err) {
       console.error("Failed to open output folder:", err);
       await requestClose();
@@ -108,7 +110,7 @@ function ContextMenuPage() {
 
   const selectOutputFolder = async () => {
     try {
-      await invoke<void>("begin_pick_output_folder_from_context_menu");
+      await desktopCommands.invoke<void>("begin_pick_output_folder_from_context_menu");
     } catch (err) {
       console.error("Failed to set output folder:", err);
       await requestClose();
