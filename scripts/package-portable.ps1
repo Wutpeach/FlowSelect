@@ -7,98 +7,38 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Get-BinaryVersion {
-  param([string]$BinaryPath)
-
-  if (-not (Test-Path $BinaryPath)) {
-    return $null
-  }
-
-  try {
-    $raw = & $BinaryPath "--version" 2>$null | Select-Object -First 1
-    if (-not $raw) {
-      return $null
-    }
-    return $raw.ToString().Trim()
-  } catch {
-    return $null
-  }
-}
-
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Push-Location $repoRoot
 
 try {
-  $ytdlpSource = "src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe"
-  $runtimeProxyFileName = "flowselect-cli-proxy-x86_64-pc-windows-msvc.exe"
-  $runtimeProxySource = "src-tauri/binaries/$runtimeProxyFileName"
-  $ytdlpDownloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-
-  if (-not (Test-Path $ytdlpSource)) {
-    throw "Cannot find yt-dlp source binary: $ytdlpSource"
-  }
-
-  if (-not $SkipYtdlpUpdate) {
-    $currentYtdlpVersion = Get-BinaryVersion $ytdlpSource
-    if ($currentYtdlpVersion) {
-      Write-Host ">>> Current yt-dlp version: $currentYtdlpVersion"
-    }
-
-    $tempYtdlpPath = Join-Path ([System.IO.Path]::GetTempPath()) ("flowselect-ytdlp-{0}.tmp" -f [Guid]::NewGuid().ToString("N"))
-    try {
-      Write-Host ">>> Updating yt-dlp source binary..."
-      Invoke-WebRequest -Uri $ytdlpDownloadUrl -OutFile $tempYtdlpPath
-      if (-not (Test-Path $tempYtdlpPath)) {
-        throw "yt-dlp download failed: temp file not created"
-      }
-      $downloadedSize = (Get-Item $tempYtdlpPath).Length
-      if ($downloadedSize -le 0) {
-        throw "yt-dlp download failed: temp file is empty"
-      }
-      Move-Item -Path $tempYtdlpPath -Destination $ytdlpSource -Force
-    } finally {
-      if (Test-Path $tempYtdlpPath) {
-        Remove-Item $tempYtdlpPath -Force
-      }
-    }
-
-    $updatedYtdlpVersion = Get-BinaryVersion $ytdlpSource
-    if ($updatedYtdlpVersion) {
-      Write-Host ">>> Updated yt-dlp version: $updatedYtdlpVersion"
-    }
-  } else {
-    Write-Host ">>> Skip yt-dlp update (SkipYtdlpUpdate=true)"
+  if ($SkipYtdlpUpdate) {
+    Write-Host ">>> Ignore legacy SkipYtdlpUpdate flag for Electron portable packaging"
   }
 
   if (-not $SkipBuild) {
-    Write-Host ">>> Building Tauri app (no bundle)..."
-    node ./scripts/run-tauri.mjs build --no-bundle
+    Write-Host ">>> Building Electron Windows app (unpacked)..."
+    npm run package:win:dir
     if ($LASTEXITCODE -ne 0) {
-      throw "Tauri build failed with exit code $LASTEXITCODE"
+      throw "Electron Windows unpacked build failed with exit code $LASTEXITCODE"
     }
-  }
-
-  if (-not (Test-Path $runtimeProxySource)) {
-    throw "Cannot find runtime proxy source binary: $runtimeProxySource. Run npm run build:runtime-proxies or package without -SkipBuild."
   }
 
   if (-not $Version) {
     $Version = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
   }
 
-  $portableRoot = "src-tauri/target/release/bundle/portable"
+  $builderOutputRoot = "dist-release"
+  $unpackedDir = Join-Path $builderOutputRoot "win-unpacked"
+  $portableRoot = Join-Path $builderOutputRoot "portable"
   $portableDir = Join-Path $portableRoot "FlowSelect_portable"
   $stagingDir = Join-Path $portableRoot ("FlowSelect_portable_staging_{0}" -f $PID)
+  $stagingAppDir = Join-Path $stagingDir "FlowSelect_portable"
   $portableZip = Join-Path $portableRoot ("FlowSelect_{0}_windows_x64_portable.zip" -f $Version)
   $browserExtensionZip = Join-Path $portableRoot ("FlowSelect_{0}_browser_extension.zip" -f $Version)
+  $unpackedExe = Join-Path $unpackedDir "FlowSelect.exe"
 
-  $appExeCandidates = @(
-    "src-tauri/target/release/flowselect.exe",
-    "src-tauri/target/release/FlowSelect.exe"
-  )
-  $appExe = $appExeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-  if (-not $appExe) {
-    throw "Cannot find app executable in src-tauri/target/release/"
+  if (-not (Test-Path $unpackedExe)) {
+    throw "Cannot find Electron portable executable: $unpackedExe. Run npm run package:win:dir or package without -SkipBuild."
   }
 
   if (-not (Test-Path $portableRoot)) {
@@ -108,11 +48,7 @@ try {
     Remove-Item $stagingDir -Recurse -Force
   }
   New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
-  New-Item -ItemType Directory -Force -Path (Join-Path $stagingDir "binaries") | Out-Null
-
-  Copy-Item $appExe (Join-Path $stagingDir "FlowSelect.exe") -Force
-  Copy-Item $ytdlpSource (Join-Path $stagingDir "binaries/yt-dlp-x86_64-pc-windows-msvc.exe") -Force
-  Copy-Item $runtimeProxySource (Join-Path $stagingDir "binaries/$runtimeProxyFileName") -Force
+  Copy-Item $unpackedDir $stagingAppDir -Recurse -Force
 
   if (Test-Path $portableZip) {
     Remove-Item $portableZip -Force
@@ -133,7 +69,7 @@ try {
     if (Test-Path $portableDir) {
       Remove-Item $portableDir -Recurse -Force
     }
-    Copy-Item $stagingDir $portableDir -Recurse -Force
+    Copy-Item $stagingAppDir $portableDir -Recurse -Force
   } catch {
     Write-Warning "Failed to refresh FlowSelect_portable directory (likely in use). Zip artifact is updated."
   } finally {

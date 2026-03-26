@@ -12,10 +12,13 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import builderConfig, {
+  ELECTRON_BUILDER_OUTPUT_DIR,
+  ELECTRON_DMG_SUBDIR,
+} from "../electron-builder.config.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const tauriConfigPath = join(repoRoot, "src-tauri", "tauri.conf.json");
 const readmeSourcePath = join(repoRoot, "distribution", "macos", "install-guide.txt");
 
 function parseArgs(argv) {
@@ -64,27 +67,22 @@ function cleanDir(path) {
 }
 
 function readProductMetadata() {
-  const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, "utf8"));
+  const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
   return {
-    productName: String(tauriConfig.productName || "FlowSelect").trim() || "FlowSelect",
-    version: String(tauriConfig.version || "").trim(),
+    productName: String(builderConfig.productName || "FlowSelect").trim() || "FlowSelect",
+    version: String(packageJson.version || "").trim(),
   };
 }
 
-function findAppBundle(macosBundleDir) {
-  if (!existsSync(macosBundleDir)) {
-    throw new Error(`macOS bundle directory not found: ${macosBundleDir}`);
+function expectedElectronBuilderArchFlag(arch) {
+  const normalized = normalizeArchitectureLabel(arch);
+  if (normalized === "x64") {
+    return "--x64";
   }
-
-  const entry = readdirSync(macosBundleDir, { withFileTypes: true }).find(
-    (candidate) => candidate.isDirectory() && candidate.name.endsWith(".app"),
-  );
-
-  if (!entry) {
-    throw new Error(`No .app bundle found in: ${macosBundleDir}`);
+  if (normalized === "arm64") {
+    return "--arm64";
   }
-
-  return join(macosBundleDir, entry.name);
+  throw new Error(`Unsupported macOS architecture: ${arch}`);
 }
 
 function removeExistingDmgs(dmgDir) {
@@ -115,6 +113,35 @@ function normalizeArchitectureLabel(arch) {
   return arch;
 }
 
+function candidateAppBundleRoots(outputRoot, arch) {
+  const normalized = normalizeArchitectureLabel(arch);
+  const roots = [
+    normalized === "arm64" ? join(outputRoot, "mac-arm64") : join(outputRoot, "mac"),
+    join(outputRoot, "mac"),
+    join(outputRoot, "mac-arm64"),
+  ];
+
+  return [...new Set(roots)];
+}
+
+function findAppBundle(outputRoot, arch) {
+  for (const candidateRoot of candidateAppBundleRoots(outputRoot, arch)) {
+    if (!existsSync(candidateRoot)) {
+      continue;
+    }
+
+    const entry = readdirSync(candidateRoot, { withFileTypes: true }).find(
+      (candidate) => candidate.isDirectory() && candidate.name.endsWith(".app"),
+    );
+
+    if (entry) {
+      return join(candidateRoot, entry.name);
+    }
+  }
+
+  throw new Error(`No .app bundle found in Electron output root: ${outputRoot}`);
+}
+
 function main() {
   if (process.platform !== "darwin") {
     throw new Error("package-macos-open-source-dmg.mjs must run on macOS.");
@@ -122,24 +149,24 @@ function main() {
 
   const args = parseArgs(process.argv.slice(2));
   const { productName, version: configVersion } = readProductMetadata();
-  const target = String(args.target || "").trim();
+  const skipBuild = args["skip-build"] === "true";
   const version = String(args.version || configVersion || "").trim();
-  const arch = String(args.arch || "").trim() || (target.includes("aarch64") ? "aarch64" : "x86_64");
+  const arch = String(args.arch || "").trim() || "x86_64";
 
-  if (!target) {
-    throw new Error("Missing required --target argument.");
-  }
   if (!version) {
-    throw new Error("Missing version. Pass --version or set src-tauri/tauri.conf.json version.");
+    throw new Error("Missing version. Pass --version or ensure package.json has a version.");
   }
   if (!existsSync(readmeSourcePath)) {
     throw new Error(`Missing install guide asset: ${readmeSourcePath}`);
   }
 
-  const bundleRoot = join(repoRoot, "src-tauri", "target", target, "release", "bundle");
-  const macosBundleDir = join(bundleRoot, "macos");
-  const dmgDir = join(bundleRoot, "dmg");
-  const appBundlePath = findAppBundle(macosBundleDir);
+  if (!skipBuild) {
+    run("npm", ["run", "package:mac:zip", "--", expectedElectronBuilderArchFlag(arch)]);
+  }
+
+  const outputRoot = join(repoRoot, ELECTRON_BUILDER_OUTPUT_DIR);
+  const dmgDir = join(outputRoot, ELECTRON_DMG_SUBDIR);
+  const appBundlePath = findAppBundle(outputRoot, arch);
   const outputPath = join(dmgDir, outputFileName(productName, version, arch));
   const browserExtensionOutputPath = join(dmgDir, `FlowSelect_${version}_browser_extension.zip`);
   const stagingRoot = mkdtempSync(join(tmpdir(), "flowselect-macos-dmg-"));
@@ -183,7 +210,6 @@ function main() {
   }
 
   console.log(JSON.stringify({
-    target,
     arch,
     appBundlePath,
     outputPath,

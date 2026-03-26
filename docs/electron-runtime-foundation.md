@@ -11,14 +11,21 @@ This document freezes the runtime boundary for FlowSelect's Tauri-to-Electron mi
   - `src/contexts/ThemeContext.tsx`
   - `src/main.tsx`
 - Native runtime ownership currently lives in:
+  - `electron/main.mts`
+  - `electron/preload.mts`
+  - `src/desktop/runtime.ts`
+- Legacy migration assets that still stay repo-visible live in:
   - `src-tauri/src/lib.rs`
   - `src-tauri/src/native_i18n.rs`
-  - `src-tauri/tauri.conf.json`
+  - `src-tauri/binaries/`
+  - `src-tauri/pinterest-sidecar/`
+  - `src-tauri/tauri.conf.json` (version-sync target only)
 - Browser-extension transport currently lives in:
   - `browser-extension/background.js`
 - Current release/build packaging lives in:
   - `.github/workflows/release.yml`
-  - `scripts/run-tauri.mjs`
+  - `electron-builder.config.mjs`
+  - `scripts/run-electron-dev.mjs`
   - `scripts/package-portable.ps1`
   - `scripts/package-macos-open-source-dmg.mjs`
 
@@ -127,14 +134,15 @@ Autostart remains runtime-owned OS state, not a `settings.json` key.
 
 - Windows:
   - canonical packaged artifact: Electron Builder `nsis`
-  - portable ZIP remains manual-only
-  - in-app auto-update is supported only for installed NSIS builds
+  - portable ZIP remains manual-only under `dist-release/portable/`
+  - in-app auto-update is supported only for installed Windows builds through the repo-generated `latest.json` manifest
 - macOS:
-  - canonical packaged artifacts remain architecture-specific DMGs
+  - canonical packaged artifacts are architecture-specific Electron Builder ZIPs plus the repo's custom unsigned DMGs
   - because the current repo ships unsigned open-source DMGs, Electron in-app auto-update is intentionally out of scope until code signing/notarization exists
   - macOS users stay on the manual release-install path in Phase 1
 - Keep GitHub Releases and `release-notes/v<version>.md` as the canonical release flow.
 - Keep the browser-extension ZIP as a separate release asset.
+- Keep Electron packaging `asar = false` in Phase 1 so the packaged app can continue resolving `dist/`, `locales/`, and `src-tauri/binaries/` through the existing repo-root-relative runtime contract until cleanup work lands.
 
 Renderer updater contract:
 

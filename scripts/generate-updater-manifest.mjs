@@ -70,18 +70,13 @@ function findRequiredFileByPatterns(files, patterns, label) {
   throw new Error(`Unable to find ${label} matching any of: ${patterns.map(String).join(", ")}`);
 }
 
-function readTrimmed(filePath) {
-  return fs.readFileSync(filePath, "utf8").trim();
-}
-
 function buildReleaseAssetUrl(repo, releaseTag, assetFilePath) {
   const assetName = path.basename(assetFilePath);
   return `https://github.com/${repo}/releases/download/${releaseTag}/${encodeURIComponent(assetName)}`;
 }
 
-function createPlatformEntry(repo, releaseTag, assetPath, signaturePath) {
+function createPlatformEntry(repo, releaseTag, assetPath) {
   return {
-    signature: readTrimmed(signaturePath),
     url: buildReleaseAssetUrl(repo, releaseTag, assetPath),
   };
 }
@@ -106,59 +101,13 @@ function main() {
     ],
     "Windows updater asset",
   );
-  const windowsSig = findRequiredFileByPatterns(
-    files,
-    [
-      /^FlowSelect_.*_windows_x64_installer\.exe\.sig$/,
-      /^FlowSelect_.*_x64-setup\.exe\.sig$/,
-    ],
-    "Windows updater signature",
-  );
-  const darwinX64Asset = findRequiredFileByPatterns(
-    files,
-    [
-      /^FlowSelect_.*_updater_macos_x64\.app\.tar\.gz$/,
-      /^FlowSelect_.*_x64\.app\.tar\.gz$/,
-      /^FlowSelect_.*_x86_64\.app\.tar\.gz$/,
-    ],
-    "macOS x64 updater asset",
-  );
-  const darwinX64Sig = findRequiredFileByPatterns(
-    files,
-    [
-      /^FlowSelect_.*_updater_macos_x64\.app\.tar\.gz\.sig$/,
-      /^FlowSelect_.*_x64\.app\.tar\.gz\.sig$/,
-      /^FlowSelect_.*_x86_64\.app\.tar\.gz\.sig$/,
-    ],
-    "macOS x64 updater signature",
-  );
-  const darwinArm64Asset = findRequiredFileByPatterns(
-    files,
-    [
-      /^FlowSelect_.*_updater_macos_arm64\.app\.tar\.gz$/,
-      /^FlowSelect_.*_arm64\.app\.tar\.gz$/,
-      /^FlowSelect_.*_aarch64\.app\.tar\.gz$/,
-    ],
-    "macOS arm64 updater asset",
-  );
-  const darwinArm64Sig = findRequiredFileByPatterns(
-    files,
-    [
-      /^FlowSelect_.*_updater_macos_arm64\.app\.tar\.gz\.sig$/,
-      /^FlowSelect_.*_arm64\.app\.tar\.gz\.sig$/,
-      /^FlowSelect_.*_aarch64\.app\.tar\.gz\.sig$/,
-    ],
-    "macOS arm64 updater signature",
-  );
 
   const manifest = {
     version,
     notes: fs.readFileSync(path.resolve(notesFile), "utf8").trim(),
     pub_date: pubDate,
     platforms: {
-      "windows-x86_64": createPlatformEntry(repo, releaseTag, windowsAsset, windowsSig),
-      "darwin-x86_64": createPlatformEntry(repo, releaseTag, darwinX64Asset, darwinX64Sig),
-      "darwin-aarch64": createPlatformEntry(repo, releaseTag, darwinArm64Asset, darwinArm64Sig),
+      "windows-x86_64": createPlatformEntry(repo, releaseTag, windowsAsset),
     },
   };
 
