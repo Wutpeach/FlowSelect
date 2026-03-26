@@ -5,7 +5,7 @@ import App from "./App";
 import SettingsPage from "./pages/SettingsPage";
 import ContextMenuPage from "./pages/ContextMenuPage";
 import { ThemeProvider, type Theme } from "./contexts/ThemeContext";
-import { desktopCommands, isElectronRenderer } from "./desktop/runtime";
+import { desktopCommands } from "./desktop/runtime";
 import { I18nRuntimeBridge } from "./i18n/I18nRuntimeBridge";
 import { initializeI18n } from "./i18n";
 import { resolveAppLanguage, resolveAppLanguageFromConfigString } from "./i18n/language";
@@ -44,19 +44,21 @@ const resolveBootstrapState = async (): Promise<{
 const bootstrap = async () => {
   const { initialTheme, initialLanguage } = await resolveBootstrapState();
   await initializeI18n(initialLanguage);
-  const RouterComponent = isElectronRenderer() ? HashRouter : BrowserRouter;
+  const Router = window.flowselect && window.location.protocol === "file:"
+    ? HashRouter
+    : BrowserRouter;
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <ThemeProvider initialTheme={initialTheme}>
-        <RouterComponent>
+        <Router>
           <I18nRuntimeBridge />
           <Routes>
             <Route path="/" element={<App />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/context-menu" element={<ContextMenuPage />} />
           </Routes>
-        </RouterComponent>
+        </Router>
       </ThemeProvider>
     </React.StrictMode>,
   );

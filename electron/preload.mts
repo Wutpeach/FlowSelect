@@ -1,167 +1,112 @@
+// @ts-nocheck
 import { contextBridge, ipcRenderer } from "electron";
 
-const BRIDGE_CHANNEL = "flowselect:bridge";
-const EVENT_CHANNEL_PREFIX = "flowselect:event:";
-const WINDOW_FOCUS_CHANNEL = "flowselect:window:focus-changed";
-const WINDOW_BLUR_CHANNEL = "flowselect:window:blur";
+const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload);
 
-const bridge = {
+contextBridge.exposeInMainWorld("flowselect", {
   commands: {
-    invoke(command: string, payload?: Record<string, unknown>) {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "command.invoke",
-        command,
-        payload,
-      });
+    invoke(command, payload) {
+      return invoke("flowselect:command:invoke", { command, payload });
     },
   },
   events: {
-    on(event: string, listener: (payload: { payload: unknown }) => void) {
-      const channel = `${EVENT_CHANNEL_PREFIX}${event}`;
-      const wrapped = (_event: Electron.IpcRendererEvent, payload: { payload: unknown }) => {
-        listener(payload);
+    async on(event, listener) {
+      const wrapped = (_ipcEvent, payload) => {
+        if (payload?.event !== event) {
+          return;
+        }
+        listener({ payload: payload.payload });
       };
 
-      ipcRenderer.on(channel, wrapped);
-      return Promise.resolve(() => {
-        ipcRenderer.off(channel, wrapped);
-      });
+      ipcRenderer.on("flowselect:event", wrapped);
+      return () => {
+        ipcRenderer.removeListener("flowselect:event", wrapped);
+      };
     },
-    emit(event: string, payload: unknown) {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "event.emit",
-        event,
-        payload,
-      });
+    emit(event, payload) {
+      return invoke("flowselect:event:emit", { event, payload });
     },
   },
   windows: {
-    has(label: string) {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "window.has",
-        label,
-      });
+    has(label) {
+      return invoke("flowselect:window:has", { label });
     },
-    focus(label: string) {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "window.focus",
-        label,
-      });
+    focus(label) {
+      return invoke("flowselect:window:focus", { label });
     },
-    close(label: string) {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "window.close",
-        label,
-      });
+    close(label) {
+      return invoke("flowselect:window:close", { label });
     },
-    openSettings(options: Record<string, unknown>) {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "window.openSettings",
-        options,
-      });
+    openSettings(options) {
+      return invoke("flowselect:window:open-settings", { options });
     },
-    openContextMenu(options: Record<string, unknown>) {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "window.openContextMenu",
-        options,
-      });
+    openContextMenu(options) {
+      return invoke("flowselect:window:open-context-menu", { options });
     },
   },
   currentWindow: {
     outerPosition() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "currentWindow.outerPosition",
-      });
+      return invoke("flowselect:current-window:outer-position");
     },
     outerSize() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "currentWindow.outerSize",
-      });
+      return invoke("flowselect:current-window:outer-size");
     },
     scaleFactor() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "currentWindow.scaleFactor",
-      });
+      return invoke("flowselect:current-window:scale-factor");
     },
     startDragging() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "currentWindow.startDragging",
-      });
+      return invoke("flowselect:current-window:start-dragging");
     },
     close() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "currentWindow.close",
-      });
+      return invoke("flowselect:current-window:close");
     },
     hide() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "currentWindow.hide",
-      });
+      return invoke("flowselect:current-window:hide");
     },
-    onFocusChanged(listener: (payload: { payload: boolean }) => void) {
-      const wrapped = (_event: Electron.IpcRendererEvent, payload: { payload: boolean }) => {
-        listener(payload);
+    async onFocusChanged(listener) {
+      const wrapped = (_ipcEvent, focused) => {
+        listener({ payload: Boolean(focused) });
       };
-
-      ipcRenderer.on(WINDOW_FOCUS_CHANNEL, wrapped);
-      return Promise.resolve(() => {
-        ipcRenderer.off(WINDOW_FOCUS_CHANNEL, wrapped);
-      });
+      ipcRenderer.on("flowselect:current-window:focus-changed", wrapped);
+      return () => {
+        ipcRenderer.removeListener("flowselect:current-window:focus-changed", wrapped);
+      };
     },
-    onBlur(listener: () => void) {
+    async onBlur(listener) {
       const wrapped = () => {
         listener();
       };
-
-      ipcRenderer.on(WINDOW_BLUR_CHANNEL, wrapped);
-      return Promise.resolve(() => {
-        ipcRenderer.off(WINDOW_BLUR_CHANNEL, wrapped);
-      });
+      ipcRenderer.on("flowselect:current-window:blur", wrapped);
+      return () => {
+        ipcRenderer.removeListener("flowselect:current-window:blur", wrapped);
+      };
     },
   },
   system: {
     currentMonitor() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "system.currentMonitor",
-      });
+      return invoke("flowselect:system:current-monitor");
     },
-    openDialog(options: Record<string, unknown>) {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "system.openDialog",
-        options,
-      });
+    openDialog(options) {
+      return invoke("flowselect:system:open-dialog", { options });
     },
-    openExternal(url: string) {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "system.openExternal",
-        payload: { url },
-      });
+    openExternal(url) {
+      return invoke("flowselect:system:open-external", { url });
     },
     relaunch() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "system.relaunch",
-      });
+      return invoke("flowselect:system:relaunch");
     },
   },
   clipboard: {
     readImage() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "clipboard.readImage",
-      });
+      return invoke("flowselect:clipboard:read-image");
     },
   },
   updater: {
     check() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "updater.check",
-      });
+      return invoke("flowselect:updater:check");
     },
     downloadAndInstall() {
-      return ipcRenderer.invoke(BRIDGE_CHANNEL, {
-        method: "updater.downloadAndInstall",
-      });
+      return invoke("flowselect:updater:download-and-install");
     },
   },
-};
-
-contextBridge.exposeInMainWorld("flowselect", bridge);
+});
