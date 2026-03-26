@@ -1,0 +1,52 @@
+{
+  "id": "electron-download-runtime",
+  "name": "electron-download-runtime",
+  "title": "Electron download runtime and sidecars",
+  "description": "Replace the Rust-managed downloader, ffmpeg, yt-dlp, and sidecar orchestration with Node/Electron services while preserving current progress, cancellation, and output semantics.",
+  "status": "completed",
+  "dev_type": "fullstack",
+  "scope": "download-runtime-port",
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-03-26",
+  "completedAt": "2026-03-26",
+  "branch": "task/03-26-electron-download-runtime",
+  "base_branch": "main",
+  "worktree_path": "D:\\trellis-worktrees\\task\\03-26-electron-download-runtime",
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "03-26-migrate-tauri-to-electron",
+  "relatedFiles": [
+    "src-tauri/src/lib.rs",
+    "src-tauri/runtime-proxy/",
+    "src-tauri/binaries/",
+    "scripts/build-runtime-proxies.mjs",
+    "scripts/build-pinterest-sidecar.mjs",
+    "scripts/package-portable.ps1"
+  ],
+  "notes": "Default direction is full Node/Electron ownership. Keep the current user-visible download queue, progress, retry, and file-output behavior stable unless an explicit follow-up task changes product behavior.",
+  "meta": {}
+}
