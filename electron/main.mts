@@ -35,6 +35,11 @@ import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
 import { WebSocketServer } from "ws";
 import {
+  buildWindowsAutostartSettings,
+  getWindowsAutostartQuery,
+  isWindowsAutostartEnabled,
+} from "./autostart.mjs";
+import {
   normalizeVideoCandidateUrls,
   normalizeRequiredVideoRouteUrl,
   normalizeVideoPageUrl,
@@ -1729,20 +1734,33 @@ async function openSecondaryWindow(label, options) {
 }
 
 async function getAutostart() {
-  if (process.platform !== "win32" && process.platform !== "darwin") {
+  if (process.platform === "win32") {
+    return isWindowsAutostartEnabled(
+      app.getLoginItemSettings(getWindowsAutostartQuery(process.execPath)),
+      process.execPath,
+    );
+  }
+
+  if (process.platform !== "darwin") {
     return false;
   }
+
   return app.getLoginItemSettings().openAtLogin;
 }
 
 async function setAutostart(enabled) {
-  if (process.platform !== "win32" && process.platform !== "darwin") {
+  if (process.platform === "win32") {
+    app.setLoginItemSettings(
+      buildWindowsAutostartSettings(process.execPath, enabled),
+    );
     return;
   }
-  app.setLoginItemSettings({
-    openAtLogin: enabled,
-    path: process.execPath,
-  });
+
+  if (process.platform !== "darwin") {
+    return;
+  }
+
+  app.setLoginItemSettings({ openAtLogin: enabled });
 }
 
 async function registerShortcut(shortcut) {
