@@ -3,7 +3,12 @@ import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NeonIconButton } from "./components/ui";
-import { COMPACT_EASE, getInsetCardStyle, getPanelShellStyle } from "./components/ui/shared-styles";
+import {
+  COMPACT_EASE,
+  getInsetCardStyle,
+  getPanelShellStyle,
+  getStatusDotStyle,
+} from "./components/ui/shared-styles";
 import type { AppUpdateInfo, AppUpdatePhase } from "./types/appUpdate";
 import {
   desktopClipboard,
@@ -3146,6 +3151,52 @@ function App() {
         duration: 0.16,
         ease: [0.22, 1, 0.36, 1] as const,
       };
+  const runtimeIndicatorPopoverBorder = runtimeGateRequiresManualAction
+    ? colors.warningBorder
+    : colors.borderStart;
+  const runtimeIndicatorPopoverStyle: CSSProperties = {
+    position: "absolute",
+    left: 0,
+    bottom: 0,
+    marginBottom: 26,
+    width: 166,
+    display: "flex",
+    flexDirection: "column",
+    gap: 7,
+    padding: "10px 10px 9px",
+    ...getPanelShellStyle(colors, {
+      radius: 12,
+      boxShadow: `inset 0 0 0 1px ${runtimeIndicatorPopoverBorder}, inset 0 1px 0 ${colors.fieldInset}, ${colors.panelShadowStrong}`,
+    }),
+    backdropFilter: "blur(14px)",
+    transformOrigin: "bottom left",
+  };
+  const runtimeIndicatorStatusDotStyle: CSSProperties = {
+    ...getStatusDotStyle(colors.warningSolid, colors.warningGlow),
+    width: 6,
+    height: 6,
+    boxShadow: `0 0 8px ${colors.warningGlow}`,
+  };
+  const runtimeIndicatorProgressTrackStyle: CSSProperties = {
+    width: "100%",
+    height: 5,
+    borderRadius: 999,
+    overflow: "hidden",
+    background: `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgPrimary} 100%)`,
+    boxShadow: `inset 0 0 0 1px ${colors.fieldBorder}`,
+  };
+  const runtimeIndicatorProgressFillStyle: CSSProperties = {
+    width: runtimeIndicatorIsIndeterminate
+      ? "38%"
+      : `${runtimeIndicatorProgressPercent ?? 100}%`,
+    height: "100%",
+    borderRadius: 999,
+    background: `linear-gradient(90deg, ${colors.warningSolid} 0%, ${colors.warningText} 100%)`,
+    boxShadow: `0 0 12px ${colors.warningGlow}`,
+    animation: runtimeIndicatorIsIndeterminate ? "shimmer 1.2s ease-in-out infinite" : "none",
+    transformOrigin: "left center",
+    transition: runtimeIndicatorIsIndeterminate ? "none" : "width 0.22s ease",
+  };
 
   return (
     <motion.div
@@ -4112,36 +4163,11 @@ function App() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.96, y: 4 }}
                   transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    bottom: 0,
-                    marginBottom: 24,
-                    width: 164,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6,
-                    padding: "9px 10px",
-                    borderRadius: 12,
-                    border: `1px solid ${colors.warningBorder}`,
-                    background: `linear-gradient(180deg, ${colors.warningSurface} 0%, ${colors.bgSecondary} 100%)`,
-                    boxShadow: `0 14px 28px ${colors.warningGlow}, ${colors.panelShadow}`,
-                    backdropFilter: "blur(14px)",
-                    transformOrigin: "bottom left",
-                  }}
+                  style={runtimeIndicatorPopoverStyle}
                   onMouseDown={(e) => e.stopPropagation()}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        flexShrink: 0,
-                        backgroundColor: colors.warningSolid,
-                        boxShadow: `0 0 10px ${colors.warningGlow}`,
-                      }}
-                    />
+                    <span style={runtimeIndicatorStatusDotStyle} />
                     <span
                       style={{
                         minWidth: 0,
@@ -4160,30 +4186,8 @@ function App() {
                   </div>
 
                   {runtimeIndicatorShouldRenderRing ? (
-                    <div
-                      style={{
-                        width: "100%",
-                        height: 5,
-                        borderRadius: 999,
-                        overflow: "hidden",
-                        background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                        boxShadow: `inset 0 0 0 1px ${colors.warningBorder}`,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: runtimeIndicatorIsIndeterminate
-                            ? "38%"
-                            : `${runtimeIndicatorProgressPercent ?? 100}%`,
-                          height: "100%",
-                          borderRadius: 999,
-                          background: `linear-gradient(90deg, ${colors.warningSolid} 0%, ${colors.warningText} 100%)`,
-                          boxShadow: `0 0 12px ${colors.warningGlow}`,
-                          animation: runtimeIndicatorIsIndeterminate ? "shimmer 1.2s ease-in-out infinite" : "none",
-                          transformOrigin: "left center",
-                          transition: runtimeIndicatorIsIndeterminate ? "none" : "width 0.22s ease",
-                        }}
-                      />
+                    <div style={runtimeIndicatorProgressTrackStyle}>
+                      <div style={runtimeIndicatorProgressFillStyle} />
                     </div>
                   ) : null}
 
@@ -4236,14 +4240,12 @@ function App() {
                   alignItems: "center",
                   justifyContent: "center",
                   borderRadius: "50%",
-                  backgroundColor: showRuntimeSuccessIndicator
-                    ? colors.warningSurface
-                    : "rgba(0, 0, 0, 0.12)",
+                  background: `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgSecondary} 100%)`,
                   boxShadow: showRuntimeSuccessIndicator
-                    ? `0 0 18px ${colors.warningGlow}`
-                    : "none",
+                    ? `inset 0 0 0 1px ${colors.warningBorder}, inset 0 1px 0 ${colors.fieldInset}, 0 0 14px ${colors.warningGlow}`
+                    : `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}`,
                   pointerEvents: "auto",
-                  transition: "background-color 0.18s ease, box-shadow 0.18s ease",
+                  transition: "box-shadow 0.18s ease",
                 }}
               >
                 {showRuntimeSuccessIndicator && !shouldReduceMotion ? (
@@ -4311,13 +4313,15 @@ function App() {
                 }}
                 title={runtimeIndicatorTitle}
                 style={{
-                  width: 14,
-                  height: 14,
+                  width: 18,
+                  height: 18,
                   padding: 0,
                   border: "none",
-                  borderRadius: "50%",
-                  backgroundColor: colors.warningSolid,
-                  boxShadow: `0 0 14px ${colors.warningGlow}`,
+                  borderRadius: 999,
+                  background: "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                   cursor: isRuntimeRetryInFlight ? "default" : "pointer",
                   opacity: isRuntimeRetryInFlight ? 0.82 : 1,
                 }}
@@ -4333,7 +4337,22 @@ function App() {
                 transition={isRuntimeRetryFeedbackVisible
                   ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] }
                   : { duration: 1.4, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
-              />
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    backgroundColor: colors.warningSolid,
+                    display: "block",
+                    pointerEvents: "none",
+                    boxShadow: isRuntimeRetryFeedbackVisible
+                      ? `0 0 10px ${colors.warningGlow}`
+                      : `0 0 6px ${colors.warningGlow}`,
+                  }}
+                />
+              </motion.button>
             )}
           </motion.div>
         ) : null}
