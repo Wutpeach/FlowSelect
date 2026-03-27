@@ -62,6 +62,9 @@ export const desktopCurrentWindow: FlowSelectCurrentWindowApi = {
   async startDragging() {
     await resolveElectronBridge().currentWindow.startDragging();
   },
+  setPosition(position) {
+    resolveElectronBridge().currentWindow.setPosition(position);
+  },
   async close() {
     await resolveElectronBridge().currentWindow.close();
   },

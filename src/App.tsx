@@ -429,6 +429,28 @@ const EMPTY_VIDEO_TRANSCODE_QUEUE_DETAIL: VideoTranscodeQueueDetailPayload = {
   tasks: [],
 };
 
+type PendingWindowDragStart = {
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+  screenX: number;
+  screenY: number;
+  windowPositionPromise: Promise<{ x: number; y: number }>;
+};
+
+type ActiveWindowDragState = {
+  pointerId: number;
+  startScreenX: number;
+  startScreenY: number;
+  windowX: number;
+  windowY: number;
+  nextX: number;
+  nextY: number;
+  lastAppliedX: number;
+  lastAppliedY: number;
+  applyInFlight: boolean;
+};
+
 const PANEL_DOUBLE_CLICK_IGNORE_SELECTOR = "button, [data-panel-double-click='ignore']";
 const WINDOW_DRAG_START_THRESHOLD = 6;
 
@@ -727,7 +749,10 @@ function App() {
   const isPanelHoveredRef = useRef(false);
   const pasteHandlerRef = useRef<(event: ClipboardEvent) => void>(() => undefined);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
-  const pendingDragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingDragStartRef = useRef<PendingWindowDragStart | null>(null);
+  const activeWindowDragRef = useRef<ActiveWindowDragState | null>(null);
+  const isWindowPointerDownRef = useRef(false);
+  const windowDragFrameRef = useRef<number | null>(null);
   const previousTaskCountRef = useRef(0);
   const ongoingTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
@@ -1790,7 +1815,7 @@ function App() {
   }, [devMode]);
 
   // Idle auto-minimize: reset timer helper
-  const resetIdleTimer = ({ expandIfMinimized = true }: { expandIfMinimized?: boolean } = {}) => {
+  const resetIdleTimer = useCallback(({ expandIfMinimized = true }: { expandIfMinimized?: boolean } = {}) => {
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
@@ -1817,7 +1842,7 @@ function App() {
       setIsMinimized(true);
       setShowEdgeGlow(false); // 缩小时立即隐藏边缘光
     }, 3000);
-  };
+  }, [expandWindow, isMinimized]);
 
   // Start idle timer on mount
   useEffect(() => {
@@ -1857,18 +1882,106 @@ function App() {
     };
   }, [closeContextMenuWindow, isContextMenuOpen]);
 
+  const flushWindowDragPosition = useCallback(() => {
+    windowDragFrameRef.current = null;
+    const dragState = activeWindowDragRef.current;
+    if (!dragState) {
+      return;
+    }
+
+    if (
+      dragState.lastAppliedX === dragState.nextX
+      && dragState.lastAppliedY === dragState.nextY
+    ) {
+      return;
+    }
+
+    dragState.lastAppliedX = dragState.nextX;
+    dragState.lastAppliedY = dragState.nextY;
+    desktopCurrentWindow.setPosition({
+      x: dragState.nextX,
+      y: dragState.nextY,
+    });
+  }, []);
+
+  const scheduleWindowDragPosition = useCallback(() => {
+    if (windowDragFrameRef.current !== null) {
+      return;
+    }
+
+    windowDragFrameRef.current = window.requestAnimationFrame(() => {
+      flushWindowDragPosition();
+    });
+  }, [flushWindowDragPosition]);
+
+  const updateManualWindowDrag = useCallback((screenX: number, screenY: number) => {
+    const dragState = activeWindowDragRef.current;
+    if (!dragState) {
+      return;
+    }
+
+    dragState.nextX = Math.round(dragState.windowX + (screenX - dragState.startScreenX));
+    dragState.nextY = Math.round(dragState.windowY + (screenY - dragState.startScreenY));
+
+    if (
+      dragState.nextX === dragState.lastAppliedX
+      && dragState.nextY === dragState.lastAppliedY
+    ) {
+      return;
+    }
+
+    scheduleWindowDragPosition();
+  }, [scheduleWindowDragPosition]);
+
+  const finishWindowDrag = useCallback(() => {
+    pendingDragStartRef.current = null;
+    activeWindowDragRef.current = null;
+    isWindowPointerDownRef.current = false;
+    if (windowDragFrameRef.current !== null) {
+      window.cancelAnimationFrame(windowDragFrameRef.current);
+      windowDragFrameRef.current = null;
+    }
+    if (!isDraggingRef.current) {
+      return;
+    }
+
+    isDraggingRef.current = false;
+    resetIdleTimer();
+  }, [resetIdleTimer]);
+
   useEffect(() => {
-    const handleWindowMouseUp = () => {
-      pendingDragStartRef.current = null;
+    const handleWindowPointerUp = () => {
+      if (!isDraggingRef.current) {
+        pendingDragStartRef.current = null;
+        isWindowPointerDownRef.current = false;
+        return;
+      }
+
+      finishWindowDrag();
     };
 
-    window.addEventListener("mouseup", handleWindowMouseUp);
+    window.addEventListener("pointerup", handleWindowPointerUp);
+    window.addEventListener("pointercancel", handleWindowPointerUp);
     return () => {
-      window.removeEventListener("mouseup", handleWindowMouseUp);
+      window.removeEventListener("pointerup", handleWindowPointerUp);
+      window.removeEventListener("pointercancel", handleWindowPointerUp);
+    };
+  }, [finishWindowDrag]);
+
+  useEffect(() => {
+    return () => {
+      if (windowDragFrameRef.current !== null) {
+        window.cancelAnimationFrame(windowDragFrameRef.current);
+      }
     };
   }, []);
 
-  const startWindowDrag = async () => {
+  const startWindowDrag = useCallback(async (screenX: number, screenY: number) => {
+    const pendingDragStart = pendingDragStartRef.current;
+    if (!pendingDragStart || isDraggingRef.current) {
+      return;
+    }
+
     pendingDragStartRef.current = null;
     isDraggingRef.current = true;
     if (idleTimerRef.current) {
@@ -1877,15 +1990,34 @@ function App() {
     }
 
     try {
-      await desktopCurrentWindow.startDragging();
-    } finally {
-      // Windows 上 await 返回 = 拖拽结束
+      const windowPosition = await pendingDragStart.windowPositionPromise;
+      if (!isWindowPointerDownRef.current) {
+        isDraggingRef.current = false;
+        resetIdleTimer();
+        return;
+      }
+
+      activeWindowDragRef.current = {
+        pointerId: pendingDragStart.pointerId,
+        startScreenX: pendingDragStart.screenX,
+        startScreenY: pendingDragStart.screenY,
+        windowX: windowPosition.x,
+        windowY: windowPosition.y,
+        nextX: windowPosition.x,
+        nextY: windowPosition.y,
+        lastAppliedX: windowPosition.x,
+        lastAppliedY: windowPosition.y,
+        applyInFlight: false,
+      };
+      updateManualWindowDrag(screenX, screenY);
+    } catch (err) {
+      console.error("Failed to start manual window drag:", err);
       isDraggingRef.current = false;
       resetIdleTimer();
     }
-  };
+  }, [resetIdleTimer, updateManualWindowDrag]);
 
-  const handlePanelMouseDown = async (e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePanelPointerDown = async (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // 只响应左键
     if (isContextMenuOpen) {
       await closeContextMenuWindow();
@@ -1899,10 +2031,31 @@ function App() {
       pendingDragStartRef.current = null;
       return;
     }
-    pendingDragStartRef.current = { x: e.clientX, y: e.clientY };
+    isWindowPointerDownRef.current = true;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore environments where pointer capture cannot be established.
+    }
+    pendingDragStartRef.current = {
+      pointerId: e.pointerId,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      screenX: e.screenX,
+      screenY: e.screenY,
+      windowPositionPromise: desktopCurrentWindow.outerPosition(),
+    };
   };
 
-  const handlePanelMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePanelPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDraggingRef.current) {
+      const activeDrag = activeWindowDragRef.current;
+      if (activeDrag && activeDrag.pointerId === e.pointerId) {
+        updateManualWindowDrag(e.screenX, e.screenY);
+      }
+      return;
+    }
+
     const rect = e.currentTarget.getBoundingClientRect();
     setMousePos({
       x: e.clientX - rect.left,
@@ -1910,23 +2063,53 @@ function App() {
     });
 
     const pendingDragStart = pendingDragStartRef.current;
-    if (!pendingDragStart || e.buttons !== 1 || isDraggingRef.current || isMinimized) {
+    if (
+      !pendingDragStart
+      || pendingDragStart.pointerId !== e.pointerId
+      || e.buttons !== 1
+      || isMinimized
+    ) {
       return;
     }
 
     const dragDistance = Math.hypot(
-      e.clientX - pendingDragStart.x,
-      e.clientY - pendingDragStart.y,
+      e.clientX - pendingDragStart.clientX,
+      e.clientY - pendingDragStart.clientY,
     );
     if (dragDistance < WINDOW_DRAG_START_THRESHOLD) {
       return;
     }
 
-    void startWindowDrag();
+    void startWindowDrag(e.screenX, e.screenY);
   };
 
-  const handlePanelMouseUp = () => {
+  const handlePanelPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+
+    if (isDraggingRef.current) {
+      finishWindowDrag();
+      return;
+    }
+
     pendingDragStartRef.current = null;
+    isWindowPointerDownRef.current = false;
+    resetIdleTimer();
+  };
+
+  const handlePanelPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+
+    if (isDraggingRef.current) {
+      finishWindowDrag();
+      return;
+    }
+
+    pendingDragStartRef.current = null;
+    isWindowPointerDownRef.current = false;
     resetIdleTimer();
   };
 
@@ -1939,6 +2122,7 @@ function App() {
 
   const handlePanelDoubleClick = async (e: React.MouseEvent<HTMLDivElement>) => {
     pendingDragStartRef.current = null;
+    isWindowPointerDownRef.current = false;
 
     if (e.button !== 0 || !canDoubleClickOpenOutputFolder) {
       return;
@@ -2876,9 +3060,10 @@ function App() {
         setIsPanelHovered(false);
         resetIdleTimer({ expandIfMinimized: false });
       }}
-      onMouseDown={handlePanelMouseDown}
-      onMouseUp={handlePanelMouseUp}
-      onMouseMove={handlePanelMouseMove}
+      onPointerDown={handlePanelPointerDown}
+      onPointerUp={handlePanelPointerUp}
+      onPointerMove={handlePanelPointerMove}
+      onPointerCancel={handlePanelPointerCancel}
       onDoubleClick={handlePanelDoubleClick}
       onContextMenu={handleContextMenu}
       initial={false}

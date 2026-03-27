@@ -2,6 +2,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload);
+const eventChannel = (event) => `flowselect:event:${event}`;
 
 contextBridge.exposeInMainWorld("flowselect", {
   commands: {
@@ -11,16 +12,14 @@ contextBridge.exposeInMainWorld("flowselect", {
   },
   events: {
     async on(event, listener) {
+      const channel = eventChannel(event);
       const wrapped = (_ipcEvent, payload) => {
-        if (payload?.event !== event) {
-          return;
-        }
-        listener({ payload: payload.payload });
+        listener(payload);
       };
 
-      ipcRenderer.on("flowselect:event", wrapped);
+      ipcRenderer.on(channel, wrapped);
       return () => {
-        ipcRenderer.removeListener("flowselect:event", wrapped);
+        ipcRenderer.removeListener(channel, wrapped);
       };
     },
     emit(event, payload) {
@@ -56,6 +55,9 @@ contextBridge.exposeInMainWorld("flowselect", {
     },
     startDragging() {
       return invoke("flowselect:current-window:start-dragging");
+    },
+    setPosition(position) {
+      ipcRenderer.send("flowselect:current-window:set-position", position);
     },
     close() {
       return invoke("flowselect:current-window:close");

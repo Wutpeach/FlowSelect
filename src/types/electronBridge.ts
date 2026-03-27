@@ -126,6 +126,7 @@ export interface FlowSelectCurrentWindowApi {
   outerSize(): Promise<FlowSelectSize>;
   scaleFactor(): Promise<number>;
   startDragging(): Promise<void>;
+  setPosition(position: FlowSelectPoint): void;
   close(): Promise<void>;
   hide(): Promise<void>;
   onFocusChanged(

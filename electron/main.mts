@@ -1033,7 +1033,7 @@ function getIconPath() {
 function emitAppEvent(event, payload) {
   for (const win of windows.values()) {
     if (!win.isDestroyed()) {
-      win.webContents.send("flowselect:event", { event, payload });
+      win.webContents.send(`flowselect:event:${event}`, { payload });
     }
   }
 }
@@ -1609,11 +1609,11 @@ function getBaseRendererUrl() {
 }
 
 function buildRendererRoute(routePath) {
+  const normalizedRoute = routePath.startsWith("/") ? routePath : `/${routePath}`;
   if (!app.isPackaged) {
-    return `${getBaseRendererUrl()}${routePath}`;
+    return `${getBaseRendererUrl()}#${normalizedRoute}`;
   }
 
-  const normalizedRoute = routePath.startsWith("/") ? routePath : `/${routePath}`;
   return `${pathToFileURL(join(repoRoot, "dist", "index.html")).toString()}#${normalizedRoute}`;
 }
 
@@ -1656,6 +1656,7 @@ async function createMainWindow() {
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
+      sandbox: false,
       nodeIntegration: false,
     },
   });
@@ -1681,11 +1682,21 @@ async function showMainWindow() {
   mainWindow.focus();
 }
 
+function showSecondaryWindow(win, options) {
+  if (win.isDestroyed()) {
+    return;
+  }
+
+  win.show();
+  if (options.focus !== false) {
+    win.focus();
+  }
+}
+
 async function openSecondaryWindow(label, options) {
   const existing = getWindow(label);
   if (existing && !existing.isDestroyed()) {
-    existing.show();
-    existing.focus();
+    showSecondaryWindow(existing, options);
     return existing;
   }
 
@@ -1707,20 +1718,21 @@ async function openSecondaryWindow(label, options) {
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
+      sandbox: false,
       nodeIntegration: false,
     },
   });
 
   registerWindow(label, browserWindow);
+  browserWindow.once("ready-to-show", () => {
+    showSecondaryWindow(browserWindow, options);
+  });
   await browserWindow.loadURL(
     buildRendererRoute(label === WINDOW_LABELS.settings ? "/settings" : "/context-menu"),
   );
-  browserWindow.once("ready-to-show", () => {
-    browserWindow.show();
-    if (options.focus !== false) {
-      browserWindow.focus();
-    }
-  });
+  if (!browserWindow.isVisible()) {
+    showSecondaryWindow(browserWindow, options);
+  }
   return browserWindow;
 }
 
@@ -2342,6 +2354,21 @@ function registerIpcHandlers() {
 
   ipcMain.handle("flowselect:current-window:start-dragging", () => {
     return;
+  });
+
+  ipcMain.on("flowselect:current-window:set-position", (event, payload) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) {
+      return;
+    }
+
+    const x = Number(payload?.x);
+    const y = Number(payload?.y);
+    if (Number.isNaN(x) || Number.isNaN(y)) {
+      return;
+    }
+
+    win.setPosition(Math.round(x), Math.round(y));
   });
 
   ipcMain.handle("flowselect:current-window:close", (event) => {
