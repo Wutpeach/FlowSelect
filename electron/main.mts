@@ -40,6 +40,10 @@ import {
   normalizeVideoPageUrl,
   normalizeVideoHintUrl,
 } from "./videoHintNormalization.mjs";
+import {
+  VALIDATE_DROPPED_FOLDER_PATH_CHANNEL,
+  validateDroppedFolderPath,
+} from "./folderDrop.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -2284,6 +2288,10 @@ function registerIpcHandlers() {
   ipcMain.handle("flowselect:event:emit", async (_event, request) => {
     emitAppEvent(request.event, request.payload);
   });
+
+  ipcMain.handle(VALIDATE_DROPPED_FOLDER_PATH_CHANNEL, async (_event, request) => (
+    validateDroppedFolderPath({ path: request?.path })
+  ));
 
   ipcMain.handle("flowselect:window:has", (_event, request) => {
     const win = getWindow(request.label);

@@ -6,6 +6,7 @@ import type {
   FlowSelectCurrentWindowApi,
   FlowSelectDialogOpenOptions,
   FlowSelectDisplay,
+  FlowSelectDroppedFolderPathResult,
   FlowSelectElectronBridge,
   FlowSelectEventPayload,
   FlowSelectRendererCommand,
@@ -93,6 +94,12 @@ export const desktopSystem = {
   },
   async relaunch(): Promise<void> {
     await resolveElectronBridge().system.relaunch();
+  },
+};
+
+export const desktopDrop = {
+  async consumePendingFolderDrop(): Promise<FlowSelectDroppedFolderPathResult | null> {
+    return resolveElectronBridge().drop.consumePendingFolderDrop();
   },
 };
 

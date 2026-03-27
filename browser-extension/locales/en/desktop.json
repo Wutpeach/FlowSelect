@@ -20,7 +20,15 @@
       "failed": "Transcode failed"
     },
     "drop": {
-      "directoryDialogTitle": "Confirm media export folder"
+      "directoryDialogTitle": "Confirm media export folder",
+      "errors": {
+        "unresolved": "Couldn't read a local folder from that drop.",
+        "preloadFailed": "FlowSelect couldn't inspect that dropped folder.",
+        "notDirectory": "Dropped item is not a folder.",
+        "notFound": "Dropped folder could not be found.",
+        "statFailed": "FlowSelect couldn't access the dropped folder.",
+        "saveFailed": "Failed to set the export folder."
+      }
     },
     "queue": {
       "label": "Queue",

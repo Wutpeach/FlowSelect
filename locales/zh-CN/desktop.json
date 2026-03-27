@@ -20,7 +20,15 @@
       "failed": "转码失败"
     },
     "drop": {
-      "directoryDialogTitle": "确认素材导出路径"
+      "directoryDialogTitle": "确认素材导出路径",
+      "errors": {
+        "unresolved": "无法从这次拖拽中读取本地文件夹。",
+        "preloadFailed": "FlowSelect 无法检查这个拖入的文件夹。",
+        "notDirectory": "拖入的内容不是文件夹。",
+        "notFound": "找不到拖入的文件夹。",
+        "statFailed": "FlowSelect 无法访问这个拖入的文件夹。",
+        "saveFailed": "设置导出文件夹失败。"
+      }
     },
     "queue": {
       "label": "队列",

@@ -105,6 +105,27 @@ export type FlowSelectClipboardImage = {
   rgba: number[];
 };
 
+export type FlowSelectDroppedFolderPathFailureReason =
+  | "EMPTY_PATH"
+  | "UNRESOLVED_DROP"
+  | "PRELOAD_ERROR"
+  | "NOT_DIRECTORY"
+  | "NOT_FOUND"
+  | "STAT_FAILED";
+
+export type FlowSelectDroppedFolderPathResult =
+  | {
+      success: true;
+      path: string;
+      name: string;
+    }
+  | {
+      success: false;
+      path: string;
+      error: string;
+      reason: FlowSelectDroppedFolderPathFailureReason;
+    };
+
 export type FlowSelectSecondaryWindowOptions = {
   title: string;
   width: number;
@@ -144,6 +165,10 @@ export interface FlowSelectSystemApi {
   relaunch(): Promise<void>;
 }
 
+export interface FlowSelectDropApi {
+  consumePendingFolderDrop(): Promise<FlowSelectDroppedFolderPathResult | null>;
+}
+
 export interface FlowSelectElectronBridge {
   commands: {
     invoke<TResult>(
@@ -167,6 +192,7 @@ export interface FlowSelectElectronBridge {
   };
   currentWindow: FlowSelectCurrentWindowApi;
   system: FlowSelectSystemApi;
+  drop: FlowSelectDropApi;
   clipboard: {
     readImage(): Promise<FlowSelectClipboardImage | null>;
   };

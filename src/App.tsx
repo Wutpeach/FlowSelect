@@ -9,6 +9,7 @@ import {
   desktopClipboard,
   desktopCommands,
   desktopCurrentWindow,
+  desktopDrop,
   desktopEvents,
   desktopSystem,
   desktopUpdater,
@@ -35,6 +36,10 @@ import {
   shouldOpenOutputFolderFromPanelMouseDownDoubleClick,
   WINDOW_DRAG_START_THRESHOLD,
 } from "./utils/mainPanelInteractions";
+import {
+  getDroppedFolderErrorTranslationKey,
+  shouldHandleDroppedFolderResult,
+} from "./utils/folderDrop";
 import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImageDrag";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
@@ -2428,33 +2433,32 @@ function App() {
     e.preventDefault();
     setIsHovering(false);
 
-    // 1. 检测是否为本地文件夹拖拽（使用 webkitGetAsEntry）
-    if (e.dataTransfer.items.length > 0) {
-      const item = e.dataTransfer.items[0];
-      const entry = (item as any).webkitGetAsEntry?.();
-
-      if (entry?.isDirectory) {
-        console.log("检测到文件夹拖拽，触发目录选择对话框");
-        try {
-          const selected = await desktopSystem.openDialog({
-            directory: true,
-            multiple: false,
-            title: t("app.drop.directoryDialogTitle"),
-          });
-
-          if (selected && typeof selected === "string") {
-            console.log("用户选择的路径:", selected);
-            await saveOutputPath(selected);
-            setOutputPath(selected);
-            resetDownloadOutcome();
-            setIsProcessing(true);
-            setTimeout(() => setIsProcessing(false), 1000);
-          }
-        } catch (err) {
-          console.error("打开目录选择器失败:", err);
-        }
-        return;
+    const droppedFolderResult = await desktopDrop.consumePendingFolderDrop();
+    if (droppedFolderResult?.success) {
+      try {
+        await saveOutputPath(droppedFolderResult.path);
+        setOutputPath(droppedFolderResult.path);
+        resetDownloadOutcome();
+      } catch (err) {
+        console.error("Failed to save dropped folder path:", err);
+        setDownloadCancelled(true);
+        setDownloadErrorMessage(t("app.drop.errors.saveFailed"));
       }
+
+      setIsProcessing(true);
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
+    }
+
+    if (droppedFolderResult && shouldHandleDroppedFolderResult(droppedFolderResult)) {
+      console.error("Failed to resolve dropped folder:", droppedFolderResult);
+      setDownloadCancelled(true);
+      setDownloadErrorMessage(
+        t(getDroppedFolderErrorTranslationKey(droppedFolderResult.reason)),
+      );
+      setIsProcessing(true);
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
     }
 
     // 2. Debug logging
