@@ -28,6 +28,7 @@ import {
   getStatusDotStyle,
 } from "../components/ui/shared-styles";
 import { saveOutputPath } from "../utils/outputPath";
+import { resolveSecondaryWindowPosition } from "../utils/secondaryWindowPlacement";
 import { APP_VERSION } from "../constants/appVersion";
 import { DownloaderDeck } from "./settings/DownloaderDeck";
 import type { PinterestDownloaderInfo } from "../types/pinterestDownloader";
@@ -64,6 +65,8 @@ const COMPACT_THEME_BUTTON_PADDING = "6px 10px";
 const COMPACT_SHORTCUT_ACTION_HEIGHT = 32;
 const COMPACT_SHORTCUT_ACTION_MIN_WIDTH = 74;
 const COMPACT_SHORTCUT_ACTION_PADDING = "6px 12px";
+const WINDOW_EDGE_PADDING = 8;
+const UI_LAB_WINDOW_GAP = 16;
 const UI_LAB_WINDOW_WIDTH = 420;
 const UI_LAB_WINDOW_HEIGHT = 560;
 const SHORTCUT_KEY_ALIASES: Record<string, string> = {
@@ -834,6 +837,44 @@ function SettingsPage() {
 
     if (await desktopWindows.has("ui-lab")) {
       await desktopWindows.focus("ui-lab");
+      return;
+    }
+
+    let uiLabPosition: { x: number; y: number } | null = null;
+    try {
+      const [outerPosition, outerSize, scaleFactor, monitor] = await Promise.all([
+        desktopCurrentWindow.outerPosition(),
+        desktopCurrentWindow.outerSize(),
+        desktopCurrentWindow.scaleFactor(),
+        desktopSystem.currentMonitor(),
+      ]);
+
+      uiLabPosition = resolveSecondaryWindowPosition({
+        anchorPosition: outerPosition,
+        anchorSize: outerSize,
+        targetSize: {
+          width: UI_LAB_WINDOW_WIDTH,
+          height: UI_LAB_WINDOW_HEIGHT,
+        },
+        gap: UI_LAB_WINDOW_GAP,
+        edgePadding: WINDOW_EDGE_PADDING,
+        scaleFactor,
+        monitor,
+      });
+    } catch (err) {
+      console.error("Failed to resolve UI Lab window position:", err);
+    }
+
+    if (uiLabPosition) {
+      await desktopWindows.openUiLab({
+        title: t("desktop:settings.uiLab.windowTitle"),
+        width: UI_LAB_WINDOW_WIDTH,
+        height: UI_LAB_WINDOW_HEIGHT,
+        x: uiLabPosition.x,
+        y: uiLabPosition.y,
+        center: false,
+        alwaysOnTop: true,
+      });
       return;
     }
 

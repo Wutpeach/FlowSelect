@@ -47,6 +47,7 @@ import {
   shouldHandleDroppedFolderResult,
 } from "./utils/folderDrop";
 import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImageDrag";
+import { resolveSecondaryWindowPosition } from "./utils/secondaryWindowPlacement";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
@@ -2835,34 +2836,18 @@ function App() {
         currentWindow.scaleFactor(),
         desktopSystem.currentMonitor(),
       ]);
-
-      const gapPx = SETTINGS_WINDOW_GAP * scaleFactor;
-      const edgePaddingPx = WINDOW_EDGE_PADDING * scaleFactor;
-      const settingsWidthPx = SETTINGS_WINDOW_WIDTH * scaleFactor;
-      const settingsHeightPx = SETTINGS_WINDOW_HEIGHT * scaleFactor;
-      let x = outerPosition.x + outerSize.width + gapPx;
-      let y = outerPosition.y;
-
-      if (monitor) {
-        const monitorX = monitor.position.x;
-        const monitorY = monitor.position.y;
-        const minX = monitorX + edgePaddingPx;
-        const minY = monitorY + edgePaddingPx;
-        const maxX = monitorX + monitor.size.width - settingsWidthPx - edgePaddingPx;
-        const maxY = monitorY + monitor.size.height - settingsHeightPx - edgePaddingPx;
-
-        if (x > maxX) {
-          x = outerPosition.x - settingsWidthPx - gapPx;
-        }
-
-        x = Math.min(Math.max(x, minX), Math.max(minX, maxX));
-        y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
-      }
-
-      settingsPosition = {
-        x: x / scaleFactor,
-        y: y / scaleFactor,
-      };
+      settingsPosition = resolveSecondaryWindowPosition({
+        anchorPosition: outerPosition,
+        anchorSize: outerSize,
+        targetSize: {
+          width: SETTINGS_WINDOW_WIDTH,
+          height: SETTINGS_WINDOW_HEIGHT,
+        },
+        gap: SETTINGS_WINDOW_GAP,
+        edgePadding: WINDOW_EDGE_PADDING,
+        scaleFactor,
+        monitor,
+      });
     } catch (err) {
       console.error("Failed to resolve settings window position:", err);
     }
