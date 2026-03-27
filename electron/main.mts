@@ -9,6 +9,7 @@ import {
   Menu,
   nativeImage,
   screen,
+  session,
   shell,
   Tray,
 } from "electron";
@@ -160,6 +161,25 @@ function logInfo(scope, message, details) {
     return;
   }
   console.log(`>>> [${scope}] ${message}`);
+}
+
+function getDesktopNetworkSession() {
+  if (!app.isReady()) {
+    return null;
+  }
+  return session.defaultSession ?? null;
+}
+
+// Use Chromium's network stack so main-process downloads inherit session/system proxy settings.
+async function fetchWithDesktopSession(input, init = {}) {
+  const activeSession = getDesktopNetworkSession();
+  if (activeSession?.fetch) {
+    return activeSession.fetch(input, init);
+  }
+  if (typeof globalThis.fetch !== "function") {
+    throw new Error("Global fetch is unavailable in Electron main process");
+  }
+  return globalThis.fetch(input, init);
 }
 
 function normalizeLanguage(value) {
@@ -495,7 +515,7 @@ async function processFiles(paths, targetDir) {
 
 async function downloadImage(url, targetDir, originalFilename, protectedImageFallback = null) {
   try {
-    const response = await fetch(url);
+    const response = await fetchWithDesktopSession(url);
     if (!response.ok || !response.body) {
       throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
     }
@@ -1082,7 +1102,7 @@ function selectFfmpegRuntimeArtifactSpec() {
 }
 
 async function fetchPinterestRuntimeManifest() {
-  const response = await fetch(PINTEREST_RUNTIME_MANIFEST_URL, {
+  const response = await fetchWithDesktopSession(PINTEREST_RUNTIME_MANIFEST_URL, {
     headers: {
       "User-Agent": `FlowSelect/${app.getVersion()}`,
       Accept: "application/json",
@@ -1415,7 +1435,7 @@ async function resolveLatestYtdlpVersion(forceRefresh = false) {
   }
 
   try {
-    const response = await fetch(YTDLP_LATEST_RELEASE_API, {
+    const response = await fetchWithDesktopSession(YTDLP_LATEST_RELEASE_API, {
       headers: buildGitHubHeaders(),
     });
     if (!response.ok) {
@@ -1506,7 +1526,7 @@ async function resolveYtdlpBinaryPathForUpdate() {
 }
 
 async function downloadToFile(url, destinationPath, options = {}) {
-  const response = await fetch(url, {
+  const response = await fetchWithDesktopSession(url, {
     headers: options.headers,
   });
   if (!response.ok || !response.body) {
@@ -2563,7 +2583,7 @@ async function checkForAppUpdate() {
   }
 
   try {
-    const response = await fetch(APP_UPDATE_ENDPOINT);
+    const response = await fetchWithDesktopSession(APP_UPDATE_ENDPOINT);
     if (!response.ok) {
       throw new Error(`Update manifest lookup failed: ${response.status}`);
     }
