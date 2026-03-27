@@ -20,6 +20,7 @@
     endSec: null,
   };
   const localeUtils = window.FlowSelectLocaleUtils || null;
+  const controlStyleUtils = window.FlowSelectControlStyleUtils || null;
   const FALLBACK_LANGUAGE = localeUtils?.FALLBACK_LANGUAGE || 'en';
   let currentBundle = {
     language: FALLBACK_LANGUAGE,
@@ -117,10 +118,76 @@
     const rightControls = document.querySelector('.ytp-right-controls');
     if (!rightControls) return;
     if (rightControls.hasAttribute(PROCESSED_ATTR)) return;
+    if (!isControlBarReady(rightControls)) return;
 
     console.log('[FlowSelect YouTube] Video detected:', videoId);
     injectControlButtons(rightControls);
     rightControls.setAttribute(PROCESSED_ATTR, 'true');
+  }
+
+  function isControlBarReady(container) {
+    if (controlStyleUtils?.isControlBarReady) {
+      return controlStyleUtils.isControlBarReady(container, {
+        excludeClasses: BUTTON_CLASSES,
+      });
+    }
+
+    return isRenderableControlBarFallback(container) &&
+      hasRenderableNativeControlChildFallback(container);
+  }
+
+  function isRenderableControlBarFallback(container) {
+    if (!(container instanceof HTMLElement) || !container.isConnected) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(container);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+
+    const rect = container.getBoundingClientRect();
+    if (rect.width < 16 || rect.height < 16) {
+      return false;
+    }
+
+    return rect.bottom > 0 &&
+      rect.right > 0 &&
+      rect.top < window.innerHeight &&
+      rect.left < window.innerWidth;
+  }
+
+  function hasRenderableNativeControlChildFallback(container) {
+    const children = Array.from(container.children).filter((child) => child instanceof HTMLElement);
+    if (children.length === 0) {
+      return false;
+    }
+
+    return children.some((child) => {
+      if (!(child instanceof HTMLElement)) {
+        return false;
+      }
+
+      const isInjectedButton = BUTTON_CLASSES.some((className) => child.classList.contains(className));
+      if (isInjectedButton) {
+        return false;
+      }
+
+      const style = window.getComputedStyle(child);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return false;
+      }
+
+      const rect = child.getBoundingClientRect();
+      if (rect.width < 8 || rect.height < 8) {
+        return false;
+      }
+
+      return rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth;
+    });
   }
 
   function getCurrentPlaybackSeconds() {

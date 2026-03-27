@@ -824,10 +824,19 @@ function SettingsPage() {
   };
 
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
+  const settingsShellRadius = 16;
+  const settingsShellBoxShadow = theme === "black"
+    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}`
+    : `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}, inset 0 -1px 0 ${colors.shadowSpread}`;
   const panelStyle: CSSProperties = {
     width: '100%',
     height: '100%',
-    ...getPanelShellStyle(colors, { radius: 16 }),
+    boxSizing: "border-box",
+    ...getPanelShellStyle(colors, {
+      radius: settingsShellRadius,
+      boxShadow: settingsShellBoxShadow,
+    }),
+    clipPath: `inset(0 round ${settingsShellRadius}px)`,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',

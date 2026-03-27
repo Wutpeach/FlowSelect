@@ -30,6 +30,11 @@ import {
   type PinterestVideoCandidate,
 } from "./utils/pinterest";
 import { extractImageUrlFromHtml } from "./utils/imageDrag";
+import {
+  shouldIgnorePanelDoubleClickTarget,
+  shouldOpenOutputFolderFromPanelMouseDownDoubleClick,
+  WINDOW_DRAG_START_THRESHOLD,
+} from "./utils/mainPanelInteractions";
 import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImageDrag";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
@@ -450,13 +455,6 @@ type ActiveWindowDragState = {
   lastAppliedY: number;
   applyInFlight: boolean;
 };
-
-const PANEL_DOUBLE_CLICK_IGNORE_SELECTOR = "button, [data-panel-double-click='ignore']";
-const WINDOW_DRAG_START_THRESHOLD = 6;
-
-const shouldIgnorePanelDoubleClickTarget = (target: EventTarget | null): boolean =>
-  target instanceof Element && target.closest(PANEL_DOUBLE_CLICK_IGNORE_SELECTOR) !== null;
-
 const normalizeVideoQueueState = (
   payload: Partial<VideoQueueStatePayload> | null | undefined,
 ): VideoQueueStatePayload => {
@@ -755,7 +753,9 @@ function App() {
   const windowDragFrameRef = useRef<number | null>(null);
   const previousTaskCountRef = useRef(0);
   const ongoingTaskCountRef = useRef(0);
+  const runtimeGateBusyRef = useRef(false);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
+  const previousRuntimeGateBusyRef = useRef(false);
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
 
   // Window size constants
@@ -772,8 +772,15 @@ function App() {
   const SETTINGS_WINDOW_WIDTH = 320;
   const SETTINGS_WINDOW_HEIGHT = 400;
   const SETTINGS_WINDOW_GAP = 16;
+  const totalDownloadTaskCount = videoQueueState.totalCount;
   const downloadQueueTasks = videoQueueDetail.tasks;
   const activeDownloadQueueTasks = downloadQueueTasks.filter((task) => task.status === "active");
+  const downloadProgressTaskCount = Object.keys(downloadProgressByTrace).length;
+  const foregroundDownloadTaskCount = Math.max(
+    totalDownloadTaskCount,
+    downloadQueueTasks.length,
+    downloadProgressTaskCount,
+  );
   const primaryDownloadTask = activeDownloadQueueTasks[0] ?? null;
   const primaryDownloadProgress = primaryDownloadTask
     ? downloadProgressByTrace[primaryDownloadTask.traceId] ?? null
@@ -794,11 +801,12 @@ function App() {
   const activeTranscodeProgressTask = Object.values(transcodeProgressByTrace).find((task) => task.status === "active") ?? null;
   const activeTranscodeQueueTasks = transcodeQueueTasks.filter((task) => task.status === "active");
   const primaryTranscodeTask = activeTranscodeQueueTasks[0] ?? activeTranscodeProgressTask;
-  const totalDownloadTaskCount = videoQueueState.totalCount;
   const totalTranscodeTaskCount = videoTranscodeQueueState.totalCount;
   const ongoingTranscodeTaskCount = videoTranscodeQueueState.activeCount + videoTranscodeQueueState.pendingCount;
-  const ongoingTaskCount = totalDownloadTaskCount + ongoingTranscodeTaskCount;
+  const ongoingTaskCount = foregroundDownloadTaskCount + ongoingTranscodeTaskCount;
   const totalTaskCount = totalDownloadTaskCount + totalTranscodeTaskCount;
+  const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
+  const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
   const primaryTask = downloadProgress && primaryDownloadTask
     ? {
         kind: "download" as const,
@@ -819,6 +827,7 @@ function App() {
         }
       : null;
   const hasOngoingTask = ongoingTaskCount > 0;
+  const hasBlockingForegroundWork = hasOngoingTask || runtimeGateIsBusy;
   const remainingDownloadCount = Math.max(
     0,
     totalDownloadTaskCount - (primaryTask?.kind === "download" ? 1 : 0),
@@ -836,6 +845,10 @@ function App() {
   useEffect(() => {
     ongoingTaskCountRef.current = ongoingTaskCount;
   }, [ongoingTaskCount]);
+
+  useEffect(() => {
+    runtimeGateBusyRef.current = runtimeGateIsBusy;
+  }, [runtimeGateIsBusy]);
 
   const showQueueNotice = useCallback((message: string) => {
     setQueueNoticeMessage(message);
@@ -933,6 +946,7 @@ function App() {
       }
       if (
         ongoingTaskCountRef.current === 0
+        && !runtimeGateBusyRef.current
         && !isDraggingRef.current
         && !isPanelHoveredRef.current
         && !isContextMenuOpenRef.current
@@ -940,6 +954,7 @@ function App() {
         idleTimerRef.current = window.setTimeout(() => {
           if (
             ongoingTaskCountRef.current > 0
+            || runtimeGateBusyRef.current
             || isDraggingRef.current
             || isPanelHoveredRef.current
             || isContextMenuOpenRef.current
@@ -1523,9 +1538,9 @@ function App() {
         clearTimeout(idleTimerRef.current);
         idleTimerRef.current = null;
       }
-      if (!hasOngoingTask && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
+      if (!hasBlockingForegroundWork && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
         idleTimerRef.current = window.setTimeout(() => {
-          if (isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
+          if (runtimeGateBusyRef.current || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
           setIsMinimized(true);
           setShowEdgeGlow(false);
         }, 3000);
@@ -1538,7 +1553,7 @@ function App() {
       }, 100);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [windowResized, hasOngoingTask, isMacOS]);
+  }, [windowResized, hasBlockingForegroundWork, isMacOS]);
 
   // Check app update availability on startup
   useEffect(() => {
@@ -1549,7 +1564,11 @@ function App() {
     const unlisten = desktopEvents.on<RuntimeDependencyGateStatePayload>(
       "runtime-dependency-gate-state",
       (event) => {
-        setRuntimeDependencyGateState(event.payload);
+        const nextGateState = event.payload;
+        setRuntimeDependencyGateState(nextGateState);
+        if (runtimeGateIsActive(nextGateState.phase)) {
+          return;
+        }
         void refreshRuntimeDependencyStatus();
       },
     );
@@ -1602,9 +1621,6 @@ function App() {
     const unlisten = desktopEvents.on<VideoQueueStatePayload>("video-queue-count", (event) => {
       const normalized = normalizeVideoQueueState(event.payload);
       setVideoQueueState(normalized);
-      if (normalized.activeCount === 0) {
-        setDownloadProgressByTrace((current) => (Object.keys(current).length === 0 ? current : {}));
-      }
       if (normalized.totalCount === 0) {
         clearCancellingTraceIds();
       }
@@ -1617,6 +1633,15 @@ function App() {
       const normalized = normalizeVideoQueueDetail(event.payload);
       setVideoQueueDetail(normalized);
       const liveTraceIds = new Set(normalized.tasks.map((task) => task.traceId));
+      // Detail reflects the task list the UI is actually rendering, so reconcile progress here
+      // instead of clearing it on count events that may arrive slightly earlier.
+      setDownloadProgressByTrace((current) => {
+        const nextEntries = Object.entries(current).filter(([traceId]) => liveTraceIds.has(traceId));
+        if (nextEntries.length === Object.keys(current).length) {
+          return current;
+        }
+        return Object.fromEntries(nextEntries);
+      });
       setCancellingTraceIds((current) => {
         const next = current.filter((traceId) => liveTraceIds.has(traceId));
         if (next.length === current.length) {
@@ -1835,14 +1860,52 @@ function App() {
     }
 
     // 活跃任务进行中、拖拽中或鼠标仍停留在面板内时不启动 idle timer
-    if (ongoingTaskCountRef.current > 0 || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
+    if (
+      ongoingTaskCountRef.current > 0
+      || runtimeGateBusyRef.current
+      || isDraggingRef.current
+      || isPanelHoveredRef.current
+      || isContextMenuOpenRef.current
+    ) return;
 
     idleTimerRef.current = window.setTimeout(() => {
-      if (ongoingTaskCountRef.current > 0 || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
+      if (
+        ongoingTaskCountRef.current > 0
+        || runtimeGateBusyRef.current
+        || isDraggingRef.current
+        || isPanelHoveredRef.current
+        || isContextMenuOpenRef.current
+      ) return;
       setIsMinimized(true);
       setShowEdgeGlow(false); // 缩小时立即隐藏边缘光
-    }, 3000);
+  }, 3000);
   }, [expandWindow, isMinimized]);
+
+  useEffect(() => {
+    const wasBusy = previousRuntimeGateBusyRef.current;
+    previousRuntimeGateBusyRef.current = runtimeGateIsBusy;
+
+    if (runtimeGateIsBusy) {
+      clearWindowIdleTimers();
+      if (isMinimized || windowResized) {
+        void expandWindow();
+      } else {
+        setIsMinimized(false);
+      }
+      return;
+    }
+
+    if (wasBusy) {
+      resetIdleTimer({ expandIfMinimized: false });
+    }
+  }, [
+    clearWindowIdleTimers,
+    expandWindow,
+    isMinimized,
+    resetIdleTimer,
+    runtimeGateIsBusy,
+      windowResized,
+    ]);
 
   // Start idle timer on mount
   useEffect(() => {
@@ -2017,6 +2080,25 @@ function App() {
     }
   }, [resetIdleTimer, updateManualWindowDrag]);
 
+  const canDoubleClickOpenOutputFolder =
+    !isMinimized &&
+    !isProcessing &&
+    !primaryTask &&
+    totalTaskCount === 0 &&
+    !isQueuePopoverOpen;
+
+  const triggerPanelOutputFolderShortcut = async (
+    e: Pick<React.MouseEvent<HTMLDivElement>, "preventDefault" | "stopPropagation">,
+  ) => {
+    pendingDragStartRef.current = null;
+    activeWindowDragRef.current = null;
+    isWindowPointerDownRef.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+    resetIdleTimer();
+    await openCurrentOutputFolder();
+  };
+
   const handlePanelPointerDown = async (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // 只响应左键
     if (isContextMenuOpen) {
@@ -2027,10 +2109,23 @@ function App() {
       resetIdleTimer();
       return;
     }
-    if (shouldIgnorePanelDoubleClickTarget(e.target)) {
+    const targetIgnored = shouldIgnorePanelDoubleClickTarget(e.target);
+    if (targetIgnored) {
       pendingDragStartRef.current = null;
       return;
     }
+
+    if (shouldOpenOutputFolderFromPanelMouseDownDoubleClick({
+      isMacOS,
+      button: e.button,
+      detail: e.detail,
+      canDoubleClickOpenOutputFolder,
+      targetIgnored,
+    })) {
+      await triggerPanelOutputFolderShortcut(e);
+      return;
+    }
+
     isWindowPointerDownRef.current = true;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -2113,16 +2208,13 @@ function App() {
     resetIdleTimer();
   };
 
-  const canDoubleClickOpenOutputFolder =
-    !isMinimized &&
-    !isProcessing &&
-    !primaryTask &&
-    totalTaskCount === 0 &&
-    !isQueuePopoverOpen;
-
   const handlePanelDoubleClick = async (e: React.MouseEvent<HTMLDivElement>) => {
     pendingDragStartRef.current = null;
     isWindowPointerDownRef.current = false;
+    activeWindowDragRef.current = null;
+    if (isMacOS) {
+      return;
+    }
 
     if (e.button !== 0 || !canDoubleClickOpenOutputFolder) {
       return;
@@ -2131,10 +2223,7 @@ function App() {
       return;
     }
 
-    e.preventDefault();
-    e.stopPropagation();
-    resetIdleTimer();
-    await openCurrentOutputFolder();
+    await triggerPanelOutputFolderShortcut(e);
   };
 
   // Handle paste event - check for video URL first, then image URL, then clipboard images/files.
@@ -2948,13 +3037,11 @@ function App() {
   const primaryTaskTrackStroke = primaryTask?.kind === "transcode"
     ? colors.transcodeTrack
     : colors.progressBgStroke;
-  const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
   const runtimeMissingComponents = runtimeDependencyGateState?.missingComponents.length
     ? runtimeDependencyGateState.missingComponents
     : getMissingRuntimeComponentsFromStatus(runtimeDependencyStatus);
   const hasRuntimeGateIssue = runtimeGatePhaseNeedsAttention(runtimeGatePhase)
     || runtimeMissingComponents.length > 0;
-  const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
   const runtimeGateRequiresManualAction = runtimeGateNeedsManualAction(runtimeGatePhase)
     || (
       !runtimeGateIsBusy
