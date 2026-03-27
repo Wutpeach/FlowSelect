@@ -4,6 +4,29 @@ export const WINDOW_DRAG_START_THRESHOLD = 6;
 export const shouldIgnorePanelDoubleClickTarget = (target: EventTarget | null): boolean =>
   target instanceof Element && target.closest(PANEL_DOUBLE_CLICK_IGNORE_SELECTOR) !== null;
 
+type ResolvePanelPointerCaptureIdInput = {
+  eventPointerId?: number | null;
+  activePointerId?: number | null;
+  pendingPointerId?: number | null;
+};
+
+export const resolvePanelPointerCaptureId = ({
+  eventPointerId,
+  activePointerId,
+  pendingPointerId,
+}: ResolvePanelPointerCaptureIdInput): number | null => {
+  if (typeof eventPointerId === "number") {
+    return eventPointerId;
+  }
+  if (typeof activePointerId === "number") {
+    return activePointerId;
+  }
+  if (typeof pendingPointerId === "number") {
+    return pendingPointerId;
+  }
+  return null;
+};
+
 type PanelMouseDownDoubleClickShortcutInput = {
   isMacOS: boolean;
   button: number;

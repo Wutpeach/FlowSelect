@@ -32,6 +32,7 @@ import {
 } from "./utils/pinterest";
 import { extractImageUrlFromHtml } from "./utils/imageDrag";
 import {
+  resolvePanelPointerCaptureId,
   shouldIgnorePanelDoubleClickTarget,
   shouldOpenOutputFolderFromPanelMouseDownDoubleClick,
   WINDOW_DRAG_START_THRESHOLD,
@@ -2001,7 +2002,36 @@ function App() {
     scheduleWindowDragPosition();
   }, [scheduleWindowDragPosition]);
 
-  const finishWindowDrag = useCallback(() => {
+  const releasePanelPointerCapture = useCallback((pointerId: number | null) => {
+    if (pointerId === null) {
+      return;
+    }
+
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    try {
+      if (container.hasPointerCapture(pointerId)) {
+        container.releasePointerCapture(pointerId);
+      }
+    } catch {
+      // Ignore browsers that already released or never established pointer capture.
+    }
+  }, []);
+
+  const resetWindowDragState = useCallback((options?: {
+    eventPointerId?: number | null;
+    resetIdleTimer?: boolean;
+  }) => {
+    const pointerId = resolvePanelPointerCaptureId({
+      eventPointerId: options?.eventPointerId ?? null,
+      activePointerId: activeWindowDragRef.current?.pointerId ?? null,
+      pendingPointerId: pendingDragStartRef.current?.pointerId ?? null,
+    });
+
+    releasePanelPointerCapture(pointerId);
     pendingDragStartRef.current = null;
     activeWindowDragRef.current = null;
     isWindowPointerDownRef.current = false;
@@ -2009,23 +2039,33 @@ function App() {
       window.cancelAnimationFrame(windowDragFrameRef.current);
       windowDragFrameRef.current = null;
     }
-    if (!isDraggingRef.current) {
-      return;
-    }
 
+    const wasDragging = isDraggingRef.current;
     isDraggingRef.current = false;
-    resetIdleTimer();
-  }, [resetIdleTimer]);
+    if (wasDragging || options?.resetIdleTimer) {
+      resetIdleTimer();
+    }
+  }, [releasePanelPointerCapture, resetIdleTimer]);
+
+  const finishWindowDrag = useCallback((eventPointerId?: number | null) => {
+    resetWindowDragState({
+      eventPointerId: eventPointerId ?? null,
+      resetIdleTimer: true,
+    });
+  }, [resetWindowDragState]);
 
   useEffect(() => {
     const handleWindowPointerUp = () => {
-      if (!isDraggingRef.current) {
-        pendingDragStartRef.current = null;
-        isWindowPointerDownRef.current = false;
+      if (
+        !isDraggingRef.current
+        && !pendingDragStartRef.current
+        && !activeWindowDragRef.current
+        && !isWindowPointerDownRef.current
+      ) {
         return;
       }
 
-      finishWindowDrag();
+      resetWindowDragState();
     };
 
     window.addEventListener("pointerup", handleWindowPointerUp);
@@ -2034,7 +2074,7 @@ function App() {
       window.removeEventListener("pointerup", handleWindowPointerUp);
       window.removeEventListener("pointercancel", handleWindowPointerUp);
     };
-  }, [finishWindowDrag]);
+  }, [resetWindowDragState]);
 
   useEffect(() => {
     return () => {
@@ -2095,9 +2135,7 @@ function App() {
   const triggerPanelOutputFolderShortcut = async (
     e: Pick<React.MouseEvent<HTMLDivElement>, "preventDefault" | "stopPropagation">,
   ) => {
-    pendingDragStartRef.current = null;
-    activeWindowDragRef.current = null;
-    isWindowPointerDownRef.current = false;
+    resetWindowDragState();
     e.preventDefault();
     e.stopPropagation();
     resetIdleTimer();
@@ -2116,7 +2154,7 @@ function App() {
     }
     const targetIgnored = shouldIgnorePanelDoubleClickTarget(e.target);
     if (targetIgnored) {
-      pendingDragStartRef.current = null;
+      resetWindowDragState();
       return;
     }
 
@@ -2184,39 +2222,31 @@ function App() {
   };
 
   const handlePanelPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-
     if (isDraggingRef.current) {
-      finishWindowDrag();
+      finishWindowDrag(e.pointerId);
       return;
     }
 
-    pendingDragStartRef.current = null;
-    isWindowPointerDownRef.current = false;
-    resetIdleTimer();
+    resetWindowDragState({
+      eventPointerId: e.pointerId,
+      resetIdleTimer: true,
+    });
   };
 
   const handlePanelPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-
     if (isDraggingRef.current) {
-      finishWindowDrag();
+      finishWindowDrag(e.pointerId);
       return;
     }
 
-    pendingDragStartRef.current = null;
-    isWindowPointerDownRef.current = false;
-    resetIdleTimer();
+    resetWindowDragState({
+      eventPointerId: e.pointerId,
+      resetIdleTimer: true,
+    });
   };
 
   const handlePanelDoubleClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-    pendingDragStartRef.current = null;
-    isWindowPointerDownRef.current = false;
-    activeWindowDragRef.current = null;
+    resetWindowDragState();
     if (isMacOS) {
       return;
     }
@@ -2859,7 +2889,7 @@ function App() {
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    pendingDragStartRef.current = null;
+    resetWindowDragState();
     resetIdleTimer();
 
     try {
