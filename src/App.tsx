@@ -3000,9 +3000,9 @@ function App() {
 
   const shouldShowMiniControls = isPanelHovered && !isMinimized;
   const containerBoxShadow = primaryTask?.kind === "transcode"
-    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 14px ${colors.transcodeGlow}`
+    ? `inset 0 0 0 1px ${colors.transcodeBorder}, inset 0 0 14px ${colors.transcodeGlow}`
     : primaryTask?.kind === "download"
-      ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 0 12px ${colors.accentGlow}`
+      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 12px ${colors.accentGlow}`
     : isHovering
       ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 18px ${colors.accentGlow}, inset 0 0 28px ${colors.accentSurfaceStrong}`
       : `inset 0 0 0 1px ${colors.borderStart}`;
