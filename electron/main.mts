@@ -43,6 +43,10 @@ import {
   isWindowsAutostartEnabled,
 } from "./autostart.mjs";
 import {
+  normalizeAppLanguage,
+  resolveStartupLanguageFromConfig,
+} from "./startupLanguage.mjs";
+import {
   normalizeVideoCandidateUrls,
   normalizeRequiredVideoRouteUrl,
   normalizeVideoPageUrl,
@@ -82,6 +86,8 @@ const YTDLP_MACOS_DOWNLOAD_URL =
   "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos";
 const LOG_DIR_NAME = "logs";
 const VIDEO_QUEUE_MAX_CONCURRENT = 3;
+const SETTINGS_WINDOW_WIDTH = 320;
+const SETTINGS_WINDOW_HEIGHT = 400;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15_000;
 const YTDLP_PROGRESS_PREFIX = "__FLOWSELECT_PROGRESS__=";
 const YTDLP_FILE_PATH_PREFIX = "__FLOWSELECT_FILE_PATH__=";
@@ -182,24 +188,6 @@ async function fetchWithDesktopSession(input, init = {}) {
   return globalThis.fetch(input, init);
 }
 
-function normalizeLanguage(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalized = value.trim().replaceAll("_", "-").toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-  if (normalized === "en" || normalized.startsWith("en-")) {
-    return "en";
-  }
-  if (normalized === "zh" || normalized.startsWith("zh-")) {
-    return "zh-CN";
-  }
-  return null;
-}
-
 function parseJsonObject(raw) {
   try {
     const parsed = JSON.parse(raw);
@@ -260,7 +248,17 @@ async function readConfigString() {
   if (!existsSync(configPath)) {
     return "{}";
   }
-  return readFile(configPath, "utf8");
+
+  const configRaw = await readFile(configPath, "utf8");
+  const decision = resolveStartupLanguageFromConfig(configRaw, app.getLocale(), {
+    persistResolvedLanguage: true,
+  });
+  if (decision.nextConfigRaw && decision.nextConfigRaw !== configRaw) {
+    await writeFile(configPath, decision.nextConfigRaw, "utf8");
+    return decision.nextConfigRaw;
+  }
+
+  return configRaw;
 }
 
 async function readConfigObject() {
@@ -268,8 +266,9 @@ async function readConfigObject() {
 }
 
 function resolveLanguageFromConfigString(raw) {
-  const config = parseJsonObject(raw);
-  return normalizeLanguage(config.language) ?? FALLBACK_LANGUAGE;
+  return resolveStartupLanguageFromConfig(raw, app.getLocale(), {
+    persistResolvedLanguage: false,
+  }).language;
 }
 
 async function readCurrentLanguage() {
@@ -288,7 +287,7 @@ async function saveConfigString(raw) {
   const previousLanguage = await readCurrentLanguage();
   await writeFile(getConfigPath(), raw, "utf8");
 
-  const nextLanguage = normalizeLanguage(parseJsonObject(raw).language);
+  const nextLanguage = normalizeAppLanguage(parseJsonObject(raw).language);
   if (nextLanguage && nextLanguage !== previousLanguage) {
     emitAppEvent(LANGUAGE_CHANGED_EVENT, { language: nextLanguage });
     broadcastWsMessage({
@@ -1668,7 +1667,7 @@ async function loadNativeLocaleDocument(language) {
 }
 
 async function loadTrayLabels(language) {
-  const normalizedLanguage = normalizeLanguage(language) ?? FALLBACK_LANGUAGE;
+  const normalizedLanguage = normalizeAppLanguage(language) ?? FALLBACK_LANGUAGE;
   const primary = await loadNativeLocaleDocument(normalizedLanguage);
   const fallback = normalizedLanguage === FALLBACK_LANGUAGE
     ? null
@@ -2265,8 +2264,8 @@ async function updateTrayMenu() {
       click: () => {
         void openSecondaryWindow(WINDOW_LABELS.settings, {
           title: labels.settings,
-          width: 420,
-          height: 560,
+          width: SETTINGS_WINDOW_WIDTH,
+          height: SETTINGS_WINDOW_HEIGHT,
           alwaysOnTop: true,
           focus: true,
         });
