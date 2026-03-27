@@ -101,7 +101,10 @@ export const getRuntimeGateHeadline = (
   if (componentLabel) {
     return componentLabel;
   }
-  return t(`app.runtime.phaseTitle.${gate?.phase ?? "idle"}`);
+  const phaseKey = gate?.phase && gate.phase !== "idle"
+    ? gate.phase
+    : "missing";
+  return t(`app.runtime.phaseTitle.${phaseKey}`);
 };
 
 export const getRuntimeGateProgressLabel = (

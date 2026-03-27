@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { Eye, RotateCcw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -21,6 +21,16 @@ type UiLabScenario = {
   label: string;
   description: string;
 };
+
+const dragHeaderStyle = {
+  WebkitAppRegion: "drag",
+  cursor: "grab",
+  userSelect: "none",
+} as CSSProperties;
+
+const noDragRegionStyle = {
+  WebkitAppRegion: "no-drag",
+} as CSSProperties;
 
 export default function UiLabPage() {
   const { t } = useTranslation("desktop");
@@ -183,6 +193,7 @@ export default function UiLabPage() {
           gap: 12,
           padding: "16px 18px 14px",
           borderBottom: `1px solid ${colors.borderStart}`,
+          ...dragHeaderStyle,
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -199,6 +210,7 @@ export default function UiLabPage() {
           size={20}
           title={t("settings.uiLab.actions.closeWindow")}
           aria-label={t("settings.uiLab.actions.closeWindow")}
+          style={noDragRegionStyle}
         >
           <X size={16} />
         </NeonIconButton>

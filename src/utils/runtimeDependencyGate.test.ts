@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RuntimeDependencyStatusSnapshot } from "../types/runtimeDependencies";
 import {
+  getRuntimeGateHeadline,
   hasMissingManagedRuntimeComponents,
   shouldAutoStartManagedRuntimeBootstrapOnStartup,
 } from "./runtimeDependencyGate";
@@ -29,6 +30,8 @@ const createStatus = (
   pinterestDownloader: readyEntry,
   ...overrides,
 });
+
+const translateKey = (key: string): string => key;
 
 describe("hasMissingManagedRuntimeComponents", () => {
   it("returns false when only bundled yt-dlp is missing", () => {
@@ -98,5 +101,39 @@ describe("shouldAutoStartManagedRuntimeBootstrapOnStartup", () => {
       runtimeDependencyStatus: createStatus(),
       gatePhase: "idle",
     })).toBe(false);
+  });
+});
+
+describe("getRuntimeGateHeadline", () => {
+  it("falls back to the readable missing headline when gate phase is idle or unavailable", () => {
+    expect(getRuntimeGateHeadline(translateKey, null)).toBe("app.runtime.phaseTitle.missing");
+
+    expect(getRuntimeGateHeadline(translateKey, {
+      phase: "idle",
+      missingComponents: ["ffmpeg"],
+      lastError: null,
+      updatedAtMs: 1,
+      currentComponent: null,
+      currentStage: null,
+      progressPercent: null,
+      downloadedBytes: null,
+      totalBytes: null,
+      nextComponent: "ffmpeg",
+    })).toBe("app.runtime.phaseTitle.missing");
+  });
+
+  it("prefers the active component label when a runtime component is currently being processed", () => {
+    expect(getRuntimeGateHeadline(translateKey, {
+      phase: "downloading",
+      missingComponents: ["ffmpeg"],
+      lastError: null,
+      updatedAtMs: 1,
+      currentComponent: "ffmpeg",
+      currentStage: "downloading",
+      progressPercent: 42,
+      downloadedBytes: 42,
+      totalBytes: 100,
+      nextComponent: "deno",
+    })).toBe("app.runtime.component.ffmpeg");
   });
 });

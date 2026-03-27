@@ -137,6 +137,8 @@ const PINTEREST_RUNTIME_MANIFEST_URL =
   "https://github.com/Wutpeach/FlowSelect/releases/download/runtime-sidecars-manifest-latest/runtime-sidecars-manifest.json";
 const BINARY_DIR = join(repoRoot, "desktop-assets", "binaries");
 const MANAGED_RUNTIME_BOOTSTRAP_ORDER = ["ffmpeg", "pinterest-dl", "deno"];
+const RUNTIME_MANIFEST_FETCH_TIMEOUT_MS = 30_000;
+const RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
 
 let tray = null;
 let registeredShortcut = "";
@@ -193,6 +195,65 @@ async function fetchWithDesktopSession(input, init = {}) {
     throw new Error("Global fetch is unavailable in Electron main process");
   }
   return globalThis.fetch(input, init);
+}
+
+async function fetchWithDesktopSessionTimeout(
+  input,
+  init = {},
+  timeoutMs,
+  timeoutMessage,
+) {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return fetchWithDesktopSession(input, init);
+  }
+
+  const controller = new AbortController();
+  const upstreamSignal = init.signal;
+  let timeoutId = null;
+  let timedOut = false;
+  let removeAbortListener = null;
+
+  if (upstreamSignal) {
+    const forwardAbort = () => {
+      controller.abort(upstreamSignal.reason);
+    };
+
+    if (upstreamSignal.aborted) {
+      controller.abort(upstreamSignal.reason);
+    } else {
+      upstreamSignal.addEventListener("abort", forwardAbort, { once: true });
+      removeAbortListener = () => {
+        upstreamSignal.removeEventListener("abort", forwardAbort);
+      };
+    }
+  }
+
+  timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetchWithDesktopSession(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(timeoutMessage);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    removeAbortListener?.();
+  }
+}
+
+function summarizeBootstrapError(error) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return String(error ?? "unknown error");
 }
 
 function parseJsonObject(raw) {
@@ -836,7 +897,9 @@ function nextManagedRuntimeComponent(missingComponents, currentComponent = null)
 }
 
 function emitRuntimeDependencyGateState() {
-  const payload = { ...runtimeDependencyGateState };
+  const payload = uiLabRuntimeGateOverride
+    ? cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride)
+    : { ...runtimeDependencyGateState };
   emitAppEvent("runtime-dependency-gate-state", payload);
   return payload;
 }
@@ -1044,10 +1107,14 @@ async function downloadRuntimeAssetWithFallbacks(
   missingComponents,
 ) {
   let lastError = null;
+  const timeoutErrorMessage =
+    `request timed out after ${Math.round(RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS / 1000)}s`;
   for (const downloadUrl of downloadUrls) {
     try {
       await rm(tempPath, { force: true });
       await downloadToFile(downloadUrl, tempPath, {
+        timeoutMs: RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS,
+        timeoutErrorMessage,
         onProgress: ({ downloaded, total }) => {
           updateRuntimeDependencyGateDownloadActivity(
             missingComponents,
@@ -1079,7 +1146,7 @@ async function downloadRuntimeAssetWithFallbacks(
   }
 
   throw new Error(
-    `Failed to download managed ${componentId} runtime: ${String(lastError ?? "unknown error")}`,
+    `Failed to download managed ${componentId} runtime: ${summarizeBootstrapError(lastError)}`,
   );
 }
 
@@ -1163,12 +1230,17 @@ function selectFfmpegRuntimeArtifactSpec() {
 }
 
 async function fetchPinterestRuntimeManifest() {
-  const response = await fetchWithDesktopSession(PINTEREST_RUNTIME_MANIFEST_URL, {
-    headers: {
-      "User-Agent": `FlowSelect/${app.getVersion()}`,
-      Accept: "application/json",
+  const response = await fetchWithDesktopSessionTimeout(
+    PINTEREST_RUNTIME_MANIFEST_URL,
+    {
+      headers: {
+        "User-Agent": `FlowSelect/${app.getVersion()}`,
+        Accept: "application/json",
+      },
     },
-  });
+    RUNTIME_MANIFEST_FETCH_TIMEOUT_MS,
+    `Runtime manifest request timed out after ${Math.round(RUNTIME_MANIFEST_FETCH_TIMEOUT_MS / 1000)}s`,
+  );
   const body = await response.text();
   if (!response.ok) {
     throw new Error(
@@ -1400,7 +1472,7 @@ async function startRuntimeDependencyBootstrap(reason = "frontend_after_visible"
       applyRuntimeDependencyGateState({
         phase: "failed",
         missingComponents: collectMissingManagedRuntimeComponents(latestSnapshot),
-        lastError: String(error),
+        lastError: summarizeBootstrapError(error),
         currentComponent: null,
         currentStage: null,
         progressPercent: null,
@@ -1592,26 +1664,70 @@ async function resolveYtdlpBinaryPathForUpdate() {
 }
 
 async function downloadToFile(url, destinationPath, options = {}) {
-  const response = await fetchWithDesktopSession(url, {
-    headers: options.headers,
-  });
-  if (!response.ok || !response.body) {
-    throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+    ? options.timeoutMs
+    : null;
+  const timeoutErrorMessage = options.timeoutErrorMessage
+    ?? `Request timed out after ${Math.round((timeoutMs ?? 0) / 1000)}s`;
+  const controller = timeoutMs ? new AbortController() : null;
+  const upstreamSignal = options.signal;
+  let timeoutId = null;
+  let timedOut = false;
+  let removeAbortListener = null;
+  let writable = null;
+
+  const resetTimeout = () => {
+    if (!controller || !timeoutMs) {
+      return;
+    }
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  };
+
+  if (controller && upstreamSignal) {
+    const forwardAbort = () => {
+      controller.abort(upstreamSignal.reason);
+    };
+
+    if (upstreamSignal.aborted) {
+      controller.abort(upstreamSignal.reason);
+    } else {
+      upstreamSignal.addEventListener("abort", forwardAbort, { once: true });
+      removeAbortListener = () => {
+        upstreamSignal.removeEventListener("abort", forwardAbort);
+      };
+    }
   }
 
-  await mkdir(dirname(destinationPath), { recursive: true });
-
-  const total = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
-  const writable = createWriteStream(destinationPath);
-  const reader = response.body.getReader();
-  let downloaded = 0;
-
   try {
+    resetTimeout();
+    const response = await fetchWithDesktopSession(url, {
+      headers: options.headers,
+      signal: controller?.signal ?? upstreamSignal,
+    });
+    if (!response.ok || !response.body) {
+      throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+    }
+
+    await mkdir(dirname(destinationPath), { recursive: true });
+
+    const total = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
+    writable = createWriteStream(destinationPath);
+    const reader = response.body.getReader();
+    let downloaded = 0;
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
         break;
       }
+
+      resetTimeout();
       const chunk = Buffer.from(value);
       downloaded += chunk.length;
       if (!writable.write(chunk)) {
@@ -1622,17 +1738,30 @@ async function downloadToFile(url, destinationPath, options = {}) {
         total: Number.isFinite(total) ? total : 0,
       });
     }
-  } catch (error) {
-    writable.destroy(error);
-    throw error;
-  }
 
-  await new Promise((resolveWrite, rejectWrite) => {
-    writable.once("error", rejectWrite);
-    writable.end(() => {
-      resolveWrite();
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+
+    await new Promise((resolveWrite, rejectWrite) => {
+      writable.once("error", rejectWrite);
+      writable.end(() => {
+        resolveWrite();
+      });
     });
-  });
+  } catch (error) {
+    writable?.destroy(error);
+    if (timedOut) {
+      throw new Error(timeoutErrorMessage);
+    }
+    throw error;
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+    removeAbortListener?.();
+  }
 }
 
 async function replaceFile(targetPath, temporaryPath) {
@@ -1793,6 +1922,33 @@ function createUiLabMissingRuntimeStatus() {
   };
 }
 
+function createUiLabReadyRuntimeGateState() {
+  return {
+    phase: "ready",
+    missingComponents: [],
+    lastError: null,
+    updatedAtMs: nowTimestampMs(),
+    currentComponent: null,
+    currentStage: null,
+    progressPercent: null,
+    downloadedBytes: null,
+    totalBytes: null,
+    nextComponent: null,
+  };
+}
+
+function applyUiLabRuntimePreview(runtimeStatus, gateState) {
+  setUiLabRuntimeOverrides(runtimeStatus, gateState);
+  emitAppEvent("runtime-dependency-gate-state", gateState);
+}
+
+function applyUiLabReadyRuntimePreview() {
+  applyUiLabRuntimePreview(
+    createUiLabReadyRuntimeStatus(),
+    createUiLabReadyRuntimeGateState(),
+  );
+}
+
 function emitUiLabEmptyTaskState() {
   emitAppEvent("video-queue-count", {
     activeCount: 0,
@@ -1856,8 +2012,7 @@ async function applyUiLabScenario(scenario) {
       totalBytes: 100 * 1024 * 1024,
       nextComponent: "deno",
     };
-    setUiLabRuntimeOverrides(runtimeStatus, gateState);
-    emitAppEvent("runtime-dependency-gate-state", gateState);
+    applyUiLabRuntimePreview(runtimeStatus, gateState);
     return;
   }
 
@@ -1875,10 +2030,11 @@ async function applyUiLabScenario(scenario) {
       totalBytes: null,
       nextComponent: "ffmpeg",
     };
-    setUiLabRuntimeOverrides(runtimeStatus, gateState);
-    emitAppEvent("runtime-dependency-gate-state", gateState);
+    applyUiLabRuntimePreview(runtimeStatus, gateState);
     return;
   }
+
+  applyUiLabReadyRuntimePreview();
 
   if (scenario === "download-active") {
     const traceId = "ui-lab-download-active";
