@@ -3094,9 +3094,6 @@ function App() {
   ].filter(Boolean).join(" · ");
   const hasDownloadTasks = totalDownloadTaskCount > 0;
   const hasTranscodeTasks = totalTranscodeTaskCount > 0;
-  const primaryTaskFormatLabel = primaryTask?.kind === "transcode"
-    ? getVideoTranscodeFormatLabel(primaryTask.task)
-    : null;
   const primaryTaskStroke = primaryTask?.kind === "transcode"
     ? colors.transcodeSolid
     : colors.progressFgStroke;
@@ -3105,7 +3102,7 @@ function App() {
     : colors.progressText;
   const primaryTaskStatusColor = primaryTask?.kind === "transcode"
     ? colors.transcodeMutedText
-    : colors.progressSpeedText;
+    : colors.accentText;
   const primaryTaskPillBackground = primaryTask?.kind === "transcode"
     ? colors.transcodeSurface
     : colors.accentSurface;
@@ -4019,41 +4016,6 @@ function App() {
                   : `${Math.round(primaryTask.percent)}%`}
               </span>
             </div>
-            <span
-              title={primaryTask.task.label}
-              style={{
-                maxWidth: 146,
-                fontSize: 10,
-                fontWeight: 600,
-                color: colors.textPrimary,
-                lineHeight: 1.15,
-                textAlign: 'center',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                userSelect: 'none',
-                pointerEvents: 'none',
-              }}
-            >
-              {primaryTask.task.label}
-            </span>
-            {primaryTaskFormatLabel ? (
-              <span
-                style={{
-                  fontSize: 8,
-                  color: colors.transcodeText,
-                  backgroundColor: colors.transcodeSurface,
-                  border: `1px solid ${colors.transcodeBorder}`,
-                  borderRadius: 999,
-                  padding: '2px 6px',
-                  lineHeight: 1,
-                  userSelect: 'none',
-                  pointerEvents: 'none',
-                }}
-              >
-                {primaryTaskFormatLabel}
-              </span>
-            ) : null}
             {primaryTaskStatusText ? (
               <span style={{ fontSize: 10, color: primaryTaskStatusColor, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>
                 {primaryTaskStatusText}
