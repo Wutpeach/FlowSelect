@@ -34,6 +34,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
 import { WebSocketServer } from "ws";
+import {
+  normalizeVideoCandidateUrls,
+  normalizeRequiredVideoRouteUrl,
+  normalizeVideoPageUrl,
+  normalizeVideoHintUrl,
+} from "./videoHintNormalization.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -345,24 +351,6 @@ async function syncIncomingDownloadPreferences(data) {
     quality: merged.ytdlpQuality,
     aeFriendlyConversionEnabled: merged.aeFriendlyConversionEnabled,
   };
-}
-
-function normalizeVideoCandidateUrls(candidates) {
-  if (!Array.isArray(candidates)) {
-    return [];
-  }
-
-  const deduped = new Set();
-  const result = [];
-  for (const candidate of candidates) {
-    const url = normalizeOptionalString(candidate?.url);
-    if (!url || deduped.has(url)) {
-      continue;
-    }
-    deduped.add(url);
-    result.push(url);
-  }
-  return result;
 }
 
 function buildVideoTaskLabel(task) {
@@ -1466,9 +1454,9 @@ async function pumpVideoDownloadQueue() {
 }
 
 async function enqueueElectronVideoDownload(payload) {
-  const rawUrl = normalizeOptionalString(payload?.url);
+  const rawUrl = normalizeRequiredVideoRouteUrl(payload?.url);
   if (!rawUrl) {
-    throw new Error("Missing url");
+    throw new Error("Missing or invalid url");
   }
 
   const config = await readConfigObject();
@@ -1476,8 +1464,8 @@ async function enqueueElectronVideoDownload(payload) {
   const task = {
     traceId: nextOpaqueId("video"),
     url: rawUrl,
-    pageUrl: normalizeOptionalString(payload?.pageUrl),
-    videoUrl: normalizeOptionalString(payload?.videoUrl),
+    pageUrl: normalizeVideoPageUrl(payload?.pageUrl),
+    videoUrl: normalizeVideoHintUrl(payload?.videoUrl),
     videoCandidates: normalizeVideoCandidateUrls(payload?.videoCandidates),
     title: normalizeOptionalString(payload?.title),
     cookies: normalizeOptionalString(payload?.cookies),

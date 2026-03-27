@@ -27,8 +27,30 @@ describe("parseYtDlpProgressLine", () => {
     expect(payload?.percent).toBe(100);
   });
 
+  it("maps metadata finalization lines into post-processing stage", () => {
+    const payload = parseYtDlpProgressLine(
+      "trace-3",
+      "[Metadata] Embedding metadata in \"output.mp4\"",
+    );
+
+    expect(payload).not.toBeNull();
+    expect(payload?.stage).toBe("post_processing");
+    expect(payload?.percent).toBe(100);
+  });
+
+  it("maps cleanup finalization lines into post-processing stage", () => {
+    const payload = parseYtDlpProgressLine(
+      "trace-4",
+      "Deleting original file output.f247.webm (pass -k to keep)",
+    );
+
+    expect(payload).not.toBeNull();
+    expect(payload?.stage).toBe("post_processing");
+    expect(payload?.percent).toBe(100);
+  });
+
   it("ignores non-progress noise", () => {
-    expect(parseYtDlpProgressLine("trace-3", "WARNING: extractor failed")).toBeNull();
+    expect(parseYtDlpProgressLine("trace-5", "WARNING: extractor failed")).toBeNull();
   });
 });
 

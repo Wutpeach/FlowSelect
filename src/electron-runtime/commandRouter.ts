@@ -66,6 +66,23 @@ const asObject = (payload: CommandPayload): Record<string, unknown> => (
     : {}
 );
 
+const normalizeHttpUrl = (value: string | undefined): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (/^(?:blob|data|file):/i.test(value)) {
+    return undefined;
+  }
+
+  try {
+    const normalized = new URL(value).toString();
+    return /^https?:\/\//i.test(normalized) ? normalized : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const readOptionalTrimmedString = (
   payload: Record<string, unknown>,
   ...keys: string[]
@@ -81,6 +98,28 @@ const readOptionalTrimmedString = (
     }
   }
   return undefined;
+};
+
+const readOptionalHttpUrlString = (
+  payload: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined => normalizeHttpUrl(readOptionalTrimmedString(payload, ...keys));
+
+const readRequiredHttpUrlString = (
+  payload: Record<string, unknown>,
+  ...keys: string[]
+): string => {
+  const rawValue = readOptionalTrimmedString(payload, ...keys);
+  if (!rawValue) {
+    throw new Error(`Missing required command payload field: ${keys[0]}`);
+  }
+
+  const normalized = normalizeHttpUrl(rawValue);
+  if (normalized) {
+    return normalized;
+  }
+
+  throw new Error(`Invalid command payload field: ${keys[0]}`);
 };
 
 const readRequiredTrimmedString = (
@@ -112,6 +151,18 @@ const isPinterestManifestLikeUrl = (value: string): boolean => (
   || /\/videos\/iht\/hls\//i.test(value)
 );
 
+const isPinterestVideoHintUrl = (value: string): boolean => (
+  isDirectPinterestMp4Url(value) || isPinterestManifestLikeUrl(value)
+);
+
+const readOptionalVideoHintUrlString = (
+  payload: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined => {
+  const normalized = readOptionalHttpUrlString(payload, ...keys);
+  return normalized && isPinterestVideoHintUrl(normalized) ? normalized : undefined;
+};
+
 const candidatePriority = (candidate: PinterestVideoCandidate): number => {
   const type = candidate.type?.toLowerCase();
   if (type === "direct_mp4" || isDirectPinterestMp4Url(candidate.url)) {
@@ -132,7 +183,7 @@ const normalizeVideoCandidate = (candidate: unknown): PinterestVideoCandidate | 
   }
 
   const candidateRecord = candidate as Record<string, unknown>;
-  const url = readOptionalTrimmedString(candidateRecord, "url");
+  const url = readOptionalVideoHintUrlString(candidateRecord, "url");
   if (!url) {
     return null;
   }
@@ -216,7 +267,7 @@ const normalizeDragDiagnostic = (
         .filter((candidate): candidate is PinterestVideoCandidate => candidate !== null)
     : normalizedVideoCandidates;
   const imageUrl = readOptionalTrimmedString(diagnostic, "imageUrl", "image_url") ?? null;
-  const videoUrl = readOptionalTrimmedString(diagnostic, "videoUrl", "video_url") ?? null;
+  const videoUrl = readOptionalVideoHintUrlString(diagnostic, "videoUrl", "video_url") ?? null;
   const videoCandidatesCountRaw = Number(
     diagnostic.videoCandidatesCount ?? diagnostic.video_candidates_count,
   );
@@ -241,9 +292,9 @@ const normalizeQueueVideoDownloadRequest = (
   const normalizedVideoCandidates = normalizeVideoCandidates(request);
 
   return {
-    url: readRequiredTrimmedString(request, "url"),
-    pageUrl: readOptionalTrimmedString(request, "pageUrl", "page_url"),
-    videoUrl: readOptionalTrimmedString(request, "videoUrl", "video_url"),
+    url: readRequiredHttpUrlString(request, "url"),
+    pageUrl: readOptionalHttpUrlString(request, "pageUrl", "page_url"),
+    videoUrl: readOptionalVideoHintUrlString(request, "videoUrl", "video_url"),
     videoCandidates: normalizedVideoCandidates.length > 0 ? normalizedVideoCandidates : undefined,
     dragDiagnostic: normalizeDragDiagnostic(request, normalizedVideoCandidates),
   };

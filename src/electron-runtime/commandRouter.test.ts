@@ -168,6 +168,101 @@ describe("createElectronRuntimeCommandRouter", () => {
     expect(runtime.startRuntimeDependencyBootstrap).toHaveBeenCalledWith("settings_retry");
   });
 
+  it("drops invalid video hints before dispatching queue requests", async () => {
+    const runtime = createRuntimeStub();
+    const router = createElectronRuntimeCommandRouter({ runtime });
+
+    await router.invoke<{ accepted: boolean; traceId: string }>("queue_video_download", {
+      url: "https://www.pinterest.com/pin/1234567890/",
+      video_url: " blob:https://www.pinterest.com/opaque-id ",
+      video_candidates: [
+        { url: " javascript:alert('xss') ", type: "direct_mp4" },
+        { url: " data:text/plain;base64,SGVsbG8= ", type: "direct_mp4" },
+        { url: " ftp://v.pinimg.com/videos/iht/expmp4/video.mp4 ", type: "direct_mp4" },
+        { url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4", type: "direct_mp4" },
+      ],
+    });
+
+    expect(runtime.queueVideoDownload).toHaveBeenCalledWith({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: undefined,
+      videoUrl: undefined,
+      videoCandidates: [
+        {
+          url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
+          type: "direct_mp4",
+          source: undefined,
+          confidence: undefined,
+        },
+      ],
+      dragDiagnostic: undefined,
+    });
+  });
+
+  it("drops HTTP(S) hints that are not real video candidates", async () => {
+    const runtime = createRuntimeStub();
+    const router = createElectronRuntimeCommandRouter({ runtime });
+
+    await router.invoke<{ accepted: boolean; traceId: string }>("queue_video_download", {
+      url: "https://www.pinterest.com/pin/1234567890/",
+      page_url: "https://www.pinterest.com/pin/1234567890/",
+      video_url: "https://www.pinterest.com/pin/1234567890/",
+      video_candidates: [
+        { url: "https://i.pinimg.com/originals/example.jpg", type: "direct_mp4" },
+        { url: "https://cdn.example.com/watch?v=123", type: "manifest_m3u8" },
+        { url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4", type: "direct_mp4" },
+      ],
+    });
+
+    expect(runtime.queueVideoDownload).toHaveBeenCalledWith({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: "https://www.pinterest.com/pin/1234567890/",
+      videoUrl: undefined,
+      videoCandidates: [
+        {
+          url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
+          type: "direct_mp4",
+          source: undefined,
+          confidence: undefined,
+        },
+      ],
+      dragDiagnostic: undefined,
+    });
+  });
+
+  it("drops invalid page urls before dispatching queue requests", async () => {
+    const runtime = createRuntimeStub();
+    const router = createElectronRuntimeCommandRouter({ runtime });
+
+    await router.invoke<{ accepted: boolean; traceId: string }>("queue_video_download", {
+      url: "https://www.pinterest.com/pin/1234567890/",
+      page_url: " javascript:alert('xss') ",
+      video_url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
+    });
+
+    expect(runtime.queueVideoDownload).toHaveBeenCalledWith({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: undefined,
+      videoUrl: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
+      videoCandidates: undefined,
+      dragDiagnostic: undefined,
+    });
+  });
+
+  it("rejects queue requests whose primary url is not HTTP(S)", async () => {
+    const runtime = createRuntimeStub();
+    const router = createElectronRuntimeCommandRouter({ runtime });
+
+    await expect(
+      router.invoke("queue_video_download", {
+        url: " javascript:alert('xss') ",
+        video_url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
+      }),
+    ).rejects.toThrow("Invalid command payload field: url");
+
+    expect(runtime.queueVideoDownload).not.toHaveBeenCalled();
+  });
+
   it("delegates unsupported commands to the fallback handler", async () => {
     const runtime = createRuntimeStub();
     const fallback = vi.fn(async () => "config-json");

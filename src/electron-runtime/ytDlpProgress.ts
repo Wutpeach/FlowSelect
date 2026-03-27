@@ -6,12 +6,19 @@ const etaPattern = /ETA\s+([0-9:]+)/i;
 
 const trimOrEmpty = (value: string | undefined): string => value?.trim() ?? "";
 
+const isPostProcessingLine = (line: string): boolean => {
+  const normalized = line.toLowerCase();
+  return normalized.includes("post-process")
+    || normalized.includes("embedding metadata")
+    || normalized.includes("deleting original file");
+};
+
 const stageFromLine = (line: string): DownloadStage => {
   const normalized = line.toLowerCase();
   if (normalized.includes("merging")) {
     return "merging";
   }
-  if (normalized.includes("post-process")) {
+  if (isPostProcessingLine(normalized)) {
     return "post_processing";
   }
   if (normalized.includes("[download]")) {
@@ -24,9 +31,14 @@ export const parseYtDlpProgressLine = (
   traceId: string,
   line: string,
 ): DownloadProgressPayload | null => {
+  const normalized = line.toLowerCase();
   const percentMatch = percentPattern.exec(line);
   const percent = percentMatch ? Number(percentMatch[1]) : null;
-  if (percent === null && !line.toLowerCase().includes("merging")) {
+  if (
+    percent === null
+    && !normalized.includes("merging")
+    && !isPostProcessingLine(normalized)
+  ) {
     return null;
   }
 
