@@ -1889,10 +1889,16 @@ async function loadTrayLabels(language) {
 }
 
 function getIconPath() {
-  const candidates = [
-    join(repoRoot, "app-icon.png"),
-    join(repoRoot, "public", "favicon.ico"),
-  ];
+  const candidates = process.platform === "win32"
+    ? [
+        join(repoRoot, "desktop-assets", "icons", "icon.ico"),
+        join(repoRoot, "app-icon.png"),
+        join(repoRoot, "public", "favicon.ico"),
+      ]
+    : [
+        join(repoRoot, "app-icon.png"),
+        join(repoRoot, "public", "favicon.ico"),
+      ];
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
@@ -2911,6 +2917,7 @@ async function createMainWindow() {
   }
 
   const preloadPath = join(__dirname, "preload.mjs");
+  const iconPath = getIconPath();
   const mainWindow = new BrowserWindow({
     width: 200,
     height: 200,
@@ -2918,6 +2925,8 @@ async function createMainWindow() {
     frame: false,
     resizable: false,
     alwaysOnTop: true,
+    icon: iconPath ?? undefined,
+    skipTaskbar: process.platform === "win32",
     show: true,
     webPreferences: {
       preload: preloadPath,
@@ -2967,6 +2976,7 @@ async function openSecondaryWindow(label, options) {
   }
 
   const preloadPath = join(__dirname, "preload.mjs");
+  const iconPath = getIconPath();
   const browserWindow = new BrowserWindow({
     width: options.width,
     height: options.height,
@@ -2978,7 +2988,8 @@ async function openSecondaryWindow(label, options) {
     frame: options.decorations === true,
     resizable: options.resizable === true,
     alwaysOnTop: options.alwaysOnTop !== false,
-    skipTaskbar: options.skipTaskbar === true,
+    icon: iconPath ?? undefined,
+    skipTaskbar: options.skipTaskbar ?? process.platform === "win32",
     parent: options.parent === "main" ? getWindow(WINDOW_LABELS.main) ?? undefined : undefined,
     show: false,
     webPreferences: {

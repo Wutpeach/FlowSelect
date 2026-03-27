@@ -15,6 +15,7 @@ export default {
     "dist-electron/**/*",
     "locales/**/*",
     "desktop-assets/binaries/**/*",
+    "desktop-assets/icons/icon.ico",
     "desktop-assets/pinterest-sidecar/lock.json",
     "app-icon.png",
     "public/favicon.ico",
