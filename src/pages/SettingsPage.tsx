@@ -18,6 +18,7 @@ import {
   desktopCurrentWindow,
   desktopEvents,
   desktopSystem,
+  desktopWindows,
 } from "../desktop/runtime";
 import {
   getFieldSurfaceStyle,
@@ -63,6 +64,8 @@ const COMPACT_THEME_BUTTON_PADDING = "6px 10px";
 const COMPACT_SHORTCUT_ACTION_HEIGHT = 32;
 const COMPACT_SHORTCUT_ACTION_MIN_WIDTH = 74;
 const COMPACT_SHORTCUT_ACTION_PADDING = "6px 12px";
+const UI_LAB_WINDOW_WIDTH = 420;
+const UI_LAB_WINDOW_HEIGHT = 560;
 const SHORTCUT_KEY_ALIASES: Record<string, string> = {
   CONTROL: "Ctrl",
   CTRL: "Ctrl",
@@ -166,6 +169,7 @@ function SettingsPage() {
   const { t, i18n } = useTranslation(["desktop", "common"]);
   const { theme, colors, setTheme } = useTheme();
   const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
+  const isDevBuild = import.meta.env.DEV;
   const [outputPath, setOutputPath] = useState("");
   const [autostart, setAutostart] = useState(false);
   const [shortcut, setShortcut] = useState("");
@@ -823,6 +827,25 @@ function SettingsPage() {
     });
   };
 
+  const openUiLab = async () => {
+    if (!isDevBuild) {
+      return;
+    }
+
+    if (await desktopWindows.has("ui-lab")) {
+      await desktopWindows.focus("ui-lab");
+      return;
+    }
+
+    await desktopWindows.openUiLab({
+      title: "UI Lab",
+      width: UI_LAB_WINDOW_WIDTH,
+      height: UI_LAB_WINDOW_HEIGHT,
+      center: true,
+      alwaysOnTop: true,
+    });
+  };
+
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
   const settingsShellRadius = 16;
   const settingsShellBoxShadow = theme === "black"
@@ -1367,6 +1390,17 @@ function SettingsPage() {
         <NeonSection title={t("desktop:settings.downloaders.title")}>
           <DownloaderDeck cards={downloaderCards} />
         </NeonSection>
+
+        {isDevBuild ? (
+          <NeonSection
+            title="Developer"
+            hint="Open the UI Lab to preview runtime, download, and transcode states without real workflows."
+          >
+            <NeonButton onClick={() => void openUiLab()}>
+              Open UI Lab
+            </NeonButton>
+          </NeonSection>
+        ) : null}
 
       </div>
 

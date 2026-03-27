@@ -1,6 +1,6 @@
 import type { AppUpdateInfo } from "./appUpdate";
 
-export type FlowSelectWindowLabel = "main" | "settings" | "context-menu";
+export type FlowSelectWindowLabel = "main" | "settings" | "context-menu" | "ui-lab";
 
 // These command names intentionally preserve the stable renderer command vocabulary
 // while the transport stays fully Electron-owned.
@@ -12,6 +12,7 @@ export type FlowSelectRendererCommand =
   | "cancel_transcode"
   | "check_ytdlp_version"
   | "download_image"
+  | "dev_ui_lab_apply_scenario"
   | "export_support_log"
   | "get_autostart"
   | "get_clipboard_files"
@@ -46,6 +47,7 @@ export type FlowSelectAppEvent =
   | "runtime-dependency-gate-state"
   | "shortcut-show"
   | "theme-changed"
+  | "ui-lab-reset"
   | "video-download-complete"
   | "video-download-progress"
   | "video-queue-count"
@@ -186,9 +188,10 @@ export interface FlowSelectElectronBridge {
   windows: {
     has(label: FlowSelectWindowLabel): Promise<boolean>;
     focus(label: FlowSelectWindowLabel): Promise<void>;
-    close(label: "settings" | "context-menu"): Promise<void>;
+    close(label: "settings" | "context-menu" | "ui-lab"): Promise<void>;
     openSettings(options: FlowSelectSecondaryWindowOptions): Promise<void>;
     openContextMenu(options: FlowSelectContextMenuWindowOptions): Promise<void>;
+    openUiLab(options: FlowSelectSecondaryWindowOptions): Promise<void>;
   };
   currentWindow: FlowSelectCurrentWindowApi;
   system: FlowSelectSystemApi;

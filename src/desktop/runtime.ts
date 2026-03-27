@@ -125,7 +125,7 @@ export const desktopWindows = {
   async focus(label: FlowSelectWindowLabel): Promise<void> {
     await resolveElectronBridge().windows.focus(label);
   },
-  async close(label: "settings" | "context-menu"): Promise<void> {
+  async close(label: "settings" | "context-menu" | "ui-lab"): Promise<void> {
     await resolveElectronBridge().windows.close(label);
   },
   async openSettings(options: FlowSelectSecondaryWindowOptions): Promise<void> {
@@ -133,5 +133,8 @@ export const desktopWindows = {
   },
   async openContextMenu(options: FlowSelectContextMenuWindowOptions): Promise<void> {
     await resolveElectronBridge().windows.openContextMenu(options);
+  },
+  async openUiLab(options: FlowSelectSecondaryWindowOptions): Promise<void> {
+    await resolveElectronBridge().windows.openUiLab(options);
   },
 };

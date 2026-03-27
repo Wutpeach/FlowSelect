@@ -128,6 +128,9 @@ contextBridge.exposeInMainWorld("flowselect", {
     openContextMenu(options) {
       return invoke("flowselect:window:open-context-menu", { options });
     },
+    openUiLab(options) {
+      return invoke("flowselect:window:open-ui-lab", { options });
+    },
   },
   currentWindow: {
     outerPosition() {

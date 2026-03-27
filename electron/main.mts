@@ -64,6 +64,7 @@ const WINDOW_LABELS = {
   main: "main",
   settings: "settings",
   contextMenu: "context-menu",
+  uiLab: "ui-lab",
 };
 
 const FALLBACK_LANGUAGE = "en";
@@ -76,6 +77,7 @@ const DEFAULT_OUTPUT_FOLDER_NAME = "FlowSelect_Received";
 const SHORTCUT_SHOW_EVENT = "shortcut-show";
 const CONTEXT_MENU_CLOSED_EVENT = "context-menu-closed";
 const LANGUAGE_CHANGED_EVENT = "language-changed";
+const UI_LAB_RESET_EVENT = "ui-lab-reset";
 const YTDLP_LATEST_CACHE_FILE_NAME = "ytdlp-latest.json";
 const YTDLP_LATEST_RELEASE_API =
   "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest";
@@ -88,6 +90,8 @@ const LOG_DIR_NAME = "logs";
 const VIDEO_QUEUE_MAX_CONCURRENT = 3;
 const SETTINGS_WINDOW_WIDTH = 320;
 const SETTINGS_WINDOW_HEIGHT = 400;
+const UI_LAB_WINDOW_WIDTH = 420;
+const UI_LAB_WINDOW_HEIGHT = 560;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15_000;
 const YTDLP_PROGRESS_PREFIX = "__FLOWSELECT_PROGRESS__=";
 const YTDLP_FILE_PATH_PREFIX = "__FLOWSELECT_FILE_PATH__=";
@@ -160,6 +164,8 @@ const runtimeDependencyGateState = {
 };
 let runtimeDependencyBootstrapPromise = null;
 let wsServer = null;
+let uiLabRuntimeStatusOverride = null;
+let uiLabRuntimeGateOverride = null;
 
 function logInfo(scope, message, details) {
   if (details) {
@@ -726,7 +732,55 @@ function missingRuntimeEntry(error) {
   };
 }
 
+function isUiLabEnabled() {
+  return !app.isPackaged;
+}
+
+function assertUiLabEnabled() {
+  if (!isUiLabEnabled()) {
+    throw new Error("UI Lab is only available in development builds.");
+  }
+}
+
+function cloneRuntimeStatusSnapshot(snapshot) {
+  return {
+    ytDlp: { ...snapshot.ytDlp },
+    ffmpeg: { ...snapshot.ffmpeg },
+    deno: { ...snapshot.deno },
+    pinterestDownloader: { ...snapshot.pinterestDownloader },
+  };
+}
+
+function cloneRuntimeDependencyGateState(state) {
+  return {
+    phase: state.phase,
+    missingComponents: [...(state.missingComponents ?? [])],
+    lastError: state.lastError ?? null,
+    updatedAtMs: state.updatedAtMs ?? nowTimestampMs(),
+    currentComponent: state.currentComponent ?? null,
+    currentStage: state.currentStage ?? null,
+    progressPercent: state.progressPercent ?? null,
+    downloadedBytes: state.downloadedBytes ?? null,
+    totalBytes: state.totalBytes ?? null,
+    nextComponent: state.nextComponent ?? null,
+  };
+}
+
+function clearUiLabRuntimeOverrides() {
+  uiLabRuntimeStatusOverride = null;
+  uiLabRuntimeGateOverride = null;
+}
+
+function setUiLabRuntimeOverrides(runtimeStatus, gateState) {
+  uiLabRuntimeStatusOverride = cloneRuntimeStatusSnapshot(runtimeStatus);
+  uiLabRuntimeGateOverride = cloneRuntimeDependencyGateState(gateState);
+}
+
 async function getRuntimeDependencyStatus() {
+  if (uiLabRuntimeStatusOverride) {
+    return cloneRuntimeStatusSnapshot(uiLabRuntimeStatusOverride);
+  }
+
   const ytDlpPath = await resolveBundledBinary("yt-dlp");
   const ffmpegPaths = managedFfmpegPaths();
   const denoPath = managedDenoPath();
@@ -858,6 +912,9 @@ function updateRuntimeDependencyGateDownloadActivity(
 }
 
 async function getRuntimeDependencyGateState() {
+  if (uiLabRuntimeGateOverride) {
+    return cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride);
+  }
   if (runtimeDependencyBootstrapPromise) {
     return { ...runtimeDependencyGateState };
   }
@@ -866,6 +923,10 @@ async function getRuntimeDependencyGateState() {
 }
 
 async function refreshRuntimeDependencyGateState() {
+  if (uiLabRuntimeGateOverride) {
+    emitAppEvent("runtime-dependency-gate-state", cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride));
+    return cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride);
+  }
   return getRuntimeDependencyGateState();
 }
 
@@ -1303,6 +1364,11 @@ async function ensureMissingManagedRuntimesReady(trigger) {
 }
 
 async function startRuntimeDependencyBootstrap(reason = "frontend_after_visible") {
+  if (uiLabRuntimeGateOverride) {
+    const payload = cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride);
+    emitAppEvent("runtime-dependency-gate-state", payload);
+    return payload;
+  }
   if (runtimeDependencyBootstrapPromise) {
     return { ...runtimeDependencyGateState };
   }
@@ -1706,6 +1772,323 @@ function emitAppEvent(event, payload) {
       win.webContents.send(`flowselect:event:${event}`, { payload });
     }
   }
+}
+
+function createUiLabReadyRuntimeStatus() {
+  return {
+    ytDlp: readyRuntimeEntry("D:/ui-lab/yt-dlp.exe", "bundled"),
+    ffmpeg: readyRuntimeEntry("D:/ui-lab/ffmpeg.exe", "managed"),
+    deno: readyRuntimeEntry("D:/ui-lab/deno.exe", "managed"),
+    pinterestDownloader: readyRuntimeEntry("D:/ui-lab/pinterest-dl.exe", "managed"),
+  };
+}
+
+function createUiLabMissingRuntimeStatus() {
+  const readyStatus = createUiLabReadyRuntimeStatus();
+  return {
+    ...readyStatus,
+    ffmpeg: missingRuntimeEntry("Missing managed ffmpeg runtime. UI Lab preview."),
+    deno: missingRuntimeEntry("Missing managed deno runtime. UI Lab preview."),
+  };
+}
+
+function emitUiLabEmptyTaskState() {
+  emitAppEvent("video-queue-count", {
+    activeCount: 0,
+    pendingCount: 0,
+    totalCount: 0,
+    maxConcurrent: VIDEO_QUEUE_MAX_CONCURRENT,
+  });
+  emitAppEvent("video-queue-detail", { tasks: [] });
+  emitAppEvent("video-transcode-queue-count", {
+    activeCount: 0,
+    pendingCount: 0,
+    failedCount: 0,
+    totalCount: 0,
+    maxConcurrent: 1,
+  });
+  emitAppEvent("video-transcode-queue-detail", { tasks: [] });
+}
+
+async function applyUiLabScenario(scenario) {
+  assertUiLabEnabled();
+  await showMainWindow();
+  emitAppEvent(SHORTCUT_SHOW_EVENT, undefined);
+  emitAppEvent(UI_LAB_RESET_EVENT, undefined);
+  emitUiLabEmptyTaskState();
+
+  if (scenario === "reset") {
+    clearUiLabRuntimeOverrides();
+    const gateState = await getRuntimeDependencyGateState();
+    emitAppEvent("runtime-dependency-gate-state", gateState);
+    return;
+  }
+
+  clearUiLabRuntimeOverrides();
+
+  if (scenario === "runtime-auto-config") {
+    const runtimeStatus = createUiLabMissingRuntimeStatus();
+    const gateState = {
+      phase: "downloading",
+      missingComponents: ["ffmpeg", "deno"],
+      lastError: null,
+      updatedAtMs: nowTimestampMs(),
+      currentComponent: "ffmpeg",
+      currentStage: "downloading",
+      progressPercent: 42,
+      downloadedBytes: 42 * 1024 * 1024,
+      totalBytes: 100 * 1024 * 1024,
+      nextComponent: "deno",
+    };
+    setUiLabRuntimeOverrides(runtimeStatus, gateState);
+    emitAppEvent("runtime-dependency-gate-state", gateState);
+    return;
+  }
+
+  if (scenario === "runtime-failed") {
+    const runtimeStatus = createUiLabMissingRuntimeStatus();
+    const gateState = {
+      phase: "failed",
+      missingComponents: ["ffmpeg", "deno"],
+      lastError: "Failed to download FFmpeg runtime: request timed out after 30s",
+      updatedAtMs: nowTimestampMs(),
+      currentComponent: null,
+      currentStage: null,
+      progressPercent: null,
+      downloadedBytes: null,
+      totalBytes: null,
+      nextComponent: "ffmpeg",
+    };
+    setUiLabRuntimeOverrides(runtimeStatus, gateState);
+    emitAppEvent("runtime-dependency-gate-state", gateState);
+    return;
+  }
+
+  if (scenario === "download-active") {
+    const traceId = "ui-lab-download-active";
+    emitAppEvent("video-queue-count", {
+      activeCount: 1,
+      pendingCount: 0,
+      totalCount: 1,
+      maxConcurrent: VIDEO_QUEUE_MAX_CONCURRENT,
+    });
+    emitAppEvent("video-queue-detail", {
+      tasks: [
+        {
+          traceId,
+          label: "Pinterest seasonal campaign cut.mp4",
+          status: "active",
+        },
+      ],
+    });
+    emitAppEvent("video-download-progress", {
+      traceId,
+      percent: 46,
+      stage: "downloading",
+      speed: "8.2 MB/s",
+      eta: "00:12",
+    });
+    return;
+  }
+
+  if (scenario === "download-queued") {
+    const activeTraceId = "ui-lab-download-queued-active";
+    emitAppEvent("video-queue-count", {
+      activeCount: 1,
+      pendingCount: 2,
+      totalCount: 3,
+      maxConcurrent: VIDEO_QUEUE_MAX_CONCURRENT,
+    });
+    emitAppEvent("video-queue-detail", {
+      tasks: [
+        {
+          traceId: activeTraceId,
+          label: "Long-form interview master.mp4",
+          status: "active",
+        },
+        {
+          traceId: "ui-lab-download-queued-2",
+          label: "Episode teaser vertical.mp4",
+          status: "pending",
+        },
+        {
+          traceId: "ui-lab-download-queued-3",
+          label: "Creator archive backup.mp4",
+          status: "pending",
+        },
+      ],
+    });
+    emitAppEvent("video-download-progress", {
+      traceId: activeTraceId,
+      percent: 12,
+      stage: "preparing",
+      speed: "Preparing...",
+      eta: "",
+    });
+    return;
+  }
+
+  if (scenario === "transcode-active") {
+    const traceId = "ui-lab-transcode-active";
+    emitAppEvent("video-transcode-queue-count", {
+      activeCount: 1,
+      pendingCount: 1,
+      failedCount: 0,
+      totalCount: 2,
+      maxConcurrent: 1,
+    });
+    emitAppEvent("video-transcode-queue-detail", {
+      tasks: [
+        {
+          traceId,
+          label: "Client delivery master.mov",
+          status: "active",
+          stage: "transcoding",
+          progressPercent: 68,
+          etaSeconds: 24,
+          sourcePath: "D:/ui-lab/client-delivery-master.mov",
+          sourceFormat: "mov",
+          targetFormat: "mp4",
+          error: null,
+        },
+        {
+          traceId: "ui-lab-transcode-pending",
+          label: "Reel export source.mov",
+          status: "pending",
+          stage: "analyzing",
+          progressPercent: null,
+          etaSeconds: null,
+          sourcePath: "D:/ui-lab/reel-export-source.mov",
+          sourceFormat: "mov",
+          targetFormat: "mp4",
+          error: null,
+        },
+      ],
+    });
+    emitAppEvent("video-transcode-progress", {
+      traceId,
+      label: "Client delivery master.mov",
+      status: "active",
+      stage: "transcoding",
+      progressPercent: 68,
+      etaSeconds: 24,
+      sourcePath: "D:/ui-lab/client-delivery-master.mov",
+      sourceFormat: "mov",
+      targetFormat: "mp4",
+      error: null,
+    });
+    return;
+  }
+
+  if (scenario === "transcode-failed") {
+    const traceId = "ui-lab-transcode-failed";
+    emitAppEvent("video-transcode-queue-count", {
+      activeCount: 0,
+      pendingCount: 0,
+      failedCount: 1,
+      totalCount: 1,
+      maxConcurrent: 1,
+    });
+    emitAppEvent("video-transcode-queue-detail", {
+      tasks: [
+        {
+          traceId,
+          label: "Broadcast package master.mkv",
+          status: "failed",
+          stage: "failed",
+          progressPercent: null,
+          etaSeconds: null,
+          sourcePath: "D:/ui-lab/broadcast-package-master.mkv",
+          sourceFormat: "mkv",
+          targetFormat: "mp4",
+          error: "FFmpeg exited with code 1 while finalizing the MP4 output.",
+        },
+      ],
+    });
+    emitAppEvent("video-transcode-failed", {
+      traceId,
+      label: "Broadcast package master.mkv",
+      status: "failed",
+      stage: "failed",
+      progressPercent: null,
+      etaSeconds: null,
+      sourcePath: "D:/ui-lab/broadcast-package-master.mkv",
+      sourceFormat: "mkv",
+      targetFormat: "mp4",
+      error: "FFmpeg exited with code 1 while finalizing the MP4 output.",
+    });
+    return;
+  }
+
+  if (scenario === "mixed-busy") {
+    const downloadTraceId = "ui-lab-mixed-download";
+    const transcodeTraceId = "ui-lab-mixed-transcode";
+    emitAppEvent("video-queue-count", {
+      activeCount: 1,
+      pendingCount: 1,
+      totalCount: 2,
+      maxConcurrent: VIDEO_QUEUE_MAX_CONCURRENT,
+    });
+    emitAppEvent("video-queue-detail", {
+      tasks: [
+        {
+          traceId: downloadTraceId,
+          label: "Compilation trailer capture.mp4",
+          status: "active",
+        },
+        {
+          traceId: "ui-lab-mixed-download-pending",
+          label: "Livestream archive pull.mp4",
+          status: "pending",
+        },
+      ],
+    });
+    emitAppEvent("video-download-progress", {
+      traceId: downloadTraceId,
+      percent: 74,
+      stage: "merging",
+      speed: "Merging...",
+      eta: "",
+    });
+    emitAppEvent("video-transcode-queue-count", {
+      activeCount: 1,
+      pendingCount: 0,
+      failedCount: 0,
+      totalCount: 1,
+      maxConcurrent: 1,
+    });
+    emitAppEvent("video-transcode-queue-detail", {
+      tasks: [
+        {
+          traceId: transcodeTraceId,
+          label: "Editorial proxy source.mov",
+          status: "active",
+          stage: "finalizing_mp4",
+          progressPercent: 91,
+          etaSeconds: 8,
+          sourcePath: "D:/ui-lab/editorial-proxy-source.mov",
+          sourceFormat: "mov",
+          targetFormat: "mp4",
+          error: null,
+        },
+      ],
+    });
+    emitAppEvent("video-transcode-progress", {
+      traceId: transcodeTraceId,
+      label: "Editorial proxy source.mov",
+      status: "active",
+      stage: "finalizing_mp4",
+      progressPercent: 91,
+      etaSeconds: 8,
+      sourcePath: "D:/ui-lab/editorial-proxy-source.mov",
+      sourceFormat: "mov",
+      targetFormat: "mp4",
+      error: null,
+    });
+    return;
+  }
+
+  throw new Error(`Unsupported UI Lab scenario: ${scenario}`);
 }
 
 function broadcastWsMessage(message) {
@@ -2310,6 +2693,19 @@ function buildRendererRoute(routePath) {
   return `${pathToFileURL(join(repoRoot, "dist", "index.html")).toString()}#${normalizedRoute}`;
 }
 
+function secondaryWindowRoute(label) {
+  if (label === WINDOW_LABELS.settings) {
+    return "/settings";
+  }
+  if (label === WINDOW_LABELS.contextMenu) {
+    return "/context-menu";
+  }
+  if (label === WINDOW_LABELS.uiLab) {
+    return "/ui-lab";
+  }
+  throw new Error(`Unsupported secondary window label: ${label}`);
+}
+
 function getWindow(label) {
   return windows.get(label) ?? null;
 }
@@ -2421,7 +2817,7 @@ async function openSecondaryWindow(label, options) {
     showSecondaryWindow(browserWindow, options);
   });
   await browserWindow.loadURL(
-    buildRendererRoute(label === WINDOW_LABELS.settings ? "/settings" : "/context-menu"),
+    buildRendererRoute(secondaryWindowRoute(label)),
   );
   if (!browserWindow.isVisible()) {
     showSecondaryWindow(browserWindow, options);
@@ -2954,6 +3350,9 @@ async function handleCommand(command, payload = {}) {
         payload.originalFilename ?? null,
         payload.protectedImageFallback ?? null,
       );
+    case "dev_ui_lab_apply_scenario":
+      await applyUiLabScenario(String(payload.scenario ?? ""));
+      return;
     case "save_data_url":
       return saveDataUrl(
         String(payload.dataUrl ?? ""),
@@ -2974,7 +3373,7 @@ async function handleCommand(command, payload = {}) {
     case "refresh_runtime_dependency_gate_state":
       return refreshRuntimeDependencyGateState();
     case "start_runtime_dependency_bootstrap":
-      return startRuntimeDependencyBootstrap();
+      return startRuntimeDependencyBootstrap(normalizeOptionalString(payload.reason) ?? undefined);
     case "check_ytdlp_version":
       return checkYtdlpVersion();
     case "get_pinterest_downloader_info":
@@ -3033,6 +3432,11 @@ function registerIpcHandlers() {
 
   ipcMain.handle("flowselect:window:open-context-menu", async (_event, request) => {
     await openSecondaryWindow(WINDOW_LABELS.contextMenu, request.options);
+  });
+
+  ipcMain.handle("flowselect:window:open-ui-lab", async (_event, request) => {
+    assertUiLabEnabled();
+    await openSecondaryWindow(WINDOW_LABELS.uiLab, request.options);
   });
 
   ipcMain.handle("flowselect:current-window:outer-position", (event) => {

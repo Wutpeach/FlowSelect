@@ -56,8 +56,10 @@ import {
   getRuntimeGateHeadline,
   getRuntimeGateNextLabel,
   getRuntimeGateProgressLabel,
+  hasMissingManagedRuntimeComponents,
   runtimeGateIsActive,
   runtimeGateNeedsManualAction,
+  shouldAutoStartManagedRuntimeBootstrapOnStartup,
   summarizeRuntimeGateError,
 } from "./utils/runtimeDependencyGate";
 
@@ -279,17 +281,6 @@ const getMissingRuntimeComponentsFromStatus = (
   }
   return missingComponents;
 };
-
-const hasMissingManagedRuntimeComponents = (
-  status: RuntimeDependencyStatusSnapshot | null,
-): boolean => (
-  !!status
-  && (
-    status.ffmpeg.state !== "ready"
-    || status.deno.state !== "ready"
-    || status.pinterestDownloader.state !== "ready"
-  )
-);
 
 const runtimeGatePhaseNeedsAttention = (phase: RuntimeDependencyGatePhase): boolean => (
   phase === "checking"
@@ -1198,9 +1189,12 @@ function App() {
     }
   }, []);
 
-  const startRuntimeDependencyBootstrap = useCallback(async () => {
+  const startRuntimeDependencyBootstrap = useCallback(async (reason?: string) => {
     try {
-      const state = await desktopCommands.invoke<RuntimeDependencyGateStatePayload>("start_runtime_dependency_bootstrap");
+      const state = await desktopCommands.invoke<RuntimeDependencyGateStatePayload>(
+        "start_runtime_dependency_bootstrap",
+        reason ? { reason } : undefined,
+      );
       setRuntimeDependencyGateState(state);
       return state;
     } catch (err) {
@@ -1381,21 +1375,28 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (isInitialMount || hasTriggeredStartupRuntimeBootstrapRef.current) {
+    if (
+      isInitialMount
+      || hasTriggeredStartupRuntimeBootstrapRef.current
+    ) {
       return;
     }
-    if (!hasMissingManagedRuntimeComponents(runtimeDependencyStatus)) {
-      return;
-    }
-    if (runtimeDependencyGateState?.phase === "downloading") {
-      hasTriggeredStartupRuntimeBootstrapRef.current = true;
+
+    const shouldAutoStartBootstrap = shouldAutoStartManagedRuntimeBootstrapOnStartup({
+      isInitialMount,
+      hasTriggeredStartupBootstrap: hasTriggeredStartupRuntimeBootstrapRef.current,
+      runtimeDependencyStatus,
+      gatePhase: runtimeDependencyGateState?.phase,
+    });
+
+    if (!shouldAutoStartBootstrap) {
       return;
     }
 
     hasTriggeredStartupRuntimeBootstrapRef.current = true;
     runtimeBootstrapAfterVisibleTimerRef.current = window.setTimeout(() => {
       runtimeBootstrapAfterVisibleTimerRef.current = null;
-      void startRuntimeDependencyBootstrap();
+      void startRuntimeDependencyBootstrap("startup_auto_retry");
     }, 220);
 
     return () => {
@@ -1518,6 +1519,44 @@ function App() {
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
+
+  useEffect(() => {
+    const unlisten = desktopEvents.on<void>("ui-lab-reset", () => {
+      if (queueNoticeTimerRef.current !== null) {
+        clearTimeout(queueNoticeTimerRef.current);
+        queueNoticeTimerRef.current = null;
+      }
+      if (runtimeRetryFeedbackTimerRef.current !== null) {
+        clearTimeout(runtimeRetryFeedbackTimerRef.current);
+        runtimeRetryFeedbackTimerRef.current = null;
+      }
+      if (runtimeSuccessTimerRef.current !== null) {
+        clearTimeout(runtimeSuccessTimerRef.current);
+        runtimeSuccessTimerRef.current = null;
+      }
+
+      pendingTranscodeActionTraceIdsRef.current = new Set();
+      setPendingTranscodeActionTraceIds([]);
+      setDownloadProgressByTrace({});
+      setVideoQueueState(EMPTY_VIDEO_QUEUE_STATE);
+      setVideoQueueDetail(EMPTY_VIDEO_QUEUE_DETAIL);
+      clearCancellingTraceIds();
+      setVideoTranscodeQueueState(EMPTY_VIDEO_TRANSCODE_QUEUE_STATE);
+      setVideoTranscodeQueueDetail(EMPTY_VIDEO_TRANSCODE_QUEUE_DETAIL);
+      setTranscodeProgressByTrace({});
+      setDownloadCancelled(false);
+      setDownloadErrorMessage(null);
+      setIsProcessing(false);
+      setQueueNoticeMessage(null);
+      setIsQueuePopoverOpen(false);
+      setIsRuntimeRetryInFlight(false);
+      setIsRuntimeRetryFeedbackVisible(false);
+      setShowRuntimeSuccessIndicator(false);
+      setIsRuntimeIndicatorHovered(false);
+      void refreshRuntimeDependencyContext();
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, [clearCancellingTraceIds, refreshRuntimeDependencyContext]);
 
   // Listen for rename toggle changes from settings window
   useEffect(() => {
@@ -2883,7 +2922,7 @@ function App() {
     try {
       const { status } = await refreshRuntimeDependencyContext();
       if (hasMissingManagedRuntimeComponents(status)) {
-        await startRuntimeDependencyBootstrap();
+        await startRuntimeDependencyBootstrap("runtime_indicator_manual");
       }
     } finally {
       setIsRuntimeRetryInFlight(false);
@@ -3080,16 +3119,13 @@ function App() {
     ? runtimeDependencyGateState.missingComponents
     : getMissingRuntimeComponentsFromStatus(runtimeDependencyStatus);
   const hasRuntimeGateIssue = runtimeGatePhaseNeedsAttention(runtimeGatePhase)
-    || runtimeMissingComponents.length > 0;
+    || runtimeMissingComponents.length > 0
+    || runtimeDependencyStatus === null;
   const runtimeGateRequiresManualAction = runtimeGateNeedsManualAction(runtimeGatePhase)
-    || (
-      !runtimeGateIsBusy
-      && (runtimeMissingComponents.length > 0 || runtimeDependencyStatus === null)
-    );
+    || (!runtimeGateIsBusy && runtimeDependencyStatus === null);
   const shouldShowRuntimeIndicator = !isMinimized && !isQueuePopoverOpen && (
     showRuntimeSuccessIndicator
     || hasRuntimeGateIssue
-    || (totalTaskCount > 0 && runtimeDependencyStatus === null)
   );
   const runtimeIndicatorHeadline = getRuntimeGateHeadline(t, runtimeDependencyGateState);
   const runtimeIndicatorProgressLabel = getRuntimeGateProgressLabel(t, runtimeDependencyGateState);
@@ -3110,8 +3146,14 @@ function App() {
   const runtimeIndicatorProgressPercent = clampRuntimeGateProgressPercent(
     runtimeDependencyGateState?.progressPercent,
   );
-  const runtimeIndicatorIsIndeterminate = runtimeGateIsBusy && runtimeIndicatorProgressPercent === null;
-  const runtimeIndicatorShouldRenderRing = runtimeGateIsBusy || showRuntimeSuccessIndicator;
+  const runtimeIndicatorShouldRenderRing = (
+    runtimeGateIsBusy
+    || showRuntimeSuccessIndicator
+    || (hasRuntimeGateIssue && !runtimeGateRequiresManualAction)
+  );
+  const runtimeIndicatorIsIndeterminate = runtimeIndicatorShouldRenderRing
+    && !showRuntimeSuccessIndicator
+    && runtimeIndicatorProgressPercent === null;
   const runtimeIndicatorSize = 18;
   const runtimeIndicatorRadius = 7;
   const runtimeIndicatorCircumference = 2 * Math.PI * runtimeIndicatorRadius;
@@ -4313,8 +4355,9 @@ function App() {
                 }}
                 title={runtimeIndicatorTitle}
                 style={{
-                  width: 18,
-                  height: 18,
+                  position: "relative",
+                  width: 24,
+                  height: 24,
                   padding: 0,
                   border: "none",
                   borderRadius: 999,
@@ -4327,22 +4370,66 @@ function App() {
                 }}
                 animate={isRuntimeRetryFeedbackVisible
                   ? {
-                      scale: [1, 0.9, 1.04, 1],
-                      opacity: [1, 0.86, 1],
+                      scale: [1, 0.92, 1.04, 1],
                     }
                   : {
-                      scale: [1, 1.06, 1],
-                      opacity: [0.6, 1, 0.6],
+                      scale: 1,
                     }}
                 transition={isRuntimeRetryFeedbackVisible
                   ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] }
-                  : { duration: 1.4, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
+                  : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
               >
                 <span
                   aria-hidden="true"
                   style={{
+                    position: "absolute",
+                    inset: 4,
+                    borderRadius: "50%",
+                    border: `1px solid ${colors.warningBorder}`,
+                    opacity: 0.72,
+                    pointerEvents: "none",
+                  }}
+                />
+                <motion.span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    inset: 4,
+                    borderRadius: "50%",
+                    border: `1px solid ${colors.warningBorder}`,
+                    boxShadow: `0 0 10px ${colors.warningGlow}`,
+                    pointerEvents: "none",
+                  }}
+                  animate={shouldReduceMotion
+                    ? { scale: 1, opacity: 0.64 }
+                    : isRuntimeRetryFeedbackVisible
+                      ? {
+                          scale: [1, 1.16, 1.28],
+                          opacity: [0.9, 0.42, 0],
+                        }
+                      : {
+                          scale: [1, 1.14, 1.32],
+                          opacity: [0.82, 0.3, 0],
+                        }}
+                  transition={shouldReduceMotion
+                    ? { duration: 0.16 }
+                    : isRuntimeRetryFeedbackVisible
+                      ? { duration: 0.46, ease: [0.22, 1, 0.36, 1] }
+                      : {
+                          duration: 1.45,
+                          repeat: Number.POSITIVE_INFINITY,
+                          ease: [0.22, 1, 0.36, 1],
+                        }}
+                />
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    inset: "50%",
                     width: 8,
                     height: 8,
+                    marginLeft: -4,
+                    marginTop: -4,
                     borderRadius: "50%",
                     backgroundColor: colors.warningSolid,
                     display: "block",

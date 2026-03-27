@@ -12,6 +12,9 @@ import { resolveAppLanguage, resolveAppLanguageFromConfigString } from "./i18n/l
 import "./index.css";
 
 const DEFAULT_THEME: Theme = "black";
+const UiLabPage = import.meta.env.DEV
+  ? React.lazy(() => import("./pages/UiLabPage"))
+  : null;
 
 const getThemeFromConfigString = (configStr: string): Theme => {
   try {
@@ -91,6 +94,16 @@ const bootstrap = async () => {
             <Route path="/" element={<App />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/context-menu" element={<ContextMenuPage />} />
+            {UiLabPage ? (
+              <Route
+                path="/ui-lab"
+                element={(
+                  <React.Suspense fallback={null}>
+                    <UiLabPage />
+                  </React.Suspense>
+                )}
+              />
+            ) : null}
           </Routes>
         </Router>
       </ThemeProvider>

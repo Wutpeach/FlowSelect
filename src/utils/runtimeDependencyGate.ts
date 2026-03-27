@@ -3,6 +3,7 @@ import type {
   RuntimeDependencyGatePhase,
   RuntimeDependencyGateStatePayload,
   RuntimeDependencyManagedComponent,
+  RuntimeDependencyStatusSnapshot,
 } from "../types/runtimeDependencies";
 
 type TranslateFn = (key: string, options?: Record<string, unknown>) => string;
@@ -18,6 +19,37 @@ export const runtimeGateNeedsManualAction = (
 export const runtimeGateIsActive = (
   phase: RuntimeDependencyGatePhase,
 ): boolean => phase === "checking" || phase === "downloading";
+
+export const hasMissingManagedRuntimeComponents = (
+  status: RuntimeDependencyStatusSnapshot | null | undefined,
+): boolean => (
+  !!status
+  && (
+    status.ffmpeg.state !== "ready"
+    || status.deno.state !== "ready"
+    || status.pinterestDownloader.state !== "ready"
+  )
+);
+
+export const shouldAutoStartManagedRuntimeBootstrapOnStartup = ({
+  isInitialMount,
+  hasTriggeredStartupBootstrap,
+  runtimeDependencyStatus,
+  gatePhase,
+}: {
+  isInitialMount: boolean;
+  hasTriggeredStartupBootstrap: boolean;
+  runtimeDependencyStatus: RuntimeDependencyStatusSnapshot | null;
+  gatePhase: RuntimeDependencyGatePhase | null | undefined;
+}): boolean => {
+  if (isInitialMount || hasTriggeredStartupBootstrap) {
+    return false;
+  }
+  if (!hasMissingManagedRuntimeComponents(runtimeDependencyStatus)) {
+    return false;
+  }
+  return gatePhase !== "checking" && gatePhase !== "downloading";
+};
 
 export const getRuntimeManagedComponentLabel = (
   t: TranslateFn,
