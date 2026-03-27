@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Eye, RotateCcw, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { NeonButton, NeonIconButton, NeonSection } from "../components/ui";
 import { getPanelShellStyle } from "../components/ui/shared-styles";
@@ -21,83 +22,83 @@ type UiLabScenario = {
   description: string;
 };
 
-const scenarioGroups: Array<{
-  title: string;
-  hint: string;
-  scenarios: UiLabScenario[];
-}> = [
-  {
-    title: "Runtime",
-    hint: "Preview automatic dependency bootstrap states and failure recovery.",
-    scenarios: [
-      {
-        id: "runtime-auto-config",
-        label: "Auto Config",
-        description: "Shows the runtime indicator in automatic download mode with hoverable progress.",
-      },
-      {
-        id: "runtime-failed",
-        label: "Failed",
-        description: "Shows the retryable failure state for the runtime reminder.",
-      },
-    ],
-  },
-  {
-    title: "Download",
-    hint: "Drive the main window's active download and queue surfaces without a real network transfer.",
-    scenarios: [
-      {
-        id: "download-active",
-        label: "Active",
-        description: "Single active download with live progress, speed, and ETA.",
-      },
-      {
-        id: "download-queued",
-        label: "Queued",
-        description: "One active download plus two pending tasks for queue review.",
-      },
-    ],
-  },
-  {
-    title: "Transcode",
-    hint: "Preview transcode progress and failure handling without invoking FFmpeg.",
-    scenarios: [
-      {
-        id: "transcode-active",
-        label: "Active",
-        description: "Active transcode with a pending follow-up task.",
-      },
-      {
-        id: "transcode-failed",
-        label: "Failed",
-        description: "Failure card, error text, and transcode failure notice state.",
-      },
-    ],
-  },
-  {
-    title: "Mixed",
-    hint: "Stress the compact shell with concurrent download and transcode activity.",
-    scenarios: [
-      {
-        id: "mixed-busy",
-        label: "Mixed Busy",
-        description: "Download merging plus transcode finalization at the same time.",
-      },
-    ],
-  },
-];
-
 export default function UiLabPage() {
+  const { t } = useTranslation("desktop");
   const { colors } = useTheme();
-  const [activeScenario, setActiveScenario] = useState<string | null>(null);
+  const [activeScenario, setActiveScenario] = useState<UiLabScenarioId | null>(null);
   const [pendingScenario, setPendingScenario] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const closeWindow = () => {
-    void desktopCurrentWindow.close().catch((err) => {
-      console.error("Failed to close UI Lab window:", err);
-    });
-  };
+  const scenarioGroups: Array<{
+    title: string;
+    hint: string;
+    scenarios: UiLabScenario[];
+  }> = [
+    {
+      title: t("settings.uiLab.groups.runtime.title"),
+      hint: t("settings.uiLab.groups.runtime.hint"),
+      scenarios: [
+        {
+          id: "runtime-auto-config",
+          label: t("settings.uiLab.scenarios.runtimeAutoConfig.label"),
+          description: t("settings.uiLab.scenarios.runtimeAutoConfig.description"),
+        },
+        {
+          id: "runtime-failed",
+          label: t("settings.uiLab.scenarios.runtimeFailed.label"),
+          description: t("settings.uiLab.scenarios.runtimeFailed.description"),
+        },
+      ],
+    },
+    {
+      title: t("settings.uiLab.groups.download.title"),
+      hint: t("settings.uiLab.groups.download.hint"),
+      scenarios: [
+        {
+          id: "download-active",
+          label: t("settings.uiLab.scenarios.downloadActive.label"),
+          description: t("settings.uiLab.scenarios.downloadActive.description"),
+        },
+        {
+          id: "download-queued",
+          label: t("settings.uiLab.scenarios.downloadQueued.label"),
+          description: t("settings.uiLab.scenarios.downloadQueued.description"),
+        },
+      ],
+    },
+    {
+      title: t("settings.uiLab.groups.transcode.title"),
+      hint: t("settings.uiLab.groups.transcode.hint"),
+      scenarios: [
+        {
+          id: "transcode-active",
+          label: t("settings.uiLab.scenarios.transcodeActive.label"),
+          description: t("settings.uiLab.scenarios.transcodeActive.description"),
+        },
+        {
+          id: "transcode-failed",
+          label: t("settings.uiLab.scenarios.transcodeFailed.label"),
+          description: t("settings.uiLab.scenarios.transcodeFailed.description"),
+        },
+      ],
+    },
+    {
+      title: t("settings.uiLab.groups.mixed.title"),
+      hint: t("settings.uiLab.groups.mixed.hint"),
+      scenarios: [
+        {
+          id: "mixed-busy",
+          label: t("settings.uiLab.scenarios.mixedBusy.label"),
+          description: t("settings.uiLab.scenarios.mixedBusy.description"),
+        },
+      ],
+    },
+  ];
+
+  const allScenarios = scenarioGroups.flatMap((group) => group.scenarios);
+  const activeScenarioLabel = activeScenario
+    ? allScenarios.find((scenario) => scenario.id === activeScenario)?.label ?? activeScenario
+    : t("settings.uiLab.status.liveAppState");
 
   const focusMainWindow = async () => {
     try {
@@ -124,7 +125,7 @@ export default function UiLabPage() {
     }
   };
 
-  const resetScenario = async () => {
+  const resetScenario = async (): Promise<boolean> => {
     setPendingScenario("reset");
     setErrorMessage(null);
     try {
@@ -132,12 +133,31 @@ export default function UiLabPage() {
         scenario: "reset",
       });
       setActiveScenario(null);
+      return true;
     } catch (err) {
       console.error("Failed to reset UI Lab scenario:", err);
       setErrorMessage(String(err));
+      return false;
     } finally {
       setPendingScenario(null);
     }
+  };
+
+  const closeWindow = () => {
+    void (async () => {
+      try {
+        if (activeScenario !== null) {
+          const resetSucceeded = await resetScenario();
+          if (!resetSucceeded) {
+            return;
+          }
+        }
+        await desktopCurrentWindow.close();
+      } catch (err) {
+        console.error("Failed to close UI Lab window:", err);
+        setErrorMessage(String(err));
+      }
+    })();
   };
 
   return (
@@ -167,14 +187,19 @@ export default function UiLabPage() {
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: colors.textPrimary }}>
-            UI Lab
+            {t("settings.uiLab.title")}
           </h2>
           <span style={{ fontSize: 11, lineHeight: 1.35, color: colors.textSecondary, maxWidth: 250 }}>
-            Dev-only state presets for reviewing the real main-window UI without running actual downloads
-            or transcodes.
+            {t("settings.uiLab.subtitle")}
           </span>
         </div>
-        <NeonIconButton onClick={closeWindow} tone="danger" size={20}>
+        <NeonIconButton
+          onClick={closeWindow}
+          tone="danger"
+          size={20}
+          title={t("settings.uiLab.actions.closeWindow")}
+          aria-label={t("settings.uiLab.actions.closeWindow")}
+        >
           <X size={16} />
         </NeonIconButton>
       </div>
@@ -195,7 +220,7 @@ export default function UiLabPage() {
             style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
           >
             <Eye size={14} />
-            Reveal Main Window
+            {t("settings.uiLab.actions.revealMainWindow")}
           </NeonButton>
           <NeonButton
             onClick={() => void resetScenario()}
@@ -204,7 +229,7 @@ export default function UiLabPage() {
             style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
           >
             <RotateCcw size={14} />
-            Reset To Live State
+            {t("settings.uiLab.actions.resetToLiveState")}
           </NeonButton>
         </div>
 
@@ -219,7 +244,8 @@ export default function UiLabPage() {
             boxShadow: `inset 0 0 0 1px ${colors.fieldBorder}`,
           }}
         >
-          Active preset: <strong style={{ color: colors.textPrimary }}>{activeScenario ?? "live app state"}</strong>
+          {t("settings.uiLab.status.activePreset")}{" "}
+          <strong style={{ color: colors.textPrimary }}>{activeScenarioLabel}</strong>
         </div>
 
         {errorMessage ? (

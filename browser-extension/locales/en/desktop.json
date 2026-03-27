@@ -200,6 +200,71 @@
       "exportedAndOpened": "Diagnostic log ready. Opened folder: {{fileName}}",
       "exported": "Diagnostic log ready: {{fileName}}",
       "failed": "Failed to export diagnostic log"
+    },
+    "uiLab": {
+      "windowTitle": "UI Lab",
+      "developerSectionTitle": "Developer",
+      "developerSectionHint": "Open UI Lab to preview runtime, download, and transcode states without real workflows.",
+      "developerButton": "Open UI Lab",
+      "title": "UI Lab",
+      "subtitle": "Dev-only state presets for reviewing the real main-window UI without running actual downloads or transcodes.",
+      "actions": {
+        "revealMainWindow": "Reveal Main Window",
+        "resetToLiveState": "Reset To Live State",
+        "closeWindow": "Close UI Lab"
+      },
+      "status": {
+        "activePreset": "Active preset:",
+        "liveAppState": "live app state"
+      },
+      "groups": {
+        "runtime": {
+          "title": "Runtime",
+          "hint": "Preview automatic dependency bootstrap states and failure recovery."
+        },
+        "download": {
+          "title": "Download",
+          "hint": "Drive the main window's active download and queue surfaces without a real network transfer."
+        },
+        "transcode": {
+          "title": "Transcode",
+          "hint": "Preview transcode progress and failure handling without invoking FFmpeg."
+        },
+        "mixed": {
+          "title": "Mixed",
+          "hint": "Stress the compact shell with concurrent download and transcode activity."
+        }
+      },
+      "scenarios": {
+        "runtimeAutoConfig": {
+          "label": "Auto Config",
+          "description": "Shows the runtime indicator in automatic download mode with hoverable progress."
+        },
+        "runtimeFailed": {
+          "label": "Failed",
+          "description": "Shows the retryable failure state for the runtime reminder."
+        },
+        "downloadActive": {
+          "label": "Active",
+          "description": "Single active download with live progress, speed, and ETA."
+        },
+        "downloadQueued": {
+          "label": "Queued",
+          "description": "One active download plus two pending tasks for queue review."
+        },
+        "transcodeActive": {
+          "label": "Active",
+          "description": "Active transcode with a pending follow-up task."
+        },
+        "transcodeFailed": {
+          "label": "Failed",
+          "description": "Failure card, error text, and transcode failure notice state."
+        },
+        "mixedBusy": {
+          "label": "Mixed Busy",
+          "description": "Download merging plus transcode finalization at the same time."
+        }
+      }
     }
   },
   "contextMenu": {

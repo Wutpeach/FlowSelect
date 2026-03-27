@@ -166,6 +166,7 @@ let runtimeDependencyBootstrapPromise = null;
 let wsServer = null;
 let uiLabRuntimeStatusOverride = null;
 let uiLabRuntimeGateOverride = null;
+let uiLabScenarioActive = false;
 
 function logInfo(scope, message, details) {
   if (details) {
@@ -1810,20 +1811,35 @@ function emitUiLabEmptyTaskState() {
   emitAppEvent("video-transcode-queue-detail", { tasks: [] });
 }
 
+function emitLiveVideoQueueState() {
+  emitVideoQueueState();
+  for (const task of activeVideoDownloads.values()) {
+    emitVideoTaskProgress(task, task.progress);
+  }
+}
+
+async function restoreUiLabLiveState() {
+  uiLabScenarioActive = false;
+  clearUiLabRuntimeOverrides();
+  emitAppEvent(UI_LAB_RESET_EVENT, { restoreLive: true });
+  emitLiveVideoQueueState();
+  const gateState = await getRuntimeDependencyGateState();
+  emitAppEvent("runtime-dependency-gate-state", gateState);
+}
+
 async function applyUiLabScenario(scenario) {
   assertUiLabEnabled();
   await showMainWindow();
   emitAppEvent(SHORTCUT_SHOW_EVENT, undefined);
-  emitAppEvent(UI_LAB_RESET_EVENT, undefined);
-  emitUiLabEmptyTaskState();
 
   if (scenario === "reset") {
-    clearUiLabRuntimeOverrides();
-    const gateState = await getRuntimeDependencyGateState();
-    emitAppEvent("runtime-dependency-gate-state", gateState);
+    await restoreUiLabLiveState();
     return;
   }
 
+  uiLabScenarioActive = true;
+  emitAppEvent(UI_LAB_RESET_EVENT, { restoreLive: false });
+  emitUiLabEmptyTaskState();
   clearUiLabRuntimeOverrides();
 
   if (scenario === "runtime-auto-config") {
@@ -2723,6 +2739,11 @@ function registerWindow(label, win) {
     windows.delete(label);
     if (label === WINDOW_LABELS.contextMenu) {
       emitAppEvent(CONTEXT_MENU_CLOSED_EVENT, undefined);
+    }
+    if (label === WINDOW_LABELS.uiLab && uiLabScenarioActive) {
+      void restoreUiLabLiveState().catch((error) => {
+        console.error("Failed to restore live state after UI Lab close:", error);
+      });
     }
   });
 }

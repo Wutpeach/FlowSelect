@@ -1521,7 +1521,8 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const unlisten = desktopEvents.on<void>("ui-lab-reset", () => {
+    const unlisten = desktopEvents.on<{ restoreLive?: boolean }>("ui-lab-reset", (event) => {
+      const restoreLive = event.payload?.restoreLive === true;
       if (queueNoticeTimerRef.current !== null) {
         clearTimeout(queueNoticeTimerRef.current);
         queueNoticeTimerRef.current = null;
@@ -1553,7 +1554,9 @@ function App() {
       setIsRuntimeRetryFeedbackVisible(false);
       setShowRuntimeSuccessIndicator(false);
       setIsRuntimeIndicatorHovered(false);
-      void refreshRuntimeDependencyContext();
+      if (restoreLive) {
+        void refreshRuntimeDependencyContext();
+      }
     });
     return () => { unlisten.then(fn => fn()); };
   }, [clearCancellingTraceIds, refreshRuntimeDependencyContext]);

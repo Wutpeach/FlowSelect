@@ -200,6 +200,71 @@
       "exportedAndOpened": "诊断日志已生成，并已打开目录：{{fileName}}",
       "exported": "诊断日志已生成：{{fileName}}",
       "failed": "生成诊断日志失败"
+    },
+    "uiLab": {
+      "windowTitle": "UI 实验室",
+      "developerSectionTitle": "开发调试",
+      "developerSectionHint": "打开 UI 实验室，在不触发真实下载或转码的情况下预览运行时、下载和转码状态。",
+      "developerButton": "打开 UI 实验室",
+      "title": "UI 实验室",
+      "subtitle": "仅开发环境可用。用预设状态直接评审真实主窗口的界面表现，无需等待真实任务。",
+      "actions": {
+        "revealMainWindow": "显示主窗口",
+        "resetToLiveState": "恢复实时状态",
+        "closeWindow": "关闭 UI 实验室"
+      },
+      "status": {
+        "activePreset": "当前预设：",
+        "liveAppState": "实时应用状态"
+      },
+      "groups": {
+        "runtime": {
+          "title": "运行时",
+          "hint": "预览自动依赖配置与失败重试状态。"
+        },
+        "download": {
+          "title": "下载",
+          "hint": "不发起真实网络请求，直接驱动主窗口下载与队列界面。"
+        },
+        "transcode": {
+          "title": "转码",
+          "hint": "不调用 FFmpeg，直接预览转码中与失败态。"
+        },
+        "mixed": {
+          "title": "混合负载",
+          "hint": "同时展示下载与转码并发时的紧凑窗口状态。"
+        }
+      },
+      "scenarios": {
+        "runtimeAutoConfig": {
+          "label": "自动配置中",
+          "description": "显示运行时自动下载中的指示器，并可悬浮查看进度。"
+        },
+        "runtimeFailed": {
+          "label": "配置失败",
+          "description": "显示运行时失败后的可点击重试状态。"
+        },
+        "downloadActive": {
+          "label": "下载进行中",
+          "description": "单个下载任务，带实时进度、速度和 ETA。"
+        },
+        "downloadQueued": {
+          "label": "下载队列中",
+          "description": "一个活动下载加两个排队任务，用于评审队列界面。"
+        },
+        "transcodeActive": {
+          "label": "转码进行中",
+          "description": "一个活动转码任务，外加一个待处理任务。"
+        },
+        "transcodeFailed": {
+          "label": "转码失败",
+          "description": "显示失败卡片、错误文本和失败提示态。"
+        },
+        "mixedBusy": {
+          "label": "混合忙碌",
+          "description": "同时展示下载合并阶段与转码收尾阶段。"
+        }
+      }
     }
   },
   "contextMenu": {

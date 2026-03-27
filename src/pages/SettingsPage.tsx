@@ -838,7 +838,7 @@ function SettingsPage() {
     }
 
     await desktopWindows.openUiLab({
-      title: "UI Lab",
+      title: t("desktop:settings.uiLab.windowTitle"),
       width: UI_LAB_WINDOW_WIDTH,
       height: UI_LAB_WINDOW_HEIGHT,
       center: true,
@@ -1393,11 +1393,11 @@ function SettingsPage() {
 
         {isDevBuild ? (
           <NeonSection
-            title="Developer"
-            hint="Open the UI Lab to preview runtime, download, and transcode states without real workflows."
+            title={t("desktop:settings.uiLab.developerSectionTitle")}
+            hint={t("desktop:settings.uiLab.developerSectionHint")}
           >
             <NeonButton onClick={() => void openUiLab()}>
-              Open UI Lab
+              {t("desktop:settings.uiLab.developerButton")}
             </NeonButton>
           </NeonSection>
         ) : null}
