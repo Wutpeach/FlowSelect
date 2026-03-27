@@ -14,6 +14,7 @@ import {
 } from "electron";
 import { once } from "node:events";
 import { createWriteStream, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import {
   access,
   chmod,
@@ -24,6 +25,7 @@ import {
   readFile,
   readdir,
   rename,
+  rm,
   stat,
   unlink,
   writeFile,
@@ -120,7 +122,10 @@ const PINTEREST_LOCK_PATH = join(
   "pinterest-sidecar",
   "lock.json",
 );
+const PINTEREST_RUNTIME_MANIFEST_URL =
+  "https://github.com/Wutpeach/FlowSelect/releases/download/runtime-sidecars-manifest-latest/runtime-sidecars-manifest.json";
 const BINARY_DIR = join(repoRoot, "desktop-assets", "binaries");
+const MANAGED_RUNTIME_BOOTSTRAP_ORDER = ["ffmpeg", "pinterest-dl", "deno"];
 
 let tray = null;
 let registeredShortcut = "";
@@ -146,11 +151,8 @@ const runtimeDependencyGateState = {
   totalBytes: null,
   nextComponent: null,
 };
-
-const wsServer = new WebSocketServer({
-  host: "127.0.0.1",
-  port: WS_PORT,
-});
+let runtimeDependencyBootstrapPromise = null;
+let wsServer = null;
 
 function logInfo(scope, message, details) {
   if (details) {
@@ -622,35 +624,117 @@ async function resolveBundledBinary(prefix) {
   return match ? join(BINARY_DIR, match) : null;
 }
 
-async function buildRuntimeEntry(prefix) {
-  const candidatePath = await resolveBundledBinary(prefix);
-  if (candidatePath) {
-    return {
-      state: "ready",
-      source: "bundled",
-      path: candidatePath,
-      error: null,
-    };
+function currentManagedRuntimeTarget() {
+  if (process.platform === "win32" && process.arch === "x64") {
+    return "x86_64-pc-windows-msvc";
   }
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "aarch64-apple-darwin";
+  }
+  if (process.platform === "darwin" && process.arch === "x64") {
+    return "x86_64-apple-darwin";
+  }
+  throw new Error(`Unsupported managed runtime target: ${process.platform}-${process.arch}`);
+}
 
+function denoExecutableName() {
+  return process.platform === "win32" ? "deno.exe" : "deno";
+}
+
+function ffmpegExecutableName() {
+  return process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+}
+
+function ffprobeExecutableName() {
+  return process.platform === "win32" ? "ffprobe.exe" : "ffprobe";
+}
+
+function pinterestDownloaderBinaryName() {
+  const target = currentManagedRuntimeTarget();
+  if (target === "x86_64-pc-windows-msvc") {
+    return "pinterest-dl-x86_64-pc-windows-msvc.exe";
+  }
+  if (target === "aarch64-apple-darwin") {
+    return "pinterest-dl-aarch64-apple-darwin";
+  }
+  if (target === "x86_64-apple-darwin") {
+    return "pinterest-dl-x86_64-apple-darwin";
+  }
+  throw new Error(`Unsupported Pinterest runtime target: ${target}`);
+}
+
+function managedRuntimeRoot(componentId) {
+  return join(getUserDataDir(), "runtimes", componentId, currentManagedRuntimeTarget());
+}
+
+function managedDenoPath() {
+  const root = managedRuntimeRoot("deno");
+  const realRoot = process.platform === "win32" ? join(root, "real") : root;
+  return join(realRoot, denoExecutableName());
+}
+
+function managedFfmpegPaths() {
+  const root = managedRuntimeRoot("ffmpeg");
+  const realRoot = process.platform === "win32" ? join(root, "real") : root;
   return {
-    state: "missing",
-    source: null,
-    path: null,
+    ffmpeg: join(realRoot, ffmpegExecutableName()),
+    ffprobe: join(realRoot, ffprobeExecutableName()),
+  };
+}
+
+function managedPinterestDownloaderPath() {
+  return join(
+    managedRuntimeRoot("pinterest-dl"),
+    pinterestDownloaderBinaryName(),
+  );
+}
+
+function readyRuntimeEntry(entryPath, source) {
+  return {
+    state: "ready",
+    source,
+    path: entryPath,
     error: null,
   };
 }
 
-async function getRuntimeDependencyStatus() {
+function missingRuntimeEntry(error) {
   return {
-    ytDlp: await buildRuntimeEntry("yt-dlp"),
-    ffmpeg: await buildRuntimeEntry("ffmpeg"),
-    deno: await buildRuntimeEntry("deno"),
-    pinterestDownloader: await buildRuntimeEntry("pinterest-dl"),
+    state: "missing",
+    source: null,
+    path: null,
+    error,
   };
 }
 
-function updateRuntimeDependencyGateState(snapshot) {
+async function getRuntimeDependencyStatus() {
+  const ytDlpPath = await resolveBundledBinary("yt-dlp");
+  const ffmpegPaths = managedFfmpegPaths();
+  const denoPath = managedDenoPath();
+  const pinterestPath = managedPinterestDownloaderPath();
+
+  return {
+    ytDlp: ytDlpPath
+      ? readyRuntimeEntry(ytDlpPath, "bundled")
+      : missingRuntimeEntry(`Missing bundled yt-dlp runtime in ${BINARY_DIR}`),
+    ffmpeg:
+      existsSync(ffmpegPaths.ffmpeg) && existsSync(ffmpegPaths.ffprobe)
+        ? readyRuntimeEntry(ffmpegPaths.ffmpeg, "managed")
+        : missingRuntimeEntry(
+            `Missing managed ffmpeg runtime. Expected ${JSON.stringify([ffmpegPaths.ffmpeg, ffmpegPaths.ffprobe])}`,
+          ),
+    deno: existsSync(denoPath)
+      ? readyRuntimeEntry(denoPath, "managed")
+      : missingRuntimeEntry(`Missing managed deno runtime. Expected ${JSON.stringify([denoPath])}`),
+    pinterestDownloader: existsSync(pinterestPath)
+      ? readyRuntimeEntry(pinterestPath, "managed")
+      : missingRuntimeEntry(
+          `Missing managed pinterest runtime. Expected ${JSON.stringify([pinterestPath])}`,
+        ),
+  };
+}
+
+function collectMissingManagedRuntimeComponents(snapshot) {
   const missingComponents = [];
   if (snapshot.ffmpeg.state !== "ready") {
     missingComponents.push("ffmpeg");
@@ -658,24 +742,594 @@ function updateRuntimeDependencyGateState(snapshot) {
   if (snapshot.pinterestDownloader.state !== "ready") {
     missingComponents.push("pinterest-dl");
   }
+  if (snapshot.deno.state !== "ready") {
+    missingComponents.push("deno");
+  }
+  return missingComponents;
+}
 
-  runtimeDependencyGateState.phase = missingComponents.length === 0 ? "ready" : "idle";
-  runtimeDependencyGateState.missingComponents = missingComponents;
+function nextManagedRuntimeComponent(missingComponents, currentComponent = null) {
+  const ordered = MANAGED_RUNTIME_BOOTSTRAP_ORDER.filter((componentId) =>
+    missingComponents.includes(componentId));
+  if (ordered.length === 0) {
+    return null;
+  }
+  if (!currentComponent) {
+    return ordered[0] ?? null;
+  }
+  const index = ordered.indexOf(currentComponent);
+  return ordered[index + 1] ?? null;
+}
+
+function emitRuntimeDependencyGateState() {
+  const payload = { ...runtimeDependencyGateState };
+  emitAppEvent("runtime-dependency-gate-state", payload);
+  return payload;
+}
+
+function applyRuntimeDependencyGateState(nextState) {
+  runtimeDependencyGateState.phase = nextState.phase;
+  runtimeDependencyGateState.missingComponents = [...(nextState.missingComponents ?? [])];
+  runtimeDependencyGateState.lastError = nextState.lastError ?? null;
   runtimeDependencyGateState.updatedAtMs = nowTimestampMs();
-  runtimeDependencyGateState.lastError = null;
-  runtimeDependencyGateState.currentComponent = null;
-  runtimeDependencyGateState.currentStage = null;
-  runtimeDependencyGateState.progressPercent = null;
-  runtimeDependencyGateState.downloadedBytes = null;
-  runtimeDependencyGateState.totalBytes = null;
-  runtimeDependencyGateState.nextComponent = missingComponents[0] ?? null;
-  emitAppEvent("runtime-dependency-gate-state", { ...runtimeDependencyGateState });
-  return { ...runtimeDependencyGateState };
+  runtimeDependencyGateState.currentComponent = nextState.currentComponent ?? null;
+  runtimeDependencyGateState.currentStage = nextState.currentStage ?? null;
+  runtimeDependencyGateState.progressPercent = nextState.progressPercent ?? null;
+  runtimeDependencyGateState.downloadedBytes = nextState.downloadedBytes ?? null;
+  runtimeDependencyGateState.totalBytes = nextState.totalBytes ?? null;
+  runtimeDependencyGateState.nextComponent = nextState.nextComponent ?? null;
+  return emitRuntimeDependencyGateState();
+}
+
+function syncRuntimeDependencyGateStateFromSnapshot(snapshot) {
+  const missingComponents = collectMissingManagedRuntimeComponents(snapshot);
+  if (snapshot.ytDlp.state !== "ready") {
+    return applyRuntimeDependencyGateState({
+      phase: "failed",
+      missingComponents,
+      lastError: snapshot.ytDlp.error ?? "Missing bundled yt-dlp runtime",
+      currentComponent: null,
+      currentStage: null,
+      progressPercent: null,
+      downloadedBytes: null,
+      totalBytes: null,
+      nextComponent: nextManagedRuntimeComponent(missingComponents),
+    });
+  }
+
+  return applyRuntimeDependencyGateState({
+    phase: missingComponents.length === 0 ? "ready" : "idle",
+    missingComponents,
+    lastError: null,
+    currentComponent: null,
+    currentStage: null,
+    progressPercent: null,
+    downloadedBytes: null,
+    totalBytes: null,
+    nextComponent: nextManagedRuntimeComponent(missingComponents),
+  });
+}
+
+function updateRuntimeDependencyGateDownloadActivity(
+  missingComponents,
+  currentComponent,
+  currentStage,
+  downloadedBytes = null,
+  totalBytes = null,
+) {
+  const expectedTotal = totalBytes && totalBytes > 0 ? totalBytes : null;
+  const expectedDownloaded = downloadedBytes && downloadedBytes >= 0 ? downloadedBytes : null;
+  const progressPercent = expectedTotal && expectedDownloaded != null
+    ? Math.max(0, Math.min(100, (expectedDownloaded / expectedTotal) * 100))
+    : currentStage === "installing" || currentStage === "verifying"
+      ? 100
+      : null;
+
+  return applyRuntimeDependencyGateState({
+    phase: "downloading",
+    missingComponents,
+    lastError: null,
+    currentComponent,
+    currentStage,
+    progressPercent,
+    downloadedBytes: expectedDownloaded,
+    totalBytes: expectedTotal,
+    nextComponent: nextManagedRuntimeComponent(missingComponents, currentComponent),
+  });
 }
 
 async function getRuntimeDependencyGateState() {
+  if (runtimeDependencyBootstrapPromise) {
+    return { ...runtimeDependencyGateState };
+  }
   const snapshot = await getRuntimeDependencyStatus();
-  return updateRuntimeDependencyGateState(snapshot);
+  return syncRuntimeDependencyGateStateFromSnapshot(snapshot);
+}
+
+async function refreshRuntimeDependencyGateState() {
+  return getRuntimeDependencyGateState();
+}
+
+function runtimeMinAppVersionSatisfied(minAppVersion) {
+  const normalized = normalizeOptionalString(minAppVersion);
+  if (!normalized) {
+    return true;
+  }
+  const lowered = normalized.toLowerCase();
+  if (lowered === "true" || lowered === "false") {
+    return true;
+  }
+  return compareLooseVersions(app.getVersion(), normalized) >= 0;
+}
+
+async function sha256Hex(filePath) {
+  const buffer = await readFile(filePath);
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+async function verifyDownloadedRuntimeAsset(tempPath, expectedSize, expectedSha256, assetLabel) {
+  const fileStats = await stat(tempPath);
+  if (expectedSize > 0 && fileStats.size !== expectedSize) {
+    throw new Error(
+      `${assetLabel} size mismatch: expected ${expectedSize}, received ${fileStats.size}`,
+    );
+  }
+  const actualSha256 = await sha256Hex(tempPath);
+  if (actualSha256.toLowerCase() !== String(expectedSha256).toLowerCase()) {
+    throw new Error(
+      `${assetLabel} checksum mismatch: expected ${expectedSha256}, received ${actualSha256}`,
+    );
+  }
+}
+
+function escapePowerShellLiteral(value) {
+  return String(value).replace(/'/g, "''");
+}
+
+async function runUtilityCommand(command, args, options = {}) {
+  const child = spawn(command, args, {
+    cwd: options.cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  await new Promise((resolveProcess, rejectProcess) => {
+    child.once("error", rejectProcess);
+    child.once("close", (code) => {
+      if (code === 0) {
+        resolveProcess();
+        return;
+      }
+      rejectProcess(new Error(stderr.trim() || stdout.trim() || `${command} exited with code ${code}`));
+    });
+  });
+}
+
+async function extractZipArchive(archivePath, destinationPath) {
+  await rm(destinationPath, { recursive: true, force: true });
+  await mkdir(destinationPath, { recursive: true });
+
+  if (process.platform === "win32") {
+    const command = `Expand-Archive -LiteralPath '${escapePowerShellLiteral(archivePath)}' -DestinationPath '${escapePowerShellLiteral(destinationPath)}' -Force`;
+    await runUtilityCommand("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      command,
+    ]);
+    return;
+  }
+
+  if (process.platform === "darwin") {
+    await runUtilityCommand("/usr/bin/ditto", ["-x", "-k", archivePath, destinationPath]);
+    return;
+  }
+
+  throw new Error(`Unsupported zip extraction platform: ${process.platform}`);
+}
+
+async function findFileRecursive(rootDir, targetFileName) {
+  const entries = await readdir(rootDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = join(rootDir, entry.name);
+    if (entry.isFile() && entry.name === targetFileName) {
+      return entryPath;
+    }
+    if (entry.isDirectory()) {
+      const nested = await findFileRecursive(entryPath, targetFileName);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+  return null;
+}
+
+async function downloadRuntimeAssetWithFallbacks(
+  downloadUrls,
+  expectedSize,
+  expectedSha256,
+  tempPath,
+  componentId,
+  missingComponents,
+) {
+  let lastError = null;
+  for (const downloadUrl of downloadUrls) {
+    try {
+      await rm(tempPath, { force: true });
+      await downloadToFile(downloadUrl, tempPath, {
+        onProgress: ({ downloaded, total }) => {
+          updateRuntimeDependencyGateDownloadActivity(
+            missingComponents,
+            componentId,
+            "downloading",
+            downloaded,
+            total > 0 ? total : expectedSize,
+          );
+        },
+      });
+      await updateRuntimeDependencyGateDownloadActivity(
+        missingComponents,
+        componentId,
+        "verifying",
+        expectedSize,
+        expectedSize,
+      );
+      await verifyDownloadedRuntimeAsset(
+        tempPath,
+        expectedSize,
+        expectedSha256,
+        `${componentId} runtime asset`,
+      );
+      return downloadUrl;
+    } catch (error) {
+      lastError = error;
+      await rm(tempPath, { force: true }).catch(() => {});
+    }
+  }
+
+  throw new Error(
+    `Failed to download managed ${componentId} runtime: ${String(lastError ?? "unknown error")}`,
+  );
+}
+
+function selectDenoRuntimeArtifactSpec() {
+  const target = currentManagedRuntimeTarget();
+  if (target === "x86_64-pc-windows-msvc") {
+    return {
+      component: "deno",
+      target,
+      downloadUrls: [
+        "https://dl.deno.land/release/v2.7.1/deno-x86_64-pc-windows-msvc.zip",
+        "https://github.com/denoland/deno/releases/download/v2.7.1/deno-x86_64-pc-windows-msvc.zip",
+      ],
+      sha256: "94d71d4772436de27a0495933ca4bab7b6895992622b65baeaf4b7995dae1e69",
+      size: 47277539,
+    };
+  }
+  if (target === "aarch64-apple-darwin") {
+    return {
+      component: "deno",
+      target,
+      downloadUrls: [
+        "https://dl.deno.land/release/v2.7.1/deno-aarch64-apple-darwin.zip",
+        "https://github.com/denoland/deno/releases/download/v2.7.1/deno-aarch64-apple-darwin.zip",
+      ],
+      sha256: "bc3392a0f50be9a1ecb68596530319308639a6f69d99678a0018c47e23a10c1f",
+      size: 42170253,
+    };
+  }
+  if (target === "x86_64-apple-darwin") {
+    return {
+      component: "deno",
+      target,
+      downloadUrls: [
+        "https://dl.deno.land/release/v2.7.1/deno-x86_64-apple-darwin.zip",
+        "https://github.com/denoland/deno/releases/download/v2.7.1/deno-x86_64-apple-darwin.zip",
+      ],
+      sha256: "5478393fc9893c6f3516cee7579453a990834ceebf5ff44aaced2d0f285302d7",
+      size: 45229858,
+    };
+  }
+  throw new Error(`Unsupported managed deno runtime target: ${target}`);
+}
+
+function selectFfmpegRuntimeArtifactSpec() {
+  const target = currentManagedRuntimeTarget();
+  if (target === "x86_64-pc-windows-msvc") {
+    return {
+      component: "ffmpeg",
+      target,
+      downloadUrls: [
+        "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-windows-x64.zip",
+      ],
+      sha256: "29f9f067e8ffad75d5c0e96ec142e665228cb12cdb05fd5cc39eeb9c68962a40",
+      size: 72093901,
+    };
+  }
+  if (target === "aarch64-apple-darwin") {
+    return {
+      component: "ffmpeg",
+      target,
+      downloadUrls: [
+        "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-osx-arm64.zip",
+      ],
+      sha256: "0447ba1f4a2f2a10c05985bd1815da61b968ad42fe91d35b502bfc7abffcad0a",
+      size: 69575396,
+    };
+  }
+  if (target === "x86_64-apple-darwin") {
+    return {
+      component: "ffmpeg",
+      target,
+      downloadUrls: [
+        "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-osx-x64.zip",
+      ],
+      sha256: "53c438fe89dd242c95a1cb94a80e1744a9c40798f87eccf6eba564c92e4d1851",
+      size: 75898458,
+    };
+  }
+  throw new Error(`Unsupported managed ffmpeg runtime target: ${target}`);
+}
+
+async function fetchPinterestRuntimeManifest() {
+  const response = await fetch(PINTEREST_RUNTIME_MANIFEST_URL, {
+    headers: {
+      "User-Agent": `FlowSelect/${app.getVersion()}`,
+      Accept: "application/json",
+    },
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Runtime manifest request failed with HTTP ${response.status}: ${body.slice(0, 180)}`,
+    );
+  }
+  return JSON.parse(body);
+}
+
+function selectPinterestRuntimeArtifact(manifest) {
+  if (!manifest || manifest.component !== "pinterest-dl" || !Array.isArray(manifest.artifacts)) {
+    throw new Error("Runtime manifest is missing a valid Pinterest sidecar payload");
+  }
+
+  const target = currentManagedRuntimeTarget();
+  const artifact = manifest.artifacts.find((candidate) =>
+    candidate?.component === "pinterest-dl"
+    && candidate?.target === target,
+  );
+  if (!artifact) {
+    throw new Error(`Runtime manifest does not contain a Pinterest sidecar for target ${target}`);
+  }
+  if (!runtimeMinAppVersionSatisfied(artifact.minAppVersion ?? artifact.min_app_version)) {
+    throw new Error(
+      `Runtime artifact requires app version ${(artifact.minAppVersion ?? artifact.min_app_version) || "unknown"} or newer`,
+    );
+  }
+  if (!artifact.url || !artifact.sha256 || !artifact.size) {
+    throw new Error("Runtime artifact is missing url, sha256, or size");
+  }
+  return artifact;
+}
+
+async function ensureManagedDenoRuntimeReady(trigger, missingComponents) {
+  const targetPath = managedDenoPath();
+  if (existsSync(targetPath)) {
+    return targetPath;
+  }
+
+  const artifact = selectDenoRuntimeArtifactSpec();
+  const tempDir = await mkdtemp(join(tmpdir(), "flowselect-deno-"));
+  const archivePath = join(tempDir, "deno.zip");
+  const extractDir = join(tempDir, "extract");
+  const tempTargetPath = join(tempDir, basename(targetPath));
+
+  try {
+    logInfo("Electron", `Bootstrapping managed deno runtime (${trigger})`);
+    await downloadRuntimeAssetWithFallbacks(
+      artifact.downloadUrls,
+      artifact.size,
+      artifact.sha256,
+      archivePath,
+      "deno",
+      missingComponents,
+    );
+    await updateRuntimeDependencyGateDownloadActivity(
+      missingComponents,
+      "deno",
+      "installing",
+      artifact.size,
+      artifact.size,
+    );
+    await extractZipArchive(archivePath, extractDir);
+    const extractedBinaryPath = await findFileRecursive(extractDir, denoExecutableName());
+    if (!extractedBinaryPath) {
+      throw new Error(`Failed to find ${denoExecutableName()} inside managed deno archive`);
+    }
+    await mkdir(dirname(targetPath), { recursive: true });
+    await copyFile(extractedBinaryPath, tempTargetPath);
+    if (process.platform !== "win32") {
+      await chmod(tempTargetPath, 0o755);
+    }
+    await replaceFile(targetPath, tempTargetPath);
+    return targetPath;
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function ensureManagedFfmpegRuntimeReady(trigger, missingComponents) {
+  const paths = managedFfmpegPaths();
+  if (existsSync(paths.ffmpeg) && existsSync(paths.ffprobe)) {
+    return paths.ffmpeg;
+  }
+
+  const artifact = selectFfmpegRuntimeArtifactSpec();
+  const tempDir = await mkdtemp(join(tmpdir(), "flowselect-ffmpeg-"));
+  const archivePath = join(tempDir, "ffmpeg.zip");
+  const extractDir = join(tempDir, "extract");
+  const tempFfmpegPath = join(tempDir, basename(paths.ffmpeg));
+  const tempFfprobePath = join(tempDir, basename(paths.ffprobe));
+
+  try {
+    logInfo("Electron", `Bootstrapping managed ffmpeg runtime (${trigger})`);
+    await downloadRuntimeAssetWithFallbacks(
+      artifact.downloadUrls,
+      artifact.size,
+      artifact.sha256,
+      archivePath,
+      "ffmpeg",
+      missingComponents,
+    );
+    await updateRuntimeDependencyGateDownloadActivity(
+      missingComponents,
+      "ffmpeg",
+      "installing",
+      artifact.size,
+      artifact.size,
+    );
+    await extractZipArchive(archivePath, extractDir);
+    const extractedFfmpegPath = await findFileRecursive(extractDir, ffmpegExecutableName());
+    const extractedFfprobePath = await findFileRecursive(extractDir, ffprobeExecutableName());
+    if (!extractedFfmpegPath || !extractedFfprobePath) {
+      throw new Error(
+        `Failed to find ${ffmpegExecutableName()} and ${ffprobeExecutableName()} inside managed ffmpeg archive`,
+      );
+    }
+    await mkdir(dirname(paths.ffmpeg), { recursive: true });
+    await copyFile(extractedFfmpegPath, tempFfmpegPath);
+    await copyFile(extractedFfprobePath, tempFfprobePath);
+    if (process.platform !== "win32") {
+      await chmod(tempFfmpegPath, 0o755);
+      await chmod(tempFfprobePath, 0o755);
+    }
+    await replaceFile(paths.ffmpeg, tempFfmpegPath);
+    await replaceFile(paths.ffprobe, tempFfprobePath);
+    return paths.ffmpeg;
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function ensureManagedPinterestRuntimeReady(trigger, missingComponents) {
+  const targetPath = managedPinterestDownloaderPath();
+  if (existsSync(targetPath)) {
+    return targetPath;
+  }
+
+  const manifest = await fetchPinterestRuntimeManifest();
+  const artifact = selectPinterestRuntimeArtifact(manifest);
+  const tempDir = await mkdtemp(join(tmpdir(), "flowselect-pinterest-"));
+  const tempTargetPath = join(tempDir, basename(targetPath));
+
+  try {
+    logInfo("Electron", `Bootstrapping managed Pinterest runtime (${trigger})`);
+    await downloadRuntimeAssetWithFallbacks(
+      [artifact.url],
+      artifact.size,
+      artifact.sha256,
+      tempTargetPath,
+      "pinterest-dl",
+      missingComponents,
+    );
+    await updateRuntimeDependencyGateDownloadActivity(
+      missingComponents,
+      "pinterest-dl",
+      "installing",
+      artifact.size,
+      artifact.size,
+    );
+    if (process.platform !== "win32") {
+      await chmod(tempTargetPath, 0o755);
+    }
+    await mkdir(dirname(targetPath), { recursive: true });
+    await replaceFile(targetPath, tempTargetPath);
+    return targetPath;
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function ensureMissingManagedRuntimesReady(trigger) {
+  const initialSnapshot = await getRuntimeDependencyStatus();
+  const missingComponents = collectMissingManagedRuntimeComponents(initialSnapshot);
+  if (missingComponents.length === 0) {
+    return initialSnapshot;
+  }
+
+  if (initialSnapshot.ffmpeg.state !== "ready") {
+    await ensureManagedFfmpegRuntimeReady(trigger, missingComponents);
+  }
+
+  const afterFfmpeg = await getRuntimeDependencyStatus();
+  if (afterFfmpeg.pinterestDownloader.state !== "ready") {
+    await ensureManagedPinterestRuntimeReady(trigger, missingComponents);
+  }
+
+  const afterPinterest = await getRuntimeDependencyStatus();
+  if (afterPinterest.deno.state !== "ready") {
+    await ensureManagedDenoRuntimeReady(trigger, missingComponents);
+  }
+
+  return getRuntimeDependencyStatus();
+}
+
+async function startRuntimeDependencyBootstrap(reason = "frontend_after_visible") {
+  if (runtimeDependencyBootstrapPromise) {
+    return { ...runtimeDependencyGateState };
+  }
+
+  const snapshot = await getRuntimeDependencyStatus();
+  const missingComponents = collectMissingManagedRuntimeComponents(snapshot);
+  if (snapshot.ytDlp.state !== "ready") {
+    return syncRuntimeDependencyGateStateFromSnapshot(snapshot);
+  }
+  if (missingComponents.length === 0) {
+    return syncRuntimeDependencyGateStateFromSnapshot(snapshot);
+  }
+
+  const initialPayload = updateRuntimeDependencyGateDownloadActivity(
+    missingComponents,
+    missingComponents[0] ?? null,
+    "checking",
+    null,
+    null,
+  );
+
+  runtimeDependencyBootstrapPromise = (async () => {
+    try {
+      const finalSnapshot = await ensureMissingManagedRuntimesReady(reason);
+      syncRuntimeDependencyGateStateFromSnapshot(finalSnapshot);
+    } catch (error) {
+      const latestSnapshot = await getRuntimeDependencyStatus().catch(() => snapshot);
+      applyRuntimeDependencyGateState({
+        phase: "failed",
+        missingComponents: collectMissingManagedRuntimeComponents(latestSnapshot),
+        lastError: String(error),
+        currentComponent: null,
+        currentStage: null,
+        progressPercent: null,
+        downloadedBytes: null,
+        totalBytes: null,
+        nextComponent: nextManagedRuntimeComponent(
+          collectMissingManagedRuntimeComponents(latestSnapshot),
+        ),
+      });
+    } finally {
+      runtimeDependencyBootstrapPromise = null;
+    }
+  })();
+
+  return initialPayload;
 }
 
 function normalizeVersionString(value) {
@@ -1331,13 +1985,23 @@ async function runVideoDownloadTask(task) {
   }
 
   try {
-    const ffmpegPath = await resolveBundledBinary("ffmpeg");
+    const runtimeSnapshot = await getRuntimeDependencyStatus();
+    const missingManagedComponents = collectMissingManagedRuntimeComponents(runtimeSnapshot);
+    const ffmpegPath = await ensureManagedFfmpegRuntimeReady(
+      "ytdlp_download",
+      missingManagedComponents,
+    );
+    const denoPath = await ensureManagedDenoRuntimeReady(
+      "ytdlp_download",
+      missingManagedComponents,
+    );
     const outputDir = await resolveCurrentOutputFolderPath();
     const formatProfile = resolveYtdlpFormatProfile(task.ytdlpQuality, Boolean(ffmpegPath));
     task.cookiesPath = await saveTempCookiesFile(task.cookies);
     const args = [
       "--newline",
       "--no-warnings",
+      "--ignore-config",
       "--progress",
       "--progress-template",
       `download:${YTDLP_PROGRESS_PREFIX}%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s`,
@@ -1349,6 +2013,10 @@ async function runVideoDownloadTask(task) {
       outputDir,
       "--format",
       formatProfile.selector,
+      "--extractor-args",
+      "youtube:player_js_variant=tv",
+      "--remote-components",
+      "ejs:github",
     ];
 
     if (formatProfile.sort) {
@@ -1359,6 +2027,11 @@ async function runVideoDownloadTask(task) {
     }
     if (ffmpegPath) {
       args.push("--ffmpeg-location", dirname(ffmpegPath));
+    }
+    if (process.platform === "win32") {
+      args.push("--js-runtimes", "deno", "--js-runtimes", "node");
+    } else {
+      args.push("--js-runtimes", "node", "--js-runtimes", "deno");
     }
     if (task.cookiesPath) {
       args.push("--cookies", task.cookiesPath);
@@ -1382,6 +2055,10 @@ async function runVideoDownloadTask(task) {
     const child = spawn(ytdlpPath, args, {
       cwd: repoRoot,
       stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        PATH: `${dirname(denoPath)}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
+      },
       windowsHide: true,
     });
     task.child = child;
@@ -2276,9 +2953,9 @@ async function handleCommand(command, payload = {}) {
     case "get_runtime_dependency_gate_state":
       return getRuntimeDependencyGateState();
     case "refresh_runtime_dependency_gate_state":
-      return getRuntimeDependencyGateState();
+      return refreshRuntimeDependencyGateState();
     case "start_runtime_dependency_bootstrap":
-      return getRuntimeDependencyGateState();
+      return startRuntimeDependencyBootstrap();
     case "check_ytdlp_version":
       return checkYtdlpVersion();
     case "get_pinterest_downloader_info":
@@ -2430,7 +3107,17 @@ function registerIpcHandlers() {
 }
 
 function registerWsServer() {
-  wsServer.on("connection", (client) => {
+  if (wsServer) {
+    return wsServer;
+  }
+
+  const server = new WebSocketServer({
+    host: "127.0.0.1",
+    port: WS_PORT,
+  });
+  wsServer = server;
+
+  server.on("connection", (client) => {
     wsClients.add(client);
     client.send(JSON.stringify({ action: "request_download_preferences" }));
 
@@ -2450,12 +3137,21 @@ function registerWsServer() {
     });
   });
 
-  wsServer.on("listening", () => {
+  server.on("listening", () => {
     logInfo("WS", "Server started", "ws://127.0.0.1:39527");
   });
-  wsServer.on("error", (error) => {
+  server.on("close", () => {
+    wsServer = null;
+  });
+  server.on("error", (error) => {
+    if (error?.code === "EADDRINUSE") {
+      console.error(">>> [WS] Server port already in use: 127.0.0.1:39527");
+      return;
+    }
     console.error(">>> [WS] Server error:", error);
   });
+
+  return server;
 }
 
 async function bootstrap() {
@@ -2483,7 +3179,10 @@ async function bootstrap() {
       pending.rejectResolution(new Error("FlowSelect is shutting down"));
     }
     pendingProtectedImageRequests.clear();
-    wsServer.close();
+    if (wsServer) {
+      wsServer.close();
+      wsServer = null;
+    }
   });
 
   await app.whenReady();
