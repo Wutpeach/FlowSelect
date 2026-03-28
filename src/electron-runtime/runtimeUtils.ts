@@ -4,13 +4,16 @@ import type { ElectronRuntimeEnvironment } from "./contracts";
 
 let traceSequence = 0;
 
+const WINDOWS_RESERVED_FILE_STEM_PATTERN =
+  /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
 export const nextDownloadTraceId = (): string => {
   traceSequence += 1;
   return `video-${Date.now()}-${traceSequence}`;
 };
 
-export const sanitizeFileStem = (input: string): string =>
-  input
+export const sanitizeFileStem = (input: string): string => {
+  const sanitized = input
     .normalize("NFKC")
     .replace(/[<>:"/\\|?*]/g, " ")
     .split("")
@@ -24,6 +27,11 @@ export const sanitizeFileStem = (input: string): string =>
     .slice(0, 96)
     .replace(/[. ]+$/g, "")
     || "flowselect-video";
+
+  return WINDOWS_RESERVED_FILE_STEM_PATTERN.test(sanitized)
+    ? `${sanitized}_`
+    : sanitized;
+};
 
 export const summarizeError = (error: unknown): string => {
   if (error instanceof Error && error.message.trim()) {
@@ -80,7 +88,14 @@ export const buildOutputStem = (
     const segments = parsed.pathname.split("/").filter(Boolean);
     const lastSegment = segments.length > 0 ? segments[segments.length - 1] : undefined;
     if (lastSegment) {
-      const withoutExt = lastSegment.replace(/\.[a-z0-9]{1,8}$/i, "");
+      const decodedSegment = (() => {
+        try {
+          return decodeURIComponent(lastSegment);
+        } catch {
+          return lastSegment;
+        }
+      })();
+      const withoutExt = decodedSegment.replace(/\.[a-z0-9]{1,8}$/i, "");
       return sanitizeFileStem(withoutExt);
     }
   } catch {

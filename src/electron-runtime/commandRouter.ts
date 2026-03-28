@@ -202,6 +202,8 @@ const normalizeVideoCandidates = (payload: Record<string, unknown>): PinterestVi
     return [];
   }
 
+  const seen = new Set<string>();
+
   return rawCandidates
     .map((candidate, index) => ({ candidate: normalizeVideoCandidate(candidate), index }))
     .filter(
@@ -209,6 +211,13 @@ const normalizeVideoCandidates = (payload: Record<string, unknown>): PinterestVi
         item,
       ): item is { candidate: PinterestVideoCandidate; index: number } => item.candidate !== null,
     )
+    .filter((item) => {
+      if (seen.has(item.candidate.url)) {
+        return false;
+      }
+      seen.add(item.candidate.url);
+      return true;
+    })
     .sort((left, right) => {
       const scoreDelta = candidatePriority(right.candidate) - candidatePriority(left.candidate);
       return scoreDelta !== 0 ? scoreDelta : left.index - right.index;
@@ -266,7 +275,7 @@ const normalizeDragDiagnostic = (
         .map(normalizeVideoCandidate)
         .filter((candidate): candidate is PinterestVideoCandidate => candidate !== null)
     : normalizedVideoCandidates;
-  const imageUrl = readOptionalTrimmedString(diagnostic, "imageUrl", "image_url") ?? null;
+  const imageUrl = readOptionalHttpUrlString(diagnostic, "imageUrl", "image_url") ?? null;
   const videoUrl = readOptionalVideoHintUrlString(diagnostic, "videoUrl", "video_url") ?? null;
   const videoCandidatesCountRaw = Number(
     diagnostic.videoCandidatesCount ?? diagnostic.video_candidates_count,

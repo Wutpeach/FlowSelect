@@ -68,10 +68,15 @@ export function isVideoUrl(url: string): boolean {
     return false;
   }
 
-  // Must be HTTP/HTTPS URL
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+  const normalizedUrl = url.trim();
+  if (!normalizedUrl) {
     return false;
   }
 
-  return VIDEO_PATTERNS.some(pattern => pattern.test(url));
+  // Must be HTTP/HTTPS URL
+  if (!/^https?:\/\//i.test(normalizedUrl)) {
+    return false;
+  }
+
+  return VIDEO_PATTERNS.some(pattern => pattern.test(normalizedUrl));
 }

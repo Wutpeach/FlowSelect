@@ -120,3 +120,111 @@
   - `npm test`
   - `npm run type-check`
   - `npm run lint`
+
+## Cycle 8
+
+- Defect: `src/utils/outputPath.ts` crashed when `get_config` returned invalid JSON, which could break output-folder updates from the main window or Settings instead of recovering safely.
+- Root cause: `saveOutputPath()` parsed the config string with a direct `JSON.parse(...)` and had no fallback path, even though adjacent config readers already recover to `{}` on malformed persisted config.
+- Tests:
+  - Added `src/utils/outputPath.test.ts` covering invalid config JSON recovery, unchanged output-path no-op behavior, and rename-counter reset failure handling.
+  - Confirmed the invalid-config regression test failed before the fix and passed after it.
+- Fix:
+  - Added a local guarded `parseConfig()` helper in `src/utils/outputPath.ts`.
+  - Changed `saveOutputPath()` to recover to an empty config object when stored config JSON is malformed or not an object.
+- Verification:
+  - `npx vitest run src/utils/outputPath.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
+
+## Cycle 9
+
+- Defect: `src/utils/videoUrl.ts` rejected valid pasted or dropped video URLs when they contained surrounding whitespace or used uppercase `HTTP`/`HTTPS` schemes.
+- Root cause: `isVideoUrl()` checked `startsWith("http://")` / `startsWith("https://")` against the raw input string before any trimming or case-insensitive normalization, even though the actual platform patterns are already case-insensitive.
+- Tests:
+  - Added `src/utils/videoUrl.test.ts` covering normal-path recognition, whitespace trimming, uppercase schemes, and unsupported URL rejection.
+  - Confirmed the whitespace and uppercase-scheme regression tests failed before the fix and passed after it.
+- Fix:
+  - Trimmed the input before validation in `isVideoUrl()`.
+  - Replaced the case-sensitive prefix check with a case-insensitive HTTP(S) regex while preserving the existing supported-platform pattern table.
+- Verification:
+  - `npx vitest run src/utils/videoUrl.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
+
+## Cycle 10
+
+- Defect: `src/electron-runtime/processRunner.ts` could resolve `runStreamingCommand(...)` before async `onStdoutLine` / `onStderrLine` handlers had finished, creating a race between streamed progress handling and the final completion path.
+- Root cause: `attachLineStream(...)` invoked line handlers with `void onLine(...)` and `runStreamingCommand(...)` waited only for the child-process close event, not for the async handler chain to drain.
+- Tests:
+  - Added `src/electron-runtime/processRunner.test.ts` to prove the command promise must not resolve until an async stdout line handler finishes.
+  - Confirmed the new regression test failed before the fix and passed after it.
+- Fix:
+  - Changed `attachLineStream(...)` to return a promise that tracks ordered async line-handler completion.
+  - Updated `runStreamingCommand(...)` to await both stdout/stderr handler drains after child-process close.
+- Verification:
+  - `npx vitest run src/electron-runtime/processRunner.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
+
+## Cycle 11
+
+- Defect: `src/electron-runtime/commandRouter.ts` preserved duplicate `videoCandidates` after URL normalization, so the Electron runtime path could still forward repeated Pinterest hints even though the main-process normalization path already deduped them.
+- Root cause: `normalizeVideoCandidates(...)` validated and sorted candidates but never deduped by normalized URL.
+- Tests:
+  - Extended `src/electron-runtime/commandRouter.test.ts` with regression coverage asserting repeated normalized video candidates are collapsed before dispatch.
+  - Confirmed the new test failed before the fix and passed after it.
+- Fix:
+  - Added normalized-URL deduplication in `normalizeVideoCandidates(...)` while preserving the first surviving candidate and existing priority sorting.
+- Verification:
+  - `npx vitest run src/electron-runtime/commandRouter.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
+
+## Cycle 12
+
+- Defect: `src/electron-runtime/runtimeUtils.ts` derived output stems from raw URL path segments, leaving percent-encoded text like `%20` and `%28` in the final download filename.
+- Root cause: `buildOutputStem(...)` used the last pathname segment directly and stripped the extension without attempting URL decoding first.
+- Tests:
+  - Added `src/electron-runtime/runtimeUtils.test.ts` with regression coverage proving percent-escaped path segments should decode into a readable output stem.
+  - Confirmed the new test failed before the fix and passed after it.
+- Fix:
+  - Updated `buildOutputStem(...)` to attempt `decodeURIComponent(...)` on the final pathname segment and fall back to the raw segment if decoding fails.
+- Verification:
+  - `npx vitest run src/electron-runtime/runtimeUtils.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
+
+## Cycle 13
+
+- Defect: `src/electron-runtime/runtimeUtils.ts` allowed reserved Windows device names such as `CON` and `LPT1` to survive filename sanitization, which can make the eventual output write fail on Windows.
+- Root cause: `sanitizeFileStem(...)` stripped unsafe characters and trailing dots/spaces, but it never checked the final stem against Windows reserved device-name rules.
+- Tests:
+  - Expanded `src/electron-runtime/runtimeUtils.test.ts` with regression coverage for reserved Windows device names.
+  - Confirmed the new reserved-name test failed before the fix and passed after it.
+- Fix:
+  - Added a Windows reserved-device-name guard in `sanitizeFileStem(...)` that appends `_` when the sanitized stem matches a reserved name.
+- Verification:
+  - `npx vitest run src/electron-runtime/runtimeUtils.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
+
+## Cycle 14
+
+- Defect: `src/electron-runtime/commandRouter.ts` accepted raw trimmed `dragDiagnostic.imageUrl` strings, including invalid values like `javascript:...`, and forwarded them into the normalized queue request.
+- Root cause: `normalizeDragDiagnostic(...)` used `readOptionalTrimmedString(...)` for `imageUrl` instead of the existing HTTP(S)-only URL normalization path used elsewhere in the command boundary.
+- Tests:
+  - Expanded `src/electron-runtime/commandRouter.test.ts` with regression coverage asserting invalid drag-diagnostic image URLs are dropped before dispatch.
+  - Confirmed the new test failed before the fix and passed after it.
+- Fix:
+  - Changed drag-diagnostic `imageUrl` normalization to reuse `readOptionalHttpUrlString(...)`, so invalid/non-HTTP(S) values now collapse to `null`.
+- Verification:
+  - `npx vitest run src/electron-runtime/commandRouter.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`

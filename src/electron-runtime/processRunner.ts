@@ -15,26 +15,36 @@ type StreamingCommandOptions = {
 const attachLineStream = (
   childStream: StreamingChildProcess["stdout"],
   onLine?: (line: string) => void | Promise<void>,
-): void => {
+): Promise<void> => {
   if (!onLine) {
     childStream.resume();
-    return;
+    return Promise.resolve();
   }
 
-  childStream.setEncoding("utf8");
-  let buffer = "";
-  childStream.on("data", (chunk: string) => {
-    buffer += chunk;
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      void onLine(line);
-    }
-  });
-  childStream.on("end", () => {
-    if (buffer.trim()) {
-      void onLine(buffer);
-    }
+  return new Promise<void>((resolve, reject) => {
+    childStream.setEncoding("utf8");
+    let buffer = "";
+    let lineChain = Promise.resolve();
+
+    const enqueueLine = (line: string) => {
+      lineChain = lineChain.then(() => onLine(line));
+    };
+
+    childStream.on("data", (chunk: string) => {
+      buffer += chunk;
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        enqueueLine(line);
+      }
+    });
+    childStream.on("error", reject);
+    childStream.on("end", () => {
+      if (buffer.trim()) {
+        enqueueLine(buffer);
+      }
+      lineChain.then(() => resolve(), reject);
+    });
   });
 };
 
@@ -64,8 +74,8 @@ export const runStreamingCommand = async (
     windowsHide: true,
   });
 
-  attachLineStream(child.stdout, options.onStdoutLine);
-  attachLineStream(child.stderr, options.onStderrLine);
+  const stdoutHandled = attachLineStream(child.stdout, options.onStdoutLine);
+  const stderrHandled = attachLineStream(child.stderr, options.onStderrLine);
 
   if (options.signal) {
     if (options.signal.aborted) {
@@ -82,6 +92,7 @@ export const runStreamingCommand = async (
   }
 
   const [code] = await once(child, "close");
+  await Promise.all([stdoutHandled, stderrHandled]);
   if (typeof code === "number") {
     return code;
   }

@@ -230,6 +230,93 @@ describe("createElectronRuntimeCommandRouter", () => {
     });
   });
 
+  it("dedupes repeated video candidates after normalization", async () => {
+    const runtime = createRuntimeStub();
+    const router = createElectronRuntimeCommandRouter({ runtime });
+
+    await router.invoke<{ accepted: boolean; traceId: string }>("queue_video_download", {
+      url: "https://www.pinterest.com/pin/1234567890/",
+      video_candidates: [
+        { url: " https://v.pinimg.com/videos/iht/expmp4/video.mp4 ", type: "direct_mp4" },
+        { url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4", type: "direct_mp4" },
+        { url: "https://v.pinimg.com/videos/iht/hls/video.m3u8", type: "manifest_m3u8" },
+        { url: " https://v.pinimg.com/videos/iht/hls/video.m3u8 ", type: "manifest_m3u8" },
+      ],
+    });
+
+    expect(runtime.queueVideoDownload).toHaveBeenCalledWith({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: undefined,
+      videoUrl: undefined,
+      videoCandidates: [
+        {
+          url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
+          type: "direct_mp4",
+          source: undefined,
+          confidence: undefined,
+        },
+        {
+          url: "https://v.pinimg.com/videos/iht/hls/video.m3u8",
+          type: "manifest_m3u8",
+          source: undefined,
+          confidence: undefined,
+        },
+      ],
+      dragDiagnostic: undefined,
+    });
+  });
+
+  it("drops invalid drag-diagnostic image urls before dispatch", async () => {
+    const runtime = createRuntimeStub();
+    const router = createElectronRuntimeCommandRouter({ runtime });
+
+    await router.invoke<{ accepted: boolean; traceId: string }>("queue_video_download", {
+      url: "https://www.pinterest.com/pin/1234567890/",
+      drag_diagnostic: {
+        html_length: 12,
+        html_preview: "drag payload",
+        flags: {
+          hasEmbeddedPayload: false,
+          hasVideoTag: false,
+          hasVideoList: false,
+          hasStoryPinData: false,
+          hasCarouselData: false,
+          hasMp4: false,
+          hasM3u8: false,
+          hasCmfv: false,
+          hasPinimgVideoHost: false,
+        },
+        image_url: " javascript:alert('xss') ",
+      },
+    });
+
+    expect(runtime.queueVideoDownload).toHaveBeenCalledWith({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: undefined,
+      videoUrl: undefined,
+      videoCandidates: undefined,
+      dragDiagnostic: {
+        htmlLength: 12,
+        htmlPreview: "drag payload",
+        flags: {
+          hasEmbeddedPayload: false,
+          hasVideoTag: false,
+          hasVideoList: false,
+          hasStoryPinData: false,
+          hasCarouselData: false,
+          hasMp4: false,
+          hasM3u8: false,
+          hasCmfv: false,
+          hasPinimgVideoHost: false,
+        },
+        imageUrl: null,
+        videoUrl: null,
+        videoCandidatesCount: 0,
+        videoCandidates: [],
+      },
+    });
+  });
+
   it("drops invalid page urls before dispatching queue requests", async () => {
     const runtime = createRuntimeStub();
     const router = createElectronRuntimeCommandRouter({ runtime });

@@ -4,9 +4,22 @@ type AppConfig = Record<string, unknown> & {
   outputPath?: string;
 };
 
+const parseConfig = (configStr: string): AppConfig => {
+  try {
+    const parsed = JSON.parse(configStr) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return parsed as AppConfig;
+  } catch {
+    return {};
+  }
+};
+
 export async function saveOutputPath(nextOutputPath: string): Promise<boolean> {
   const configStr = await desktopCommands.invoke<string>("get_config");
-  const config = JSON.parse(configStr) as AppConfig;
+  const config = parseConfig(configStr);
   const previousOutputPath =
     typeof config.outputPath === "string" ? config.outputPath : "";
 
