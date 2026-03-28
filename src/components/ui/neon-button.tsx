@@ -1,7 +1,11 @@
 import React from "react";
 
 import { useTheme } from "../../contexts/ThemeContext";
-import { COMPACT_EASE, getFieldSurfaceBackground } from "./shared-styles";
+import {
+  COMPACT_EASE,
+  getContinuousCornerStyle,
+  getFieldSurfaceBackground,
+} from "./shared-styles";
 
 interface NeonButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'default' | 'outline' | 'ghost';
@@ -31,7 +35,7 @@ export function NeonButton({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    borderRadius: 10,
+    ...getContinuousCornerStyle(10),
     fontWeight: 600,
     border: '1px solid transparent',
     cursor: disabled ? 'not-allowed' : 'pointer',

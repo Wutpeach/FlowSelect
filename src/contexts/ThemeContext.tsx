@@ -80,6 +80,11 @@ export interface ThemeColors {
   errorIcon: string;
 }
 
+const DARK_PANEL_SHADOW = '0px 0px 6px 0px rgba(0,0,0,0.12), 0px 12px 24px 0px rgba(0,0,0,0.28), 0px 0px 0px 1px rgba(0,0,0,0.12)';
+const DARK_PANEL_SHADOW_STRONG = '0px 0px 8px 0px rgba(0,0,0,0.14), 0px 16px 30px 0px rgba(0,0,0,0.34), 0px 0px 0px 1px rgba(0,0,0,0.14)';
+const LIGHT_PANEL_SHADOW = '0px 0px 4px 0px rgba(0,0,0,0.05), 0px 8px 16px 0px rgba(0,0,0,0.1), 0px 0px 0px 1px rgba(0,0,0,0.06)';
+const LIGHT_PANEL_SHADOW_STRONG = '0px 0px 6px 0px rgba(0,0,0,0.06), 0px 12px 22px 0px rgba(0,0,0,0.14), 0px 0px 0px 1px rgba(0,0,0,0.08)';
+
 const themes: Record<Theme, ThemeColors> = {
   black: {
     bgPrimary: '#201E25',
@@ -99,8 +104,8 @@ const themes: Record<Theme, ThemeColors> = {
     dangerText: '#fca5a5',
     shadowColor: 'rgba(0,0,0,0.1)',
     shadowSpread: '#0D0D0D',
-    panelShadow: '0 10px 28px rgba(0,0,0,0.34)',
-    panelShadowStrong: '0 16px 32px rgba(0,0,0,0.46)',
+    panelShadow: DARK_PANEL_SHADOW,
+    panelShadowStrong: DARK_PANEL_SHADOW_STRONG,
     accentGlow: 'rgba(59,130,246,0.38)',
     dangerGlow: 'rgba(239,68,68,0.32)',
     accentSolid: '#3b82f6',
@@ -167,8 +172,8 @@ const themes: Record<Theme, ThemeColors> = {
     dangerText: '#dc2626',
     shadowColor: 'rgba(0,0,0,0.1)',
     shadowSpread: 'rgba(0,0,0,0.16)',
-    panelShadow: '0 8px 22px rgba(34,34,34,0.12)',
-    panelShadowStrong: '0 12px 28px rgba(34,34,34,0.16)',
+    panelShadow: LIGHT_PANEL_SHADOW,
+    panelShadowStrong: LIGHT_PANEL_SHADOW_STRONG,
     accentGlow: 'rgba(37,99,235,0.34)',
     dangerGlow: 'rgba(239,68,68,0.24)',
     accentSolid: '#2563eb',

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { NeonIconButton } from "./components/ui";
 import {
   COMPACT_EASE,
+  getContinuousCornerStyle,
   getInsetCardStyle,
   getPanelShellStyle,
   getStatusDotStyle,
@@ -1058,7 +1059,7 @@ function App() {
     return {
       position: 'absolute',
       inset: 0,
-      borderRadius: panelRadius,
+      ...getContinuousCornerStyle(panelRadius),
       pointerEvents: 'none',
       padding: EDGE_GLOW_BORDER_WIDTH,
       background: `radial-gradient(
@@ -1070,7 +1071,7 @@ function App() {
         rgba(191,219,254,0.14) 70%,
         transparent 84%
       )`,
-      boxShadow: 'inset 0 0 14px rgba(96,165,250,0.18)',
+      boxShadow: 'inset 0 0 16px rgba(96,165,250,0.22), inset 0 0 28px rgba(96,165,250,0.08)',
       mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
       maskComposite: 'exclude',
       WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
@@ -1082,7 +1083,7 @@ function App() {
     return {
       position: 'absolute',
       inset: 0,
-      borderRadius: panelRadius,
+      ...getContinuousCornerStyle(panelRadius),
       pointerEvents: 'none',
       padding: DRAG_GLOW_BORDER_WIDTH,
       background: `linear-gradient(
@@ -2984,13 +2985,16 @@ function App() {
   };
 
   const shouldShowMiniControls = isPanelHovered && !isMinimized;
+  const containerOuterShadow = primaryTask || isHovering
+    ? colors.panelShadowStrong
+    : colors.panelShadow;
   const containerBoxShadow = primaryTask?.kind === "transcode"
-    ? `inset 0 0 0 1px ${colors.transcodeBorder}, inset 0 0 14px ${colors.transcodeGlow}`
+    ? `inset 0 0 0 1px ${colors.transcodeBorder}, inset 0 0 14px ${colors.transcodeGlow}, ${containerOuterShadow}`
     : primaryTask?.kind === "download"
-      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 12px ${colors.accentGlow}`
-    : isHovering
-      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 18px ${colors.accentGlow}, inset 0 0 28px ${colors.accentSurfaceStrong}`
-      : `inset 0 0 0 1px ${colors.borderStart}`;
+      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 12px ${colors.accentGlow}, ${containerOuterShadow}`
+      : isHovering
+      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 18px ${colors.accentGlow}, inset 0 0 28px ${colors.accentSurfaceStrong}, ${containerOuterShadow}`
+      : `inset 0 0 0 1px ${colors.borderStart}, ${containerOuterShadow}`;
   const shouldShowAppUpdateIndicator = !!appUpdateInfo && (
     appUpdatePhase === "available"
     || appUpdatePhase === "downloading"
@@ -3416,7 +3420,7 @@ function App() {
                   position: 'absolute',
                   inset: 0,
                   padding: '48px 10px 10px',
-                  borderRadius: isMinimized ? 100 : 16,
+                  ...getContinuousCornerStyle(isMinimized ? 100 : 16),
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 6,

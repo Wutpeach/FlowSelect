@@ -2,6 +2,18 @@ import type { CSSProperties } from "react";
 import type { Theme, ThemeColors } from "../../contexts/ThemeContext";
 
 export const COMPACT_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+const CONTINUOUS_CORNER_SHAPE = "superellipse(1.5)";
+const ELECTRON_CONTINUOUS_CORNER_SMOOTHING = "60%";
+const SUPPORTS_CONTINUOUS_CORNERS = typeof CSS !== "undefined" && (
+  CSS.supports("corner-shape", CONTINUOUS_CORNER_SHAPE)
+  || CSS.supports("-electron-corner-smoothing", ELECTRON_CONTINUOUS_CORNER_SMOOTHING)
+);
+
+type ContinuousCornerStyle = CSSProperties & {
+  cornerShape?: string;
+  ["-electron-corner-smoothing"]?: string;
+};
+
 export const WINDOW_DRAG_REGION_STYLE = {
   WebkitAppRegion: "drag",
   cursor: "grab",
@@ -63,12 +75,20 @@ interface NoticeStyleOptions {
   radius?: number;
 }
 
+export const getContinuousCornerStyle = (
+  radius: number | string,
+): ContinuousCornerStyle => ({
+  borderRadius: radius,
+  cornerShape: CONTINUOUS_CORNER_SHAPE,
+  ["-electron-corner-smoothing"]: ELECTRON_CONTINUOUS_CORNER_SMOOTHING,
+});
+
 export const getPanelShellStyle = (
   colors: ThemeColors,
   { radius = 16, boxShadow }: PanelShellOptions = {},
 ): CSSProperties => ({
+  ...getContinuousCornerStyle(radius),
   background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-  borderRadius: radius,
   border: "none",
   boxShadow: boxShadow ?? `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
 });
@@ -97,7 +117,7 @@ export const getWindowShellStyle = (
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    clipPath: clip ? `inset(0 round ${radius}px)` : undefined,
+    clipPath: clip && !SUPPORTS_CONTINUOUS_CORNERS ? `inset(0 round ${radius}px)` : undefined,
     ...getPanelShellStyle(colors, {
       radius,
       boxShadow: [
@@ -177,8 +197,8 @@ export const getNoticeStyle = (
       : colors.textSecondary;
 
   return {
+    ...getContinuousCornerStyle(radius),
     padding,
-    borderRadius: radius,
     background: colors.fieldBg,
     boxShadow: `inset 0 0 0 1px ${borderColor}`,
     color: textColor,
@@ -200,9 +220,9 @@ export const getFieldSurfaceStyle = (
     radius = 10,
   }: FieldSurfaceOptions = {},
 ): CSSProperties => ({
+  ...getContinuousCornerStyle(radius),
   minHeight: height,
   padding,
-  borderRadius: radius,
   border: `1px solid ${active ? colors.fieldBorderStrong : highlighted ? colors.borderStart : colors.fieldBorder}`,
   background: getFieldSurfaceBackground(colors),
   boxShadow: active
@@ -260,7 +280,7 @@ export const getInsetCardStyle = (
   colors: ThemeColors,
   borderColor = colors.borderStart,
 ): CSSProperties => ({
-  borderRadius: 10,
+  ...getContinuousCornerStyle(10),
   border: `1px solid ${borderColor}`,
   background: `linear-gradient(180deg, ${colors.bgPrimary} 0%, ${colors.bgSecondary} 100%)`,
   boxShadow: `inset 0 0 0 1px ${borderColor}, ${colors.panelShadow}`,
@@ -293,7 +313,7 @@ export const getChromeButtonStyle = (
     height: size,
     padding: 0,
     border: "none",
-    borderRadius: radius,
+    ...getContinuousCornerStyle(radius),
     backgroundColor: highlighted
       ? isDanger ? colors.dangerSurface : colors.fieldHoverBg
       : "transparent",

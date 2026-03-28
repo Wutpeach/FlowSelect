@@ -1,6 +1,6 @@
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../contexts/ThemeContext";
-import { COMPACT_EASE } from "./shared-styles";
+import { COMPACT_EASE, getContinuousCornerStyle } from "./shared-styles";
 
 interface NeonCardProps extends React.HTMLAttributes<HTMLDivElement> {
   glow?: boolean;
@@ -12,6 +12,7 @@ export function NeonCard({ className, glow = false, children, style, ...props }:
   return (
     <div
       style={{
+        ...getContinuousCornerStyle(12),
         transition: [
           `border-color 0.18s ${COMPACT_EASE}`,
           `box-shadow 0.18s ${COMPACT_EASE}`,
@@ -25,7 +26,7 @@ export function NeonCard({ className, glow = false, children, style, ...props }:
         ...style,
       }}
       className={cn(
-        "rounded-xl border p-4",
+        "border p-4",
         className
       )}
       {...props}
