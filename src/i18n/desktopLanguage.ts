@@ -5,6 +5,7 @@ import {
   LANGUAGE_CONFIG_KEY,
   type AppLanguage,
 } from "./contract";
+import { resolveAppLanguage, resolveAppLanguageFromConfigString } from "./language";
 
 type AppConfig = Record<string, unknown>;
 
@@ -30,5 +31,17 @@ export async function changeDesktopLanguage(nextLanguage: AppLanguage): Promise<
 
   if (i18n.resolvedLanguage !== nextLanguage) {
     await i18n.changeLanguage(nextLanguage);
+  }
+}
+
+export async function resolveInitialDesktopLanguage(
+  navigatorLanguage?: string | null,
+): Promise<AppLanguage> {
+  try {
+    const configStr = await desktopCommands.invoke<string>("get_config");
+    return resolveAppLanguageFromConfigString(configStr, navigatorLanguage);
+  } catch (error) {
+    console.error("Failed to load desktop language config during bootstrap:", error);
+    return resolveAppLanguage(undefined, navigatorLanguage);
   }
 }

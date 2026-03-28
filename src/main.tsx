@@ -6,6 +6,7 @@ import SettingsPage from "./pages/SettingsPage";
 import ContextMenuPage from "./pages/ContextMenuPage";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { desktopCurrentWindow } from "./desktop/runtime";
+import { resolveInitialDesktopLanguage } from "./i18n/desktopLanguage";
 import { I18nRuntimeBridge } from "./i18n/I18nRuntimeBridge";
 import { initializeI18n } from "./i18n";
 import { resolveAppLanguage } from "./i18n/language";
@@ -66,8 +67,11 @@ const bootstrap = async () => {
     || navigator.userAgent.toLowerCase().includes("electron")
   );
   const fallbackLanguage = resolveAppLanguage(undefined, navigator.language);
+  const initialLanguage = expectsElectronBridge && window.flowselect
+    ? await resolveInitialDesktopLanguage(navigator.language)
+    : fallbackLanguage;
 
-  await initializeI18n(fallbackLanguage);
+  await initializeI18n(initialLanguage);
 
   if (expectsElectronBridge && !window.flowselect) {
     console.error("FlowSelect Electron bridge is unavailable in the renderer process.");

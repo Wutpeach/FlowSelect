@@ -30,7 +30,10 @@ vi.mock("./index", () => ({
 }));
 
 import { LANGUAGE_CONFIG_KEY } from "./contract";
-import { changeDesktopLanguage } from "./desktopLanguage";
+import {
+  changeDesktopLanguage,
+  resolveInitialDesktopLanguage,
+} from "./desktopLanguage";
 
 describe("changeDesktopLanguage", () => {
   beforeEach(() => {
@@ -58,5 +61,34 @@ describe("changeDesktopLanguage", () => {
     await changeDesktopLanguage("zh-CN");
 
     expect(changeLanguageMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveInitialDesktopLanguage", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    changeLanguageMock.mockClear();
+    i18nState.resolvedLanguage = "en";
+  });
+
+  it("uses the persisted desktop language during bootstrap", async () => {
+    invokeMock.mockResolvedValueOnce(JSON.stringify({ [LANGUAGE_CONFIG_KEY]: "zh_hans" }));
+
+    await expect(resolveInitialDesktopLanguage("en-US")).resolves.toBe("zh-CN");
+
+    expect(invokeMock).toHaveBeenCalledOnce();
+    expect(invokeMock).toHaveBeenCalledWith("get_config");
+    expect(changeLanguageMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the navigator language when desktop config loading fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    invokeMock.mockRejectedValueOnce(new Error("config unavailable"));
+
+    await expect(resolveInitialDesktopLanguage("zh-CN")).resolves.toBe("zh-CN");
+
+    expect(invokeMock).toHaveBeenCalledOnce();
+    expect(invokeMock).toHaveBeenCalledWith("get_config");
+    expect(errorSpy).toHaveBeenCalledOnce();
   });
 });
