@@ -545,10 +545,6 @@ function shouldForceOpaqueSecondaryWindow(label: string): boolean {
     && app.isPackaged;
 }
 
-function shouldForceOpaqueMainWindow(): boolean {
-  return process.platform === "win32" && app.isPackaged;
-}
-
 function resolveWindowAppearance({
   allowTransparency = true,
   currentTheme,
@@ -3564,7 +3560,7 @@ async function createMainWindow() {
     title: app.getName(),
     alwaysOnTop: true,
     skipTaskbar: process.platform === "win32",
-    allowTransparency: !shouldForceOpaqueMainWindow(),
+    allowTransparency: true,
     frame: false,
     resizable: false,
     preferZeroAlphaTransparentBackground: true,

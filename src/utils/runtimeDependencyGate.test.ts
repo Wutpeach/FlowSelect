@@ -62,6 +62,7 @@ describe("shouldAutoStartManagedRuntimeBootstrapOnStartup", () => {
         ffmpeg: missingEntry,
       }),
       gatePhase: "idle",
+      isWindowReadyForStartupBootstrap: true,
     })).toBe(true);
   });
 
@@ -73,10 +74,11 @@ describe("shouldAutoStartManagedRuntimeBootstrapOnStartup", () => {
         ffmpeg: missingEntry,
       }),
       gatePhase: "idle",
+      isWindowReadyForStartupBootstrap: true,
     })).toBe(false);
   });
 
-  it("does not auto bootstrap during initial mount, active download, or when managed runtimes are ready", () => {
+  it("does not auto bootstrap during initial mount, while the window is still compact, during active download, or when managed runtimes are ready", () => {
     expect(shouldAutoStartManagedRuntimeBootstrapOnStartup({
       isInitialMount: true,
       hasTriggeredStartupBootstrap: false,
@@ -84,6 +86,17 @@ describe("shouldAutoStartManagedRuntimeBootstrapOnStartup", () => {
         ffmpeg: missingEntry,
       }),
       gatePhase: "idle",
+      isWindowReadyForStartupBootstrap: true,
+    })).toBe(false);
+
+    expect(shouldAutoStartManagedRuntimeBootstrapOnStartup({
+      isInitialMount: false,
+      hasTriggeredStartupBootstrap: false,
+      runtimeDependencyStatus: createStatus({
+        ffmpeg: missingEntry,
+      }),
+      gatePhase: "idle",
+      isWindowReadyForStartupBootstrap: false,
     })).toBe(false);
 
     expect(shouldAutoStartManagedRuntimeBootstrapOnStartup({
@@ -93,6 +106,7 @@ describe("shouldAutoStartManagedRuntimeBootstrapOnStartup", () => {
         ffmpeg: missingEntry,
       }),
       gatePhase: "downloading",
+      isWindowReadyForStartupBootstrap: true,
     })).toBe(false);
 
     expect(shouldAutoStartManagedRuntimeBootstrapOnStartup({
@@ -100,6 +114,7 @@ describe("shouldAutoStartManagedRuntimeBootstrapOnStartup", () => {
       hasTriggeredStartupBootstrap: false,
       runtimeDependencyStatus: createStatus(),
       gatePhase: "idle",
+      isWindowReadyForStartupBootstrap: true,
     })).toBe(false);
   });
 });

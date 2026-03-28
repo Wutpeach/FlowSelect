@@ -36,13 +36,18 @@ export const shouldAutoStartManagedRuntimeBootstrapOnStartup = ({
   hasTriggeredStartupBootstrap,
   runtimeDependencyStatus,
   gatePhase,
+  isWindowReadyForStartupBootstrap,
 }: {
   isInitialMount: boolean;
   hasTriggeredStartupBootstrap: boolean;
   runtimeDependencyStatus: RuntimeDependencyStatusSnapshot | null;
   gatePhase: RuntimeDependencyGatePhase | null | undefined;
+  isWindowReadyForStartupBootstrap: boolean;
 }): boolean => {
   if (isInitialMount || hasTriggeredStartupBootstrap) {
+    return false;
+  }
+  if (!isWindowReadyForStartupBootstrap) {
     return false;
   }
   if (!hasMissingManagedRuntimeComponents(runtimeDependencyStatus)) {

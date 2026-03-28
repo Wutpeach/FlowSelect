@@ -807,6 +807,8 @@ function App() {
   const totalTaskCount = totalDownloadTaskCount + totalTranscodeTaskCount;
   const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
   const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
+  const isWindowReadyForStartupRuntimeBootstrap =
+    !isMinimized && !windowResized && !isExpandingFromMinimized;
   const primaryTask = downloadProgress && primaryDownloadTask
     ? {
         kind: "download" as const,
@@ -1478,6 +1480,7 @@ function App() {
       hasTriggeredStartupBootstrap: hasTriggeredStartupRuntimeBootstrapRef.current,
       runtimeDependencyStatus,
       gatePhase: runtimeDependencyGateState?.phase,
+      isWindowReadyForStartupBootstrap: isWindowReadyForStartupRuntimeBootstrap,
     });
 
     if (!shouldAutoStartBootstrap) {
@@ -1500,6 +1503,7 @@ function App() {
     isInitialMount,
     runtimeDependencyGateState?.phase,
     runtimeDependencyStatus,
+    isWindowReadyForStartupRuntimeBootstrap,
     startRuntimeDependencyBootstrap,
   ]);
 
