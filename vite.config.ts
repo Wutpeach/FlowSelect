@@ -5,8 +5,9 @@ import react from "@vitejs/plugin-react";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(async ({ command }) => ({
   plugins: [react()],
+  base: command === "build" ? "./" : "/",
   test: {
     exclude: [...configDefaults.exclude, "**/dist-electron/**"],
   },
