@@ -65,6 +65,12 @@ import {
   shouldEnablePackagedStartupDiagnostics,
   shouldUsePackagedWindowsOpaqueWindow,
 } from "./windowVisibility.mjs";
+import {
+  MAIN_WINDOW_FULL_SIZE,
+  buildStartupWindowModeArgument,
+  resolveMainWindowInitialSize,
+  resolveMainWindowStartupMode,
+} from "./startupWindowMode.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -153,9 +159,6 @@ const INITIAL_WINDOW_REVEAL_TIMEOUT_MS = 4_000;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
 const WINDOW_STARTUP_CAPTURE_DELAY_MS = 180;
 const STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS = 1_500;
-const MAIN_WINDOW_FULL_SIZE = 200;
-const MAIN_WINDOW_COMPACT_STARTUP_SIZE = 80;
-
 let tray = null;
 let registeredShortcut = "";
 let pendingAppUpdate = null;
@@ -528,6 +531,7 @@ type FlowSelectBrowserWindowCreationOptions = {
   routePath: string;
   width: number;
   height: number;
+  startupWindowMode?: "compact" | "full";
   x?: number;
   y?: number;
   center?: boolean;
@@ -573,6 +577,7 @@ async function createFlowSelectBrowserWindow(label: string, {
   routePath,
   width,
   height,
+  startupWindowMode = "full",
   x,
   y,
   center = false,
@@ -620,6 +625,9 @@ async function createFlowSelectBrowserWindow(label: string, {
       contextIsolation: true,
       sandbox: false,
       nodeIntegration: false,
+      additionalArguments: [
+        buildStartupWindowModeArgument(startupWindowMode),
+      ],
     },
   });
 
@@ -3552,10 +3560,11 @@ async function createMainWindow() {
     return existing;
   }
 
-  const useCompactStartupBounds = process.platform === "win32" && !hasShownMainWindowOnce;
-  const initialWindowSize = useCompactStartupBounds
-    ? MAIN_WINDOW_COMPACT_STARTUP_SIZE
-    : MAIN_WINDOW_FULL_SIZE;
+  const startupWindowMode = resolveMainWindowStartupMode({
+    platform: process.platform,
+    hasShownMainWindowOnce,
+  });
+  const initialWindowSize = resolveMainWindowInitialSize(startupWindowMode);
 
   const {
     browserWindow: mainWindow,
@@ -3564,6 +3573,7 @@ async function createMainWindow() {
     routePath: "/",
     width: initialWindowSize,
     height: initialWindowSize,
+    startupWindowMode,
     title: app.getName(),
     alwaysOnTop: true,
     skipTaskbar: process.platform === "win32",

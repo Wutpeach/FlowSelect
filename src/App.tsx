@@ -12,6 +12,7 @@ import {
   getStatusDotStyle,
 } from "./components/ui/shared-styles";
 import type { AppUpdateInfo, AppUpdatePhase } from "./types/appUpdate";
+import type { FlowSelectStartupWindowMode } from "./types/electronBridge";
 import {
   desktopClipboard,
   desktopCommands,
@@ -672,7 +673,13 @@ const getVideoTranscodeFormatLabel = (task: VideoTranscodeTaskPayload): string |
   return `${task.sourceFormat.toUpperCase()} -> ${task.targetFormat.toUpperCase()}`;
 };
 
-function App() {
+type AppProps = {
+  initialStartupWindowMode?: FlowSelectStartupWindowMode;
+};
+
+function App({
+  initialStartupWindowMode = "full",
+}: AppProps) {
   const { t } = useTranslation("desktop");
   const { colors } = useTheme();
   const shouldReduceMotion = useReducedMotion();
@@ -693,8 +700,7 @@ function App() {
   const MINIMIZED_ICON_BASE_SIZE = MINIMIZED_ICON_SIZE / MINIMIZED_SHELL_SCALE;
   const MINIMIZED_SHELL_INSET = Math.round((ICON_SIZE - MINIMIZED_SHELL_SIZE) / 2);
   const startsInNativeCompactStartupWindow = shouldUseNativeCompactStartupWindow({
-    innerWidth: window.innerWidth,
-    innerHeight: window.innerHeight,
+    startupWindowMode: initialStartupWindowMode,
     startsExpandedOnLaunch,
     isMacOS,
   });

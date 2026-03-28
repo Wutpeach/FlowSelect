@@ -60,6 +60,9 @@ export const desktopCurrentWindow: FlowSelectCurrentWindowApi = {
   async scaleFactor() {
     return resolveElectronBridge().currentWindow.scaleFactor();
   },
+  startupWindowMode() {
+    return resolveElectronBridge().currentWindow.startupWindowMode();
+  },
   async startDragging() {
     await resolveElectronBridge().currentWindow.startDragging();
   },

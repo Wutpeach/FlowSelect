@@ -88,6 +88,7 @@ export type FlowSelectSize = {
 };
 
 export type FlowSelectBounds = FlowSelectPoint & FlowSelectSize;
+export type FlowSelectStartupWindowMode = "compact" | "full";
 
 export type FlowSelectDisplay = {
   position: FlowSelectPoint;
@@ -154,6 +155,7 @@ export interface FlowSelectCurrentWindowApi {
   outerPosition(): Promise<FlowSelectPoint>;
   outerSize(): Promise<FlowSelectSize>;
   scaleFactor(): Promise<number>;
+  startupWindowMode(): FlowSelectStartupWindowMode;
   startDragging(): Promise<void>;
   setPosition(position: FlowSelectPoint): void;
   animateBounds(bounds: FlowSelectBounds, options?: { durationMs?: number }): Promise<void>;

@@ -5,10 +5,12 @@ import {
   parseLocalPathFromDropText,
   VALIDATE_DROPPED_FOLDER_PATH_CHANNEL,
 } from "./folderDrop.mjs";
+import { parseStartupWindowModeArgument } from "./startupWindowMode.mjs";
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload);
 const eventChannel = (event) => `flowselect:event:${event}`;
 let pendingFolderDropPromise = null;
+const startupWindowMode = parseStartupWindowModeArgument(process.argv);
 
 const hasLocalFileItems = (dataTransfer) => (
   Boolean(dataTransfer)
@@ -141,6 +143,9 @@ contextBridge.exposeInMainWorld("flowselect", {
     },
     scaleFactor() {
       return invoke("flowselect:current-window:scale-factor");
+    },
+    startupWindowMode() {
+      return startupWindowMode;
     },
     startDragging() {
       return invoke("flowselect:current-window:start-dragging");

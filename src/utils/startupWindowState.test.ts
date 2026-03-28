@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  NATIVE_COMPACT_STARTUP_WINDOW_SIZE,
   getStartupAutoMinimizeGraceMs,
   shouldStartExpandedOnLaunch,
   shouldUseNativeCompactStartupWindow,
@@ -32,8 +31,7 @@ describe("startup window state", () => {
 
   it("recognizes a native compact startup shell when the initial window is already icon-sized", () => {
     expect(shouldUseNativeCompactStartupWindow({
-      innerWidth: NATIVE_COMPACT_STARTUP_WINDOW_SIZE,
-      innerHeight: NATIVE_COMPACT_STARTUP_WINDOW_SIZE,
+      startupWindowMode: "compact",
       startsExpandedOnLaunch: false,
       isMacOS: false,
     })).toBe(true);
@@ -41,25 +39,22 @@ describe("startup window state", () => {
 
   it("keeps the startup reveal animation for full-sized or macOS launches", () => {
     expect(shouldUseNativeCompactStartupWindow({
-      innerWidth: 200,
-      innerHeight: 200,
+      startupWindowMode: "full",
       startsExpandedOnLaunch: false,
       isMacOS: false,
     })).toBe(false);
 
     expect(shouldUseNativeCompactStartupWindow({
-      innerWidth: NATIVE_COMPACT_STARTUP_WINDOW_SIZE,
-      innerHeight: NATIVE_COMPACT_STARTUP_WINDOW_SIZE,
+      startupWindowMode: "compact",
       startsExpandedOnLaunch: false,
       isMacOS: true,
     })).toBe(false);
   });
 
-  it("ignores zero-sized first-frame measurements", () => {
+  it("keeps full startup mode when launch should begin expanded", () => {
     expect(shouldUseNativeCompactStartupWindow({
-      innerWidth: 0,
-      innerHeight: 0,
-      startsExpandedOnLaunch: false,
+      startupWindowMode: "compact",
+      startsExpandedOnLaunch: true,
       isMacOS: false,
     })).toBe(false);
   });

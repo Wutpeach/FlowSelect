@@ -10,6 +10,7 @@ import { resolveInitialDesktopLanguage } from "./i18n/desktopLanguage";
 import { I18nRuntimeBridge } from "./i18n/I18nRuntimeBridge";
 import { initializeI18n } from "./i18n";
 import { resolveAppLanguage } from "./i18n/language";
+import type { FlowSelectStartupWindowMode } from "./types/electronBridge";
 import "./index.css";
 
 const RENDERER_READY_FALLBACK_DELAY_MS = 180;
@@ -67,6 +68,9 @@ const bootstrap = async () => {
     || navigator.userAgent.toLowerCase().includes("electron")
   );
   const fallbackLanguage = resolveAppLanguage(undefined, navigator.language);
+  const initialStartupWindowMode: FlowSelectStartupWindowMode = expectsElectronBridge && window.flowselect
+    ? desktopCurrentWindow.startupWindowMode()
+    : "full";
   const initialLanguage = expectsElectronBridge && window.flowselect
     ? await resolveInitialDesktopLanguage(navigator.language)
     : fallbackLanguage;
@@ -105,14 +109,18 @@ const bootstrap = async () => {
   const Router = expectsElectronBridge
     ? HashRouter
     : BrowserRouter;
+  // Keep Electron renderer startup lifecycles close to packaged behavior.
+  const RootWrapper = expectsElectronBridge
+    ? React.Fragment
+    : React.StrictMode;
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <React.StrictMode>
+    <RootWrapper>
       <ThemeProvider>
         <Router>
           <I18nRuntimeBridge />
           <Routes>
-            <Route path="/" element={<App />} />
+            <Route path="/" element={<App initialStartupWindowMode={initialStartupWindowMode} />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/context-menu" element={<ContextMenuPage />} />
             {UiLabPage ? (
@@ -128,7 +136,7 @@ const bootstrap = async () => {
           </Routes>
         </Router>
       </ThemeProvider>
-    </React.StrictMode>,
+    </RootWrapper>,
   );
 
   scheduleRendererReadySignal();
