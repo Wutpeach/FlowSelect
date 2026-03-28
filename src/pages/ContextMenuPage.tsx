@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { useTheme } from "../contexts/ThemeContext";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
+import { getWindowShellStyle } from "../components/ui/shared-styles";
 import {
   desktopCommands,
   desktopCurrentWindow,
@@ -117,20 +118,12 @@ function ContextMenuPage() {
     }
   };
 
-  const panelStyle: CSSProperties = {
-    width: "100%",
-    height: "100%",
-    boxSizing: "border-box",
-    display: "flex",
-    flexDirection: "column",
-    background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-    border: `1px solid ${colors.fieldBorder}`,
-    borderRadius: 8,
-    boxShadow: theme === "black"
-      ? `inset 0 1px 0 ${colors.fieldInset}`
-      : `inset 0 1px 0 ${colors.fieldInset}, inset 0 -1px 0 ${colors.shadowSpread}`,
-    overflow: "hidden",
-  };
+  const panelStyle: CSSProperties = getWindowShellStyle(colors, theme, {
+    radius: 8,
+    borderColor: colors.fieldBorder,
+    clip: false,
+    includeLightBottomInset: true,
+  });
 
   const getMenuButtonStyle = (item: "open" | "set"): CSSProperties => ({
     width: "100%",

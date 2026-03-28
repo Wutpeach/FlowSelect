@@ -3,6 +3,22 @@
 @tailwind utilities;
 
 :root {
+  --fs-bg-primary: #201E25;
+  --fs-bg-secondary: #323137;
+  --fs-bg-gradient-start: #201E25;
+  --fs-bg-gradient-end: #323137;
+  --fs-field-bg: #2B2A31;
+  --fs-field-inset: rgba(255,255,255,0.05);
+  --fs-border-start: #4B4951;
+  --fs-border-end: #313036;
+  --fs-field-border: #4B4951;
+  --fs-text-primary: #EEEEEE;
+  --fs-text-secondary: #AAAAAA;
+  --fs-accent-text: #60a5fa;
+  --fs-accent-border: rgba(96,165,250,0.42);
+  --fs-accent-glow: rgba(59,130,246,0.38);
+  --fs-danger-border: rgba(248,113,113,0.34);
+  --fs-danger-text: #fca5a5;
   --neon-blue: #3b82f6;
   --neon-blue-light: #60a5fa;
   --neon-glow: 0 0 10px rgba(59, 130, 246, 0.5), 0 0 20px rgba(59, 130, 246, 0.3),
@@ -21,17 +37,25 @@ html, body, #root {
   width: 100%;
   height: 100%;
   background: transparent;
+  color: var(--fs-text-primary);
   overflow: hidden;
 }
 
 /* 隐藏滚动条 - Chrome/Safari/Opera */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
 .themed-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(96, 165, 250, 0.72) rgba(15, 23, 42, 0.34);
+  scrollbar-color:
+    color-mix(in srgb, var(--fs-accent-text) 72%, transparent)
+    color-mix(in srgb, var(--fs-bg-primary) 34%, transparent);
 }
 
 .themed-scrollbar::-webkit-scrollbar {
@@ -39,19 +63,31 @@ html, body, #root {
 }
 
 .themed-scrollbar::-webkit-scrollbar-track {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.34) 0%, rgba(30, 41, 59, 0.18) 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--fs-bg-primary) 34%, transparent) 0%,
+    color-mix(in srgb, var(--fs-bg-secondary) 18%, transparent) 100%
+  );
   border-radius: 999px;
 }
 
 .themed-scrollbar::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(96, 165, 250, 0.9) 0%, rgba(59, 130, 246, 0.78) 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--fs-accent-text) 90%, transparent) 0%,
+    color-mix(in srgb, var(--fs-neon-blue, #3b82f6) 78%, transparent) 100%
+  );
   border-radius: 999px;
-  border: 1px solid rgba(147, 197, 253, 0.28);
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.28);
+  border: 1px solid color-mix(in srgb, var(--fs-accent-border) 66%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fs-accent-glow) 74%, transparent);
 }
 
 .themed-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(125, 211, 252, 0.95) 0%, rgba(59, 130, 246, 0.88) 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--fs-accent-text) 96%, white 12%) 0%,
+    color-mix(in srgb, var(--fs-neon-blue, #3b82f6) 88%, transparent) 100%
+  );
 }
 
 /* Spin animation for indeterminate progress */

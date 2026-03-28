@@ -1,7 +1,16 @@
 import type { CSSProperties } from "react";
-import type { ThemeColors } from "../../contexts/ThemeContext";
+import type { Theme, ThemeColors } from "../../contexts/ThemeContext";
 
 export const COMPACT_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+export const WINDOW_DRAG_REGION_STYLE = {
+  WebkitAppRegion: "drag",
+  cursor: "grab",
+  userSelect: "none",
+} as CSSProperties & { WebkitAppRegion: string };
+
+export const WINDOW_NO_DRAG_REGION_STYLE = {
+  WebkitAppRegion: "no-drag",
+} as CSSProperties & { WebkitAppRegion: string };
 
 interface PanelShellOptions {
   radius?: number;
@@ -24,6 +33,36 @@ interface ChromeButtonOptions {
   radius?: number;
 }
 
+interface WindowShellOptions {
+  radius?: number;
+  borderColor?: string;
+  elevation?: "none" | "panel" | "strong";
+  clip?: boolean;
+  includeLightBottomInset?: boolean;
+}
+
+interface WindowHeaderOptions {
+  padding?: string;
+  gap?: number;
+  dragRegion?: boolean;
+}
+
+interface WindowBodyOptions {
+  padding?: string;
+  gap?: number;
+  scrollable?: boolean;
+}
+
+interface WindowFooterOptions {
+  padding?: string;
+}
+
+interface NoticeStyleOptions {
+  tone?: "default" | "danger" | "warning";
+  padding?: string;
+  radius?: number;
+}
+
 export const getPanelShellStyle = (
   colors: ThemeColors,
   { radius = 16, boxShadow }: PanelShellOptions = {},
@@ -33,6 +72,120 @@ export const getPanelShellStyle = (
   border: "none",
   boxShadow: boxShadow ?? `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
 });
+
+export const getWindowShellStyle = (
+  colors: ThemeColors,
+  theme: Theme,
+  {
+    radius = 16,
+    borderColor = colors.borderStart,
+    elevation = "none",
+    clip = true,
+    includeLightBottomInset = false,
+  }: WindowShellOptions = {},
+): CSSProperties => {
+  const shellShadow = elevation === "strong"
+    ? colors.panelShadowStrong
+    : elevation === "panel"
+      ? colors.panelShadow
+      : null;
+
+  return {
+    width: "100%",
+    height: "100%",
+    boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    clipPath: clip ? `inset(0 round ${radius}px)` : undefined,
+    ...getPanelShellStyle(colors, {
+      radius,
+      boxShadow: [
+        `inset 0 0 0 1px ${borderColor}`,
+        `inset 0 1px 0 ${colors.fieldInset}`,
+        includeLightBottomInset && theme === "white"
+          ? `inset 0 -1px 0 ${colors.shadowSpread}`
+          : null,
+        shellShadow,
+      ].filter(Boolean).join(", "),
+    }),
+  };
+};
+
+export const getWindowHeaderStyle = (
+  colors: ThemeColors,
+  {
+    padding = "14px 16px 12px",
+    gap = 12,
+    dragRegion = false,
+  }: WindowHeaderOptions = {},
+): CSSProperties => ({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap,
+  padding,
+  borderBottom: `1px solid ${colors.borderStart}`,
+  background: "transparent",
+  ...(dragRegion ? WINDOW_DRAG_REGION_STYLE : {}),
+});
+
+export const getWindowBodyStyle = ({
+  padding = "18px",
+  gap = 12,
+  scrollable = true,
+}: WindowBodyOptions = {}): CSSProperties => ({
+  flex: 1,
+  minHeight: 0,
+  padding,
+  display: "flex",
+  flexDirection: "column",
+  gap,
+  overflowY: scrollable ? "auto" : "visible",
+});
+
+export const getWindowFooterStyle = (
+  colors: ThemeColors,
+  {
+    padding = "8px 16px",
+  }: WindowFooterOptions = {},
+): CSSProperties => ({
+  padding,
+  textAlign: "center",
+  borderTop: `1px solid ${colors.borderStart}`,
+  background: "transparent",
+});
+
+export const getNoticeStyle = (
+  colors: ThemeColors,
+  {
+    tone = "default",
+    padding = "10px 12px",
+    radius = 12,
+  }: NoticeStyleOptions = {},
+): CSSProperties => {
+  const borderColor = tone === "danger"
+    ? colors.dangerBorder
+    : tone === "warning"
+      ? colors.warningBorder
+      : colors.fieldBorder;
+
+  const textColor = tone === "danger"
+    ? colors.dangerText
+    : tone === "warning"
+      ? colors.warningText
+      : colors.textSecondary;
+
+  return {
+    padding,
+    borderRadius: radius,
+    background: colors.fieldBg,
+    boxShadow: `inset 0 0 0 1px ${borderColor}`,
+    color: textColor,
+    fontSize: 11,
+    lineHeight: 1.45,
+  };
+};
 
 export const getFieldSurfaceBackground = (colors: ThemeColors): string =>
   `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgSecondary} 100%)`;

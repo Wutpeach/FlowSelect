@@ -1,9 +1,15 @@
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { Eye, RotateCcw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { NeonButton, NeonIconButton, NeonSection } from "../components/ui";
-import { getPanelShellStyle } from "../components/ui/shared-styles";
+import {
+  WINDOW_NO_DRAG_REGION_STYLE,
+  getNoticeStyle,
+  getWindowBodyStyle,
+  getWindowHeaderStyle,
+  getWindowShellStyle,
+} from "../components/ui/shared-styles";
 import { useTheme } from "../contexts/ThemeContext";
 import { desktopCommands, desktopCurrentWindow, desktopWindows } from "../desktop/runtime";
 
@@ -22,19 +28,9 @@ type UiLabScenario = {
   description: string;
 };
 
-const dragHeaderStyle = {
-  WebkitAppRegion: "drag",
-  cursor: "grab",
-  userSelect: "none",
-} as CSSProperties;
-
-const noDragRegionStyle = {
-  WebkitAppRegion: "no-drag",
-} as CSSProperties;
-
 export default function UiLabPage() {
   const { t } = useTranslation("desktop");
-  const { colors } = useTheme();
+  const { theme, colors } = useTheme();
   const [activeScenario, setActiveScenario] = useState<UiLabScenarioId | null>(null);
   const [pendingScenario, setPendingScenario] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -172,29 +168,16 @@ export default function UiLabPage() {
 
   return (
     <div
-      style={{
-        width: "100%",
-        height: "100%",
-        boxSizing: "border-box",
-        display: "flex",
-        flexDirection: "column",
-        ...getPanelShellStyle(colors, {
-          radius: 18,
-          boxShadow: `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}, ${colors.panelShadowStrong}`,
-        }),
-        overflow: "hidden",
-      }}
+      style={getWindowShellStyle(colors, theme, {
+        radius: 18,
+        elevation: "strong",
+      })}
     >
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
+        style={getWindowHeaderStyle(colors, {
           padding: "16px 18px 14px",
-          borderBottom: `1px solid ${colors.borderStart}`,
-          ...dragHeaderStyle,
-        }}
+          dragRegion: true,
+        })}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: colors.textPrimary }}>
@@ -210,20 +193,14 @@ export default function UiLabPage() {
           size={20}
           title={t("settings.uiLab.actions.closeWindow")}
           aria-label={t("settings.uiLab.actions.closeWindow")}
-          style={noDragRegionStyle}
+          style={WINDOW_NO_DRAG_REGION_STYLE}
         >
           <X size={16} />
         </NeonIconButton>
       </div>
 
       <div
-        style={{
-          padding: 18,
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-          overflowY: "auto",
-        }}
+        style={getWindowBodyStyle()}
         className="hide-scrollbar"
       >
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -246,15 +223,7 @@ export default function UiLabPage() {
         </div>
 
         <div
-          style={{
-            fontSize: 11,
-            color: colors.textSecondary,
-            lineHeight: 1.45,
-            padding: "10px 12px",
-            borderRadius: 12,
-            background: colors.fieldBg,
-            boxShadow: `inset 0 0 0 1px ${colors.fieldBorder}`,
-          }}
+          style={getNoticeStyle(colors)}
         >
           {t("settings.uiLab.status.activePreset")}{" "}
           <strong style={{ color: colors.textPrimary }}>{activeScenarioLabel}</strong>
@@ -262,15 +231,9 @@ export default function UiLabPage() {
 
         {errorMessage ? (
           <div
-            style={{
-              fontSize: 11,
-              lineHeight: 1.45,
-              color: colors.dangerText,
-              padding: "10px 12px",
-              borderRadius: 12,
-              background: colors.fieldBg,
-              boxShadow: `inset 0 0 0 1px ${colors.dangerBorder}`,
-            }}
+            style={getNoticeStyle(colors, {
+              tone: "danger",
+            })}
           >
             {errorMessage}
           </div>

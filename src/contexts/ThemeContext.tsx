@@ -230,6 +230,24 @@ const getThemeFromConfigString = (configStr: string): Theme => {
   }
 };
 
+const toThemeCssVariableName = (tokenName: string): string => (
+  `--fs-${tokenName.replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`)}`
+);
+
+const applyThemeCssVariables = (theme: Theme, colors: ThemeColors) => {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  root.style.colorScheme = theme === 'white' ? 'light' : 'dark';
+
+  for (const [tokenName, tokenValue] of Object.entries(colors)) {
+    root.style.setProperty(toThemeCssVariableName(tokenName), tokenValue);
+  }
+};
+
 const ThemeContext = createContext<{
   theme: Theme;
   colors: ThemeColors;
@@ -251,6 +269,7 @@ export function ThemeProvider({
   initialTheme?: Theme;
 }) {
   const [theme, setThemeState] = useState<Theme>(initialTheme ?? DEFAULT_THEME);
+  const colors = themes[theme];
 
   useEffect(() => {
     // 启动时从配置读取
@@ -280,6 +299,10 @@ export function ThemeProvider({
     };
   }, [initialTheme]);
 
+  useEffect(() => {
+    applyThemeCssVariables(theme, colors);
+  }, [colors, theme]);
+
   const setTheme = async (t: Theme) => {
     setThemeState(t);
     // 通知其他窗口
@@ -293,7 +316,7 @@ export function ThemeProvider({
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, colors: themes[theme], setTheme }}>
+    <ThemeContext.Provider value={{ theme, colors, setTheme }}>
       {children}
     </ThemeContext.Provider>
   );
