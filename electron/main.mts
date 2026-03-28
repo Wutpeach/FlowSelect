@@ -17,6 +17,7 @@ import { once } from "node:events";
 import { createWriteStream, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
+  appendFile,
   access,
   chmod,
   copyFile,
@@ -56,6 +57,14 @@ import {
   VALIDATE_DROPPED_FOLDER_PATH_CHANNEL,
   validateDroppedFolderPath,
 } from "./folderDrop.mjs";
+import {
+  getPackagedWindowRevealDelayMs,
+  resolveMainWindowRevealBounds,
+  resolvePackagedWindowsOpaqueWindowBackground,
+  resolvePackagedWindowsTransparentWindowBackground,
+  shouldEnablePackagedStartupDiagnostics,
+  shouldUsePackagedWindowsOpaqueWindow,
+} from "./windowVisibility.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -74,6 +83,7 @@ const APP_RELEASES_URL = "https://github.com/Wutpeach/FlowSelect/releases";
 const APP_UPDATE_ENDPOINT =
   "https://github.com/Wutpeach/FlowSelect/releases/latest/download/latest.json";
 const DEFAULT_OUTPUT_FOLDER_NAME = "FlowSelect_Received";
+const STARTUP_DIAGNOSTICS_FILE_NAME = "startup-diagnostics-latest.txt";
 const SHORTCUT_SHOW_EVENT = "shortcut-show";
 const CONTEXT_MENU_CLOSED_EVENT = "context-menu-closed";
 const LANGUAGE_CHANGED_EVENT = "language-changed";
@@ -139,12 +149,18 @@ const BINARY_DIR = join(repoRoot, "desktop-assets", "binaries");
 const MANAGED_RUNTIME_BOOTSTRAP_ORDER = ["ffmpeg", "pinterest-dl", "deno"];
 const RUNTIME_MANIFEST_FETCH_TIMEOUT_MS = 30_000;
 const RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
+const INITIAL_WINDOW_REVEAL_TIMEOUT_MS = 4_000;
+const RENDERER_READY_TIMEOUT_MS = 2_500;
+const WINDOW_STARTUP_CAPTURE_DELAY_MS = 180;
+const STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS = 1_500;
 
 let tray = null;
 let registeredShortcut = "";
 let pendingAppUpdate = null;
 let nextOpaqueSequence = 1;
 let isVideoQueuePumpScheduled = false;
+let hasShownMainWindowOnce = false;
+let mainWindowUsesTransparentShell = false;
 
 const windows = new Map();
 const wsClients = new Set();
@@ -169,6 +185,22 @@ let wsServer = null;
 let uiLabRuntimeStatusOverride = null;
 let uiLabRuntimeGateOverride = null;
 let uiLabScenarioActive = false;
+let startupDiagnosticsWriteChain = Promise.resolve();
+const pendingRendererReadySignals = new Map();
+const activeWindowBoundsAnimations = new Map();
+
+const startupDiagnosticsEnabled = shouldEnablePackagedStartupDiagnostics({
+  platform: process.platform,
+  isPackaged: app.isPackaged,
+  argv: process.argv,
+  env: process.env,
+});
+const forceOpaquePackagedWindow = shouldUsePackagedWindowsOpaqueWindow({
+  platform: process.platform,
+  isPackaged: app.isPackaged,
+  argv: process.argv,
+  env: process.env,
+});
 
 function logInfo(scope, message, details) {
   if (details) {
@@ -176,6 +208,612 @@ function logInfo(scope, message, details) {
     return;
   }
   console.log(`>>> [${scope}] ${message}`);
+}
+
+function getStartupDiagnosticsPath() {
+  return join(getLogsDir(), STARTUP_DIAGNOSTICS_FILE_NAME);
+}
+
+function getStartupCapturePath(label, phase) {
+  return join(getLogsDir(), `startup-capture-${label}-${phase}.png`);
+}
+
+function serializeDiagnosticPayload(payload) {
+  if (typeof payload === "string") {
+    return payload;
+  }
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return String(payload);
+  }
+}
+
+function queueStartupDiagnostic(scope, message, payload) {
+  if (!startupDiagnosticsEnabled) {
+    return Promise.resolve();
+  }
+
+  const serializedPayload = payload == null ? "" : serializeDiagnosticPayload(payload);
+  const line = `[${new Date().toISOString()}] [${scope}] ${message}${serializedPayload ? ` ${serializedPayload}` : ""}`;
+  logInfo(scope, message, serializedPayload || undefined);
+  startupDiagnosticsWriteChain = startupDiagnosticsWriteChain
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        await appendFile(getStartupDiagnosticsPath(), `${line}\n`, "utf8");
+      } catch (error) {
+        console.error(">>> [StartupDiag] Failed to append diagnostic:", error);
+      }
+    });
+  return startupDiagnosticsWriteChain;
+}
+
+function getWindowSnapshot(win) {
+  return {
+    title: win.getTitle(),
+    bounds: win.getBounds(),
+    visible: win.isVisible(),
+    minimized: win.isMinimized(),
+    focused: win.isFocused(),
+    alwaysOnTop: win.isAlwaysOnTop(),
+    destroyed: win.isDestroyed(),
+    url: win.webContents.getURL(),
+  };
+}
+
+function summarizeCapturedImage(image) {
+  const { width, height } = image.getSize();
+  const bitmap = image.toBitmap();
+  const pixelCount = width * height;
+  let nonTransparentPixelCount = 0;
+  let opaquePixelCount = 0;
+  let alphaTotal = 0;
+
+  for (let index = 3; index < bitmap.length; index += 4) {
+    const alpha = bitmap[index];
+    alphaTotal += alpha;
+    if (alpha > 0) {
+      nonTransparentPixelCount += 1;
+    }
+    if (alpha === 255) {
+      opaquePixelCount += 1;
+    }
+  }
+
+  return {
+    width,
+    height,
+    pixelCount,
+    nonTransparentPixelCount,
+    nonTransparentRatio: pixelCount === 0
+      ? 0
+      : Number((nonTransparentPixelCount / pixelCount).toFixed(4)),
+    opaquePixelCount,
+    averageAlpha: pixelCount === 0
+      ? 0
+      : Number((alphaTotal / pixelCount).toFixed(2)),
+  };
+}
+
+async function captureWindowStartupSurface(win, label, phase) {
+  if (!startupDiagnosticsEnabled || win.isDestroyed()) {
+    return;
+  }
+
+  try {
+    const image = await win.webContents.capturePage();
+    const capturePath = getStartupCapturePath(label, phase);
+    await writeFile(capturePath, image.toPNG());
+    await queueStartupDiagnostic("WindowDiag", `${label}:capture-${phase}`, {
+      path: capturePath,
+      summary: summarizeCapturedImage(image),
+    });
+  } catch (error) {
+    await queueStartupDiagnostic("WindowDiag", `${label}:capture-${phase}-failed`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function collectRendererStartupSnapshot(win, label, phase) {
+  if (!startupDiagnosticsEnabled || win.isDestroyed()) {
+    return;
+  }
+
+  try {
+    const snapshot = await win.webContents.executeJavaScript(
+      `(() => {
+        const root = document.getElementById("root");
+        const body = document.body;
+        const doc = document.documentElement;
+        const rootStyle = root ? window.getComputedStyle(root) : null;
+        const bodyStyle = body ? window.getComputedStyle(body) : null;
+        const docStyle = doc ? window.getComputedStyle(doc) : null;
+        const rect = root ? root.getBoundingClientRect() : null;
+
+        return {
+          href: window.location.href,
+          readyState: document.readyState,
+          visibilityState: document.visibilityState,
+          bodyChildElementCount: body?.childElementCount ?? 0,
+          rootChildElementCount: root?.childElementCount ?? 0,
+          bodyHtmlLength: body?.innerHTML?.length ?? 0,
+          rootHtmlLength: root?.innerHTML?.length ?? 0,
+          bodyTextLength: body?.innerText?.length ?? 0,
+          rootRect: rect
+            ? {
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+              }
+            : null,
+          docBackground: docStyle?.background ?? null,
+          bodyBackground: bodyStyle?.background ?? null,
+          rootBackground: rootStyle?.background ?? null,
+          bodyOpacity: bodyStyle?.opacity ?? null,
+          rootOpacity: rootStyle?.opacity ?? null,
+          bodyVisibility: bodyStyle?.visibility ?? null,
+          rootVisibility: rootStyle?.visibility ?? null,
+          activeElementTag: document.activeElement?.tagName ?? null,
+        };
+      })()`,
+      true,
+    );
+    await queueStartupDiagnostic("WindowDiag", `${label}:renderer-snapshot-${phase}`, snapshot);
+  } catch (error) {
+    await queueStartupDiagnostic("WindowDiag", `${label}:renderer-snapshot-${phase}-failed`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function collectWindowStartupArtifacts(win, label, phase) {
+  if (!startupDiagnosticsEnabled || win.isDestroyed()) {
+    return;
+  }
+
+  await new Promise((resolveDelay) => {
+    setTimeout(resolveDelay, WINDOW_STARTUP_CAPTURE_DELAY_MS);
+  });
+  await collectRendererStartupSnapshot(win, label, phase);
+  await captureWindowStartupSurface(win, label, phase);
+}
+
+function attachWindowStartupDiagnostics(win, label) {
+  if (!startupDiagnosticsEnabled) {
+    return;
+  }
+
+  win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    void queueStartupDiagnostic("RendererConsole", `${label}:console-message`, {
+      level,
+      message,
+      line,
+      sourceId,
+    });
+  });
+  win.webContents.once("dom-ready", () => {
+    void queueStartupDiagnostic("WindowDiag", `${label}:dom-ready`, getWindowSnapshot(win));
+  });
+  win.once("ready-to-show", () => {
+    void queueStartupDiagnostic("WindowDiag", `${label}:ready-to-show`, getWindowSnapshot(win));
+  });
+  win.once("show", () => {
+    void queueStartupDiagnostic("WindowDiag", `${label}:show`, getWindowSnapshot(win));
+  });
+  win.once("hide", () => {
+    void queueStartupDiagnostic("WindowDiag", `${label}:hide`, getWindowSnapshot(win));
+  });
+  win.webContents.once("did-finish-load", () => {
+    void queueStartupDiagnostic("WindowDiag", `${label}:did-finish-load`, getWindowSnapshot(win));
+  });
+  win.webContents.once(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL) => {
+      void queueStartupDiagnostic("WindowDiag", `${label}:did-fail-load`, {
+        errorCode,
+        errorDescription,
+        validatedURL,
+      });
+    },
+  );
+  win.webContents.on("render-process-gone", (_event, details) => {
+    void queueStartupDiagnostic("WindowDiag", `${label}:render-process-gone`, details);
+  });
+  win.on("unresponsive", () => {
+    void queueStartupDiagnostic("WindowDiag", `${label}:unresponsive`, getWindowSnapshot(win));
+  });
+  win.on("responsive", () => {
+    void queueStartupDiagnostic("WindowDiag", `${label}:responsive`, getWindowSnapshot(win));
+  });
+}
+
+function waitForInitialWindowReveal(win) {
+  return new Promise((resolveReveal) => {
+    let resolved = false;
+    let timeoutId = null;
+
+    const finish = () => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      win.removeListener("ready-to-show", finish);
+      win.webContents.removeListener("did-finish-load", finish);
+      win.webContents.removeListener("did-fail-load", finish);
+      resolveReveal(undefined);
+    };
+
+    timeoutId = setTimeout(finish, INITIAL_WINDOW_REVEAL_TIMEOUT_MS);
+    win.on("ready-to-show", finish);
+    win.webContents.on("did-finish-load", finish);
+    win.webContents.on("did-fail-load", finish);
+  });
+}
+
+function waitForRendererReady(win, label) {
+  return new Promise((resolveRendererReady) => {
+    let resolved = false;
+    const timeoutId = setTimeout(() => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      pendingRendererReadySignals.delete(win.webContents.id);
+      void queueStartupDiagnostic("WindowDiag", `${label}:renderer-ready-timeout`, {
+        timeoutMs: RENDERER_READY_TIMEOUT_MS,
+      });
+      resolveRendererReady(undefined);
+    }, RENDERER_READY_TIMEOUT_MS);
+
+    const finish = (payload) => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      clearTimeout(timeoutId);
+      pendingRendererReadySignals.delete(win.webContents.id);
+      void queueStartupDiagnostic("WindowDiag", `${label}:renderer-ready`, payload ?? getWindowSnapshot(win));
+      resolveRendererReady(undefined);
+    };
+
+    pendingRendererReadySignals.set(win.webContents.id, finish);
+
+    if (win.isDestroyed()) {
+      finish({
+        reason: "window-destroyed-before-renderer-ready",
+      });
+      return;
+    }
+
+    win.once("closed", () => {
+      finish({
+        reason: "window-closed-before-renderer-ready",
+      });
+    });
+  });
+}
+
+async function delayTransparentPackagedWindowReveal(label, transparentWindow) {
+  const revealDelayMs = getPackagedWindowRevealDelayMs({
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    transparentWindow,
+  });
+
+  if (revealDelayMs <= 0) {
+    return;
+  }
+
+  void queueStartupDiagnostic("WindowDiag", `${label}:reveal-delay`, {
+    delayMs: revealDelayMs,
+  });
+  await new Promise((resolveDelay) => {
+    setTimeout(resolveDelay, revealDelayMs);
+  });
+}
+
+type FlowSelectWindowAppearanceOptions = {
+  allowTransparency?: boolean;
+  currentTheme: string;
+  preferZeroAlphaTransparentBackground?: boolean;
+};
+
+type FlowSelectBrowserWindowCreationOptions = {
+  routePath: string;
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+  center?: boolean;
+  title?: string;
+  allowTransparency?: boolean;
+  frame?: boolean;
+  resizable?: boolean;
+  alwaysOnTop?: boolean;
+  skipTaskbar?: boolean;
+  parentLabel?: string;
+  preferZeroAlphaTransparentBackground?: boolean;
+};
+
+function shouldForceOpaqueSecondaryWindow(label: string): boolean {
+  return label === WINDOW_LABELS.settings
+    && process.platform === "win32"
+    && app.isPackaged;
+}
+
+function shouldForceOpaqueMainWindow(): boolean {
+  return process.platform === "win32" && app.isPackaged;
+}
+
+function resolveWindowAppearance({
+  allowTransparency = true,
+  currentTheme,
+  preferZeroAlphaTransparentBackground = false,
+}: FlowSelectWindowAppearanceOptions) {
+  const transparentWindow = allowTransparency && !forceOpaquePackagedWindow;
+  const backgroundColor = transparentWindow && process.platform === "win32" && app.isPackaged
+    ? resolvePackagedWindowsTransparentWindowBackground(
+      currentTheme,
+      preferZeroAlphaTransparentBackground,
+    )
+    : !transparentWindow && process.platform === "win32" && app.isPackaged
+      ? resolvePackagedWindowsOpaqueWindowBackground(currentTheme)
+      : "#00000000";
+
+  return {
+    transparentWindow,
+    backgroundColor,
+    useOpaquePackagedWindow: !transparentWindow && process.platform === "win32" && app.isPackaged,
+  };
+}
+
+async function createFlowSelectBrowserWindow(label: string, {
+  routePath,
+  width,
+  height,
+  x,
+  y,
+  center = false,
+  title,
+  allowTransparency = true,
+  frame = false,
+  resizable = false,
+  alwaysOnTop = true,
+  skipTaskbar = process.platform === "win32",
+  parentLabel,
+  preferZeroAlphaTransparentBackground = false,
+}: FlowSelectBrowserWindowCreationOptions) {
+  const preloadPath = join(__dirname, "preload.mjs");
+  const iconPath = getIconPath();
+  const currentTheme = await readCurrentTheme();
+  const {
+    transparentWindow,
+    backgroundColor,
+    useOpaquePackagedWindow,
+  } = resolveWindowAppearance({
+    allowTransparency,
+    currentTheme,
+    preferZeroAlphaTransparentBackground,
+  });
+
+  const browserWindow = new BrowserWindow({
+    width,
+    height,
+    x: typeof x === "number" ? Math.round(x) : undefined,
+    y: typeof y === "number" ? Math.round(y) : undefined,
+    center,
+    title,
+    transparent: transparentWindow,
+    backgroundColor,
+    frame,
+    resizable,
+    alwaysOnTop,
+    icon: iconPath ?? undefined,
+    skipTaskbar,
+    parent: parentLabel ? getWindow(parentLabel) ?? undefined : undefined,
+    roundedCorners: process.platform === "win32",
+    show: false,
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      sandbox: false,
+      nodeIntegration: false,
+    },
+  });
+
+  void queueStartupDiagnostic("WindowDiag", `${label}:create-options`, {
+    route: buildRendererRoute(routePath),
+    useOpaquePackagedWindow,
+    transparentWindow,
+    options: {
+      transparent: transparentWindow,
+      backgroundColor,
+      skipTaskbar,
+      show: false,
+      alwaysOnTop,
+      frame,
+      roundedCorners: process.platform === "win32",
+    },
+  });
+
+  registerWindow(label, browserWindow);
+  attachWindowStartupDiagnostics(browserWindow, label);
+
+  return {
+    browserWindow,
+    transparentWindow,
+  };
+}
+
+async function waitForWindowReadyToReveal(
+  win: BrowserWindow,
+  label: string,
+  transparentWindow: boolean,
+) {
+  const initialRevealReady = waitForInitialWindowReveal(win);
+  const rendererReady = waitForRendererReady(win, label);
+
+  await initialRevealReady;
+  await rendererReady;
+  await delayTransparentPackagedWindowReveal(label, transparentWindow);
+}
+
+function applyMainWindowVisibleZOrder(win: BrowserWindow, reason: string) {
+  if (win.isDestroyed()) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    const level = app.isPackaged && mainWindowUsesTransparentShell
+      ? "screen-saver"
+      : "floating";
+    win.setAlwaysOnTop(true, level);
+    if (app.isPackaged && mainWindowUsesTransparentShell) {
+      win.moveTop();
+    }
+    void queueStartupDiagnostic("WindowDiag", `main:z-order-${reason}`, {
+      level,
+      transparentShell: mainWindowUsesTransparentShell,
+      snapshot: getWindowSnapshot(win),
+    });
+    return;
+  }
+
+  win.setAlwaysOnTop(true);
+}
+
+function clampWindowBoundsValue(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.round(numeric);
+}
+
+function easeInOutCubic(progress: number) {
+  const clamped = Math.min(1, Math.max(0, progress));
+  if (clamped < 0.5) {
+    return 4 * (clamped ** 3);
+  }
+  return 1 - (((-2 * clamped) + 2) ** 3) / 2;
+}
+
+function stopWindowBoundsAnimation(win: BrowserWindow) {
+  const activeAnimation = activeWindowBoundsAnimations.get(win.id);
+  if (!activeAnimation) {
+    return;
+  }
+  activeAnimation.stop();
+  activeWindowBoundsAnimations.delete(win.id);
+}
+
+async function animateBrowserWindowBounds(
+  win: BrowserWindow,
+  targetBounds: { x: number; y: number; width: number; height: number },
+  {
+    durationMs = 280,
+  }: {
+    durationMs?: number;
+  } = {},
+) {
+  if (win.isDestroyed()) {
+    return;
+  }
+
+  stopWindowBoundsAnimation(win);
+
+  const from = win.getBounds();
+  const to = {
+    x: clampWindowBoundsValue(targetBounds.x, from.x),
+    y: clampWindowBoundsValue(targetBounds.y, from.y),
+    width: Math.max(1, clampWindowBoundsValue(targetBounds.width, from.width)),
+    height: Math.max(1, clampWindowBoundsValue(targetBounds.height, from.height)),
+  };
+  const effectiveDurationMs = Math.max(0, Number(durationMs) || 0);
+
+  if (
+    effectiveDurationMs === 0
+    || (
+      from.x === to.x
+      && from.y === to.y
+      && from.width === to.width
+      && from.height === to.height
+    )
+  ) {
+    win.setBounds(to, false);
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const startedAtMs = Date.now();
+    let frameTimer: NodeJS.Timeout | null = null;
+    let stopped = false;
+
+    const finish = () => {
+      if (frameTimer !== null) {
+        clearTimeout(frameTimer);
+        frameTimer = null;
+      }
+      if (activeWindowBoundsAnimations.get(win.id)?.stop === stop) {
+        activeWindowBoundsAnimations.delete(win.id);
+      }
+      if (!win.isDestroyed()) {
+        win.setBounds(to, false);
+      }
+      resolve();
+    };
+
+    const step = () => {
+      if (stopped) {
+        resolve();
+        return;
+      }
+      if (win.isDestroyed()) {
+        if (frameTimer !== null) {
+          clearTimeout(frameTimer);
+          frameTimer = null;
+        }
+        if (activeWindowBoundsAnimations.get(win.id)?.stop === stop) {
+          activeWindowBoundsAnimations.delete(win.id);
+        }
+        resolve();
+        return;
+      }
+
+      const elapsedMs = Date.now() - startedAtMs;
+      const progress = Math.min(1, elapsedMs / effectiveDurationMs);
+      const easedProgress = easeInOutCubic(progress);
+      win.setBounds({
+        x: Math.round(from.x + ((to.x - from.x) * easedProgress)),
+        y: Math.round(from.y + ((to.y - from.y) * easedProgress)),
+        width: Math.round(from.width + ((to.width - from.width) * easedProgress)),
+        height: Math.round(from.height + ((to.height - from.height) * easedProgress)),
+      }, false);
+
+      if (progress >= 1) {
+        finish();
+        return;
+      }
+
+      frameTimer = setTimeout(step, 1000 / 60);
+    };
+
+    const stop = () => {
+      stopped = true;
+      if (frameTimer !== null) {
+        clearTimeout(frameTimer);
+        frameTimer = null;
+      }
+      resolve();
+    };
+
+    activeWindowBoundsAnimations.set(win.id, { stop });
+    step();
+  });
 }
 
 function getDesktopNetworkSession() {
@@ -2916,99 +3554,139 @@ async function createMainWindow() {
     return existing;
   }
 
-  const preloadPath = join(__dirname, "preload.mjs");
-  const iconPath = getIconPath();
-  const mainWindow = new BrowserWindow({
+  const {
+    browserWindow: mainWindow,
+    transparentWindow,
+  } = await createFlowSelectBrowserWindow(WINDOW_LABELS.main, {
+    routePath: "/",
     width: 200,
     height: 200,
-    transparent: true,
+    title: app.getName(),
+    alwaysOnTop: true,
+    skipTaskbar: process.platform === "win32",
+    allowTransparency: !shouldForceOpaqueMainWindow(),
     frame: false,
     resizable: false,
-    alwaysOnTop: true,
-    icon: iconPath ?? undefined,
-    skipTaskbar: process.platform === "win32",
-    show: true,
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      sandbox: false,
-      nodeIntegration: false,
-    },
+    preferZeroAlphaTransparentBackground: true,
   });
-
-  registerWindow(WINDOW_LABELS.main, mainWindow);
+  mainWindowUsesTransparentShell = transparentWindow;
   mainWindow.on("close", (event) => {
     if (!app.isQuitting) {
       event.preventDefault();
       mainWindow.hide();
     }
   });
+  if (process.platform === "win32" && app.isPackaged && transparentWindow) {
+    mainWindow.on("focus", () => {
+      applyMainWindowVisibleZOrder(mainWindow, "focus");
+    });
+  }
 
   await mainWindow.loadURL(buildRendererRoute("/"));
+  await waitForWindowReadyToReveal(mainWindow, WINDOW_LABELS.main, transparentWindow);
+  void queueStartupDiagnostic("WindowDiag", "main:create-complete", getWindowSnapshot(mainWindow));
   return mainWindow;
 }
 
 async function showMainWindow() {
   const mainWindow = await createMainWindow();
+  const revealBounds = resolveMainWindowRevealBounds({
+    bounds: mainWindow.getBounds(),
+    displays: screen.getAllDisplays().map((display) => display.workArea),
+    fallbackDisplay: screen.getPrimaryDisplay().workArea,
+    forceCenter: process.platform === "win32" && app.isPackaged && !hasShownMainWindowOnce,
+  });
+
+  void queueStartupDiagnostic("WindowDiag", "main:show-request", {
+    revealBounds,
+    preShow: getWindowSnapshot(mainWindow),
+    transparentShell: mainWindowUsesTransparentShell,
+  });
+
+  mainWindow.setBounds(revealBounds);
+  void queueStartupDiagnostic("WindowDiag", "main:show-step", {
+    step: "before-show",
+    snapshot: getWindowSnapshot(mainWindow),
+  });
   mainWindow.show();
+  void queueStartupDiagnostic("WindowDiag", "main:show-step", {
+    step: "after-show",
+    snapshot: getWindowSnapshot(mainWindow),
+  });
   if (mainWindow.isMinimized()) {
+    void queueStartupDiagnostic("WindowDiag", "main:show-step", {
+      step: "before-restore",
+      snapshot: getWindowSnapshot(mainWindow),
+    });
     mainWindow.restore();
+    void queueStartupDiagnostic("WindowDiag", "main:show-step", {
+      step: "after-restore",
+      snapshot: getWindowSnapshot(mainWindow),
+    });
   }
+  void queueStartupDiagnostic("WindowDiag", "main:show-step", {
+    step: "before-focus",
+    snapshot: getWindowSnapshot(mainWindow),
+  });
   mainWindow.focus();
+  applyMainWindowVisibleZOrder(mainWindow, "show");
+  void queueStartupDiagnostic("WindowDiag", "main:show-step", {
+    step: "after-z-order",
+    snapshot: getWindowSnapshot(mainWindow),
+  });
+  hasShownMainWindowOnce = true;
+  void queueStartupDiagnostic("WindowDiag", "main:show-complete", getWindowSnapshot(mainWindow));
+  void collectWindowStartupArtifacts(mainWindow, WINDOW_LABELS.main, "show");
 }
 
-function showSecondaryWindow(win, options) {
+function showSecondaryWindow(label, win, options) {
   if (win.isDestroyed()) {
     return;
   }
 
-  win.show();
+  if (options.focus === false && typeof win.showInactive === "function") {
+    win.showInactive();
+  } else {
+    win.show();
+  }
   if (options.focus !== false) {
     win.focus();
   }
+  void collectWindowStartupArtifacts(win, label, "show");
 }
 
 async function openSecondaryWindow(label, options) {
   const existing = getWindow(label);
   if (existing && !existing.isDestroyed()) {
-    showSecondaryWindow(existing, options);
+    showSecondaryWindow(label, existing, options);
     return existing;
   }
 
-  const preloadPath = join(__dirname, "preload.mjs");
-  const iconPath = getIconPath();
-  const browserWindow = new BrowserWindow({
+  const routePath = secondaryWindowRoute(label);
+  const {
+    browserWindow,
+    transparentWindow,
+  } = await createFlowSelectBrowserWindow(label, {
+    routePath,
     width: options.width,
     height: options.height,
-    x: typeof options.x === "number" ? Math.round(options.x) : undefined,
-    y: typeof options.y === "number" ? Math.round(options.y) : undefined,
+    x: options.x,
+    y: options.y,
     center: options.center === true,
     title: options.title,
-    transparent: options.transparent !== false,
+    allowTransparency: !shouldForceOpaqueSecondaryWindow(label) && options.transparent !== false,
     frame: options.decorations === true,
     resizable: options.resizable === true,
     alwaysOnTop: options.alwaysOnTop !== false,
-    icon: iconPath ?? undefined,
     skipTaskbar: options.skipTaskbar ?? process.platform === "win32",
-    parent: options.parent === "main" ? getWindow(WINDOW_LABELS.main) ?? undefined : undefined,
-    show: false,
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      sandbox: false,
-      nodeIntegration: false,
-    },
-  });
-
-  registerWindow(label, browserWindow);
-  browserWindow.once("ready-to-show", () => {
-    showSecondaryWindow(browserWindow, options);
+    parentLabel: options.parent === "main" ? WINDOW_LABELS.main : undefined,
   });
   await browserWindow.loadURL(
-    buildRendererRoute(secondaryWindowRoute(label)),
+    buildRendererRoute(routePath),
   );
+  await waitForWindowReadyToReveal(browserWindow, label, transparentWindow);
   if (!browserWindow.isVisible()) {
-    showSecondaryWindow(browserWindow, options);
+    showSecondaryWindow(label, browserWindow, options);
   }
   return browserWindow;
 }
@@ -3131,7 +3809,7 @@ async function beginPickOutputFolderFromContextMenu() {
     emitAppEvent("output-path-changed", { path: nextOutputPath });
   } finally {
     if (wasAlwaysOnTop) {
-      mainWindow.setAlwaysOnTop(true);
+      applyMainWindowVisibleZOrder(mainWindow, "dialog-restore");
     }
     mainWindow.focus();
   }
@@ -3658,6 +4336,18 @@ function registerIpcHandlers() {
     return;
   });
 
+  ipcMain.handle("flowselect:current-window:renderer-ready", (event) => {
+    const resolveRendererReady = pendingRendererReadySignals.get(event.sender.id);
+    void queueStartupDiagnostic("WindowDiag", "ipc:renderer-ready", {
+      senderId: event.sender.id,
+      url: event.sender.getURL(),
+      matchedPendingWindow: Boolean(resolveRendererReady),
+    });
+    resolveRendererReady?.({
+      url: event.sender.getURL(),
+    });
+  });
+
   ipcMain.on("flowselect:current-window:set-position", (event, payload) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) {
@@ -3671,6 +4361,23 @@ function registerIpcHandlers() {
     }
 
     win.setPosition(Math.round(x), Math.round(y));
+  });
+
+  ipcMain.handle("flowselect:current-window:animate-bounds", async (event, request) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) {
+      throw new Error("Current window not found");
+    }
+
+    const currentBounds = win.getBounds();
+    await animateBrowserWindowBounds(win, {
+      x: request?.bounds?.x ?? currentBounds.x,
+      y: request?.bounds?.y ?? currentBounds.y,
+      width: request?.bounds?.width ?? currentBounds.width,
+      height: request?.bounds?.height ?? currentBounds.height,
+    }, {
+      durationMs: request?.options?.durationMs,
+    });
   });
 
   ipcMain.handle("flowselect:current-window:close", (event) => {
@@ -3800,8 +4507,39 @@ async function bootstrap() {
   registerIpcHandlers();
   registerWsServer();
   await ensureUserDataDirs();
-  await createMainWindow();
+  if (startupDiagnosticsEnabled) {
+    await writeFile(getStartupDiagnosticsPath(), "", "utf8");
+    await queueStartupDiagnostic("StartupDiag", "bootstrap-environment", {
+      appVersion: app.getVersion(),
+      appName: app.getName(),
+      platform: process.platform,
+      arch: process.arch,
+      isPackaged: app.isPackaged,
+      execPath: process.execPath,
+      argv: process.argv.slice(1),
+      forceOpaquePackagedWindow,
+      userDataDir: getUserDataDir(),
+      logsDir: getLogsDir(),
+      configPath: getConfigPath(),
+    });
+  }
   await updateTrayMenu();
+  await showMainWindow();
+  if (startupDiagnosticsEnabled) {
+    setTimeout(() => {
+      void openSecondaryWindow(WINDOW_LABELS.settings, {
+        title: "Settings",
+        width: SETTINGS_WINDOW_WIDTH,
+        height: SETTINGS_WINDOW_HEIGHT,
+        alwaysOnTop: true,
+        focus: true,
+      }).catch((error) => {
+        void queueStartupDiagnostic("WindowDiag", "settings:diagnostic-open-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }, STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS);
+  }
   await registerShortcutFromConfig();
 }
 

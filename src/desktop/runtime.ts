@@ -66,6 +66,12 @@ export const desktopCurrentWindow: FlowSelectCurrentWindowApi = {
   setPosition(position) {
     resolveElectronBridge().currentWindow.setPosition(position);
   },
+  async animateBounds(bounds, options) {
+    await resolveElectronBridge().currentWindow.animateBounds(bounds, options);
+  },
+  async rendererReady() {
+    await resolveElectronBridge().currentWindow.rendererReady();
+  },
   async close() {
     await resolveElectronBridge().currentWindow.close();
   },

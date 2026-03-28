@@ -4,53 +4,70 @@ import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
 import SettingsPage from "./pages/SettingsPage";
 import ContextMenuPage from "./pages/ContextMenuPage";
-import { ThemeProvider, type Theme } from "./contexts/ThemeContext";
-import { desktopCommands } from "./desktop/runtime";
+import { ThemeProvider } from "./contexts/ThemeContext";
+import { desktopCurrentWindow } from "./desktop/runtime";
 import { I18nRuntimeBridge } from "./i18n/I18nRuntimeBridge";
 import { initializeI18n } from "./i18n";
-import { resolveAppLanguage, resolveAppLanguageFromConfigString } from "./i18n/language";
+import { resolveAppLanguage } from "./i18n/language";
 import "./index.css";
 
-const DEFAULT_THEME: Theme = "black";
+const RENDERER_READY_FALLBACK_DELAY_MS = 180;
 const UiLabPage = import.meta.env.DEV
   ? React.lazy(() => import("./pages/UiLabPage"))
   : null;
 
-const getThemeFromConfigString = (configStr: string): Theme => {
-  try {
-    const cfg = JSON.parse(configStr) as { theme?: unknown };
-    return cfg.theme === "white" || cfg.theme === "black" ? cfg.theme : DEFAULT_THEME;
-  } catch {
-    return DEFAULT_THEME;
+const scheduleRendererReadySignal = () => {
+  if (!window.flowselect) {
+    return;
   }
-};
 
-const resolveBootstrapState = async (): Promise<{
-  initialTheme: Theme;
-  initialLanguage: "en" | "zh-CN";
-}> => {
-  try {
-    const configStr = await desktopCommands.invoke<string>("get_config");
-    return {
-      initialTheme: getThemeFromConfigString(configStr),
-      initialLanguage: resolveAppLanguageFromConfigString(configStr, navigator.language),
-    };
-  } catch (err) {
-    console.error("Failed to resolve bootstrap config:", err);
-    return {
-      initialTheme: DEFAULT_THEME,
-      initialLanguage: resolveAppLanguage(undefined, navigator.language),
-    };
+  let signaled = false;
+  let fallbackTimerId: number | null = null;
+  let firstFrameId: number | null = null;
+  let secondFrameId: number | null = null;
+
+  const signalReady = () => {
+    if (signaled) {
+      return;
+    }
+
+    signaled = true;
+    if (fallbackTimerId !== null) {
+      window.clearTimeout(fallbackTimerId);
+    }
+    if (firstFrameId !== null) {
+      window.cancelAnimationFrame(firstFrameId);
+    }
+    if (secondFrameId !== null) {
+      window.cancelAnimationFrame(secondFrameId);
+    }
+
+    void desktopCurrentWindow.rendererReady().catch((err) => {
+      console.error("Failed to signal renderer ready:", err);
+    });
+  };
+
+  fallbackTimerId = window.setTimeout(signalReady, RENDERER_READY_FALLBACK_DELAY_MS);
+
+  if (typeof window.requestAnimationFrame === "function") {
+    firstFrameId = window.requestAnimationFrame(() => {
+      firstFrameId = null;
+      secondFrameId = window.requestAnimationFrame(() => {
+        secondFrameId = null;
+        signalReady();
+      });
+    });
   }
 };
 
 const bootstrap = async () => {
-  const { initialTheme, initialLanguage } = await resolveBootstrapState();
-  await initializeI18n(initialLanguage);
   const expectsElectronBridge = (
     window.location.protocol === "file:"
     || navigator.userAgent.toLowerCase().includes("electron")
   );
+  const fallbackLanguage = resolveAppLanguage(undefined, navigator.language);
+
+  await initializeI18n(fallbackLanguage);
 
   if (expectsElectronBridge && !window.flowselect) {
     console.error("FlowSelect Electron bridge is unavailable in the renderer process.");
@@ -87,7 +104,7 @@ const bootstrap = async () => {
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <ThemeProvider initialTheme={initialTheme}>
+      <ThemeProvider>
         <Router>
           <I18nRuntimeBridge />
           <Routes>
@@ -109,6 +126,8 @@ const bootstrap = async () => {
       </ThemeProvider>
     </React.StrictMode>,
   );
+
+  scheduleRendererReadySignal();
 };
 
 void bootstrap();

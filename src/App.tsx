@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, type CSSProperties } from "re
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { CatIcon } from "./components/CatIcon";
 import { NeonIconButton } from "./components/ui";
 import {
   COMPACT_EASE,
@@ -49,6 +50,10 @@ import {
 } from "./utils/folderDrop";
 import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImageDrag";
 import { resolveSecondaryWindowPosition } from "./utils/secondaryWindowPlacement";
+import {
+  getStartupAutoMinimizeGraceMs,
+  shouldStartExpandedOnLaunch,
+} from "./utils/startupWindowState";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
@@ -666,40 +671,19 @@ const getVideoTranscodeFormatLabel = (task: VideoTranscodeTaskPayload): string |
   return `${task.sourceFormat.toUpperCase()} -> ${task.targetFormat.toUpperCase()}`;
 };
 
-// Cat icon for minimized state
-const CatIcon = ({ size = 40, glow = true }: { size?: number; glow?: boolean }) => (
-  <svg
-    viewBox="0 0 24 24"
-    width={size}
-    height={size}
-    style={{ shapeRendering: 'geometricPrecision' }}
-  >
-    <defs>
-      <linearGradient id="catGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stopColor="#93c5fd" />
-        <stop offset="100%" stopColor="#3b82f6" />
-      </linearGradient>
-      <filter id="catGlow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="1" result="blur" />
-        <feMerge>
-          <feMergeNode in="blur" />
-          <feMergeNode in="SourceGraphic" />
-        </feMerge>
-      </filter>
-    </defs>
-    <path
-      fill="url(#catGradient)"
-      filter={glow ? "url(#catGlow)" : undefined}
-      d="M11.75 6.406c-1.48 0-1.628.157-2.394.157C8.718 6.563 6.802 5 5.845 5S3.77 5.563 3.77 7.188v1.875c.002.492.18 2 .88 1.597c-.827.978-.91 2.119-.899 3.223c-.223.064-.45.137-.671.212c-.684.234-1.41.532-1.737.744a.75.75 0 0 0 .814 1.26c.156-.101.721-.35 1.408-.585l.228-.075c.046.433.161.83.332 1.19l-.024.013c-.41.216-.79.465-1.032.623l-.113.074a.75.75 0 1 0 .814 1.26l.131-.086c.245-.16.559-.365.901-.545q.12-.064.231-.116C6.763 19.475 9.87 20 11.75 20s4.987-.525 6.717-2.148q.11.052.231.116c.342.18.656.385.901.545l.131.086a.75.75 0 0 0 .814-1.26l-.113-.074a13 13 0 0 0-1.032-.623l-.024-.013c.171-.36.286-.757.332-1.19l.228.075c.687.235 1.252.484 1.409.585a.75.75 0 0 0 .813-1.26c-.327-.212-1.053-.51-1.736-.744a16 16 0 0 0-.672-.213c.012-1.104-.072-2.244-.9-3.222c.7.403.88-1.105.881-1.598V7.188C19.73 5.563 18.613 5 17.655 5c-.957 0-2.873 1.563-3.51 1.563c-.767 0-.915-.157-2.395-.157m-.675 9.194c.202-.069.441-.1.675-.1s.473.031.676.1c.1.034.22.088.328.174a.62.62 0 0 1 .246.476c0 .23-.139.39-.246.476s-.229.14-.328.174c-.203.069-.442.1-.676.1s-.473-.031-.675-.1a1.1 1.1 0 0 1-.329-.174a.62.62 0 0 1-.246-.476c0-.23.139-.39.246-.476s.23-.14.329-.174m2.845-3.1c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812m-5.96 0c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812"
-    />
-  </svg>
-);
-
 function App() {
   const { t } = useTranslation("desktop");
   const { colors } = useTheme();
   const shouldReduceMotion = useReducedMotion();
   const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
+  const startupWindowEnvironment = {
+    protocol: window.location.protocol,
+    userAgent: navigator.userAgent,
+  };
+  const startupAutoMinimizeGraceMs =
+    getStartupAutoMinimizeGraceMs(startupWindowEnvironment);
+  const startsExpandedOnLaunch =
+    shouldStartExpandedOnLaunch(startupWindowEnvironment);
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadCancelled, setDownloadCancelled] = useState(false);
@@ -729,8 +713,11 @@ function App() {
   const [showRuntimeSuccessIndicator, setShowRuntimeSuccessIndicator] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [isMinimized, setIsMinimized] = useState(true);
+  const [isMinimized, setIsMinimized] = useState(!startsExpandedOnLaunch);
   const [windowResized, setWindowResized] = useState(false);
+  const [panelTransitionMode, setPanelTransitionMode] = useState<"animated" | "instant">("animated");
+  const [isExpandingFromMinimized, setIsExpandingFromMinimized] = useState(false);
+  const [expandMorphAnimationKey, setExpandMorphAnimationKey] = useState(0);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
   const [isInitialMount, setIsInitialMount] = useState(true);
   const [isResetCounterActive, setIsResetCounterActive] = useState(false);
@@ -743,6 +730,8 @@ function App() {
   const runtimeRetryFeedbackTimerRef = useRef<number | null>(null);
   const runtimeSuccessTimerRef = useRef<number | null>(null);
   const runtimeBootstrapAfterVisibleTimerRef = useRef<number | null>(null);
+  const startupAutoMinimizeReleaseTimerRef = useRef<number | null>(null);
+  const panelTransitionModeResetFrameRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
   const isDraggingRef = useRef(false);
   const cancellingTraceIdsRef = useRef<Set<string>>(new Set());
@@ -761,10 +750,17 @@ function App() {
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
   const previousRuntimeGateBusyRef = useRef(false);
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
+  const startupAutoMinimizeUnlockedRef = useRef(startupAutoMinimizeGraceMs === 0);
 
   // Window size constants
   const FULL_SIZE = 200;
   const ICON_SIZE = 80;
+  const MINIMIZED_SHELL_SIZE = 72;
+  const MINIMIZED_SHELL_SCALE = MINIMIZED_SHELL_SIZE / FULL_SIZE;
+  const MINIMIZED_ICON_SIZE = 42;
+  const MINIMIZED_ICON_BASE_SIZE = MINIMIZED_ICON_SIZE / MINIMIZED_SHELL_SCALE;
+  const MINIMIZED_SHELL_INSET = Math.round((ICON_SIZE - MINIMIZED_SHELL_SIZE) / 2);
+  const EXPAND_WINDOW_BOUNDS_DURATION_MS = shouldReduceMotion ? 140 : 240;
   const EDGE_GLOW_TRIGGER_DISTANCE = 126;
   const EDGE_GLOW_RADIUS = 248;
   const EDGE_GLOW_BORDER_WIDTH = 2.2;
@@ -854,6 +850,16 @@ function App() {
     runtimeGateBusyRef.current = runtimeGateIsBusy;
   }, [runtimeGateIsBusy]);
 
+  const restoreAnimatedPanelTransitions = useCallback(() => {
+    if (panelTransitionModeResetFrameRef.current !== null) {
+      cancelAnimationFrame(panelTransitionModeResetFrameRef.current);
+    }
+    panelTransitionModeResetFrameRef.current = requestAnimationFrame(() => {
+      panelTransitionModeResetFrameRef.current = null;
+      setPanelTransitionMode("animated");
+    });
+  }, []);
+
   const showQueueNotice = useCallback((message: string) => {
     setQueueNoticeMessage(message);
     if (queueNoticeTimerRef.current !== null) {
@@ -938,6 +944,27 @@ function App() {
     }
   }, []);
 
+  const armIdleTimer = useCallback(() => {
+    if (!startupAutoMinimizeUnlockedRef.current) {
+      return;
+    }
+
+    idleTimerRef.current = window.setTimeout(() => {
+      if (
+        ongoingTaskCountRef.current > 0
+        || runtimeGateBusyRef.current
+        || isDraggingRef.current
+        || isPanelHoveredRef.current
+        || isContextMenuOpenRef.current
+        || !startupAutoMinimizeUnlockedRef.current
+      ) {
+        return;
+      }
+      setIsMinimized(true);
+      setShowEdgeGlow(false);
+    }, 3000);
+  }, []);
+
   const scheduleIdleAfterTaskSettlement = useCallback((delayMs = 5000) => {
     if (queueIdleDelayTimerRef.current !== null) {
       clearTimeout(queueIdleDelayTimerRef.current);
@@ -955,22 +982,10 @@ function App() {
         && !isPanelHoveredRef.current
         && !isContextMenuOpenRef.current
       ) {
-        idleTimerRef.current = window.setTimeout(() => {
-          if (
-            ongoingTaskCountRef.current > 0
-            || runtimeGateBusyRef.current
-            || isDraggingRef.current
-            || isPanelHoveredRef.current
-            || isContextMenuOpenRef.current
-          ) {
-            return;
-          }
-          setIsMinimized(true);
-          setShowEdgeGlow(false);
-        }, 3000);
+        armIdleTimer();
       }
     }, delayMs);
-  }, []);
+  }, [armIdleTimer]);
 
   const closeContextMenuWindow = useCallback(async () => {
     if (await desktopWindows.has("context-menu")) {
@@ -979,8 +994,19 @@ function App() {
     updateContextMenuOpen(false);
   }, [updateContextMenuOpen]);
 
+  const finishExpandMorph = useCallback(() => {
+    setPanelTransitionMode("instant");
+    setWindowResized(false);
+    setIsMinimized(false);
+    setIsExpandingFromMinimized(false);
+    restoreAnimatedPanelTransitions();
+  }, [restoreAnimatedPanelTransitions]);
+
   // Expand window from icon mode
   const expandWindow = useCallback(async () => {
+    if (isExpandingFromMinimized) {
+      return;
+    }
     if (isMacOS || !windowResized) {
       setWindowResized(false);
       setIsMinimized(false);
@@ -988,20 +1014,27 @@ function App() {
     }
 
     try {
-      // Expand window first, then animate
-      const window = desktopCurrentWindow;
-      const pos = await window.outerPosition();
-      await Promise.all([
-        desktopCommands.invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
-        desktopCommands.invoke('set_window_position', { x: pos.x, y: pos.y }),
-      ]);
-      setWindowResized(false);
-      setIsMinimized(false);
+      const currentWindow = desktopCurrentWindow;
+      const pos = await currentWindow.outerPosition();
+      setExpandMorphAnimationKey(Date.now());
+      setPanelTransitionMode("instant");
+      setIsExpandingFromMinimized(true);
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+      await currentWindow.animateBounds({
+        x: pos.x,
+        y: pos.y,
+        width: FULL_SIZE,
+        height: FULL_SIZE,
+      }, {
+        durationMs: 0,
+      });
     } catch (err) {
       console.error('Failed to expand window:', err);
-      setIsMinimized(false);
+      finishExpandMorph();
     }
-  }, [isMacOS, windowResized]);
+  }, [FULL_SIZE, finishExpandMorph, isExpandingFromMinimized, isMacOS, windowResized]);
 
   useEffect(() => {
     if (!hasOngoingTask) {
@@ -1023,14 +1056,16 @@ function App() {
         return;
       }
       try {
-        // Shrink window - content is already at top-left due to transformOrigin
-        setWindowResized(true);
+        // Shrink the native window only after the visual minimize motion settles.
         const window = desktopCurrentWindow;
         const pos = await window.outerPosition();
         await Promise.all([
           desktopCommands.invoke('set_window_size', { width: ICON_SIZE, height: ICON_SIZE }),
           desktopCommands.invoke('set_window_position', { x: pos.x, y: pos.y }),
         ]);
+        setPanelTransitionMode("instant");
+        setWindowResized(true);
+        restoreAnimatedPanelTransitions();
       } catch (err) {
         console.error('Failed to shrink window:', err);
       }
@@ -1040,7 +1075,55 @@ function App() {
   const shouldShowEdgeGlow =
     isPanelHovered && !isHovering && !primaryTask && !isMinimized && showEdgeGlow;
   const shouldShowDragGlow = isHovering && !primaryTask && !isMinimized;
-  const panelRadius = isMinimized ? 100 : 16;
+  const isExpandMorphVisible = isExpandingFromMinimized && windowResized && !isMacOS;
+  const isNativeSizedMinimizedShell = isMinimized && windowResized && !isMacOS && !isExpandMorphVisible;
+  const panelRenderSize = isExpandMorphVisible
+    ? FULL_SIZE
+    : isNativeSizedMinimizedShell
+      ? MINIMIZED_SHELL_SIZE
+      : FULL_SIZE;
+  const minimizedPanelOffset = isExpandMorphVisible
+    ? 0
+    : isMinimized && !isMacOS
+      ? MINIMIZED_SHELL_INSET
+      : 0;
+  const minimizedPanelScale = isMacOS ? 0.3 : MINIMIZED_SHELL_SCALE;
+  const minimizedIconSize = isMacOS ? 120 : MINIMIZED_ICON_BASE_SIZE;
+  const minimizedIconFrameSize = minimizedIconSize;
+  const minimizedIconWrapperScale = isMacOS
+    ? 1
+    : isNativeSizedMinimizedShell
+      ? MINIMIZED_SHELL_SCALE
+      : 1;
+  const shouldUseInstantPanelTransition = panelTransitionMode === "instant";
+  const minimizedIconAnimate = shouldReduceMotion
+    ? (isMinimized
+        ? { opacity: 1, scale: 1 }
+        : { opacity: 0, scale: 1 })
+    : (isMinimized
+        ? { scale: 1, opacity: 1 }
+        : { scale: [1, 1.015, 0.9], opacity: [1, 1, 0] });
+  const minimizedIconTransition = shouldReduceMotion
+    ? { duration: 0.12 }
+    : isMinimized
+      ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const }
+      : { duration: 0.24, times: [0, 0.58, 1], ease: [0.22, 1, 0.36, 1] as const };
+  const panelScale = isExpandMorphVisible
+    ? 1
+    : isMinimized
+      ? (isNativeSizedMinimizedShell ? 1 : minimizedPanelScale)
+      : 1;
+  const panelRadius = isExpandMorphVisible ? 16 : isMinimized ? 100 : 16;
+  const expandMorphDurationSeconds = EXPAND_WINDOW_BOUNDS_DURATION_MS / 1000;
+  const expandMorphShellTransition = shouldReduceMotion
+    ? { duration: 0.14 }
+    : { duration: expandMorphDurationSeconds, ease: [0.22, 1, 0.36, 1] as const };
+  const expandMorphIconTransition = shouldReduceMotion
+    ? { duration: 0.14 }
+    : { duration: 0.22, times: [0, 0.62, 1], ease: [0.22, 1, 0.36, 1] as const };
+  const expandMorphIconAnimate = shouldReduceMotion
+    ? { scale: 0.18 }
+    : { scale: [1, 0.72, 0.42, 0.18] };
 
   const getEdgeGlowOpacity = () => {
     const distanceToEdge = Math.min(
@@ -1373,6 +1456,12 @@ function App() {
       if (runtimeBootstrapAfterVisibleTimerRef.current !== null) {
         clearTimeout(runtimeBootstrapAfterVisibleTimerRef.current);
       }
+      if (startupAutoMinimizeReleaseTimerRef.current !== null) {
+        clearTimeout(startupAutoMinimizeReleaseTimerRef.current);
+      }
+      if (panelTransitionModeResetFrameRef.current !== null) {
+        cancelAnimationFrame(panelTransitionModeResetFrameRef.current);
+      }
     };
   }, []);
 
@@ -1594,11 +1683,7 @@ function App() {
         idleTimerRef.current = null;
       }
       if (!hasBlockingForegroundWork && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
-        idleTimerRef.current = window.setTimeout(() => {
-          if (runtimeGateBusyRef.current || isDraggingRef.current || isPanelHoveredRef.current || isContextMenuOpenRef.current) return;
-          setIsMinimized(true);
-          setShowEdgeGlow(false);
-        }, 3000);
+        armIdleTimer();
       }
 
       // 聚焦以接收粘贴事件
@@ -1608,7 +1693,7 @@ function App() {
       }, 100);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [windowResized, hasBlockingForegroundWork, isMacOS]);
+  }, [armIdleTimer, windowResized, hasBlockingForegroundWork, isMacOS]);
 
   // Check app update availability on startup
   useEffect(() => {
@@ -1923,18 +2008,30 @@ function App() {
       || isContextMenuOpenRef.current
     ) return;
 
-    idleTimerRef.current = window.setTimeout(() => {
-      if (
-        ongoingTaskCountRef.current > 0
-        || runtimeGateBusyRef.current
-        || isDraggingRef.current
-        || isPanelHoveredRef.current
-        || isContextMenuOpenRef.current
-      ) return;
-      setIsMinimized(true);
-      setShowEdgeGlow(false); // 缩小时立即隐藏边缘光
-  }, 3000);
-  }, [expandWindow, isMinimized]);
+    armIdleTimer();
+  }, [armIdleTimer, expandWindow, isMinimized]);
+
+  useEffect(() => {
+    if (startupAutoMinimizeGraceMs <= 0) {
+      startupAutoMinimizeUnlockedRef.current = true;
+      return;
+    }
+
+    startupAutoMinimizeUnlockedRef.current = false;
+    startupAutoMinimizeReleaseTimerRef.current = window.setTimeout(() => {
+      startupAutoMinimizeReleaseTimerRef.current = null;
+      startupAutoMinimizeUnlockedRef.current = true;
+      resetIdleTimer({ expandIfMinimized: false });
+    }, startupAutoMinimizeGraceMs);
+
+    return () => {
+      if (startupAutoMinimizeReleaseTimerRef.current !== null) {
+        clearTimeout(startupAutoMinimizeReleaseTimerRef.current);
+        startupAutoMinimizeReleaseTimerRef.current = null;
+      }
+      startupAutoMinimizeUnlockedRef.current = startupAutoMinimizeGraceMs === 0;
+    };
+  }, [resetIdleTimer, startupAutoMinimizeGraceMs]);
 
   useEffect(() => {
     const wasBusy = previousRuntimeGateBusyRef.current;
@@ -3271,63 +3368,96 @@ function App() {
       onContextMenu={handleContextMenu}
       initial={false}
       animate={{
-        scale: isInitialMount ? 0.82 : (isMinimized ? 0.3 : 1),
-        borderRadius: isMinimized ? 100 : 16,
+        scale: isInitialMount ? 0.82 : panelScale,
+        borderRadius: panelRadius,
+        x: minimizedPanelOffset,
+        y: minimizedPanelOffset,
       }}
       transition={{
         scale: isInitialMount
           ? { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
-          : { type: 'spring', stiffness: 400, damping: 30 },
+          : shouldUseInstantPanelTransition
+            ? { duration: 0 }
+            : { type: 'spring', stiffness: 400, damping: 30 },
         borderRadius: isInitialMount
           ? { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
+          : shouldUseInstantPanelTransition
+            ? { duration: 0 }
+            : { type: 'spring', stiffness: 400, damping: 30 },
+        x: shouldUseInstantPanelTransition
+          ? { duration: 0 }
+          : { type: 'spring', stiffness: 400, damping: 30 },
+        y: shouldUseInstantPanelTransition
+          ? { duration: 0 }
           : { type: 'spring', stiffness: 400, damping: 30 },
       }}
       onAnimationComplete={handleAnimationComplete}
       style={{
-        width: FULL_SIZE,
-        height: FULL_SIZE,
+        width: panelRenderSize,
+        height: panelRenderSize,
         transformOrigin: 'top left',
-        position: 'relative',
+        position: 'absolute',
+        top: 0,
+        left: 0,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
         gap: 8,
         outline: 'none',
-        ...getPanelShellStyle(colors, {
-          radius: panelRadius,
-          boxShadow: containerBoxShadow,
-        }),
-        overflow: 'hidden',
+        ...(isExpandingFromMinimized
+          ? {
+              background: "transparent",
+              boxShadow: "none",
+            }
+          : getPanelShellStyle(colors, {
+              radius: panelRadius,
+              boxShadow: containerBoxShadow,
+            })),
+        overflow: isExpandMorphVisible ? 'visible' : 'hidden',
         willChange: 'transform',
       }}
     >
-      {/* Edge glow layer - follows mouse */}
-      <AnimatePresence>
-        {shouldShowEdgeGlow && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: edgeGlowOpacity }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.08, ease: 'linear' }}
-            style={getEdgeGlowStyle()}
-          />
-        )}
-      </AnimatePresence>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: 8,
+          opacity: isExpandingFromMinimized ? 0 : 1,
+          visibility: isExpandingFromMinimized ? "hidden" : "visible",
+          pointerEvents: isExpandingFromMinimized ? "none" : "auto",
+        }}
+      >
+        {/* Edge glow layer - follows mouse */}
+        <AnimatePresence>
+          {shouldShowEdgeGlow && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: edgeGlowOpacity }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.08, ease: 'linear' }}
+              style={getEdgeGlowStyle()}
+            />
+          )}
+        </AnimatePresence>
 
-      <AnimatePresence>
-        {shouldShowDragGlow && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.985 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.99 }}
-            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-            style={getDragGlowStyle()}
-          />
-        )}
-      </AnimatePresence>
+        <AnimatePresence>
+          {shouldShowDragGlow && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.985 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.99 }}
+              transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+              style={getDragGlowStyle()}
+            />
+          )}
+        </AnimatePresence>
 
-      {showVideoTaskBadge ? (
+        {showVideoTaskBadge ? (
         <>
           <button
             ref={queueBadgeButtonRef}
@@ -3891,10 +4021,10 @@ function App() {
             ) : null}
           </AnimatePresence>
         </>
-      ) : null}
+        ) : null}
 
-      {/* Close button - top right circle */}
-      <NeonIconButton
+        {/* Close button - top right circle */}
+        <NeonIconButton
         onClick={async () => {
           setShowEdgeGlow(false);
           await closeContextMenuWindow().catch(() => undefined);
@@ -3928,10 +4058,10 @@ function App() {
             pointerEvents: 'none',
           }}
         />
-      </NeonIconButton>
+        </NeonIconButton>
 
-      {/* 中央图标 */}
-      <AnimatePresence mode="wait">
+        {/* 中央图标 */}
+        <AnimatePresence mode="sync">
         {primaryTask ? (
           <motion.div
             key="progress"
@@ -4116,20 +4246,43 @@ function App() {
               </span>
             ) : null}
           </motion.div>
-        ) : isMinimized ? (
+        ) : (isMinimized && !isExpandingFromMinimized) ? (
           <motion.div
             key="minimized"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: isMacOS ? 1 : 3.33, opacity: 1 }}
+            initial={{ scale: 0.82, opacity: 0 }}
+            animate={minimizedIconAnimate}
             exit={{ scale: 0, opacity: 0 }}
+            transition={minimizedIconTransition}
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+              zIndex: 4,
+            }}
           >
-            <CatIcon size={isMacOS ? 120 : 40} glow={!isMacOS} />
+            <div
+              style={{
+                width: minimizedIconFrameSize,
+                height: minimizedIconFrameSize,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transform: `scale(${minimizedIconWrapperScale})`,
+                transformOrigin: "center center",
+                willChange: "transform",
+              }}
+            >
+              <CatIcon size={minimizedIconSize} glow={!isMacOS} />
+            </div>
           </motion.div>
         ) : null}
-      </AnimatePresence>
+        </AnimatePresence>
 
-      <AnimatePresence>
-        {shouldShowRuntimeIndicator ? (
+        <AnimatePresence>
+          {shouldShowRuntimeIndicator ? (
           <motion.div
             initial={shouldReduceMotion
               ? { opacity: 0 }
@@ -4396,11 +4549,11 @@ function App() {
               </motion.button>
             )}
           </motion.div>
-        ) : null}
-      </AnimatePresence>
+          ) : null}
+        </AnimatePresence>
 
-      {/* App update indicator */}
-      {shouldShowAppUpdateIndicator && appUpdateInfo ? (
+        {/* App update indicator */}
+        {shouldShowAppUpdateIndicator && appUpdateInfo ? (
         <button
           onClick={() => {
             void handleAppUpdateInstall();
@@ -4458,11 +4611,11 @@ function App() {
             />
           )}
         </button>
-      ) : null}
+        ) : null}
 
-      {/* Rename counter reset button - bottom left solid rectangle */}
-      {renameMediaOnDownload && (
-        <NeonIconButton
+        {/* Rename counter reset button - bottom left solid rectangle */}
+        {renameMediaOnDownload && (
+          <NeonIconButton
           onClick={handleResetRenameCounter}
           onMouseDown={(e) => e.stopPropagation()}
           visible={shouldShowMiniControls}
@@ -4488,11 +4641,11 @@ function App() {
               style={{ transition: `fill 0.18s ${COMPACT_EASE}` }}
             />
           </svg>
-        </NeonIconButton>
-      )}
+          </NeonIconButton>
+        )}
 
-      {/* Settings button - bottom right rectangle */}
-      <NeonIconButton
+        {/* Settings button - bottom right rectangle */}
+        <NeonIconButton
         onClick={openSettings}
         onMouseDown={(e) => e.stopPropagation()}
         visible={shouldShowMiniControls}
@@ -4519,7 +4672,63 @@ function App() {
             style={{ transition: `stroke 0.18s ${COMPACT_EASE}` }}
           />
         </svg>
-      </NeonIconButton>
+        </NeonIconButton>
+      </div>
+      {isExpandMorphVisible ? (
+        <motion.div
+          key={expandMorphAnimationKey}
+          initial={{
+            scale: MINIMIZED_SHELL_SCALE,
+            x: MINIMIZED_SHELL_INSET,
+            y: MINIMIZED_SHELL_INSET,
+            borderRadius: 100,
+          }}
+          animate={{
+            scale: 1,
+            x: 0,
+            y: 0,
+            borderRadius: 16,
+          }}
+          transition={expandMorphShellTransition}
+          onAnimationComplete={finishExpandMorph}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: FULL_SIZE,
+            height: FULL_SIZE,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+            pointerEvents: "none",
+            transformOrigin: "0px 0px",
+            zIndex: 12,
+            willChange: "transform, border-radius",
+            ...getPanelShellStyle(colors, {
+              radius: 16,
+              boxShadow: containerBoxShadow,
+            }),
+          }}
+        >
+          <motion.div
+            initial={{ scale: 1 }}
+            animate={expandMorphIconAnimate}
+            transition={expandMorphIconTransition}
+            style={{
+              width: MINIMIZED_ICON_BASE_SIZE,
+              height: MINIMIZED_ICON_BASE_SIZE,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transformOrigin: "center center",
+              willChange: "transform",
+            }}
+          >
+            <CatIcon size={MINIMIZED_ICON_BASE_SIZE} glow />
+          </motion.div>
+        </motion.div>
+      ) : null}
 
     </motion.div>
   );

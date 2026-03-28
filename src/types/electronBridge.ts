@@ -1,6 +1,10 @@
 import type { AppUpdateInfo } from "./appUpdate";
 
-export type FlowSelectWindowLabel = "main" | "settings" | "context-menu" | "ui-lab";
+export type FlowSelectWindowLabel =
+  | "main"
+  | "settings"
+  | "context-menu"
+  | "ui-lab";
 
 // These command names intentionally preserve the stable renderer command vocabulary
 // while the transport stays fully Electron-owned.
@@ -83,6 +87,8 @@ export type FlowSelectSize = {
   height: number;
 };
 
+export type FlowSelectBounds = FlowSelectPoint & FlowSelectSize;
+
 export type FlowSelectDisplay = {
   position: FlowSelectPoint;
   size: FlowSelectSize;
@@ -150,6 +156,8 @@ export interface FlowSelectCurrentWindowApi {
   scaleFactor(): Promise<number>;
   startDragging(): Promise<void>;
   setPosition(position: FlowSelectPoint): void;
+  animateBounds(bounds: FlowSelectBounds, options?: { durationMs?: number }): Promise<void>;
+  rendererReady(): Promise<void>;
   close(): Promise<void>;
   hide(): Promise<void>;
   onFocusChanged(

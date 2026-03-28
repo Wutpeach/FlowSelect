@@ -148,6 +148,12 @@ contextBridge.exposeInMainWorld("flowselect", {
     setPosition(position) {
       ipcRenderer.send("flowselect:current-window:set-position", position);
     },
+    animateBounds(bounds, options) {
+      return invoke("flowselect:current-window:animate-bounds", { bounds, options });
+    },
+    rendererReady() {
+      return invoke("flowselect:current-window:renderer-ready");
+    },
     close() {
       return invoke("flowselect:current-window:close");
     },
