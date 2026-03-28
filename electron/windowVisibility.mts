@@ -56,6 +56,8 @@ type ResolveMainWindowRevealBoundsOptions = {
   displays: VisibilityBounds[];
   fallbackDisplay: VisibilityBounds;
   forceCenter?: boolean;
+  minimumWidth?: number;
+  minimumHeight?: number;
 };
 
 const normalizeFlag = (value: string | undefined): boolean => (
@@ -141,9 +143,11 @@ export const isWindowSufficientlyVisible = (
 export const resolveCenteredWindowBounds = (
   bounds: VisibilityBounds,
   display: VisibilityBounds,
+  minimumWidth = MIN_STARTUP_WIDTH,
+  minimumHeight = MIN_STARTUP_HEIGHT,
 ): VisibilityBounds => {
-  const width = Math.max(MIN_STARTUP_WIDTH, Math.round(bounds.width));
-  const height = Math.max(MIN_STARTUP_HEIGHT, Math.round(bounds.height));
+  const width = Math.max(Math.max(1, Math.round(minimumWidth)), Math.round(bounds.width));
+  const height = Math.max(Math.max(1, Math.round(minimumHeight)), Math.round(bounds.height));
   const maxX = display.x + display.width - width;
   const maxY = display.y + display.height - height;
 
@@ -160,16 +164,25 @@ export const resolveMainWindowRevealBounds = ({
   displays,
   fallbackDisplay,
   forceCenter = false,
+  minimumWidth = MIN_STARTUP_WIDTH,
+  minimumHeight = MIN_STARTUP_HEIGHT,
 }: ResolveMainWindowRevealBoundsOptions): VisibilityBounds => {
+  const normalizedMinimumWidth = Math.max(1, Math.round(minimumWidth));
+  const normalizedMinimumHeight = Math.max(1, Math.round(minimumHeight));
   const normalized = {
     x: Math.round(bounds.x),
     y: Math.round(bounds.y),
-    width: Math.max(MIN_STARTUP_WIDTH, Math.round(bounds.width)),
-    height: Math.max(MIN_STARTUP_HEIGHT, Math.round(bounds.height)),
+    width: Math.max(normalizedMinimumWidth, Math.round(bounds.width)),
+    height: Math.max(normalizedMinimumHeight, Math.round(bounds.height)),
   };
 
   if (forceCenter || !isWindowSufficientlyVisible(normalized, displays)) {
-    return resolveCenteredWindowBounds(normalized, fallbackDisplay);
+    return resolveCenteredWindowBounds(
+      normalized,
+      fallbackDisplay,
+      normalizedMinimumWidth,
+      normalizedMinimumHeight,
+    );
   }
 
   return normalized;

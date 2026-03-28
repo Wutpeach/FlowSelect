@@ -153,6 +153,8 @@ const INITIAL_WINDOW_REVEAL_TIMEOUT_MS = 4_000;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
 const WINDOW_STARTUP_CAPTURE_DELAY_MS = 180;
 const STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS = 1_500;
+const MAIN_WINDOW_FULL_SIZE = 200;
+const MAIN_WINDOW_COMPACT_STARTUP_SIZE = 80;
 
 let tray = null;
 let registeredShortcut = "";
@@ -3550,13 +3552,18 @@ async function createMainWindow() {
     return existing;
   }
 
+  const useCompactStartupBounds = process.platform === "win32" && !hasShownMainWindowOnce;
+  const initialWindowSize = useCompactStartupBounds
+    ? MAIN_WINDOW_COMPACT_STARTUP_SIZE
+    : MAIN_WINDOW_FULL_SIZE;
+
   const {
     browserWindow: mainWindow,
     transparentWindow,
   } = await createFlowSelectBrowserWindow(WINDOW_LABELS.main, {
     routePath: "/",
-    width: 200,
-    height: 200,
+    width: initialWindowSize,
+    height: initialWindowSize,
     title: app.getName(),
     alwaysOnTop: true,
     skipTaskbar: process.platform === "win32",
@@ -3584,13 +3591,24 @@ async function createMainWindow() {
   return mainWindow;
 }
 
-async function showMainWindow() {
+async function showMainWindow({
+  preserveExistingBounds = false,
+}: {
+  preserveExistingBounds?: boolean;
+} = {}) {
   const mainWindow = await createMainWindow();
+  const currentBounds = mainWindow.getBounds();
   const revealBounds = resolveMainWindowRevealBounds({
-    bounds: mainWindow.getBounds(),
+    bounds: currentBounds,
     displays: screen.getAllDisplays().map((display) => display.workArea),
     fallbackDisplay: screen.getPrimaryDisplay().workArea,
     forceCenter: process.platform === "win32" && app.isPackaged && !hasShownMainWindowOnce,
+    minimumWidth: preserveExistingBounds
+      ? currentBounds.width
+      : MAIN_WINDOW_FULL_SIZE,
+    minimumHeight: preserveExistingBounds
+      ? currentBounds.height
+      : MAIN_WINDOW_FULL_SIZE,
   });
 
   void queueStartupDiagnostic("WindowDiag", "main:show-request", {
@@ -4520,7 +4538,9 @@ async function bootstrap() {
     });
   }
   await updateTrayMenu();
-  await showMainWindow();
+  await showMainWindow({
+    preserveExistingBounds: process.platform === "win32",
+  });
   if (startupDiagnosticsEnabled) {
     setTimeout(() => {
       void openSecondaryWindow(WINDOW_LABELS.settings, {

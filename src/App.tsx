@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
+import { startTransition, useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -52,6 +52,7 @@ import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImage
 import { resolveSecondaryWindowPosition } from "./utils/secondaryWindowPlacement";
 import {
   getStartupAutoMinimizeGraceMs,
+  shouldUseNativeCompactStartupWindow,
   shouldStartExpandedOnLaunch,
 } from "./utils/startupWindowState";
 import { isVideoUrl } from "./utils/videoUrl";
@@ -684,6 +685,19 @@ function App() {
     getStartupAutoMinimizeGraceMs(startupWindowEnvironment);
   const startsExpandedOnLaunch =
     shouldStartExpandedOnLaunch(startupWindowEnvironment);
+  const FULL_SIZE = 200;
+  const ICON_SIZE = 80;
+  const MINIMIZED_SHELL_SIZE = 72;
+  const MINIMIZED_SHELL_SCALE = MINIMIZED_SHELL_SIZE / FULL_SIZE;
+  const MINIMIZED_ICON_SIZE = 42;
+  const MINIMIZED_ICON_BASE_SIZE = MINIMIZED_ICON_SIZE / MINIMIZED_SHELL_SCALE;
+  const MINIMIZED_SHELL_INSET = Math.round((ICON_SIZE - MINIMIZED_SHELL_SIZE) / 2);
+  const startsInNativeCompactStartupWindow = shouldUseNativeCompactStartupWindow({
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    startsExpandedOnLaunch,
+    isMacOS,
+  });
   const [isHovering, setIsHovering] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadCancelled, setDownloadCancelled] = useState(false);
@@ -714,12 +728,12 @@ function App() {
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMinimized, setIsMinimized] = useState(!startsExpandedOnLaunch);
-  const [windowResized, setWindowResized] = useState(false);
+  const [windowResized, setWindowResized] = useState(startsInNativeCompactStartupWindow);
   const [panelTransitionMode, setPanelTransitionMode] = useState<"animated" | "instant">("animated");
   const [isExpandingFromMinimized, setIsExpandingFromMinimized] = useState(false);
   const [expandMorphAnimationKey, setExpandMorphAnimationKey] = useState(0);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
-  const [isInitialMount, setIsInitialMount] = useState(true);
+  const [isInitialMount, setIsInitialMount] = useState(!startsInNativeCompactStartupWindow);
   const [isResetCounterActive, setIsResetCounterActive] = useState(false);
   const [isProgressCancelHovered, setIsProgressCancelHovered] = useState(false);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
@@ -744,6 +758,7 @@ function App() {
   const activeWindowDragRef = useRef<ActiveWindowDragState | null>(null);
   const isWindowPointerDownRef = useRef(false);
   const windowDragFrameRef = useRef<number | null>(null);
+  const lastKnownWindowPositionRef = useRef<{ x: number; y: number } | null>(null);
   const previousTaskCountRef = useRef(0);
   const ongoingTaskCountRef = useRef(0);
   const runtimeGateBusyRef = useRef(false);
@@ -751,15 +766,6 @@ function App() {
   const previousRuntimeGateBusyRef = useRef(false);
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
   const startupAutoMinimizeUnlockedRef = useRef(startupAutoMinimizeGraceMs === 0);
-
-  // Window size constants
-  const FULL_SIZE = 200;
-  const ICON_SIZE = 80;
-  const MINIMIZED_SHELL_SIZE = 72;
-  const MINIMIZED_SHELL_SCALE = MINIMIZED_SHELL_SIZE / FULL_SIZE;
-  const MINIMIZED_ICON_SIZE = 42;
-  const MINIMIZED_ICON_BASE_SIZE = MINIMIZED_ICON_SIZE / MINIMIZED_SHELL_SCALE;
-  const MINIMIZED_SHELL_INSET = Math.round((ICON_SIZE - MINIMIZED_SHELL_SIZE) / 2);
   const EXPAND_WINDOW_BOUNDS_DURATION_MS = shouldReduceMotion ? 140 : 240;
   const EDGE_GLOW_TRIGGER_DISTANCE = 126;
   const EDGE_GLOW_RADIUS = 248;
@@ -946,6 +952,32 @@ function App() {
     }
   }, []);
 
+  const getCurrentWindowPosition = useCallback(async () => {
+    if (lastKnownWindowPositionRef.current) {
+      return lastKnownWindowPositionRef.current;
+    }
+
+    const nextPosition = await desktopCurrentWindow.outerPosition();
+    lastKnownWindowPositionRef.current = nextPosition;
+    return nextPosition;
+  }, []);
+
+  const resizeMainWindowPreservingPosition = useCallback(async (
+    width: number,
+    height: number,
+  ) => {
+    const position = await getCurrentWindowPosition();
+    await desktopCurrentWindow.animateBounds({
+      x: position.x,
+      y: position.y,
+      width,
+      height,
+    }, {
+      durationMs: 0,
+    });
+    lastKnownWindowPositionRef.current = position;
+  }, [getCurrentWindowPosition]);
+
   const armIdleTimer = useCallback(() => {
     if (!startupAutoMinimizeUnlockedRef.current) {
       return;
@@ -1017,13 +1049,7 @@ function App() {
 
     try {
       const currentWindow = desktopCurrentWindow;
-      const pos = await currentWindow.outerPosition();
-      setExpandMorphAnimationKey(Date.now());
-      setPanelTransitionMode("instant");
-      setIsExpandingFromMinimized(true);
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => resolve());
-      });
+      const pos = await getCurrentWindowPosition();
       await currentWindow.animateBounds({
         x: pos.x,
         y: pos.y,
@@ -1032,11 +1058,21 @@ function App() {
       }, {
         durationMs: 0,
       });
+      setExpandMorphAnimationKey(Date.now());
+      setPanelTransitionMode("instant");
+      setIsExpandingFromMinimized(true);
     } catch (err) {
       console.error('Failed to expand window:', err);
       finishExpandMorph();
     }
-  }, [FULL_SIZE, finishExpandMorph, isExpandingFromMinimized, isMacOS, windowResized]);
+  }, [
+    FULL_SIZE,
+    finishExpandMorph,
+    getCurrentWindowPosition,
+    isExpandingFromMinimized,
+    isMacOS,
+    windowResized,
+  ]);
 
   useEffect(() => {
     if (!hasOngoingTask) {
@@ -1059,12 +1095,7 @@ function App() {
       }
       try {
         // Shrink the native window only after the visual minimize motion settles.
-        const window = desktopCurrentWindow;
-        const pos = await window.outerPosition();
-        await Promise.all([
-          desktopCommands.invoke('set_window_size', { width: ICON_SIZE, height: ICON_SIZE }),
-          desktopCommands.invoke('set_window_position', { x: pos.x, y: pos.y }),
-        ]);
+        await resizeMainWindowPreservingPosition(ICON_SIZE, ICON_SIZE);
         setPanelTransitionMode("instant");
         setWindowResized(true);
         restoreAnimatedPanelTransitions();
@@ -1110,6 +1141,17 @@ function App() {
     : isMinimized
       ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const }
       : { duration: 0.24, times: [0, 0.58, 1], ease: [0.22, 1, 0.36, 1] as const };
+  const minimizedIconExit = shouldReduceMotion
+    ? {
+        opacity: 0,
+        scale: 1,
+        transition: { duration: 0.01 },
+      }
+    : {
+        opacity: 0,
+        scale: 1,
+        transition: { duration: 0.05, ease: [0.22, 1, 0.36, 1] as const },
+      };
   const panelScale = isExpandMorphVisible
     ? 1
     : isMinimized
@@ -1120,12 +1162,6 @@ function App() {
   const expandMorphShellTransition = shouldReduceMotion
     ? { duration: 0.14 }
     : { duration: expandMorphDurationSeconds, ease: [0.22, 1, 0.36, 1] as const };
-  const expandMorphIconTransition = shouldReduceMotion
-    ? { duration: 0.14 }
-    : { duration: 0.22, times: [0, 0.62, 1], ease: [0.22, 1, 0.36, 1] as const };
-  const expandMorphIconAnimate = shouldReduceMotion
-    ? { scale: 0.18 }
-    : { scale: [1, 0.72, 0.42, 0.18] };
 
   const getEdgeGlowOpacity = () => {
     const distanceToEdge = Math.min(
@@ -1200,35 +1236,47 @@ function App() {
   const refreshRuntimeDependencyStatus = useCallback(async () => {
     try {
       const status = await desktopCommands.invoke<RuntimeDependencyStatusSnapshot>("get_runtime_dependency_status");
-      setRuntimeDependencyStatus(status);
+      startTransition(() => {
+        setRuntimeDependencyStatus(status);
+      });
       return status;
     } catch (err) {
       console.error("Failed to load runtime dependency status:", err);
-      setRuntimeDependencyStatus(null);
+      startTransition(() => {
+        setRuntimeDependencyStatus(null);
+      });
       return null;
     }
   }, []);
 
   const refreshAppUpdate = useCallback(async () => {
-    setAppUpdatePhase("checking");
-    setAppUpdateError(null);
+    startTransition(() => {
+      setAppUpdatePhase("checking");
+      setAppUpdateError(null);
+    });
 
     try {
       const updateInfo = await desktopUpdater.check();
       if (!updateInfo) {
-        setAppUpdateInfo(null);
-        setAppUpdatePhase("idle");
+        startTransition(() => {
+          setAppUpdateInfo(null);
+          setAppUpdatePhase("idle");
+        });
         return null;
       }
 
-      setAppUpdateInfo(updateInfo);
-      setAppUpdatePhase("available");
+      startTransition(() => {
+        setAppUpdateInfo(updateInfo);
+        setAppUpdatePhase("available");
+      });
       return updateInfo;
     } catch (err) {
       console.error(">>> App update check failed:", err);
-      setAppUpdateInfo(null);
-      setAppUpdateError(summarizeAppUpdateError(err));
-      setAppUpdatePhase("idle");
+      startTransition(() => {
+        setAppUpdateInfo(null);
+        setAppUpdateError(summarizeAppUpdateError(err));
+        setAppUpdatePhase("idle");
+      });
       return null;
     }
   }, []);
@@ -1255,11 +1303,15 @@ function App() {
   const loadRuntimeDependencyGateState = useCallback(async () => {
     try {
       const state = await desktopCommands.invoke<RuntimeDependencyGateStatePayload>("get_runtime_dependency_gate_state");
-      setRuntimeDependencyGateState(state);
+      startTransition(() => {
+        setRuntimeDependencyGateState(state);
+      });
       return state;
     } catch (err) {
       console.error("Failed to load runtime dependency gate state:", err);
-      setRuntimeDependencyGateState(null);
+      startTransition(() => {
+        setRuntimeDependencyGateState(null);
+      });
       return null;
     }
   }, []);
@@ -1267,11 +1319,15 @@ function App() {
   const refreshRuntimeDependencyGateState = useCallback(async () => {
     try {
       const state = await desktopCommands.invoke<RuntimeDependencyGateStatePayload>("refresh_runtime_dependency_gate_state");
-      setRuntimeDependencyGateState(state);
+      startTransition(() => {
+        setRuntimeDependencyGateState(state);
+      });
       return state;
     } catch (err) {
       console.error("Failed to refresh runtime dependency gate state:", err);
-      setRuntimeDependencyGateState(null);
+      startTransition(() => {
+        setRuntimeDependencyGateState(null);
+      });
       return null;
     }
   }, []);
@@ -1282,7 +1338,9 @@ function App() {
         "start_runtime_dependency_bootstrap",
         reason ? { reason } : undefined,
       );
-      setRuntimeDependencyGateState(state);
+      startTransition(() => {
+        setRuntimeDependencyGateState(state);
+      });
       return state;
     } catch (err) {
       console.error("Failed to start runtime dependency bootstrap:", err);
@@ -1430,13 +1488,35 @@ function App() {
     refreshRuntimeDependencyStatus,
   ]);
 
-  // Startup animation: brief delay to trigger a compact reveal.
   useEffect(() => {
+    if (isMacOS) {
+      return;
+    }
+
+    let cancelled = false;
+    void desktopCurrentWindow.outerPosition()
+      .then((position) => {
+        if (!cancelled) {
+          lastKnownWindowPositionRef.current = position;
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isMacOS]);
+
+  // Keep the compact reveal only for full-sized startup windows.
+  useEffect(() => {
+    if (startsInNativeCompactStartupWindow) {
+      return;
+    }
     const timer = setTimeout(() => {
       setIsInitialMount(false);
     }, 100);
     return () => clearTimeout(timer);
-  }, [isMacOS]);
+  }, [startsInNativeCompactStartupWindow]);
 
   useEffect(() => {
     return () => {
@@ -1539,12 +1619,7 @@ function App() {
         // 直接恢复窗口大小（避免闭包问题）
         if (!isMacOS) {
           try {
-            const win = desktopCurrentWindow;
-            const pos = await win.outerPosition();
-            await Promise.all([
-              desktopCommands.invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE }),
-              desktopCommands.invoke('set_window_position', { x: pos.x, y: pos.y }),
-            ]);
+            await resizeMainWindowPreservingPosition(FULL_SIZE, FULL_SIZE);
             setWindowResized(false);
           } catch (err) {
             console.error('Failed to expand window for download:', err);
@@ -1587,7 +1662,12 @@ function App() {
       unlistenProgress.then(fn => fn());
       unlistenComplete.then(fn => fn());
     };
-  }, [isMacOS, removeCancellingTraceId, scheduleIdleAfterTaskSettlement]);
+  }, [
+    isMacOS,
+    removeCancellingTraceId,
+    resizeMainWindowPreservingPosition,
+    scheduleIdleAfterTaskSettlement,
+  ]);
 
   // Listen for output path changes from settings window
   useEffect(() => {
@@ -1670,7 +1750,7 @@ function App() {
       // 如果窗口处于图标模式（已缩小），需要先恢复窗口大小
       if (windowResized && !isMacOS) {
         try {
-          await desktopCommands.invoke('set_window_size', { width: FULL_SIZE, height: FULL_SIZE });
+          await resizeMainWindowPreservingPosition(FULL_SIZE, FULL_SIZE);
           setWindowResized(false);
         } catch (err) {
           console.error('Failed to restore window size:', err);
@@ -1697,7 +1777,13 @@ function App() {
       }, 100);
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [armIdleTimer, windowResized, hasBlockingForegroundWork, isMacOS]);
+  }, [
+    armIdleTimer,
+    hasBlockingForegroundWork,
+    isMacOS,
+    resizeMainWindowPreservingPosition,
+    windowResized,
+  ]);
 
   // Check app update availability on startup
   useEffect(() => {
@@ -1709,7 +1795,9 @@ function App() {
       "runtime-dependency-gate-state",
       (event) => {
         const nextGateState = event.payload;
-        setRuntimeDependencyGateState(nextGateState);
+        startTransition(() => {
+          setRuntimeDependencyGateState(nextGateState);
+        });
         if (runtimeGateIsActive(nextGateState.phase)) {
           return;
         }
@@ -1845,12 +1933,7 @@ function App() {
 
       if (!isMacOS) {
         try {
-          const win = desktopCurrentWindow;
-          const pos = await win.outerPosition();
-          await Promise.all([
-            desktopCommands.invoke("set_window_size", { width: FULL_SIZE, height: FULL_SIZE }),
-            desktopCommands.invoke("set_window_position", { x: pos.x, y: pos.y }),
-          ]);
+          await resizeMainWindowPreservingPosition(FULL_SIZE, FULL_SIZE);
           setWindowResized(false);
         } catch (err) {
           console.error("Failed to expand window for transcode:", err);
@@ -1963,7 +2046,14 @@ function App() {
       unlistenFailed.then((fn) => fn());
       unlistenComplete.then((fn) => fn());
     };
-  }, [isMacOS, removePendingTranscodeActionTraceId, scheduleIdleAfterTaskSettlement, showQueueNotice, t]);
+  }, [
+    isMacOS,
+    removePendingTranscodeActionTraceId,
+    resizeMainWindowPreservingPosition,
+    scheduleIdleAfterTaskSettlement,
+    showQueueNotice,
+    t,
+  ]);
 
   useEffect(() => {
     if (totalTaskCount === 0) {
@@ -2065,11 +2155,12 @@ function App() {
 
   // Start idle timer on mount
   useEffect(() => {
-    resetIdleTimer();
+    resetIdleTimer({ expandIfMinimized: false });
     return () => {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
-    // resetIdleTimer should run once on mount to bootstrap idle behavior.
+    // resetIdleTimer should run once on mount to bootstrap idle behavior
+    // without forcing a compact startup window back into full-window mode.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2117,6 +2208,10 @@ function App() {
 
     dragState.lastAppliedX = dragState.nextX;
     dragState.lastAppliedY = dragState.nextY;
+    lastKnownWindowPositionRef.current = {
+      x: dragState.nextX,
+      y: dragState.nextY,
+    };
     desktopCurrentWindow.setPosition({
       x: dragState.nextX,
       y: dragState.nextY,
@@ -2249,6 +2344,7 @@ function App() {
 
     try {
       const windowPosition = await pendingDragStart.windowPositionPromise;
+      lastKnownWindowPositionRef.current = windowPosition;
       if (!isWindowPointerDownRef.current) {
         isDraggingRef.current = false;
         resetIdleTimer();
@@ -2331,7 +2427,10 @@ function App() {
       clientY: e.clientY,
       screenX: e.screenX,
       screenY: e.screenY,
-      windowPositionPromise: desktopCurrentWindow.outerPosition(),
+      windowPositionPromise: desktopCurrentWindow.outerPosition().then((position) => {
+        lastKnownWindowPositionRef.current = position;
+        return position;
+      }),
     };
   };
 
@@ -4255,7 +4354,7 @@ function App() {
             key="minimized"
             initial={{ scale: 0.82, opacity: 0 }}
             animate={minimizedIconAnimate}
-            exit={{ scale: 0, opacity: 0 }}
+            exit={minimizedIconExit}
             transition={minimizedIconTransition}
             style={{
               position: "absolute",
@@ -4715,22 +4814,6 @@ function App() {
             }),
           }}
         >
-          <motion.div
-            initial={{ scale: 1 }}
-            animate={expandMorphIconAnimate}
-            transition={expandMorphIconTransition}
-            style={{
-              width: MINIMIZED_ICON_BASE_SIZE,
-              height: MINIMIZED_ICON_BASE_SIZE,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              transformOrigin: "center center",
-              willChange: "transform",
-            }}
-          >
-            <CatIcon size={MINIMIZED_ICON_BASE_SIZE} glow />
-          </motion.div>
         </motion.div>
       ) : null}
 

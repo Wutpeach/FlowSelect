@@ -133,6 +133,26 @@ describe("resolveMainWindowRevealBounds", () => {
     });
   });
 
+  it("can preserve compact startup bounds when a smaller minimum size is requested", () => {
+    expect(resolveMainWindowRevealBounds({
+      bounds: {
+        x: 100,
+        y: 120,
+        width: 80,
+        height: 80,
+      },
+      displays: [display],
+      fallbackDisplay: display,
+      minimumWidth: 80,
+      minimumHeight: 80,
+    })).toEqual({
+      x: 100,
+      y: 120,
+      width: 80,
+      height: 80,
+    });
+  });
+
   it("recenters the main window when the saved bounds are effectively off-screen", () => {
     expect(resolveMainWindowRevealBounds({
       bounds: {
@@ -167,6 +187,27 @@ describe("resolveMainWindowRevealBounds", () => {
       y: 440,
       width: 200,
       height: 200,
+    });
+  });
+
+  it("can keep a compact centered startup reveal when the smaller minimum is intentional", () => {
+    expect(resolveMainWindowRevealBounds({
+      bounds: {
+        x: 24,
+        y: 32,
+        width: 80,
+        height: 80,
+      },
+      displays: [display],
+      fallbackDisplay: display,
+      forceCenter: true,
+      minimumWidth: 80,
+      minimumHeight: 80,
+    })).toEqual({
+      x: 920,
+      y: 500,
+      width: 80,
+      height: 80,
     });
   });
 });
