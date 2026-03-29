@@ -697,7 +697,6 @@ function App({
   const MINIMIZED_SHELL_SIZE = 72;
   const MINIMIZED_SHELL_SCALE = MINIMIZED_SHELL_SIZE / FULL_SIZE;
   const MINIMIZED_ICON_SIZE = 42;
-  const MINIMIZED_ICON_BASE_SIZE = MINIMIZED_ICON_SIZE / MINIMIZED_SHELL_SCALE;
   const MINIMIZED_SHELL_INSET = Math.round((ICON_SIZE - MINIMIZED_SHELL_SIZE) / 2);
   const startsInNativeCompactStartupWindow = shouldUseNativeCompactStartupWindow({
     startupWindowMode: initialStartupWindowMode,
@@ -1118,7 +1117,7 @@ function App({
   const isNativeSizedMinimizedShell = isMinimized && windowResized && !isMacOS && !isExpandMorphVisible;
   const panelRenderSize = isExpandMorphVisible
     ? FULL_SIZE
-    : isNativeSizedMinimizedShell
+    : isMinimized && !isMacOS
       ? MINIMIZED_SHELL_SIZE
       : FULL_SIZE;
   const minimizedPanelOffset = isExpandMorphVisible
@@ -1126,14 +1125,10 @@ function App({
     : isMinimized && !isMacOS
       ? MINIMIZED_SHELL_INSET
       : 0;
-  const minimizedPanelScale = isMacOS ? 0.3 : MINIMIZED_SHELL_SCALE;
-  const minimizedIconSize = isMacOS ? 120 : MINIMIZED_ICON_BASE_SIZE;
+  const minimizedPanelScale = isMacOS ? 0.3 : 1;
+  const minimizedIconSize = isMacOS ? 120 : MINIMIZED_ICON_SIZE;
   const minimizedIconFrameSize = minimizedIconSize;
-  const minimizedIconWrapperScale = isMacOS
-    ? 1
-    : isNativeSizedMinimizedShell
-      ? MINIMIZED_SHELL_SCALE
-      : 1;
+  const minimizedIconWrapperScale = 1;
   const shouldUseInstantPanelTransition = panelTransitionMode === "instant";
   const minimizedIconAnimate = shouldReduceMotion
     ? (isMinimized
@@ -1161,9 +1156,57 @@ function App({
   const panelScale = isExpandMorphVisible
     ? 1
     : isMinimized
-      ? (isNativeSizedMinimizedShell ? 1 : minimizedPanelScale)
+      ? minimizedPanelScale
       : 1;
   const panelRadius = isExpandMorphVisible ? 16 : isMinimized ? 100 : 16;
+  const initialPanelTweenTransition = { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const };
+  const minimizedPanelTweenTransition = { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const };
+  const instantPanelValueTransition = { duration: 0 } as const;
+  const springPanelValueTransition = { type: "spring" as const, stiffness: 400, damping: 30 };
+  const panelShellAnimate = {
+    scale: isInitialMount ? 0.82 : panelScale,
+    borderRadius: panelRadius,
+    x: minimizedPanelOffset,
+    y: minimizedPanelOffset,
+    width: panelRenderSize,
+    height: panelRenderSize,
+  };
+  const panelShellTransition = {
+    scale: isInitialMount
+      ? initialPanelTweenTransition
+      : shouldUseInstantPanelTransition
+        ? instantPanelValueTransition
+        : isMinimized
+          ? minimizedPanelTweenTransition
+        : springPanelValueTransition,
+    borderRadius: isInitialMount
+      ? initialPanelTweenTransition
+      : shouldUseInstantPanelTransition
+        ? instantPanelValueTransition
+        : isMinimized
+          ? minimizedPanelTweenTransition
+        : springPanelValueTransition,
+    x: shouldUseInstantPanelTransition
+      ? instantPanelValueTransition
+      : isMinimized
+        ? minimizedPanelTweenTransition
+      : springPanelValueTransition,
+    y: shouldUseInstantPanelTransition
+      ? instantPanelValueTransition
+      : isMinimized
+        ? minimizedPanelTweenTransition
+      : springPanelValueTransition,
+    width: shouldUseInstantPanelTransition
+      ? instantPanelValueTransition
+      : isMinimized
+        ? minimizedPanelTweenTransition
+      : springPanelValueTransition,
+    height: shouldUseInstantPanelTransition
+      ? instantPanelValueTransition
+      : isMinimized
+        ? minimizedPanelTweenTransition
+      : springPanelValueTransition,
+  };
   const expandMorphDurationSeconds = EXPAND_WINDOW_BOUNDS_DURATION_MS / 1000;
   const expandMorphShellTransition = shouldReduceMotion
     ? { duration: 0.14 }
@@ -3194,13 +3237,43 @@ function App({
   const containerOuterShadow = primaryTask || isHovering
     ? colors.panelShadowStrong
     : colors.panelShadow;
-  const containerBoxShadow = primaryTask?.kind === "transcode"
-    ? `inset 0 0 0 1px ${colors.transcodeBorder}, inset 0 0 14px ${colors.transcodeGlow}, ${containerOuterShadow}`
+  const panelViewportSize = isNativeSizedMinimizedShell ? ICON_SIZE : FULL_SIZE;
+  const shouldShowMinimizedChromeOverlay = isMinimized && !isExpandingFromMinimized;
+  const panelBorderColor = isMinimized
+    ? colors.borderStart
+    : primaryTask?.kind === "transcode"
+      ? colors.transcodeBorder
+      : primaryTask?.kind === "download"
+        ? colors.accentBorder
+        : isHovering
+          ? colors.accentBorder
+          : colors.borderStart;
+  const containerShellOnlyBoxShadow = primaryTask?.kind === "transcode"
+    ? `inset 0 0 14px ${colors.transcodeGlow}, ${containerOuterShadow}`
     : primaryTask?.kind === "download"
-      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 12px ${colors.accentGlow}, ${containerOuterShadow}`
+      ? `inset 0 0 12px ${colors.accentGlow}, ${containerOuterShadow}`
       : isHovering
-      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 0 18px ${colors.accentGlow}, inset 0 0 28px ${colors.accentSurfaceStrong}, ${containerOuterShadow}`
-      : `inset 0 0 0 1px ${colors.borderStart}, ${containerOuterShadow}`;
+        ? `inset 0 0 18px ${colors.accentGlow}, inset 0 0 28px ${colors.accentSurfaceStrong}, ${containerOuterShadow}`
+        : containerOuterShadow;
+  const containerFullBoxShadow = `inset 0 0 0 1px ${panelBorderColor}, ${containerShellOnlyBoxShadow}`;
+  const minimizedShadowOverlayTransition = shouldReduceMotion
+    ? { duration: 0.12 }
+    : isMinimized
+      ? { duration: 0.14, delay: 0.07, ease: [0.22, 1, 0.36, 1] as const }
+      : { duration: 0.08, ease: [0.22, 1, 0.36, 1] as const };
+  const minimizedShadowOverlayStyle: CSSProperties = {
+    position: "absolute",
+    top: MINIMIZED_SHELL_INSET,
+    left: MINIMIZED_SHELL_INSET,
+    width: MINIMIZED_SHELL_SIZE,
+    height: MINIMIZED_SHELL_SIZE,
+    pointerEvents: "none",
+    boxShadow: colors.panelShadowCompact,
+    ...getContinuousCornerStyle(100),
+  };
+  const containerBoxShadow = isMinimized && !isMacOS
+    ? `inset 0 0 0 1px ${colors.borderStart}`
+    : containerFullBoxShadow;
   const shouldShowAppUpdateIndicator = !!appUpdateInfo && (
     appUpdatePhase === "available"
     || appUpdatePhase === "downloading"
@@ -3436,7 +3509,22 @@ function App({
   };
 
   return (
-    <motion.div
+    <div
+      style={{
+        position: "relative",
+        width: panelViewportSize,
+        height: panelViewportSize,
+        overflow: "visible",
+      }}
+    >
+      <motion.div
+        initial={false}
+        aria-hidden="true"
+        animate={{ opacity: shouldShowMinimizedChromeOverlay ? 1 : 0 }}
+        transition={minimizedShadowOverlayTransition}
+        style={minimizedShadowOverlayStyle}
+      />
+      <motion.div
       ref={containerRef}
       tabIndex={0}
       onDragOver={(e) => {
@@ -3476,34 +3564,10 @@ function App({
       onDoubleClick={handlePanelDoubleClick}
       onContextMenu={handleContextMenu}
       initial={false}
-      animate={{
-        scale: isInitialMount ? 0.82 : panelScale,
-        borderRadius: panelRadius,
-        x: minimizedPanelOffset,
-        y: minimizedPanelOffset,
-      }}
-      transition={{
-        scale: isInitialMount
-          ? { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
-          : shouldUseInstantPanelTransition
-            ? { duration: 0 }
-            : { type: 'spring', stiffness: 400, damping: 30 },
-        borderRadius: isInitialMount
-          ? { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
-          : shouldUseInstantPanelTransition
-            ? { duration: 0 }
-            : { type: 'spring', stiffness: 400, damping: 30 },
-        x: shouldUseInstantPanelTransition
-          ? { duration: 0 }
-          : { type: 'spring', stiffness: 400, damping: 30 },
-        y: shouldUseInstantPanelTransition
-          ? { duration: 0 }
-          : { type: 'spring', stiffness: 400, damping: 30 },
-      }}
+      animate={panelShellAnimate}
+      transition={panelShellTransition}
       onAnimationComplete={handleAnimationComplete}
       style={{
-        width: panelRenderSize,
-        height: panelRenderSize,
         transformOrigin: 'top left',
         position: 'absolute',
         top: 0,
@@ -3524,6 +3588,9 @@ function App({
               boxShadow: containerBoxShadow,
             })),
         overflow: isExpandMorphVisible ? 'visible' : 'hidden',
+        transition: shouldUseInstantPanelTransition
+          ? undefined
+          : `box-shadow 0.18s ${COMPACT_EASE}`,
         willChange: 'transform',
       }}
     >
@@ -4816,14 +4883,15 @@ function App({
             willChange: "transform, border-radius",
             ...getPanelShellStyle(colors, {
               radius: 16,
-              boxShadow: containerBoxShadow,
+              boxShadow: containerFullBoxShadow,
             }),
           }}
         >
         </motion.div>
       ) : null}
 
-    </motion.div>
+      </motion.div>
+    </div>
   );
 }
 

@@ -27,6 +27,7 @@ export interface ThemeColors {
   shadowColor: string;
   shadowSpread: string;
   panelShadow: string;
+  panelShadowCompact: string;
   panelShadowStrong: string;
   accentGlow: string;
   dangerGlow: string;
@@ -81,8 +82,10 @@ export interface ThemeColors {
 }
 
 const DARK_PANEL_SHADOW = '0px 0px 6px 0px rgba(0,0,0,0.12), 0px 12px 24px 0px rgba(0,0,0,0.28), 0px 0px 0px 1px rgba(0,0,0,0.12)';
+const DARK_PANEL_SHADOW_COMPACT = '0px 1px 2px 0px rgba(0,0,0,0.14), 0px 3px 6px 0px rgba(0,0,0,0.24)';
 const DARK_PANEL_SHADOW_STRONG = '0px 0px 8px 0px rgba(0,0,0,0.14), 0px 16px 30px 0px rgba(0,0,0,0.34), 0px 0px 0px 1px rgba(0,0,0,0.14)';
 const LIGHT_PANEL_SHADOW = '0px 0px 4px 0px rgba(0,0,0,0.05), 0px 8px 16px 0px rgba(0,0,0,0.1), 0px 0px 0px 1px rgba(0,0,0,0.06)';
+const LIGHT_PANEL_SHADOW_COMPACT = '0px 1px 2px 0px rgba(0,0,0,0.05), 0px 2px 4px 0px rgba(0,0,0,0.09)';
 const LIGHT_PANEL_SHADOW_STRONG = '0px 0px 6px 0px rgba(0,0,0,0.06), 0px 12px 22px 0px rgba(0,0,0,0.14), 0px 0px 0px 1px rgba(0,0,0,0.08)';
 
 const themes: Record<Theme, ThemeColors> = {
@@ -105,6 +108,7 @@ const themes: Record<Theme, ThemeColors> = {
     shadowColor: 'rgba(0,0,0,0.1)',
     shadowSpread: '#0D0D0D',
     panelShadow: DARK_PANEL_SHADOW,
+    panelShadowCompact: DARK_PANEL_SHADOW_COMPACT,
     panelShadowStrong: DARK_PANEL_SHADOW_STRONG,
     accentGlow: 'rgba(59,130,246,0.38)',
     dangerGlow: 'rgba(239,68,68,0.32)',
@@ -173,6 +177,7 @@ const themes: Record<Theme, ThemeColors> = {
     shadowColor: 'rgba(0,0,0,0.1)',
     shadowSpread: 'rgba(0,0,0,0.16)',
     panelShadow: LIGHT_PANEL_SHADOW,
+    panelShadowCompact: LIGHT_PANEL_SHADOW_COMPACT,
     panelShadowStrong: LIGHT_PANEL_SHADOW_STRONG,
     accentGlow: 'rgba(37,99,235,0.34)',
     dangerGlow: 'rgba(239,68,68,0.24)',
