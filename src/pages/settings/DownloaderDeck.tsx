@@ -12,8 +12,8 @@ import { motion, useReducedMotion } from "motion/react";
 import { NeonCard } from "../../components/ui";
 import { useTheme } from "../../contexts/ThemeContext";
 import {
-  DOWNLOADER_DECK_ANIMATION_MS,
   consumeDownloaderDeckWheelDelta,
+  getDownloaderDeckAnimationMs,
   moveDownloaderDeckIndex,
   type DownloaderDeckDirection,
 } from "../../utils/downloaderDeck";
@@ -46,6 +46,7 @@ export function DownloaderDeck({ cards, style, ...props }: DownloaderDeckProps) 
   const deckRef = useRef<HTMLDivElement | null>(null);
   const wheelAccumulatorRef = useRef(0);
   const animationUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const animationLockDurationMs = getDownloaderDeckAnimationMs(Boolean(shouldReduceMotion));
 
   useEffect(() => {
     return () => {
@@ -62,7 +63,7 @@ export function DownloaderDeck({ cards, style, ...props }: DownloaderDeckProps) 
     }
   }, [isPointerInside]);
 
-  const lockAnimation = () => {
+  const lockAnimation = useCallback(() => {
     if (animationUnlockTimerRef.current) {
       clearTimeout(animationUnlockTimerRef.current);
     }
@@ -72,8 +73,8 @@ export function DownloaderDeck({ cards, style, ...props }: DownloaderDeckProps) 
       setIsAnimating(false);
       setTransitionState(null);
       animationUnlockTimerRef.current = null;
-    }, DOWNLOADER_DECK_ANIMATION_MS);
-  };
+    }, animationLockDurationMs);
+  }, [animationLockDurationMs]);
 
   const navigate = useCallback((nextDirection: DownloaderDeckDirection) => {
     if (cards.length < 2 || isAnimating) {
@@ -92,7 +93,7 @@ export function DownloaderDeck({ cards, style, ...props }: DownloaderDeckProps) 
     });
     lockAnimation();
     setActiveIndex(nextIndex);
-  }, [activeIndex, cards.length, isAnimating]);
+  }, [activeIndex, cards.length, isAnimating, lockAnimation]);
 
   useEffect(() => {
     const deckElement = deckRef.current;

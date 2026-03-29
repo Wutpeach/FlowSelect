@@ -228,3 +228,37 @@
   - `npm test`
   - `npm run type-check`
   - `npm run lint`
+
+## Cycle 15
+
+- Defect: Transparent child windows such as `/settings` and `/context-menu` booted through `ThemeProvider` without a preloaded persisted theme, so they could paint the default theme first and then visually correct on the next async config read.
+- Root cause: `src/main.tsx` resolved initial desktop language before first render but never resolved the initial desktop theme. `ThemeProvider` therefore started from the default theme and only later applied the persisted theme after `get_config` completed.
+- Tests:
+  - Added `src/contexts/desktopTheme.test.ts` to cover config-string theme parsing, bootstrap theme loading, and fallback behavior when desktop config loading fails.
+  - Confirmed the new test failed before the fix because the desktop bootstrap theme resolver path did not exist.
+- Fix:
+  - Extracted theme parsing helpers into `src/contexts/theme.ts`.
+  - Added `resolveInitialDesktopTheme()` in `src/contexts/desktopTheme.ts`.
+  - Updated `src/main.tsx` to await the initial desktop theme and pass it into `ThemeProvider` before the first React render.
+- Verification:
+  - `npx vitest run src/contexts/desktopTheme.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
+
+## Cycle 16
+
+- Defect: `src/pages/settings/DownloaderDeck.tsx` kept a fixed 500ms interaction lock even when `prefers-reduced-motion` shortened the actual deck animation to 180ms, causing wheel navigation to feel artificially delayed after the motion had already finished.
+- Root cause: The deck used a single `DOWNLOADER_DECK_ANIMATION_MS` timeout to clear `isAnimating`, but the reduced-motion branch used shorter transition durations and never adjusted the unlock timer to match.
+- Tests:
+  - Extended `src/utils/downloaderDeck.test.ts` with regression coverage for reduced-motion and default deck animation lock durations.
+  - Confirmed the new tests failed before the fix because `getDownloaderDeckAnimationMs(...)` did not exist and the deck logic had no reduced-motion-specific lock duration.
+- Fix:
+  - Added `getDownloaderDeckAnimationMs(...)` and a reduced-motion duration constant in `src/utils/downloaderDeck.ts`.
+  - Updated `src/pages/settings/DownloaderDeck.tsx` to use the shared helper for its animation unlock timer.
+  - Wrapped `lockAnimation` in `useCallback` and aligned hook dependencies so the React Compiler/lint contract stayed valid.
+- Verification:
+  - `npx vitest run src/utils/downloaderDeck.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`

@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { desktopCommands, desktopEvents } from '../desktop/runtime';
+import { DEFAULT_THEME, resolveThemeFromConfigString, type Theme } from './theme';
 
-export type Theme = 'black' | 'white';
-const DEFAULT_THEME: Theme = 'black';
+export type { Theme } from './theme';
 
 export interface ThemeColors {
   // 背景
@@ -229,17 +229,6 @@ const themes: Record<Theme, ThemeColors> = {
   },
 };
 
-const isTheme = (value: unknown): value is Theme => value === 'black' || value === 'white';
-
-const getThemeFromConfigString = (configStr: string): Theme => {
-  try {
-    const cfg = JSON.parse(configStr) as { theme?: unknown };
-    return isTheme(cfg.theme) ? cfg.theme : DEFAULT_THEME;
-  } catch {
-    return DEFAULT_THEME;
-  }
-};
-
 const toThemeCssVariableName = (tokenName: string): string => (
   `--fs-${tokenName.replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`)}`
 );
@@ -291,7 +280,7 @@ export function ThemeProvider({
           if (isDisposed) {
             return;
           }
-          setThemeState(getThemeFromConfigString(cfgStr));
+          setThemeState(resolveThemeFromConfigString(cfgStr));
         })
         .catch((err) => {
           console.error('Failed to load theme config:', err);

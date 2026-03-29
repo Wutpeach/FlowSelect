@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DOWNLOADER_DECK_WHEEL_THRESHOLD,
   consumeDownloaderDeckWheelDelta,
+  getDownloaderDeckAnimationMs,
   getDownloaderDeckDirection,
   moveDownloaderDeckIndex,
 } from "./downloaderDeck";
@@ -60,5 +61,15 @@ describe("consumeDownloaderDeckWheelDelta", () => {
       accumulatedDelta: 0,
       direction: -1,
     });
+  });
+});
+
+describe("getDownloaderDeckAnimationMs", () => {
+  it("shortens the lock duration when reduced motion is enabled", () => {
+    expect(getDownloaderDeckAnimationMs(true)).toBe(180);
+  });
+
+  it("keeps the full animation duration when reduced motion is disabled", () => {
+    expect(getDownloaderDeckAnimationMs(false)).toBe(500);
   });
 });

@@ -2,6 +2,7 @@ export type DownloaderDeckDirection = -1 | 1;
 
 export const DOWNLOADER_DECK_WHEEL_THRESHOLD = 48;
 export const DOWNLOADER_DECK_ANIMATION_MS = 500;
+export const DOWNLOADER_DECK_REDUCED_MOTION_ANIMATION_MS = 180;
 
 const normalizeDeckIndex = (index: number, length: number): number => {
   if (length <= 0) {
@@ -48,3 +49,9 @@ export const consumeDownloaderDeckWheelDelta = (
     direction: getDownloaderDeckDirection(nextAccumulatedDelta),
   };
 };
+
+export const getDownloaderDeckAnimationMs = (shouldReduceMotion: boolean): number => (
+  shouldReduceMotion
+    ? DOWNLOADER_DECK_REDUCED_MOTION_ANIMATION_MS
+    : DOWNLOADER_DECK_ANIMATION_MS
+);

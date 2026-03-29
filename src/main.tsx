@@ -4,7 +4,9 @@ import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
 import SettingsPage from "./pages/SettingsPage";
 import ContextMenuPage from "./pages/ContextMenuPage";
+import { resolveInitialDesktopTheme } from "./contexts/desktopTheme";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import type { Theme } from "./contexts/theme";
 import { desktopCurrentWindow } from "./desktop/runtime";
 import { resolveInitialDesktopLanguage } from "./i18n/desktopLanguage";
 import { I18nRuntimeBridge } from "./i18n/I18nRuntimeBridge";
@@ -71,6 +73,9 @@ const bootstrap = async () => {
   const initialStartupWindowMode: FlowSelectStartupWindowMode = expectsElectronBridge && window.flowselect
     ? desktopCurrentWindow.startupWindowMode()
     : "full";
+  const initialTheme: Theme | undefined = expectsElectronBridge && window.flowselect
+    ? await resolveInitialDesktopTheme()
+    : undefined;
   const initialLanguage = expectsElectronBridge && window.flowselect
     ? await resolveInitialDesktopLanguage(navigator.language)
     : fallbackLanguage;
@@ -116,7 +121,7 @@ const bootstrap = async () => {
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <RootWrapper>
-      <ThemeProvider>
+      <ThemeProvider initialTheme={initialTheme}>
         <Router>
           <I18nRuntimeBridge />
           <Routes>
