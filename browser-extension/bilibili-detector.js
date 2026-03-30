@@ -337,7 +337,7 @@
       );
   }
 
-  function sendVideoSelectedMessage(payload) {
+  function sendVideoSelectionMessage(payload) {
     chrome.runtime.sendMessage(payload, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[FlowSelect Bilibili] Failed to contact background:', chrome.runtime.lastError.message);
@@ -488,8 +488,8 @@
       return;
     }
 
-    sendVideoSelectedMessage({
-      type: 'video_selected',
+    sendVideoSelectionMessage({
+      type: 'video_selection',
       url: downloadUrl,
       pageUrl,
       title,
@@ -1024,8 +1024,8 @@
     console.log('[FlowSelect Bilibili] Download URL:', downloadUrl);
     console.log('[FlowSelect Bilibili] Title:', title);
 
-    sendVideoSelectedMessage({
-      type: 'video_selected',
+    sendVideoSelectionMessage({
+      type: 'video_selection',
       url: downloadUrl,
       pageUrl,
       title,

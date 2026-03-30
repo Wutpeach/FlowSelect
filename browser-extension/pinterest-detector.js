@@ -453,7 +453,7 @@
 
   function sendDownloadMessage({ pageUrl, videoUrl = null, videoCandidates = [], title = "" }) {
     chrome.runtime.sendMessage({
-      type: "video_selected",
+      type: "video_selection",
       url: videoUrl || pageUrl,
       pageUrl,
       videoUrl,

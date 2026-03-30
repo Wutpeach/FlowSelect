@@ -163,7 +163,7 @@ GitHub Releases 也会附带一个版本化扩展包：
 
 - Node.js 20+
 - npm
-- Python 3.13+（仅当你要本地构建 Pinterest sidecar 或复现 release 打包链路时）
+- Python 不是日常桌面端/扩展开发所必需的环境要求
 
 ### 安装依赖
 

@@ -163,7 +163,7 @@ GitHub Releases also ship a versioned browser-extension archive:
 
 - Node.js 20+
 - npm
-- Python 3.13+ only if you want to build the bundled Pinterest sidecar or reproduce the release packaging flow locally
+- Python is not required for the standard desktop and browser-extension development workflow
 
 ### Install dependencies
 

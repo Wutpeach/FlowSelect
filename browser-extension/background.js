@@ -22,6 +22,8 @@ const PENDING_DOWNLOAD_PREFERENCES_SYNC_KEY = 'flowselectPendingDownloadPreferen
 const WS_ACTION_GET_LANGUAGE = 'get_language';
 const WS_ACTION_LANGUAGE_INFO = 'language_info';
 const WS_ACTION_LANGUAGE_CHANGED = 'language_changed';
+const INTERNAL_VIDEO_SELECTION_MESSAGE = 'video_selection';
+const APP_VIDEO_SELECTION_ACTION = 'video_selected_v2';
 const pendingRequests = new Map();
 const protectedImageDragRegistry = new Map();
 let requestCounter = 0;
@@ -941,7 +943,7 @@ function queueVideoSelectionToApp(data) {
     }
   );
 
-  return sendSelectionRequest('video_selected_v2').then(async (result) => {
+  return sendSelectionRequest(APP_VIDEO_SELECTION_ACTION).then(async (result) => {
     if (!shouldRetryVideoSelectionRequest(result)) {
       return result;
     }
@@ -960,7 +962,7 @@ function queueVideoSelectionToApp(data) {
       return result;
     }
 
-    return sendSelectionRequest('video_selected_v2');
+    return sendSelectionRequest(APP_VIDEO_SELECTION_ACTION);
   });
 }
 
@@ -1047,7 +1049,7 @@ async function getCookiesForUrl(url) {
 
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'video_selected') {
+  if (message.type === INTERNAL_VIDEO_SELECTION_MESSAGE) {
     // Get cookies and send to app
     const pageUrl = selectFirstHttpUrl(message.pageUrl, sender.tab?.url, message.url);
     const requestedUrl = selectFirstHttpUrl(message.url, pageUrl);

@@ -309,7 +309,7 @@
       );
   }
 
-  function sendVideoSelectedMessage(payload) {
+  function sendVideoSelectionMessage(payload) {
     chrome.runtime.sendMessage(payload, (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[FlowSelect YouTube] Failed to contact background:', chrome.runtime.lastError.message);
@@ -458,8 +458,8 @@
 
     console.log('[FlowSelect YouTube] Clip range:', startSec, endSec);
 
-    sendVideoSelectedMessage({
-      type: 'video_selected',
+    sendVideoSelectionMessage({
+      type: 'video_selection',
       url: downloadUrl,
       pageUrl,
       title,
@@ -844,8 +844,8 @@
     console.log('[FlowSelect YouTube] Download URL:', downloadUrl);
     console.log('[FlowSelect YouTube] Title:', title);
 
-    sendVideoSelectedMessage({
-      type: 'video_selected',
+    sendVideoSelectionMessage({
+      type: 'video_selection',
       url: downloadUrl,
       pageUrl,
       title,

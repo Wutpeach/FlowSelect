@@ -51,7 +51,7 @@
   function handleVideoSelect(videoData) {
     console.log('[FlowSelect Content] handleVideoSelect called:', videoData);
     chrome.runtime.sendMessage({
-      type: 'video_selected',
+      type: 'video_selection',
       url: videoData.src,
       title: videoData.title || document.title
     });

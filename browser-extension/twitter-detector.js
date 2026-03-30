@@ -65,7 +65,7 @@
   function downloadVideo(tweetUrl) {
     console.log('[FlowSelect Twitter] Downloading:', tweetUrl);
     chrome.runtime.sendMessage({
-      type: 'video_selected',
+      type: 'video_selection',
       url: tweetUrl,
       title: document.title
     });

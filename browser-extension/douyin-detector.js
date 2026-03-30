@@ -385,7 +385,7 @@
     console.log('[FlowSelect Douyin] Title:', title);
 
     chrome.runtime.sendMessage({
-      type: 'video_selected',
+      type: 'video_selection',
       url: videoUrl || pageUrl,
       pageUrl: pageUrl,
       videoUrl: videoUrl,
@@ -400,7 +400,7 @@
     console.log('[FlowSelect Douyin] Title:', title);
 
     chrome.runtime.sendMessage({
-      type: 'video_selected',
+      type: 'video_selection',
       url: pageUrl,
       pageUrl: pageUrl,
       videoCandidates: [],
