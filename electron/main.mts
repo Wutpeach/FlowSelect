@@ -519,12 +519,6 @@ type FlowSelectBrowserWindowCreationOptions = {
   preferZeroAlphaTransparentBackground?: boolean;
 };
 
-function shouldForceOpaqueSecondaryWindow(label: string): boolean {
-  return label === WINDOW_LABELS.settings
-    && process.platform === "win32"
-    && app.isPackaged;
-}
-
 function resolveWindowAppearance({
   allowTransparency = true,
   currentTheme,
@@ -3672,20 +3666,35 @@ async function openSecondaryWindow(label, options) {
     y: options.y,
     center: options.center === true,
     title: options.title,
-    allowTransparency: !shouldForceOpaqueSecondaryWindow(label) && options.transparent !== false,
+    allowTransparency: options.transparent !== false,
     frame: options.decorations === true,
     resizable: options.resizable === true,
     alwaysOnTop: options.alwaysOnTop !== false,
     skipTaskbar: options.skipTaskbar ?? process.platform === "win32",
     parentLabel: options.parent === "main" ? WINDOW_LABELS.main : undefined,
+    preferZeroAlphaTransparentBackground: (
+      label === WINDOW_LABELS.settings || label === WINDOW_LABELS.uiLab
+    ) && options.transparent !== false,
   });
-  await browserWindow.loadURL(
+
+  const loadUrlPromise = browserWindow.loadURL(
     buildRendererRoute(routePath),
   );
-  await waitForWindowReadyToReveal(browserWindow, label, transparentWindow);
+  let loadUrlError: unknown = null;
+  void loadUrlPromise.catch((error) => {
+    loadUrlError = error;
+  });
+
+  // Secondary utility windows should reveal on the first stable paint signal
+  // instead of waiting for the full renderer-ready handshake.
+  await waitForInitialWindowReveal(browserWindow);
+  await delayTransparentPackagedWindowReveal(label, transparentWindow);
   if (!browserWindow.isVisible()) {
-    showSecondaryWindow(label, browserWindow, options);
+    if (loadUrlError === null) {
+      showSecondaryWindow(label, browserWindow, options);
+    }
   }
+  await loadUrlPromise;
   return browserWindow;
 }
 

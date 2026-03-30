@@ -23,6 +23,7 @@ import {
 import {
   getFieldSurfaceStyle,
   getCompactLabelStyle,
+  WINDOW_NO_DRAG_REGION_STYLE,
   getWindowBodyStyle,
   getWindowFooterStyle,
   getWindowHeaderStyle,
@@ -1072,7 +1073,9 @@ function SettingsPage() {
     <div style={panelStyle}>
       {/* Draggable Header */}
       <div
-        style={getWindowHeaderStyle(colors)}
+        style={getWindowHeaderStyle(colors, {
+          dragRegion: true,
+        })}
       >
         <h2 style={{ fontSize: 14, fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
           {t("desktop:settings.title")}
@@ -1082,6 +1085,7 @@ function SettingsPage() {
           tone="danger"
           size={20}
           style={{
+            ...WINDOW_NO_DRAG_REGION_STYLE,
             marginRight: -2,
           }}
         >
