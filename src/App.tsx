@@ -3707,33 +3707,17 @@ function App({
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
-              background: hasTranscodeTasks
-                ? isQueuePopoverOpen
-                  ? `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgSecondary} 100%)`
-                  : `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgPrimary} 100%)`
-                : isQueuePopoverOpen
-                  ? `linear-gradient(135deg, ${colors.queueBadgeOpenBg} 0%, ${colors.queueBadgeOpenGlow} 100%)`
-                  : `linear-gradient(135deg, ${colors.queueBadgeBg} 0%, ${colors.queueBadgeGlow} 100%)`,
-              color: hasTranscodeTasks
-                ? colors.textPrimary
-                : isQueuePopoverOpen
-                  ? colors.queueBadgeOpenText
-                  : colors.queueBadgeText,
-              border: hasTranscodeTasks
-                ? `1px solid ${isQueuePopoverOpen ? colors.queueStatusBorder : colors.fieldBorder}`
-                : isQueuePopoverOpen
-                  ? `1px solid ${colors.queueBadgeOpenBorder}`
-                  : `1px solid ${colors.queueBadgeBorder}`,
+              background: isQueuePopoverOpen
+                ? `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgSecondary} 100%)`
+                : `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgPrimary} 100%)`,
+              color: colors.textPrimary,
+              border: `1px solid ${isQueuePopoverOpen ? colors.queueStatusBorder : colors.fieldBorder}`,
               fontSize: 12,
               fontWeight: 800,
               lineHeight: 1,
               userSelect: 'none',
               zIndex: 30,
-              boxShadow: hasTranscodeTasks
-                ? `inset 0 0 0 1px ${isQueuePopoverOpen ? colors.queueStatusBorder : colors.borderStart}, ${colors.panelShadow}`
-                : isQueuePopoverOpen
-                  ? `0 10px 18px ${colors.queueBadgeOpenShadow}, ${colors.panelShadow}`
-                  : `0 10px 18px ${colors.queueBadgeShadow}, ${colors.panelShadow}`,
+              boxShadow: `inset 0 0 0 1px ${isQueuePopoverOpen ? colors.queueStatusBorder : colors.borderStart}, ${colors.panelShadow}`,
               backdropFilter: 'blur(12px)',
               cursor: 'pointer',
               transition: 'background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
