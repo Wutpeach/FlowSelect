@@ -4,10 +4,6 @@ import type { Theme, ThemeColors } from "../../contexts/ThemeContext";
 export const COMPACT_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
 const CONTINUOUS_CORNER_SHAPE = "superellipse(1.5)";
 const ELECTRON_CONTINUOUS_CORNER_SMOOTHING = "60%";
-const SUPPORTS_CONTINUOUS_CORNERS = typeof CSS !== "undefined" && (
-  CSS.supports("corner-shape", CONTINUOUS_CORNER_SHAPE)
-  || CSS.supports("-electron-corner-smoothing", ELECTRON_CONTINUOUS_CORNER_SMOOTHING)
-);
 
 type ContinuousCornerStyle = CSSProperties & {
   cornerShape?: string;
@@ -83,6 +79,14 @@ export const getContinuousCornerStyle = (
   ["-electron-corner-smoothing"]: ELECTRON_CONTINUOUS_CORNER_SMOOTHING,
 });
 
+const formatCornerRadius = (radius: number | string): string => (
+  typeof radius === "number" ? `${radius}px` : radius
+);
+
+export const getContinuousCornerClipPath = (
+  radius: number | string,
+): string => `inset(0 round ${formatCornerRadius(radius)})`;
+
 export const getPanelShellStyle = (
   colors: ThemeColors,
   { radius = 16, boxShadow }: PanelShellOptions = {},
@@ -116,8 +120,9 @@ export const getWindowShellStyle = (
     boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
+    isolation: "isolate",
     overflow: "hidden",
-    clipPath: clip && !SUPPORTS_CONTINUOUS_CORNERS ? `inset(0 round ${radius}px)` : undefined,
+    clipPath: clip ? getContinuousCornerClipPath(radius) : undefined,
     ...getPanelShellStyle(colors, {
       radius,
       boxShadow: [

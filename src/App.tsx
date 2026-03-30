@@ -6,6 +6,7 @@ import { CatIcon } from "./components/CatIcon";
 import { NeonIconButton } from "./components/ui";
 import {
   COMPACT_EASE,
+  getContinuousCornerClipPath,
   getContinuousCornerStyle,
   getInsetCardStyle,
   getPanelShellStyle,
@@ -1163,9 +1164,11 @@ function App({
   const minimizedPanelTweenTransition = { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const };
   const instantPanelValueTransition = { duration: 0 } as const;
   const springPanelValueTransition = { type: "spring" as const, stiffness: 400, damping: 30 };
+  const panelShellClipPath = getContinuousCornerClipPath(panelRadius);
   const panelShellAnimate = {
     scale: isInitialMount ? 0.82 : panelScale,
     borderRadius: panelRadius,
+    clipPath: panelShellClipPath,
     x: minimizedPanelOffset,
     y: minimizedPanelOffset,
     width: panelRenderSize,
@@ -1180,6 +1183,13 @@ function App({
           ? minimizedPanelTweenTransition
         : springPanelValueTransition,
     borderRadius: isInitialMount
+      ? initialPanelTweenTransition
+      : shouldUseInstantPanelTransition
+        ? instantPanelValueTransition
+        : isMinimized
+          ? minimizedPanelTweenTransition
+        : springPanelValueTransition,
+    clipPath: isInitialMount
       ? initialPanelTweenTransition
       : shouldUseInstantPanelTransition
         ? instantPanelValueTransition
@@ -3591,7 +3601,7 @@ function App({
         transition: shouldUseInstantPanelTransition
           ? undefined
           : `box-shadow 0.18s ${COMPACT_EASE}`,
-        willChange: 'transform',
+        willChange: 'transform, clip-path',
       }}
     >
       <div
@@ -4858,12 +4868,14 @@ function App({
             x: MINIMIZED_SHELL_INSET,
             y: MINIMIZED_SHELL_INSET,
             borderRadius: 100,
+            clipPath: getContinuousCornerClipPath(100),
           }}
           animate={{
             scale: 1,
             x: 0,
             y: 0,
             borderRadius: 16,
+            clipPath: getContinuousCornerClipPath(16),
           }}
           transition={expandMorphShellTransition}
           onAnimationComplete={finishExpandMorph}
@@ -4880,7 +4892,7 @@ function App({
             pointerEvents: "none",
             transformOrigin: "0px 0px",
             zIndex: 12,
-            willChange: "transform, border-radius",
+            willChange: "transform, border-radius, clip-path",
             ...getPanelShellStyle(colors, {
               radius: 16,
               boxShadow: containerFullBoxShadow,
