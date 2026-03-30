@@ -23,4 +23,9 @@ describe("sanitizeFileStem", () => {
     expect(sanitizeFileStem("CON")).toBe("CON_");
     expect(sanitizeFileStem("lpt1")).toBe("lpt1_");
   });
+
+  it("avoids reserved Windows device names even when they are followed by dot suffixes", () => {
+    expect(sanitizeFileStem("CON.txt")).toBe("CON_.txt");
+    expect(sanitizeFileStem("nul.part1")).toBe("nul_.part1");
+  });
 });

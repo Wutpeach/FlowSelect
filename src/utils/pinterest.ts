@@ -209,9 +209,12 @@ export function extractEmbeddedPinterestDragPayload(html: string): EmbeddedPinte
       pageUrl: isPinterestPinUrl(typeof parsed.pageUrl === "string" ? parsed.pageUrl : "")
         ? (parsed.pageUrl as string).trim()
         : null,
-      videoUrl: normalizePinterestCandidateUrl(
-        typeof parsed.videoUrl === "string" ? parsed.videoUrl : null,
-      ),
+      videoUrl: (() => {
+        const normalized = normalizePinterestCandidateUrl(
+          typeof parsed.videoUrl === "string" ? parsed.videoUrl : null,
+        );
+        return normalized && isPinterestVideoCandidateUrl(normalized) ? normalized : null;
+      })(),
       videoCandidates: normalizePinterestDragCandidates(parsed.videoCandidates),
       title: normalizePinterestTitle(parsed.title),
     };

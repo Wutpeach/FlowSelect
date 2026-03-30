@@ -5,7 +5,7 @@ import type { ElectronRuntimeEnvironment } from "./contracts";
 let traceSequence = 0;
 
 const WINDOWS_RESERVED_FILE_STEM_PATTERN =
-  /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+  /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?=\.|$)/i;
 
 export const nextDownloadTraceId = (): string => {
   traceSequence += 1;
@@ -29,7 +29,7 @@ export const sanitizeFileStem = (input: string): string => {
     || "flowselect-video";
 
   return WINDOWS_RESERVED_FILE_STEM_PATTERN.test(sanitized)
-    ? `${sanitized}_`
+    ? sanitized.replace(WINDOWS_RESERVED_FILE_STEM_PATTERN, "$1_")
     : sanitized;
 };
 

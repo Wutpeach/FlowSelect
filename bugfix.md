@@ -279,3 +279,51 @@
   - `npm test`
   - `npm run type-check`
   - `npm run lint`
+
+## Cycle 18
+
+- Defect: `src/utils/pinterest.ts` trusted embedded Pinterest drag `videoUrl` values after only HTTP(S) normalization, so a regular pin page URL could survive as `videoUrl` and override a valid discovered media hint in the frontend merge path.
+- Root cause: `extractEmbeddedPinterestDragPayload(...)` normalized `parsed.videoUrl` with `normalizePinterestCandidateUrl(...)` but never applied the stricter `isPinterestVideoCandidateUrl(...)` gate already used by the rest of the Pinterest video-hint pipeline.
+- Tests:
+  - Expanded `src/utils/pinterest.test.ts` with regression coverage asserting that embedded `videoUrl` values are dropped when they are not actual Pinterest video hints, while valid `videoCandidates` remain intact.
+  - Confirmed the new test failed before the fix and passed after it.
+- Fix:
+  - Tightened `extractEmbeddedPinterestDragPayload(...)` so embedded `videoUrl` is only kept when it passes the existing Pinterest video-candidate validator; otherwise it now resolves to `null`.
+- Verification:
+  - `npm test -- src/utils/pinterest.test.ts`
+  - `npm test -- src/electron-runtime/commandRouter.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
+
+## Cycle 19
+
+- Defect: `src/electron-runtime/runtimeUtils.ts` still allowed Windows reserved device names to survive when they were followed by dot suffixes such as `CON.txt` or `nul.part1`, which can still produce invalid output filenames on Windows.
+- Root cause: The reserved-name guard only matched the entire sanitized stem (`^...$`), so it missed the Windows rule that reserved device basenames remain invalid even when followed by `.` and additional suffix text.
+- Tests:
+  - Expanded `src/electron-runtime/runtimeUtils.test.ts` with regression coverage for reserved device names followed by dot suffixes.
+  - Confirmed the new test failed before the fix and passed after it.
+- Fix:
+  - Tightened the reserved-name pattern to match a reserved basename at the start of the stem when followed by `.` or the end of the string.
+  - Changed sanitization to insert `_` immediately after the reserved basename, yielding safe names such as `CON_.txt`.
+- Verification:
+  - `npm test -- src/electron-runtime/runtimeUtils.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
+
+## Cycle 20
+
+- Defect: `src/App.tsx` converted dropped local `file://` URLs into filesystem paths by stripping the `file:///` prefix as a plain string, which broke macOS paths by turning `file:///Users/...` into `Users/...` and dropping the leading `/`.
+- Root cause: Renderer-side local file handling relied on a Windows-oriented string replacement instead of URI parsing, and the same brittle logic was duplicated in two file-processing branches.
+- Tests:
+  - Added `src/utils/localFileUrl.test.ts` covering Windows drive paths, macOS absolute paths, `file://localhost/...`, and malformed inputs.
+  - Confirmed the malformed-input edge case failed on the first implementation pass and tightened the parser so the regression suite finished green.
+- Fix:
+  - Added `parseLocalFileUrl(...)` in `src/utils/localFileUrl.ts` to normalize local `file://` URLs across Windows and macOS.
+  - Updated both renderer-side local-file branches in `src/App.tsx` to use the shared parser instead of direct string slicing.
+- Verification:
+  - `npm test -- src/utils/localFileUrl.test.ts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`

@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { extractPinterestVideoSelectionFromHtml, isPinterestPinUrl } from "./pinterest";
+import {
+  extractEmbeddedPinterestDragPayload,
+  extractPinterestVideoSelectionFromHtml,
+  isPinterestPinUrl,
+} from "./pinterest";
+
+function encodeEmbeddedPayload(payload: object): string {
+  const json = JSON.stringify(payload);
+  return `FLOWSELECT_PINTEREST_DRAG:${btoa(
+    encodeURIComponent(json).replace(/%([0-9A-F]{2})/gi, (_, hex) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    ),
+  )}`;
+}
 
 describe("isPinterestPinUrl", () => {
   it("accepts canonical Pinterest pin URLs", () => {
@@ -37,5 +50,37 @@ describe("extractPinterestVideoSelectionFromHtml", () => {
         confidence: "low",
       },
     ]);
+  });
+});
+
+describe("extractEmbeddedPinterestDragPayload", () => {
+  it("drops embedded videoUrl values that are not actual video hints", () => {
+    const payload = encodeEmbeddedPayload({
+      pageUrl: "https://www.pinterest.com/pin/403705554121341216/",
+      videoUrl: "https://www.pinterest.com/pin/403705554121341216/",
+      videoCandidates: [
+        {
+          url: "https://v1.pinimg.com/videos/iht/expmp4/example-video.mp4",
+          type: "direct_mp4",
+          source: "embedded_drag_payload",
+          confidence: "high",
+        },
+      ],
+      title: "Example pin",
+    });
+
+    expect(extractEmbeddedPinterestDragPayload(payload)).toEqual({
+      pageUrl: "https://www.pinterest.com/pin/403705554121341216/",
+      videoUrl: null,
+      videoCandidates: [
+        {
+          url: "https://v1.pinimg.com/videos/iht/expmp4/example-video.mp4",
+          type: "direct_mp4",
+          source: "embedded_drag_payload",
+          confidence: "high",
+        },
+      ],
+      title: "Example pin",
+    });
   });
 });

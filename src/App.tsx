@@ -40,6 +40,7 @@ import {
   type PinterestVideoCandidate,
 } from "./utils/pinterest";
 import { extractImageUrlFromHtml } from "./utils/imageDrag";
+import { parseLocalFileUrl } from "./utils/localFileUrl";
 import {
   resolvePanelPointerCaptureId,
   shouldIgnorePanelDoubleClickTarget,
@@ -2868,7 +2869,7 @@ function App({
 
     // === 优先处理本地文件 file:// URL ===
     if (url && url.startsWith("file://")) {
-      const localPath = decodeURIComponent(url.replace("file:///", ""));
+      const localPath = parseLocalFileUrl(url) ?? decodeURIComponent(url.replace("file:///", ""));
       console.log("Detected local file URL:", localPath);
       resetDownloadOutcome();
       setIsProcessing(true);
@@ -3000,7 +3001,9 @@ function App({
           console.log("Save data URL result:", result);
         } else if (resolvedImageUrl.startsWith("file://")) {
           // Convert file:// URL to local path
-          const localPath = decodeURIComponent(resolvedImageUrl.replace("file:///", ""));
+          const localPath =
+            parseLocalFileUrl(resolvedImageUrl)
+            ?? decodeURIComponent(resolvedImageUrl.replace("file:///", ""));
           console.log("Detected local file:", localPath);
 
           // First try to copy from local path
