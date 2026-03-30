@@ -57,6 +57,11 @@ import {
   shouldUseNativeCompactStartupWindow,
   shouldStartExpandedOnLaunch,
 } from "./utils/startupWindowState";
+import {
+  MAIN_WINDOW_IDLE_MINIMIZE_MS,
+  resolveMainWindowModeLock,
+  shouldCollapseMainWindowOnPointerLeave,
+} from "./utils/mainWindowMode";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
@@ -746,7 +751,6 @@ function App({
   const idleTimerRef = useRef<number | null>(null);
   const resetCounterFeedbackTimerRef = useRef<number | null>(null);
   const queueNoticeTimerRef = useRef<number | null>(null);
-  const queueIdleDelayTimerRef = useRef<number | null>(null);
   const runtimeRetryFeedbackTimerRef = useRef<number | null>(null);
   const runtimeSuccessTimerRef = useRef<number | null>(null);
   const runtimeBootstrapAfterVisibleTimerRef = useRef<number | null>(null);
@@ -766,10 +770,7 @@ function App({
   const windowDragFrameRef = useRef<number | null>(null);
   const lastKnownWindowPositionRef = useRef<{ x: number; y: number } | null>(null);
   const previousTaskCountRef = useRef(0);
-  const ongoingTaskCountRef = useRef(0);
-  const runtimeGateBusyRef = useRef(false);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
-  const previousRuntimeGateBusyRef = useRef(false);
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
   const startupAutoMinimizeUnlockedRef = useRef(startupAutoMinimizeGraceMs === 0);
   const EXPAND_WINDOW_BOUNDS_DURATION_MS = shouldReduceMotion ? 140 : 240;
@@ -841,7 +842,13 @@ function App({
         }
       : null;
   const hasOngoingTask = ongoingTaskCount > 0;
-  const hasBlockingForegroundWork = hasOngoingTask || runtimeGateIsBusy;
+  const isMainWindowModeLocked = resolveMainWindowModeLock({
+    hasOngoingTask,
+    runtimeGateIsBusy,
+    isProcessing,
+    showRuntimeSuccessIndicator,
+    appUpdatePhase,
+  });
   const remainingDownloadCount = Math.max(
     0,
     totalDownloadTaskCount - (primaryTask?.kind === "download" ? 1 : 0),
@@ -850,6 +857,8 @@ function App({
     0,
     totalTranscodeTaskCount - (primaryTask?.kind === "transcode" ? 1 : 0),
   );
+  const isMainWindowModeLockedRef = useRef(isMainWindowModeLocked);
+  const previousMainWindowModeLockedRef = useRef(isMainWindowModeLocked);
 
   const resetDownloadOutcome = useCallback(() => {
     setDownloadCancelled(false);
@@ -857,12 +866,8 @@ function App({
   }, []);
 
   useEffect(() => {
-    ongoingTaskCountRef.current = ongoingTaskCount;
-  }, [ongoingTaskCount]);
-
-  useEffect(() => {
-    runtimeGateBusyRef.current = runtimeGateIsBusy;
-  }, [runtimeGateIsBusy]);
+    isMainWindowModeLockedRef.current = isMainWindowModeLocked;
+  }, [isMainWindowModeLocked]);
 
   const restoreAnimatedPanelTransitions = useCallback(() => {
     if (panelTransitionModeResetFrameRef.current !== null) {
@@ -952,10 +957,6 @@ function App({
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
     }
-    if (queueIdleDelayTimerRef.current !== null) {
-      clearTimeout(queueIdleDelayTimerRef.current);
-      queueIdleDelayTimerRef.current = null;
-    }
   }, []);
 
   const getCurrentWindowPosition = useCallback(async () => {
@@ -984,48 +985,32 @@ function App({
     lastKnownWindowPositionRef.current = position;
   }, [getCurrentWindowPosition]);
 
+  const collapseMainWindowToIcon = useCallback(() => {
+    if (
+      isMainWindowModeLockedRef.current
+      || isDraggingRef.current
+      || isPanelHoveredRef.current
+      || isContextMenuOpenRef.current
+      || !startupAutoMinimizeUnlockedRef.current
+    ) {
+      return false;
+    }
+
+    clearWindowIdleTimers();
+    setIsMinimized(true);
+    setShowEdgeGlow(false);
+    return true;
+  }, [clearWindowIdleTimers]);
+
   const armIdleTimer = useCallback(() => {
     if (!startupAutoMinimizeUnlockedRef.current) {
       return;
     }
 
     idleTimerRef.current = window.setTimeout(() => {
-      if (
-        ongoingTaskCountRef.current > 0
-        || runtimeGateBusyRef.current
-        || isDraggingRef.current
-        || isPanelHoveredRef.current
-        || isContextMenuOpenRef.current
-        || !startupAutoMinimizeUnlockedRef.current
-      ) {
-        return;
-      }
-      setIsMinimized(true);
-      setShowEdgeGlow(false);
-    }, 3000);
-  }, []);
-
-  const scheduleIdleAfterTaskSettlement = useCallback((delayMs = 5000) => {
-    if (queueIdleDelayTimerRef.current !== null) {
-      clearTimeout(queueIdleDelayTimerRef.current);
-    }
-    queueIdleDelayTimerRef.current = window.setTimeout(() => {
-      queueIdleDelayTimerRef.current = null;
-      if (idleTimerRef.current) {
-        clearTimeout(idleTimerRef.current);
-        idleTimerRef.current = null;
-      }
-      if (
-        ongoingTaskCountRef.current === 0
-        && !runtimeGateBusyRef.current
-        && !isDraggingRef.current
-        && !isPanelHoveredRef.current
-        && !isContextMenuOpenRef.current
-      ) {
-        armIdleTimer();
-      }
-    }, delayMs);
-  }, [armIdleTimer]);
+      collapseMainWindowToIcon();
+    }, MAIN_WINDOW_IDLE_MINIMIZE_MS);
+  }, [collapseMainWindowToIcon]);
 
   const closeContextMenuWindow = useCallback(async () => {
     if (await desktopWindows.has("context-menu")) {
@@ -1585,9 +1570,6 @@ function App({
       if (queueNoticeTimerRef.current !== null) {
         clearTimeout(queueNoticeTimerRef.current);
       }
-      if (queueIdleDelayTimerRef.current !== null) {
-        clearTimeout(queueIdleDelayTimerRef.current);
-      }
       if (runtimeRetryFeedbackTimerRef.current !== null) {
         clearTimeout(runtimeRetryFeedbackTimerRef.current);
       }
@@ -1652,15 +1634,7 @@ function App({
       "video-download-progress",
       async (event) => {
         const payload = event.payload;
-        // 清除已有的 idle timer，防止下载中被最小化
-        if (idleTimerRef.current) {
-          clearTimeout(idleTimerRef.current);
-          idleTimerRef.current = null;
-        }
-        if (queueIdleDelayTimerRef.current !== null) {
-          clearTimeout(queueIdleDelayTimerRef.current);
-          queueIdleDelayTimerRef.current = null;
-        }
+        clearWindowIdleTimers();
         // Set progress immediately (sync) before async operations
         setIsMinimized(false);
         setDownloadProgressByTrace((current) => {
@@ -1714,7 +1688,6 @@ function App({
           setIsProcessing(true);
           setTimeout(() => setIsProcessing(false), 1500);
         }
-        scheduleIdleAfterTaskSettlement();
       }
     );
     return () => {
@@ -1722,10 +1695,10 @@ function App({
       unlistenComplete.then(fn => fn());
     };
   }, [
+    clearWindowIdleTimers,
     isMacOS,
     removeCancellingTraceId,
     resizeMainWindowPreservingPosition,
-    scheduleIdleAfterTaskSettlement,
   ]);
 
   // Listen for output path changes from settings window
@@ -1821,11 +1794,8 @@ function App({
       setShowEdgeGlow(false);
       setTimeout(() => setShowEdgeGlow(true), 500);
 
-      if (idleTimerRef.current) {
-        clearTimeout(idleTimerRef.current);
-        idleTimerRef.current = null;
-      }
-      if (!hasBlockingForegroundWork && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
+      clearWindowIdleTimers();
+      if (!isMainWindowModeLocked && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
         armIdleTimer();
       }
 
@@ -1838,7 +1808,8 @@ function App({
     return () => { unlisten.then(fn => fn()); };
   }, [
     armIdleTimer,
-    hasBlockingForegroundWork,
+    clearWindowIdleTimers,
+    isMainWindowModeLocked,
     isMacOS,
     resizeMainWindowPreservingPosition,
     windowResized,
@@ -1965,14 +1936,7 @@ function App({
         return;
       }
 
-      if (idleTimerRef.current) {
-        clearTimeout(idleTimerRef.current);
-        idleTimerRef.current = null;
-      }
-      if (queueIdleDelayTimerRef.current !== null) {
-        clearTimeout(queueIdleDelayTimerRef.current);
-        queueIdleDelayTimerRef.current = null;
-      }
+      clearWindowIdleTimers();
 
       setIsMinimized(false);
       setTranscodeProgressByTrace((current) => ({
@@ -2045,7 +2009,6 @@ function App({
         delete next[normalized.traceId];
         return next;
       });
-      scheduleIdleAfterTaskSettlement(3500);
     });
 
     const unlistenFailed = desktopEvents.on<VideoTranscodeTaskPayload>("video-transcode-failed", (event) => {
@@ -2070,7 +2033,6 @@ function App({
       setIsProcessing(true);
       setTimeout(() => setIsProcessing(false), 1800);
       showQueueNotice(t("app.queue.transcodeFailedNotice"));
-      scheduleIdleAfterTaskSettlement(3500);
     });
 
     const unlistenComplete = desktopEvents.on<VideoTranscodeCompletePayload>("video-transcode-complete", (event) => {
@@ -2092,7 +2054,6 @@ function App({
       setIsProcessing(true);
       setTimeout(() => setIsProcessing(false), 1400);
       showQueueNotice(t("app.queue.transcodeCompleted"));
-      scheduleIdleAfterTaskSettlement(3500);
     });
 
     return () => {
@@ -2106,10 +2067,10 @@ function App({
       unlistenComplete.then((fn) => fn());
     };
   }, [
+    clearWindowIdleTimers,
     isMacOS,
     removePendingTranscodeActionTraceId,
     resizeMainWindowPreservingPosition,
-    scheduleIdleAfterTaskSettlement,
     showQueueNotice,
     t,
   ]);
@@ -2152,10 +2113,9 @@ function App({
       }, 100);
     }
 
-    // 活跃任务进行中、拖拽中或鼠标仍停留在面板内时不启动 idle timer
+    // 主窗口被前景状态锁定、拖拽中或鼠标仍停留在面板内时不启动 idle timer
     if (
-      ongoingTaskCountRef.current > 0
-      || runtimeGateBusyRef.current
+      isMainWindowModeLockedRef.current
       || isDraggingRef.current
       || isPanelHoveredRef.current
       || isContextMenuOpenRef.current
@@ -2187,30 +2147,41 @@ function App({
   }, [resetIdleTimer, startupAutoMinimizeGraceMs]);
 
   useEffect(() => {
-    const wasBusy = previousRuntimeGateBusyRef.current;
-    previousRuntimeGateBusyRef.current = runtimeGateIsBusy;
-
-    if (runtimeGateIsBusy) {
-      clearWindowIdleTimers();
-      if (isMinimized || windowResized) {
-        void expandWindow();
-      } else {
-        setIsMinimized(false);
-      }
+    if (!runtimeGateIsBusy) {
       return;
     }
 
-    if (wasBusy) {
-      resetIdleTimer({ expandIfMinimized: false });
+    clearWindowIdleTimers();
+    if (isMinimized || windowResized) {
+      void expandWindow();
+      return;
     }
+    setIsMinimized(false);
   }, [
     clearWindowIdleTimers,
     expandWindow,
     isMinimized,
-    resetIdleTimer,
     runtimeGateIsBusy,
-      windowResized,
-    ]);
+    windowResized,
+  ]);
+
+  useEffect(() => {
+    const wasLocked = previousMainWindowModeLockedRef.current;
+    previousMainWindowModeLockedRef.current = isMainWindowModeLocked;
+
+    if (isMainWindowModeLocked) {
+      clearWindowIdleTimers();
+      return;
+    }
+
+    if (wasLocked) {
+      resetIdleTimer({ expandIfMinimized: false });
+    }
+  }, [
+    clearWindowIdleTimers,
+    isMainWindowModeLocked,
+    resetIdleTimer,
+  ]);
 
   // Start idle timer on mount
   useEffect(() => {
@@ -3565,6 +3536,16 @@ function App({
       onMouseLeave={() => {
         isPanelHoveredRef.current = false;
         setIsPanelHovered(false);
+        if (shouldCollapseMainWindowOnPointerLeave({
+          isMinimized,
+          startupAutoMinimizeUnlocked: startupAutoMinimizeUnlockedRef.current,
+          isDragging: isDraggingRef.current,
+          isContextMenuOpen,
+          isMainWindowModeLocked,
+        })) {
+          collapseMainWindowToIcon();
+          return;
+        }
         resetIdleTimer({ expandIfMinimized: false });
       }}
       onPointerDown={handlePanelPointerDown}
