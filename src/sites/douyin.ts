@@ -46,7 +46,10 @@ const buildIntent = (input: RawDownloadInput): DownloadIntent => ({
 export const douyinProvider: SiteProvider = {
   id: "douyin",
   matches(input: RawDownloadInput): boolean {
-    return isDouyinUrl(input.pageUrl) || isDouyinUrl(input.url) || Boolean(pickDirectSource(input));
+    return input.siteHint === "douyin"
+      || isDouyinUrl(input.pageUrl)
+      || isDouyinUrl(input.url)
+      || Boolean(pickDirectSource(input));
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const directSource = pickDirectSource(input);

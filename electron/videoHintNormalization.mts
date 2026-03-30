@@ -1,3 +1,5 @@
+import { resolveSiteHint } from "../src/core/site-hints.js";
+
 const normalizeHttpUrl = (value: unknown): string | undefined => {
   if (typeof value !== "string") {
     return undefined;
@@ -45,9 +47,37 @@ const videoHintPriority = (value: string): number => {
   return 0;
 };
 
-export function normalizeVideoHintUrl(value: unknown): string | undefined {
+const normalizeOptionalLabel = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
+const normalizeMediaType = (value: unknown): "video" | "image" | undefined => (
+  value === "video" || value === "image" ? value : undefined
+);
+
+export function resolveVideoSelectionSiteHint(...values: unknown[]): string | undefined {
+  return resolveSiteHint(
+    ...values.map((value) => (typeof value === "string" ? value : undefined)),
+  );
+}
+
+export function normalizeVideoHintUrl(value: unknown, siteHint?: string): string | undefined {
   const normalized = normalizeHttpUrl(value);
-  return normalized && isPinterestVideoHintUrl(normalized) ? normalized : undefined;
+  if (!normalized) {
+    return undefined;
+  }
+
+  const resolvedSiteHint = resolveVideoSelectionSiteHint(siteHint, normalized);
+  if (resolvedSiteHint === "pinterest") {
+    return isPinterestVideoHintUrl(normalized) ? normalized : undefined;
+  }
+
+  return normalized;
 }
 
 export function normalizeRequiredVideoRouteUrl(value: unknown): string | undefined {
@@ -58,26 +88,63 @@ export function normalizeVideoPageUrl(value: unknown): string | undefined {
   return normalizeHttpUrl(value);
 }
 
-export function normalizeVideoCandidateUrls(candidates: unknown): string[] {
+export function normalizeVideoCandidates(
+  candidates: unknown,
+  siteHint?: string,
+): Array<{
+    url: string;
+    type?: string;
+    source?: string;
+    confidence?: string;
+    mediaType?: "video" | "image";
+  }> {
   if (!Array.isArray(candidates)) {
     return [];
   }
 
   const deduped = new Set();
-  const result: Array<{ url: string; index: number }> = [];
+  const resolvedSiteHint = resolveVideoSelectionSiteHint(siteHint);
+  const result: Array<{
+    candidate: {
+      url: string;
+      type?: string;
+      source?: string;
+      confidence?: string;
+      mediaType?: "video" | "image";
+    };
+    index: number;
+  }> = [];
+
   for (const [index, candidate] of candidates.entries()) {
-    const url = normalizeVideoHintUrl(candidate?.url);
+    const url = normalizeVideoHintUrl(candidate?.url, resolvedSiteHint);
     if (!url || deduped.has(url)) {
       continue;
     }
     deduped.add(url);
-    result.push({ url, index });
+    result.push({
+      candidate: {
+        url,
+        type: normalizeOptionalLabel(candidate?.type),
+        source: normalizeOptionalLabel(candidate?.source),
+        confidence: normalizeOptionalLabel(candidate?.confidence),
+        mediaType: normalizeMediaType(candidate?.mediaType ?? candidate?.media_type),
+      },
+      index,
+    });
   }
 
-  return result
-    .sort((left, right) => {
-      const scoreDelta = videoHintPriority(right.url) - videoHintPriority(left.url);
-      return scoreDelta !== 0 ? scoreDelta : left.index - right.index;
-    })
-    .map((entry) => entry.url);
+  if (resolvedSiteHint === "pinterest") {
+    return result
+      .sort((left, right) => {
+        const scoreDelta = videoHintPriority(right.candidate.url) - videoHintPriority(left.candidate.url);
+        return scoreDelta !== 0 ? scoreDelta : left.index - right.index;
+      })
+      .map((entry) => entry.candidate);
+  }
+
+  return result.map((entry) => entry.candidate);
+}
+
+export function normalizeVideoCandidateUrls(candidates: unknown, siteHint?: string): string[] {
+  return normalizeVideoCandidates(candidates, siteHint).map((candidate) => candidate.url);
 }

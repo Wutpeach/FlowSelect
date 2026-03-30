@@ -11,7 +11,7 @@ const isYouTubeUrl = (value: string | undefined): boolean =>
 export const youtubeProvider: SiteProvider = {
   id: "youtube",
   matches(input: RawDownloadInput): boolean {
-    return isYouTubeUrl(input.pageUrl) || isYouTubeUrl(input.url);
+    return input.siteHint === "youtube" || isYouTubeUrl(input.pageUrl) || isYouTubeUrl(input.url);
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const intent: VideoDownloadIntent = {

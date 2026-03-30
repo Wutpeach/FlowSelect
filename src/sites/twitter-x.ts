@@ -14,7 +14,7 @@ const isTwitterXUrl = (value: string | undefined): boolean => (
 export const twitterXProvider: SiteProvider = {
   id: "twitter-x",
   matches(input: RawDownloadInput): boolean {
-    return isTwitterXUrl(input.pageUrl) || isTwitterXUrl(input.url);
+    return input.siteHint === "twitter-x" || isTwitterXUrl(input.pageUrl) || isTwitterXUrl(input.url);
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const intent: VideoDownloadIntent = {

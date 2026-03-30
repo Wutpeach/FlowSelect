@@ -272,6 +272,7 @@ type QueuedVideoDownloadRequest = {
   pageUrl?: string;
   videoUrl?: string;
   videoCandidates?: PinterestVideoCandidate[];
+  siteHint?: string;
   dragDiagnostic?: PinterestDragDiagnostic;
 };
 

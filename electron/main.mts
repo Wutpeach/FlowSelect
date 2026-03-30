@@ -52,10 +52,11 @@ import {
   inspectRuntimeDependencyStatus,
 } from "../src/electron-runtime/index.js";
 import {
-  normalizeVideoCandidateUrls,
+  normalizeVideoCandidates,
   normalizeRequiredVideoRouteUrl,
   normalizeVideoPageUrl,
   normalizeVideoHintUrl,
+  resolveVideoSelectionSiteHint,
 } from "./videoHintNormalization.mjs";
 import {
   VALIDATE_DROPPED_FOLDER_PATH_CHANNEL,
@@ -3267,11 +3268,17 @@ async function enqueueElectronVideoDownload(payload) {
 
   const config = await readConfigObject();
   const mergedPreferences = resolveVideoDownloadPreferencesFromConfig(config);
+  const siteHint = resolveVideoSelectionSiteHint(
+    payload?.siteHint,
+    payload?.pageUrl,
+    payload?.url,
+    payload?.videoUrl,
+  );
   return getElectronDownloadRuntime().queueVideoDownload({
     url: rawUrl,
     pageUrl: normalizeVideoPageUrl(payload?.pageUrl),
-    videoUrl: normalizeVideoHintUrl(payload?.videoUrl),
-    videoCandidates: normalizeVideoCandidateUrls(payload?.videoCandidates),
+    videoUrl: normalizeVideoHintUrl(payload?.videoUrl, siteHint),
+    videoCandidates: normalizeVideoCandidates(payload?.videoCandidates, siteHint),
     title: normalizeOptionalString(payload?.title),
     cookies: normalizeOptionalString(payload?.cookies),
     selectionScope:
@@ -3285,6 +3292,7 @@ async function enqueueElectronVideoDownload(payload) {
       ?? normalizeYtdlpQualityPreference(payload?.ytdlpQuality)
       ?? normalizeYtdlpQualityPreference(payload?.defaultVideoDownloadQuality)
       ?? mergedPreferences.ytdlpQuality,
+    siteHint,
   });
 }
 
@@ -3986,7 +3994,8 @@ async function handleWsMessage(rawMessage) {
         data: withRequest(null),
       };
     }
-    case "video_selected": {
+    case "video_selected":
+    case "video_selected_v2": {
       if (!data || typeof data !== "object") {
         return {
           success: false,
@@ -4011,6 +4020,7 @@ async function handleWsMessage(rawMessage) {
           pageUrl: data.pageUrl,
           videoUrl: data.videoUrl,
           videoCandidates: data.videoCandidates,
+          siteHint: data.siteHint,
           title: data.title,
           cookies: data.cookies,
           selectionScope: data.selectionScope,

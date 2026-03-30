@@ -14,7 +14,7 @@ const isBilibiliUrl = (value: string | undefined): boolean => (
 export const bilibiliProvider: SiteProvider = {
   id: "bilibili",
   matches(input: RawDownloadInput): boolean {
-    return isBilibiliUrl(input.pageUrl) || isBilibiliUrl(input.url);
+    return input.siteHint === "bilibili" || isBilibiliUrl(input.pageUrl) || isBilibiliUrl(input.url);
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const intent: VideoDownloadIntent = {

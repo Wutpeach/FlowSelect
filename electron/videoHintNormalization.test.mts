@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  normalizeVideoCandidates,
   normalizeVideoCandidateUrls,
   normalizeVideoHintUrl,
   normalizeVideoPageUrl,
   normalizeRequiredVideoRouteUrl,
+  resolveVideoSelectionSiteHint,
 } from "./videoHintNormalization.mjs";
 
 describe("normalizeVideoHintUrl", () => {
@@ -21,10 +23,19 @@ describe("normalizeVideoHintUrl", () => {
     expect(normalizeVideoHintUrl(" ftp://v.pinimg.com/videos/iht/expmp4/video.mp4 ")).toBeUndefined();
   });
 
-  it("drops HTTP(S) hint URLs that are not actual video candidates", () => {
-    expect(normalizeVideoHintUrl(" https://www.pinterest.com/pin/1234567890/ ")).toBeUndefined();
-    expect(normalizeVideoHintUrl(" https://i.pinimg.com/originals/example.jpg ")).toBeUndefined();
-    expect(normalizeVideoHintUrl(" https://cdn.example.com/watch?v=123 ")).toBeUndefined();
+  it("drops HTTP(S) Pinterest hint URLs that are not actual video candidates", () => {
+    expect(normalizeVideoHintUrl(" https://www.pinterest.com/pin/1234567890/ ", "pinterest")).toBeUndefined();
+    expect(normalizeVideoHintUrl(" https://i.pinimg.com/originals/example.jpg ", "pinterest")).toBeUndefined();
+    expect(normalizeVideoHintUrl(" https://cdn.example.com/watch?v=123 ", "pinterest")).toBeUndefined();
+  });
+
+  it("keeps non-Pinterest HTTP(S) hints when the runtime owns validation", () => {
+    expect(
+      normalizeVideoHintUrl(
+        " https://sns-video-bd.xhscdn.com/stream/example.mp4 ",
+        "xiaohongshu",
+      ),
+    ).toBe("https://sns-video-bd.xhscdn.com/stream/example.mp4");
   });
 });
 
@@ -67,10 +78,52 @@ describe("normalizeVideoCandidateUrls", () => {
         { url: "https://i.pinimg.com/originals/example.jpg" },
         { url: " https://v.pinimg.com/videos/iht/expmp4/video.mp4 " },
         { url: "https://v.pinimg.com/videos/iht/hls/video.m3u8" },
-      ]),
+      ], "pinterest"),
     ).toEqual([
       "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
       "https://v.pinimg.com/videos/iht/hls/video.m3u8",
     ]);
+  });
+});
+
+describe("normalizeVideoCandidates", () => {
+  it("preserves candidate metadata for non-Pinterest site hints", () => {
+    expect(
+      normalizeVideoCandidates([
+        {
+          url: " https://sns-video-bd.xhscdn.com/stream/example.mp4 ",
+          type: "direct_mp4",
+          source: "video_element",
+          confidence: "high",
+          mediaType: "video",
+        },
+        {
+          url: " https://www.xiaohongshu.com/explore/66112233445566778899 ",
+          type: "page_url",
+        },
+      ], "xiaohongshu"),
+    ).toEqual([
+      {
+        url: "https://sns-video-bd.xhscdn.com/stream/example.mp4",
+        type: "direct_mp4",
+        source: "video_element",
+        confidence: "high",
+        mediaType: "video",
+      },
+      {
+        url: "https://www.xiaohongshu.com/explore/66112233445566778899",
+        type: "page_url",
+        source: undefined,
+        confidence: undefined,
+        mediaType: undefined,
+      },
+    ]);
+  });
+});
+
+describe("resolveVideoSelectionSiteHint", () => {
+  it("normalizes aliases and falls back to url detection", () => {
+    expect(resolveVideoSelectionSiteHint("xhs")).toBe("xiaohongshu");
+    expect(resolveVideoSelectionSiteHint(undefined, "https://x.com/flowselect/status/123")).toBe("twitter-x");
   });
 });

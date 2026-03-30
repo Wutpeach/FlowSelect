@@ -28,7 +28,7 @@ const pinterestCandidates = (input: RawDownloadInput): MediaCandidate[] =>
 export const pinterestProvider: SiteProvider = {
   id: "pinterest",
   matches(input: RawDownloadInput): boolean {
-    return isPinterestUrl(input.pageUrl) || isPinterestUrl(input.url);
+    return input.siteHint === "pinterest" || isPinterestUrl(input.pageUrl) || isPinterestUrl(input.url);
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const directSource = directSourceFromPinterest(input);

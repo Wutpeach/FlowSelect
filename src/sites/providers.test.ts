@@ -79,4 +79,21 @@ describe("builtin site providers", () => {
     });
     expect(intent.siteId).toBe("twitter-x");
   });
+
+  it("uses explicit site hints when the route url alone is not enough to identify the provider", () => {
+    const url = "https://cdn.example.com/watch?id=123";
+    const plan = resolvePlan({
+      url,
+      siteHint: "twitter-x",
+      title: "Queued from extension v2",
+    });
+    const intent = expectVideoIntent(plan.intent);
+
+    expect(plan.providerId).toBe("twitter-x");
+    expect(plan.engines[0]).toMatchObject({
+      engine: "yt-dlp",
+      sourceUrl: url,
+    });
+    expect(intent.siteId).toBe("twitter-x");
+  });
 });

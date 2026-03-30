@@ -276,6 +276,15 @@ function shouldRetryVideoSelectionRequest(result) {
   return code === 'not_connected' || code === 'send_failed';
 }
 
+function shouldFallbackToLegacyVideoSelection(result) {
+  if (result?.success) {
+    return false;
+  }
+
+  const code = result?.data?.code || result?.message || '';
+  return code === 'unknown_action';
+}
+
 function resetSocketForRetry() {
   if (reconnectTimer !== null) {
     clearTimeout(reconnectTimer);
@@ -323,6 +332,82 @@ function selectFirstHttpUrl(...values) {
     const normalized = normalizeHttpUrl(value);
     if (normalized) {
       return normalized;
+    }
+  }
+
+  return null;
+}
+
+function normalizeSiteHint(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized === 'youtube' || normalized === 'yt' || normalized === 'youtu' || normalized === 'youtu.be') {
+    return 'youtube';
+  }
+  if (normalized === 'bilibili' || normalized === 'bili' || normalized === 'b23') {
+    return 'bilibili';
+  }
+  if (normalized === 'twitter' || normalized === 'x' || normalized === 'twitter-x') {
+    return 'twitter-x';
+  }
+  if (normalized === 'douyin') {
+    return 'douyin';
+  }
+  if (normalized === 'xiaohongshu' || normalized === 'xhs') {
+    return 'xiaohongshu';
+  }
+  if (normalized === 'pinterest') {
+    return 'pinterest';
+  }
+  if (normalized === 'generic') {
+    return 'generic';
+  }
+
+  return null;
+}
+
+function deriveSiteHint(values) {
+  for (const value of values) {
+    const normalized = normalizeSiteHint(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  for (const rawValue of values) {
+    const value = typeof rawValue === 'string' ? rawValue.toLowerCase() : '';
+    if (!value) continue;
+
+    if (value.includes('youtube.com/') || value.includes('youtu.be/')) {
+      return 'youtube';
+    }
+    if (value.includes('bilibili.com/') || value.includes('b23.tv/') || value.includes('bilivideo.com/')) {
+      return 'bilibili';
+    }
+    if (value.includes('twitter.com/') || value.includes('x.com/')) {
+      return 'twitter-x';
+    }
+    if (
+      value.includes('douyin.com/')
+      || value.includes('douyinvod.com/')
+      || value.includes('douyincdn.com/')
+      || value.includes('bytecdn')
+      || value.includes('bytedance')
+    ) {
+      return 'douyin';
+    }
+    if (value.includes('xiaohongshu.com/') || value.includes('xhslink.com/') || value.includes('xhscdn.com/')) {
+      return 'xiaohongshu';
+    }
+    if (value.includes('pinterest.com/') || value.includes('pinimg.com/')) {
+      return 'pinterest';
     }
   }
 
@@ -855,8 +940,8 @@ async function sendRequestToApp(action, data = {}, timeoutMs = REQUEST_TIMEOUT_M
 }
 
 function queueVideoSelectionToApp(data) {
-  const sendSelectionRequest = () => sendRequestToApp(
-    'video_selected',
+  const sendSelectionRequest = (action) => sendRequestToApp(
+    action,
     data,
     REQUEST_TIMEOUT_MS,
     {
@@ -865,7 +950,15 @@ function queueVideoSelectionToApp(data) {
     }
   );
 
-  return sendSelectionRequest().then(async (result) => {
+  const sendCompatibleSelectionRequest = async () => {
+    const v2Result = await sendSelectionRequest('video_selected_v2');
+    if (shouldFallbackToLegacyVideoSelection(v2Result)) {
+      return await sendSelectionRequest('video_selected');
+    }
+    return v2Result;
+  };
+
+  return sendCompatibleSelectionRequest().then(async (result) => {
     if (!shouldRetryVideoSelectionRequest(result)) {
       return result;
     }
@@ -884,7 +977,7 @@ function queueVideoSelectionToApp(data) {
       return result;
     }
 
-    return sendSelectionRequest();
+    return sendCompatibleSelectionRequest();
   });
 }
 
@@ -984,6 +1077,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.url,
     ]);
     const videoCandidates = normalizeVideoCandidates(message.videoCandidates);
+    const siteHint = deriveSiteHint([
+      message.siteHint,
+      pageUrl,
+      requestedUrl,
+      message.pageUrl,
+      message.videoUrl,
+      message.url,
+      sender.tab?.url,
+      platform,
+    ]);
     const clipStartSec = normalizeClipTimeSeconds(message.clipStartSec);
     const clipEndSec = normalizeClipTimeSeconds(message.clipEndSec);
     Promise.all([
@@ -995,16 +1098,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         videoCandidates,
         platform
       );
-      const preferredVideoUrl = directDownloadQuality.selectPreferredVideoUrl(
-        prioritizedCandidates,
-        platform,
-        message.videoUrl
-      );
+      const routeUrl = pageUrl || requestedUrl || message.url;
+      const rawVideoUrl = normalizeHttpUrl(message.videoUrl);
       return queueVideoSelectionToApp({
-        url: preferredVideoUrl || requestedUrl || message.url,
+        url: routeUrl || requestedUrl || message.url,
         pageUrl: pageUrl || requestedUrl || message.pageUrl || sender.tab?.url || message.url,
+        siteHint,
         title: message.title,
-        videoUrl: preferredVideoUrl,
+        videoUrl: rawVideoUrl,
         videoCandidates: prioritizedCandidates,
         selectionScope,
         clipStartSec: clipStartSec,

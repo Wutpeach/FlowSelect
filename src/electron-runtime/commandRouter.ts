@@ -11,6 +11,7 @@ import type {
   QueuedVideoDownloadRequest,
 } from "../types/videoRuntime.js";
 import type { ElectronDownloadRuntime } from "./contracts.js";
+import { resolveSiteHint } from "../core/site-hints.js";
 
 export type ElectronRuntimeCommand = Extract<
   FlowSelectRendererCommand,
@@ -155,15 +156,43 @@ const isPinterestVideoHintUrl = (value: string): boolean => (
   isDirectPinterestMp4Url(value) || isPinterestManifestLikeUrl(value)
 );
 
+const normalizeMediaType = (value: unknown): "video" | "image" | undefined => (
+  value === "video" || value === "image" ? value : undefined
+);
+
+const resolvePayloadSiteHint = (payload: Record<string, unknown>): string | undefined => resolveSiteHint(
+  readOptionalTrimmedString(payload, "siteHint", "site_hint"),
+  readOptionalTrimmedString(payload, "pageUrl", "page_url"),
+  readOptionalTrimmedString(payload, "url"),
+  readOptionalTrimmedString(payload, "videoUrl", "video_url"),
+);
+
 const readOptionalVideoHintUrlString = (
   payload: Record<string, unknown>,
+  siteHint: string | undefined,
   ...keys: string[]
 ): string | undefined => {
   const normalized = readOptionalHttpUrlString(payload, ...keys);
-  return normalized && isPinterestVideoHintUrl(normalized) ? normalized : undefined;
+  if (!normalized) {
+    return undefined;
+  }
+
+  const resolvedSiteHint = resolveSiteHint(siteHint, normalized);
+  if (resolvedSiteHint === "pinterest") {
+    return isPinterestVideoHintUrl(normalized) ? normalized : undefined;
+  }
+
+  return normalized;
 };
 
-const candidatePriority = (candidate: PinterestVideoCandidate): number => {
+const candidatePriority = (
+  candidate: PinterestVideoCandidate,
+  siteHint: string | undefined,
+): number => {
+  if (resolveSiteHint(siteHint, candidate.url) !== "pinterest") {
+    return 0;
+  }
+
   const type = candidate.type?.toLowerCase();
   if (type === "direct_mp4" || isDirectPinterestMp4Url(candidate.url)) {
     return 300;
@@ -177,13 +206,16 @@ const candidatePriority = (candidate: PinterestVideoCandidate): number => {
   return 0;
 };
 
-const normalizeVideoCandidate = (candidate: unknown): PinterestVideoCandidate | null => {
+const normalizeVideoCandidateForSite = (
+  candidate: unknown,
+  siteHint: string | undefined,
+): PinterestVideoCandidate | null => {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
     return null;
   }
 
   const candidateRecord = candidate as Record<string, unknown>;
-  const url = readOptionalVideoHintUrlString(candidateRecord, "url");
+  const url = readOptionalVideoHintUrlString(candidateRecord, siteHint, "url");
   if (!url) {
     return null;
   }
@@ -193,10 +225,14 @@ const normalizeVideoCandidate = (candidate: unknown): PinterestVideoCandidate | 
     type: normalizeOptionalLabel(candidateRecord.type),
     source: normalizeOptionalLabel(candidateRecord.source),
     confidence: normalizeOptionalLabel(candidateRecord.confidence),
+    mediaType: normalizeMediaType(candidateRecord.mediaType ?? candidateRecord.media_type),
   };
 };
 
-const normalizeVideoCandidates = (payload: Record<string, unknown>): PinterestVideoCandidate[] => {
+const normalizeVideoCandidates = (
+  payload: Record<string, unknown>,
+  siteHint: string | undefined,
+): PinterestVideoCandidate[] => {
   const rawCandidates = payload.videoCandidates ?? payload.video_candidates;
   if (!Array.isArray(rawCandidates)) {
     return [];
@@ -205,7 +241,10 @@ const normalizeVideoCandidates = (payload: Record<string, unknown>): PinterestVi
   const seen = new Set<string>();
 
   return rawCandidates
-    .map((candidate, index) => ({ candidate: normalizeVideoCandidate(candidate), index }))
+    .map((candidate, index) => ({
+      candidate: normalizeVideoCandidateForSite(candidate, siteHint),
+      index,
+    }))
     .filter(
       (
         item,
@@ -219,7 +258,8 @@ const normalizeVideoCandidates = (payload: Record<string, unknown>): PinterestVi
       return true;
     })
     .sort((left, right) => {
-      const scoreDelta = candidatePriority(right.candidate) - candidatePriority(left.candidate);
+      const scoreDelta = candidatePriority(right.candidate, siteHint)
+        - candidatePriority(left.candidate, siteHint);
       return scoreDelta !== 0 ? scoreDelta : left.index - right.index;
     })
     .map((item) => item.candidate);
@@ -252,6 +292,11 @@ const normalizeDragDiagnostic = (
   payload: Record<string, unknown>,
   normalizedVideoCandidates: PinterestVideoCandidate[],
 ): PinterestDragDiagnostic | undefined => {
+  const siteHint = resolvePayloadSiteHint(payload);
+  if (siteHint !== "pinterest") {
+    return undefined;
+  }
+
   const rawDiagnostic = payload.dragDiagnostic ?? payload.drag_diagnostic;
   if (!rawDiagnostic || typeof rawDiagnostic !== "object" || Array.isArray(rawDiagnostic)) {
     return undefined;
@@ -272,11 +317,16 @@ const normalizeDragDiagnostic = (
 
   const dragCandidates = Array.isArray(diagnostic.videoCandidates)
     ? diagnostic.videoCandidates
-        .map(normalizeVideoCandidate)
+        .map((candidate) => normalizeVideoCandidateForSite(candidate, "pinterest"))
         .filter((candidate): candidate is PinterestVideoCandidate => candidate !== null)
     : normalizedVideoCandidates;
   const imageUrl = readOptionalHttpUrlString(diagnostic, "imageUrl", "image_url") ?? null;
-  const videoUrl = readOptionalVideoHintUrlString(diagnostic, "videoUrl", "video_url") ?? null;
+  const videoUrl = readOptionalVideoHintUrlString(
+    diagnostic,
+    "pinterest",
+    "videoUrl",
+    "video_url",
+  ) ?? null;
   const videoCandidatesCountRaw = Number(
     diagnostic.videoCandidatesCount ?? diagnostic.video_candidates_count,
   );
@@ -298,12 +348,13 @@ const normalizeQueueVideoDownloadRequest = (
   payload: CommandPayload,
 ): QueuedVideoDownloadRequest => {
   const request = asObject(payload);
-  const normalizedVideoCandidates = normalizeVideoCandidates(request);
+  const siteHint = resolvePayloadSiteHint(request);
+  const normalizedVideoCandidates = normalizeVideoCandidates(request, siteHint);
 
   return {
     url: readRequiredHttpUrlString(request, "url"),
     pageUrl: readOptionalHttpUrlString(request, "pageUrl", "page_url"),
-    videoUrl: readOptionalVideoHintUrlString(request, "videoUrl", "video_url"),
+    videoUrl: readOptionalVideoHintUrlString(request, siteHint, "videoUrl", "video_url"),
     videoCandidates: normalizedVideoCandidates.length > 0 ? normalizedVideoCandidates : undefined,
     title: readOptionalTrimmedString(request, "title"),
     cookies: readOptionalTrimmedString(request, "cookies"),
@@ -337,6 +388,7 @@ const normalizeQueueVideoDownloadRequest = (
         ? value
         : undefined;
     })(),
+    siteHint,
     dragDiagnostic: normalizeDragDiagnostic(request, normalizedVideoCandidates),
   };
 };

@@ -40,7 +40,10 @@ const xiaohongshuCandidates = (input: RawDownloadInput): MediaCandidate[] =>
 export const xiaohongshuProvider: SiteProvider = {
   id: "xiaohongshu",
   matches(input: RawDownloadInput): boolean {
-    return isXiaohongshuUrl(input.pageUrl) || isXiaohongshuUrl(input.url) || Boolean(pickDirectSource(input));
+    return input.siteHint === "xiaohongshu"
+      || isXiaohongshuUrl(input.pageUrl)
+      || isXiaohongshuUrl(input.url)
+      || Boolean(pickDirectSource(input));
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const directSource = pickDirectSource(input);

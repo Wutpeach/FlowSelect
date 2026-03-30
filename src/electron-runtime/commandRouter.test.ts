@@ -60,7 +60,7 @@ const createRuntimeStub = (): ElectronDownloadRuntime & {
 });
 
 describe("createElectronRuntimeCommandRouter", () => {
-  it("dispatches supported runtime commands with normalized queue payloads", async () => {
+  it("dispatches supported runtime commands with normalized Pinterest queue payloads", async () => {
     const runtime = createRuntimeStub();
     const router = createElectronRuntimeCommandRouter({ runtime });
 
@@ -101,18 +101,21 @@ describe("createElectronRuntimeCommandRouter", () => {
       url: "https://www.pinterest.com/pin/1234567890/",
       pageUrl: "https://www.pinterest.com/pin/1234567890/",
       videoUrl: undefined,
+      siteHint: "pinterest",
       videoCandidates: [
         {
           url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
           type: "direct_mp4",
           source: undefined,
           confidence: undefined,
+          mediaType: undefined,
         },
         {
           url: "https://v.pinimg.com/videos/iht/hls/video.m3u8",
           type: "manifest_m3u8",
           source: undefined,
           confidence: undefined,
+          mediaType: undefined,
         },
       ],
       dragDiagnostic: {
@@ -138,12 +141,14 @@ describe("createElectronRuntimeCommandRouter", () => {
             type: "direct_mp4",
             source: undefined,
             confidence: undefined,
+            mediaType: undefined,
           },
           {
             url: "https://v.pinimg.com/videos/iht/hls/video.m3u8",
             type: "manifest_m3u8",
             source: undefined,
             confidence: undefined,
+            mediaType: undefined,
           },
         ],
       },
@@ -168,7 +173,7 @@ describe("createElectronRuntimeCommandRouter", () => {
     expect(runtime.startRuntimeDependencyBootstrap).toHaveBeenCalledWith("settings_retry");
   });
 
-  it("drops invalid video hints before dispatching queue requests", async () => {
+  it("drops invalid Pinterest video hints before dispatching queue requests", async () => {
     const runtime = createRuntimeStub();
     const router = createElectronRuntimeCommandRouter({ runtime });
 
@@ -187,19 +192,21 @@ describe("createElectronRuntimeCommandRouter", () => {
       url: "https://www.pinterest.com/pin/1234567890/",
       pageUrl: undefined,
       videoUrl: undefined,
+      siteHint: "pinterest",
       videoCandidates: [
         {
           url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
           type: "direct_mp4",
           source: undefined,
           confidence: undefined,
+          mediaType: undefined,
         },
       ],
       dragDiagnostic: undefined,
     });
   });
 
-  it("drops HTTP(S) hints that are not real video candidates", async () => {
+  it("drops HTTP(S) Pinterest hints that are not real video candidates", async () => {
     const runtime = createRuntimeStub();
     const router = createElectronRuntimeCommandRouter({ runtime });
 
@@ -218,19 +225,21 @@ describe("createElectronRuntimeCommandRouter", () => {
       url: "https://www.pinterest.com/pin/1234567890/",
       pageUrl: "https://www.pinterest.com/pin/1234567890/",
       videoUrl: undefined,
+      siteHint: "pinterest",
       videoCandidates: [
         {
           url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
           type: "direct_mp4",
           source: undefined,
           confidence: undefined,
+          mediaType: undefined,
         },
       ],
       dragDiagnostic: undefined,
     });
   });
 
-  it("dedupes repeated video candidates after normalization", async () => {
+  it("dedupes repeated Pinterest video candidates after normalization", async () => {
     const runtime = createRuntimeStub();
     const router = createElectronRuntimeCommandRouter({ runtime });
 
@@ -248,18 +257,21 @@ describe("createElectronRuntimeCommandRouter", () => {
       url: "https://www.pinterest.com/pin/1234567890/",
       pageUrl: undefined,
       videoUrl: undefined,
+      siteHint: "pinterest",
       videoCandidates: [
         {
           url: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
           type: "direct_mp4",
           source: undefined,
           confidence: undefined,
+          mediaType: undefined,
         },
         {
           url: "https://v.pinimg.com/videos/iht/hls/video.m3u8",
           type: "manifest_m3u8",
           source: undefined,
           confidence: undefined,
+          mediaType: undefined,
         },
       ],
       dragDiagnostic: undefined,
@@ -294,6 +306,7 @@ describe("createElectronRuntimeCommandRouter", () => {
       url: "https://www.pinterest.com/pin/1234567890/",
       pageUrl: undefined,
       videoUrl: undefined,
+      siteHint: "pinterest",
       videoCandidates: undefined,
       dragDiagnostic: {
         htmlLength: 12,
@@ -317,7 +330,7 @@ describe("createElectronRuntimeCommandRouter", () => {
     });
   });
 
-  it("drops invalid page urls before dispatching queue requests", async () => {
+  it("drops invalid page urls before dispatching Pinterest queue requests", async () => {
     const runtime = createRuntimeStub();
     const router = createElectronRuntimeCommandRouter({ runtime });
 
@@ -331,7 +344,57 @@ describe("createElectronRuntimeCommandRouter", () => {
       url: "https://www.pinterest.com/pin/1234567890/",
       pageUrl: undefined,
       videoUrl: "https://v.pinimg.com/videos/iht/expmp4/video.mp4",
+      siteHint: "pinterest",
       videoCandidates: undefined,
+      dragDiagnostic: undefined,
+    });
+  });
+
+  it("preserves non-Pinterest candidates and explicit site hints", async () => {
+    const runtime = createRuntimeStub();
+    const router = createElectronRuntimeCommandRouter({ runtime });
+
+    await router.invoke<{ accepted: boolean; traceId: string }>("queue_video_download", {
+      url: "https://www.xiaohongshu.com/explore/66112233445566778899",
+      page_url: "https://www.xiaohongshu.com/explore/66112233445566778899",
+      site_hint: "xhs",
+      video_url: "https://sns-video-bd.xhscdn.com/stream/example.mp4",
+      video_candidates: [
+        {
+          url: "https://sns-video-bd.xhscdn.com/stream/example.mp4",
+          type: "direct_mp4",
+          source: "video_element",
+          confidence: "high",
+          media_type: "video",
+        },
+        {
+          url: "https://www.xiaohongshu.com/explore/66112233445566778899",
+          type: "page_url",
+        },
+      ],
+    });
+
+    expect(runtime.queueVideoDownload).toHaveBeenCalledWith({
+      url: "https://www.xiaohongshu.com/explore/66112233445566778899",
+      pageUrl: "https://www.xiaohongshu.com/explore/66112233445566778899",
+      videoUrl: "https://sns-video-bd.xhscdn.com/stream/example.mp4",
+      siteHint: "xiaohongshu",
+      videoCandidates: [
+        {
+          url: "https://sns-video-bd.xhscdn.com/stream/example.mp4",
+          type: "direct_mp4",
+          source: "video_element",
+          confidence: "high",
+          mediaType: "video",
+        },
+        {
+          url: "https://www.xiaohongshu.com/explore/66112233445566778899",
+          type: "page_url",
+          source: undefined,
+          confidence: undefined,
+          mediaType: undefined,
+        },
+      ],
       dragDiagnostic: undefined,
     });
   });

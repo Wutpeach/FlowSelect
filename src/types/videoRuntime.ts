@@ -38,12 +38,15 @@ export type VideoQueueDetailPayload = {
   tasks: VideoQueueTaskPayload[];
 };
 
-export type PinterestVideoCandidate = {
+export type VideoSelectionCandidate = {
   url: string;
   type?: string;
   source?: string;
   confidence?: string;
+  mediaType?: "video" | "image";
 };
+
+export type PinterestVideoCandidate = VideoSelectionCandidate;
 
 export type PinterestDragDiagnosticFlags = {
   hasEmbeddedPayload: boolean;
@@ -71,13 +74,14 @@ export type QueuedVideoDownloadRequest = {
   url: string;
   pageUrl?: string;
   videoUrl?: string;
-  videoCandidates?: PinterestVideoCandidate[];
+  videoCandidates?: VideoSelectionCandidate[];
   title?: string;
   cookies?: string;
   selectionScope?: "current_item" | "playlist";
   clipStartSec?: number;
   clipEndSec?: number;
   ytdlpQuality?: "best" | "balanced" | "data_saver";
+  siteHint?: string;
   dragDiagnostic?: PinterestDragDiagnostic;
 };
 
