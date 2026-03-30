@@ -71,6 +71,7 @@ import {
   resolveMainWindowInitialSize,
   resolveMainWindowStartupMode,
 } from "./startupWindowMode.mjs";
+import { waitForInitialWindowReveal } from "./windowRevealWait.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -155,7 +156,6 @@ const BINARY_DIR = join(repoRoot, "desktop-assets", "binaries");
 const MANAGED_RUNTIME_BOOTSTRAP_ORDER = ["ffmpeg", "pinterest-dl", "deno"];
 const RUNTIME_MANIFEST_FETCH_TIMEOUT_MS = 30_000;
 const RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
-const INITIAL_WINDOW_REVEAL_TIMEOUT_MS = 4_000;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
 const WINDOW_STARTUP_CAPTURE_DELAY_MS = 180;
 const STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS = 1_500;
@@ -430,32 +430,6 @@ function attachWindowStartupDiagnostics(win, label) {
   });
   win.on("responsive", () => {
     void queueStartupDiagnostic("WindowDiag", `${label}:responsive`, getWindowSnapshot(win));
-  });
-}
-
-function waitForInitialWindowReveal(win) {
-  return new Promise((resolveReveal) => {
-    let resolved = false;
-    let timeoutId = null;
-
-    const finish = () => {
-      if (resolved) {
-        return;
-      }
-      resolved = true;
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId);
-      }
-      win.removeListener("ready-to-show", finish);
-      win.webContents.removeListener("did-finish-load", finish);
-      win.webContents.removeListener("did-fail-load", finish);
-      resolveReveal(undefined);
-    };
-
-    timeoutId = setTimeout(finish, INITIAL_WINDOW_REVEAL_TIMEOUT_MS);
-    win.on("ready-to-show", finish);
-    win.webContents.on("did-finish-load", finish);
-    win.webContents.on("did-fail-load", finish);
   });
 }
 

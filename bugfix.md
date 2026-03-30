@@ -262,3 +262,20 @@
   - `npm test`
   - `npm run type-check`
   - `npm run lint`
+
+## Cycle 17
+
+- Defect: Repeatedly exercising the dev-build icon-to-window transition could crash Electron main with `TypeError: Object has been destroyed` from `waitForInitialWindowReveal(...)`.
+- Root cause: The reveal wait timeout cleanup in `electron/main.mts` always tried to remove listeners from `win` and `win.webContents`, even when the window had already closed and those Electron objects were destroyed.
+- Tests:
+  - Added `electron/windowRevealWait.test.mts` to cover normal reveal completion and the regression path where the window closes before reveal wait finishes.
+  - Confirmed the new test failed before the fix because the reveal-wait helper module did not exist and the old inline implementation had no destroyed-window guard.
+- Fix:
+  - Extracted reveal waiting into `electron/windowRevealWait.mts`.
+  - Made reveal wait resolve on `closed` and skip listener cleanup for destroyed `BrowserWindow` / `webContents` handles.
+  - Updated `electron/main.mts` to use the new helper instead of the previous inline implementation.
+- Verification:
+  - `npx vitest run electron/windowRevealWait.test.mts`
+  - `npm test`
+  - `npm run type-check`
+  - `npm run lint`
