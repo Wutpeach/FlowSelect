@@ -2604,7 +2604,6 @@ async function restoreUiLabLiveState() {
 async function applyUiLabScenario(scenario) {
   assertUiLabEnabled();
   await showMainWindow();
-  emitAppEvent(SHORTCUT_SHOW_EVENT, undefined);
 
   if (scenario === "reset") {
     await restoreUiLabLiveState();

@@ -736,6 +736,7 @@ function App({
   const [isRuntimeRetryFeedbackVisible, setIsRuntimeRetryFeedbackVisible] = useState(false);
   const [isRuntimeRetryInFlight, setIsRuntimeRetryInFlight] = useState(false);
   const [showRuntimeSuccessIndicator, setShowRuntimeSuccessIndicator] = useState(false);
+  const [isUiLabPreviewActive, setIsUiLabPreviewActive] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isMinimized, setIsMinimized] = useState(!startsExpandedOnLaunch);
@@ -769,6 +770,10 @@ function App({
   const isWindowPointerDownRef = useRef(false);
   const windowDragFrameRef = useRef<number | null>(null);
   const lastKnownWindowPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const isMinimizedRef = useRef(isMinimized);
+  const windowResizedRef = useRef(windowResized);
+  const isInitialMountRef = useRef(isInitialMount);
+  const isUiLabPreviewActiveRef = useRef(isUiLabPreviewActive);
   const previousTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
@@ -820,8 +825,14 @@ function App({
   const totalTaskCount = totalDownloadTaskCount + totalTranscodeTaskCount;
   const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
   const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
+  const isPreviewForcedFullMode = isUiLabPreviewActive;
+  const visualIsMinimized = isPreviewForcedFullMode ? false : isMinimized;
+  const visualWindowResized = isPreviewForcedFullMode ? false : windowResized;
+  const visualIsExpandingFromMinimized = isPreviewForcedFullMode
+    ? false
+    : isExpandingFromMinimized;
   const isWindowReadyForStartupRuntimeBootstrap =
-    !isMinimized && !windowResized && !isExpandingFromMinimized;
+    !visualIsMinimized && !visualWindowResized && !visualIsExpandingFromMinimized;
   const primaryTask = downloadProgress && primaryDownloadTask
     ? {
         kind: "download" as const,
@@ -847,6 +858,7 @@ function App({
     runtimeGateIsBusy,
     isProcessing,
     showRuntimeSuccessIndicator,
+    isUiLabPreviewActive,
     appUpdatePhase,
   });
   const remainingDownloadCount = Math.max(
@@ -864,6 +876,22 @@ function App({
     setDownloadCancelled(false);
     setDownloadErrorMessage(null);
   }, []);
+
+  useEffect(() => {
+    isMinimizedRef.current = isMinimized;
+  }, [isMinimized]);
+
+  useEffect(() => {
+    windowResizedRef.current = windowResized;
+  }, [windowResized]);
+
+  useEffect(() => {
+    isInitialMountRef.current = isInitialMount;
+  }, [isInitialMount]);
+
+  useEffect(() => {
+    isUiLabPreviewActiveRef.current = isUiLabPreviewActive;
+  }, [isUiLabPreviewActive]);
 
   useEffect(() => {
     isMainWindowModeLockedRef.current = isMainWindowModeLocked;
@@ -987,7 +1015,8 @@ function App({
 
   const collapseMainWindowToIcon = useCallback(() => {
     if (
-      isMainWindowModeLockedRef.current
+      isUiLabPreviewActiveRef.current
+      || isMainWindowModeLockedRef.current
       || isDraggingRef.current
       || isPanelHoveredRef.current
       || isContextMenuOpenRef.current
@@ -1065,6 +1094,59 @@ function App({
     windowResized,
   ]);
 
+  const ensureMainWindowFullMode = useCallback(async ({
+    armIdleAfter = true,
+    focusContainer = true,
+  }: {
+    armIdleAfter?: boolean;
+    focusContainer?: boolean;
+  } = {}) => {
+    clearWindowIdleTimers();
+    setPanelTransitionMode("instant");
+    setIsExpandingFromMinimized(false);
+
+    if (windowResized && !isMacOS) {
+      try {
+        await resizeMainWindowPreservingPosition(FULL_SIZE, FULL_SIZE);
+        setWindowResized(false);
+      } catch (err) {
+        console.error("Failed to restore window size:", err);
+      }
+    } else {
+      setWindowResized(false);
+    }
+
+    setIsMinimized(false);
+    restoreAnimatedPanelTransitions();
+    setShowEdgeGlow(false);
+    setTimeout(() => setShowEdgeGlow(true), 500);
+
+    if (
+      armIdleAfter
+      && !isMainWindowModeLockedRef.current
+      && !isDraggingRef.current
+      && !isPanelHoveredRef.current
+      && !isContextMenuOpenRef.current
+    ) {
+      armIdleTimer();
+    }
+
+    if (focusContainer) {
+      setTimeout(() => {
+        const container = document.querySelector('[tabIndex="0"]') as HTMLElement;
+        if (container) container.focus();
+      }, 100);
+    }
+  }, [
+    FULL_SIZE,
+    armIdleTimer,
+    clearWindowIdleTimers,
+    isMacOS,
+    resizeMainWindowPreservingPosition,
+    restoreAnimatedPanelTransitions,
+    windowResized,
+  ]);
+
   useEffect(() => {
     if (!hasOngoingTask) {
       return;
@@ -1080,7 +1162,10 @@ function App({
 
   // Shrink window after minimize animation completes
   const handleAnimationComplete = async () => {
-    if (isMinimized && !windowResized && !isInitialMount) {
+    if (isUiLabPreviewActiveRef.current) {
+      return;
+    }
+    if (isMinimizedRef.current && !windowResizedRef.current && !isInitialMountRef.current) {
       if (isMacOS) {
         return;
       }
@@ -1097,18 +1182,20 @@ function App({
   };
 
   const shouldShowEdgeGlow =
-    isPanelHovered && !isHovering && !primaryTask && !isMinimized && showEdgeGlow;
-  const shouldShowDragGlow = isHovering && !primaryTask && !isMinimized;
-  const isExpandMorphVisible = isExpandingFromMinimized && windowResized && !isMacOS;
-  const isNativeSizedMinimizedShell = isMinimized && windowResized && !isMacOS && !isExpandMorphVisible;
+    isPanelHovered && !isHovering && !primaryTask && !visualIsMinimized && showEdgeGlow;
+  const shouldShowDragGlow = isHovering && !primaryTask && !visualIsMinimized;
+  const isExpandMorphVisible =
+    visualIsExpandingFromMinimized && visualWindowResized && !isMacOS;
+  const isNativeSizedMinimizedShell =
+    visualIsMinimized && visualWindowResized && !isMacOS && !isExpandMorphVisible;
   const panelRenderSize = isExpandMorphVisible
     ? FULL_SIZE
-    : isMinimized && !isMacOS
+    : visualIsMinimized && !isMacOS
       ? MINIMIZED_SHELL_SIZE
       : FULL_SIZE;
   const minimizedPanelOffset = isExpandMorphVisible
     ? 0
-    : isMinimized && !isMacOS
+    : visualIsMinimized && !isMacOS
       ? MINIMIZED_SHELL_INSET
       : 0;
   const minimizedPanelScale = isMacOS ? 0.3 : 1;
@@ -1117,15 +1204,15 @@ function App({
   const minimizedIconWrapperScale = 1;
   const shouldUseInstantPanelTransition = panelTransitionMode === "instant";
   const minimizedIconAnimate = shouldReduceMotion
-    ? (isMinimized
+    ? (visualIsMinimized
         ? { opacity: 1, scale: 1 }
         : { opacity: 0, scale: 1 })
-    : (isMinimized
+    : (visualIsMinimized
         ? { scale: 1, opacity: 1 }
         : { scale: [1, 1.015, 0.9], opacity: [1, 1, 0] });
   const minimizedIconTransition = shouldReduceMotion
     ? { duration: 0.12 }
-    : isMinimized
+    : visualIsMinimized
       ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const }
       : { duration: 0.24, times: [0, 0.58, 1], ease: [0.22, 1, 0.36, 1] as const };
   const minimizedIconExit = shouldReduceMotion
@@ -1141,10 +1228,10 @@ function App({
       };
   const panelScale = isExpandMorphVisible
     ? 1
-    : isMinimized
+    : visualIsMinimized
       ? minimizedPanelScale
       : 1;
-  const panelRadius = isExpandMorphVisible ? 16 : isMinimized ? 100 : 16;
+  const panelRadius = isExpandMorphVisible ? 16 : visualIsMinimized ? 100 : 16;
   const initialPanelTweenTransition = { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const };
   const minimizedPanelTweenTransition = { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const };
   const instantPanelValueTransition = { duration: 0 } as const;
@@ -1164,43 +1251,43 @@ function App({
       ? initialPanelTweenTransition
       : shouldUseInstantPanelTransition
         ? instantPanelValueTransition
-        : isMinimized
+        : visualIsMinimized
           ? minimizedPanelTweenTransition
-        : springPanelValueTransition,
+          : springPanelValueTransition,
     borderRadius: isInitialMount
       ? initialPanelTweenTransition
       : shouldUseInstantPanelTransition
         ? instantPanelValueTransition
-        : isMinimized
+        : visualIsMinimized
           ? minimizedPanelTweenTransition
-        : springPanelValueTransition,
+          : springPanelValueTransition,
     clipPath: isInitialMount
       ? initialPanelTweenTransition
       : shouldUseInstantPanelTransition
         ? instantPanelValueTransition
-        : isMinimized
+        : visualIsMinimized
           ? minimizedPanelTweenTransition
-        : springPanelValueTransition,
+          : springPanelValueTransition,
     x: shouldUseInstantPanelTransition
       ? instantPanelValueTransition
-      : isMinimized
+      : visualIsMinimized
         ? minimizedPanelTweenTransition
-      : springPanelValueTransition,
+        : springPanelValueTransition,
     y: shouldUseInstantPanelTransition
       ? instantPanelValueTransition
-      : isMinimized
+      : visualIsMinimized
         ? minimizedPanelTweenTransition
-      : springPanelValueTransition,
+        : springPanelValueTransition,
     width: shouldUseInstantPanelTransition
       ? instantPanelValueTransition
-      : isMinimized
+      : visualIsMinimized
         ? minimizedPanelTweenTransition
-      : springPanelValueTransition,
+        : springPanelValueTransition,
     height: shouldUseInstantPanelTransition
       ? instantPanelValueTransition
-      : isMinimized
+      : visualIsMinimized
         ? minimizedPanelTweenTransition
-      : springPanelValueTransition,
+        : springPanelValueTransition,
   };
   const expandMorphDurationSeconds = EXPAND_WINDOW_BOUNDS_DURATION_MS / 1000;
   const expandMorphShellTransition = shouldReduceMotion
@@ -1730,6 +1817,14 @@ function App({
   useEffect(() => {
     const unlisten = desktopEvents.on<{ restoreLive?: boolean }>("ui-lab-reset", (event) => {
       const restoreLive = event.payload?.restoreLive === true;
+      isUiLabPreviewActiveRef.current = !restoreLive;
+      setIsUiLabPreviewActive(!restoreLive);
+      if (!restoreLive) {
+        void ensureMainWindowFullMode({
+          armIdleAfter: false,
+          focusContainer: false,
+        });
+      }
       if (queueNoticeTimerRef.current !== null) {
         clearTimeout(queueNoticeTimerRef.current);
         queueNoticeTimerRef.current = null;
@@ -1766,7 +1861,7 @@ function App({
       }
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [clearCancellingTraceIds, refreshRuntimeDependencyContext]);
+  }, [clearCancellingTraceIds, ensureMainWindowFullMode, refreshRuntimeDependencyContext]);
 
   // Listen for rename toggle changes from settings window
   useEffect(() => {
@@ -1778,42 +1873,11 @@ function App({
 
   // Listen for shortcut show event
   useEffect(() => {
-    const unlisten = desktopEvents.on<void>("shortcut-show", async () => {
-      // 如果窗口处于图标模式（已缩小），需要先恢复窗口大小
-      if (windowResized && !isMacOS) {
-        try {
-          await resizeMainWindowPreservingPosition(FULL_SIZE, FULL_SIZE);
-          setWindowResized(false);
-        } catch (err) {
-          console.error('Failed to restore window size:', err);
-        }
-      } else {
-        setWindowResized(false);
-      }
-      setIsMinimized(false);
-      setShowEdgeGlow(false);
-      setTimeout(() => setShowEdgeGlow(true), 500);
-
-      clearWindowIdleTimers();
-      if (!isMainWindowModeLocked && !isDraggingRef.current && !isPanelHoveredRef.current && !isContextMenuOpenRef.current) {
-        armIdleTimer();
-      }
-
-      // 聚焦以接收粘贴事件
-      setTimeout(() => {
-        const container = document.querySelector('[tabIndex="0"]') as HTMLElement;
-        if (container) container.focus();
-      }, 100);
+    const unlisten = desktopEvents.on<void>("shortcut-show", () => {
+      void ensureMainWindowFullMode();
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [
-    armIdleTimer,
-    clearWindowIdleTimers,
-    isMainWindowModeLocked,
-    isMacOS,
-    resizeMainWindowPreservingPosition,
-    windowResized,
-  ]);
+  }, [ensureMainWindowFullMode]);
 
   // Check app update availability on startup
   useEffect(() => {
@@ -2402,7 +2466,7 @@ function App({
   }, [resetIdleTimer, updateManualWindowDrag]);
 
   const canDoubleClickOpenOutputFolder =
-    !isMinimized &&
+    !visualIsMinimized &&
     !isProcessing &&
     !primaryTask &&
     totalTaskCount === 0 &&
@@ -2424,7 +2488,7 @@ function App({
       await closeContextMenuWindow();
       return;
     }
-    if (isMinimized) {
+    if (visualIsMinimized) {
       resetIdleTimer();
       return;
     }
@@ -2484,7 +2548,7 @@ function App({
       !pendingDragStart
       || pendingDragStart.pointerId !== e.pointerId
       || e.buttons !== 1
-      || isMinimized
+      || visualIsMinimized
     ) {
       return;
     }
@@ -3214,13 +3278,14 @@ function App({
     }
   };
 
-  const shouldShowMiniControls = isPanelHovered && !isMinimized;
+  const shouldShowMiniControls = isPanelHovered && !visualIsMinimized;
   const containerOuterShadow = primaryTask || isHovering
     ? colors.panelShadowStrong
     : colors.panelShadow;
   const panelViewportSize = isNativeSizedMinimizedShell ? ICON_SIZE : FULL_SIZE;
-  const shouldShowMinimizedChromeOverlay = isMinimized && !isExpandingFromMinimized;
-  const panelBorderColor = isMinimized
+  const shouldShowMinimizedChromeOverlay =
+    visualIsMinimized && !visualIsExpandingFromMinimized;
+  const panelBorderColor = visualIsMinimized
     ? colors.borderStart
     : primaryTask?.kind === "transcode"
       ? colors.transcodeBorder
@@ -3239,7 +3304,7 @@ function App({
   const containerFullBoxShadow = `inset 0 0 0 1px ${panelBorderColor}, ${containerShellOnlyBoxShadow}`;
   const minimizedShadowOverlayTransition = shouldReduceMotion
     ? { duration: 0.12 }
-    : isMinimized
+    : visualIsMinimized
       ? { duration: 0.14, delay: 0.07, ease: [0.22, 1, 0.36, 1] as const }
       : { duration: 0.08, ease: [0.22, 1, 0.36, 1] as const };
   const minimizedShadowOverlayStyle: CSSProperties = {
@@ -3252,7 +3317,7 @@ function App({
     boxShadow: colors.panelShadowCompact,
     ...getContinuousCornerStyle(100),
   };
-  const containerBoxShadow = isMinimized && !isMacOS
+  const containerBoxShadow = visualIsMinimized && !isMacOS
     ? `inset 0 0 0 1px ${colors.borderStart}`
     : containerFullBoxShadow;
   const shouldShowAppUpdateIndicator = !!appUpdateInfo && (
@@ -3372,7 +3437,7 @@ function App({
     || runtimeDependencyStatus === null;
   const runtimeGateRequiresManualAction = runtimeGateNeedsManualAction(runtimeGatePhase)
     || (!runtimeGateIsBusy && runtimeDependencyStatus === null);
-  const shouldShowRuntimeIndicator = !isMinimized && !isQueuePopoverOpen && (
+  const shouldShowRuntimeIndicator = !visualIsMinimized && !isQueuePopoverOpen && (
     showRuntimeSuccessIndicator
     || hasRuntimeGateIssue
   );
@@ -3537,7 +3602,7 @@ function App({
         isPanelHoveredRef.current = false;
         setIsPanelHovered(false);
         if (shouldCollapseMainWindowOnPointerLeave({
-          isMinimized,
+          isMinimized: visualIsMinimized,
           startupAutoMinimizeUnlocked: startupAutoMinimizeUnlockedRef.current,
           isDragging: isDraggingRef.current,
           isContextMenuOpen,
@@ -3569,7 +3634,7 @@ function App({
         alignItems: 'center',
         gap: 8,
         outline: 'none',
-        ...(isExpandingFromMinimized
+        ...(visualIsExpandingFromMinimized
           ? {
               background: "transparent",
               boxShadow: "none",
@@ -3594,9 +3659,9 @@ function App({
           justifyContent: "center",
           alignItems: "center",
           gap: 8,
-          opacity: isExpandingFromMinimized ? 0 : 1,
-          visibility: isExpandingFromMinimized ? "hidden" : "visible",
-          pointerEvents: isExpandingFromMinimized ? "none" : "auto",
+          opacity: visualIsExpandingFromMinimized ? 0 : 1,
+          visibility: visualIsExpandingFromMinimized ? "hidden" : "visible",
+          pointerEvents: visualIsExpandingFromMinimized ? "none" : "auto",
         }}
       >
         {/* Edge glow layer - follows mouse */}
@@ -3717,7 +3782,7 @@ function App({
                   position: 'absolute',
                   inset: 0,
                   padding: '48px 10px 10px',
-                  ...getContinuousCornerStyle(isMinimized ? 100 : 16),
+                  ...getContinuousCornerStyle(visualIsMinimized ? 100 : 16),
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 6,
@@ -4211,7 +4276,7 @@ function App({
           top: 10,
           right: 10,
           zIndex: 10,
-          transitionDelay: !isMinimized ? '0.2s' : '0s',
+          transitionDelay: !visualIsMinimized ? '0.2s' : '0s',
         }}
         title={t("app.actions.hideWindow")}
       >
@@ -4413,7 +4478,7 @@ function App({
               </span>
             ) : null}
           </motion.div>
-        ) : (isMinimized && !isExpandingFromMinimized) ? (
+        ) : (visualIsMinimized && !visualIsExpandingFromMinimized) ? (
           <motion.div
             key="minimized"
             initial={{ scale: 0.82, opacity: 0 }}
@@ -4741,10 +4806,10 @@ function App({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: isPanelHovered && !isMinimized ? 1 : 0,
+            opacity: isPanelHovered && !visualIsMinimized ? 1 : 0,
             transition: 'opacity 0.2s ease',
-            transitionDelay: !isMinimized ? '0.2s' : '0s',
-            pointerEvents: isPanelHovered && !isMinimized ? 'auto' : 'none',
+            transitionDelay: !visualIsMinimized ? '0.2s' : '0s',
+            pointerEvents: isPanelHovered && !visualIsMinimized ? 'auto' : 'none',
             zIndex: 10,
           }}
           title={appUpdateIndicatorTitle}
@@ -4792,7 +4857,7 @@ function App({
             bottom: 8,
             left: 8,
             zIndex: 10,
-            transitionDelay: !isMinimized ? '0.2s' : '0s',
+            transitionDelay: !visualIsMinimized ? '0.2s' : '0s',
           }}
           title={t("app.actions.resetRenameCounter")}
         >
@@ -4822,7 +4887,7 @@ function App({
           bottom: 8,
           right: 8,
           zIndex: 10,
-          transitionDelay: !isMinimized ? '0.2s' : '0s',
+          transitionDelay: !visualIsMinimized ? '0.2s' : '0s',
         }}
         title={t("app.actions.settings")}
       >

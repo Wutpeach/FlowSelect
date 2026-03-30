@@ -13,6 +13,7 @@ describe("resolveMainWindowModeLock", () => {
       runtimeGateIsBusy: false,
       isProcessing: false,
       showRuntimeSuccessIndicator: false,
+      isUiLabPreviewActive: false,
       appUpdatePhase: "idle",
     })).toBe(true);
 
@@ -21,6 +22,7 @@ describe("resolveMainWindowModeLock", () => {
       runtimeGateIsBusy: true,
       isProcessing: false,
       showRuntimeSuccessIndicator: false,
+      isUiLabPreviewActive: false,
       appUpdatePhase: "idle",
     })).toBe(true);
 
@@ -29,6 +31,7 @@ describe("resolveMainWindowModeLock", () => {
       runtimeGateIsBusy: false,
       isProcessing: true,
       showRuntimeSuccessIndicator: false,
+      isUiLabPreviewActive: false,
       appUpdatePhase: "idle",
     })).toBe(true);
 
@@ -37,6 +40,7 @@ describe("resolveMainWindowModeLock", () => {
       runtimeGateIsBusy: false,
       isProcessing: false,
       showRuntimeSuccessIndicator: true,
+      isUiLabPreviewActive: false,
       appUpdatePhase: "idle",
     })).toBe(true);
 
@@ -45,7 +49,17 @@ describe("resolveMainWindowModeLock", () => {
       runtimeGateIsBusy: false,
       isProcessing: false,
       showRuntimeSuccessIndicator: false,
+      isUiLabPreviewActive: false,
       appUpdatePhase: "downloading",
+    })).toBe(true);
+
+    expect(resolveMainWindowModeLock({
+      hasOngoingTask: false,
+      runtimeGateIsBusy: false,
+      isProcessing: false,
+      showRuntimeSuccessIndicator: false,
+      isUiLabPreviewActive: true,
+      appUpdatePhase: "idle",
     })).toBe(true);
   });
 
@@ -55,6 +69,7 @@ describe("resolveMainWindowModeLock", () => {
       runtimeGateIsBusy: false,
       isProcessing: false,
       showRuntimeSuccessIndicator: false,
+      isUiLabPreviewActive: false,
       appUpdatePhase: "idle",
     })).toBe(false);
 
@@ -63,6 +78,7 @@ describe("resolveMainWindowModeLock", () => {
       runtimeGateIsBusy: false,
       isProcessing: false,
       showRuntimeSuccessIndicator: false,
+      isUiLabPreviewActive: false,
       appUpdatePhase: "available",
     })).toBe(false);
   });

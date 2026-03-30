@@ -7,6 +7,7 @@ type ResolveMainWindowModeLockInput = {
   runtimeGateIsBusy: boolean;
   isProcessing: boolean;
   showRuntimeSuccessIndicator: boolean;
+  isUiLabPreviewActive: boolean;
   appUpdatePhase: AppUpdatePhase;
 };
 
@@ -15,12 +16,14 @@ export const resolveMainWindowModeLock = ({
   runtimeGateIsBusy,
   isProcessing,
   showRuntimeSuccessIndicator,
+  isUiLabPreviewActive,
   appUpdatePhase,
 }: ResolveMainWindowModeLockInput): boolean => (
   hasOngoingTask
   || runtimeGateIsBusy
   || isProcessing
   || showRuntimeSuccessIndicator
+  || isUiLabPreviewActive
   || appUpdatePhase === "downloading"
   || appUpdatePhase === "installing"
 );
