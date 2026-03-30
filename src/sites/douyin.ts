@@ -11,15 +11,21 @@ const DOUYIN_HOST_PATTERN = /(douyin\.com|douyinvod\.com|douyincdn\.com|bytecdn|
 
 const isDouyinUrl = (value: string | undefined): boolean => Boolean(value && DOUYIN_HOST_PATTERN.test(value));
 
-const isDirectVideoCandidate = (candidate: MediaCandidate): boolean => (
-  DOUYIN_HOST_PATTERN.test(candidate.url) && /\.(mp4|mov|m4v)(?:$|\?)/i.test(candidate.url)
+const isDirectVideoUrl = (value: string | undefined): boolean => (
+  Boolean(value && DOUYIN_HOST_PATTERN.test(value) && /\.(mp4|mov|m4v)(?:$|\?)/i.test(value))
 );
 
+const isDirectVideoCandidate = (candidate: MediaCandidate): boolean => isDirectVideoUrl(candidate.url);
+
 const pickDirectSource = (input: RawDownloadInput): string | undefined => {
-  if (input.videoUrl && /\.(mp4|mov|m4v)(?:$|\?)/i.test(input.videoUrl)) {
+  if (isDirectVideoUrl(input.videoUrl)) {
     return input.videoUrl;
   }
-  return input.videoCandidates?.find(isDirectVideoCandidate)?.url;
+  const candidateSource = input.videoCandidates?.find(isDirectVideoCandidate)?.url;
+  if (candidateSource) {
+    return candidateSource;
+  }
+  return isDirectVideoUrl(input.url) ? input.url : undefined;
 };
 
 const buildIntent = (input: RawDownloadInput): DownloadIntent => ({
