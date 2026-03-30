@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import type { ElectronRuntimeEnvironment } from "./contracts";
+import type { ElectronRuntimeEnvironment } from "./contracts.js";
 
 let traceSequence = 0;
 
@@ -78,10 +78,14 @@ export const buildOutputStem = (
   traceId: string,
   url: string,
   config: Record<string, unknown>,
+  preferredTitle?: string,
 ): string => {
   const renameEnabled = resolveRenameEnabled(config);
   if (renameEnabled) {
     return traceId;
+  }
+  if (typeof preferredTitle === "string" && preferredTitle.trim()) {
+    return sanitizeFileStem(preferredTitle);
   }
   try {
     const parsed = new URL(url);

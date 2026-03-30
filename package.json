@@ -5,19 +5,18 @@
   "version": "0.2.9",
   "author": "Wutpeach",
   "type": "module",
-  "main": "dist-electron/main.mjs",
+  "main": "dist-electron/electron/main.mjs",
   "scripts": {
     "predev": "npm run locales:sync",
     "dev": "node ./scripts/run-electron-dev.mjs",
     "dev:renderer": "vite",
     "electron:dev": "node ./scripts/run-electron-dev.mjs",
-    "electron:build": "tsc -p tsconfig.electron.json",
+    "electron:build": "node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\" && tsc -p tsconfig.electron.json",
     "version:set": "node ./scripts/update-version.mjs",
     "locales:sync": "node ./scripts/sync-locales.mjs",
     "prebuild": "npm run locales:sync",
     "build:renderer": "tsc && vite build",
     "build": "npm run build:renderer && npm run electron:build",
-    "build:pinterest-sidecar": "node ./scripts/build-pinterest-sidecar.mjs",
     "package": "npm run build && electron-builder --config ./electron-builder.config.mjs --publish never",
     "package:dir": "npm run build && electron-builder --config ./electron-builder.config.mjs --dir --publish never",
     "package:win": "npm run build && electron-builder --config ./electron-builder.config.mjs --win nsis --x64 --publish never",
@@ -25,11 +24,7 @@
     "package:mac:zip": "npm run build && electron-builder --config ./electron-builder.config.mjs --mac zip --publish never",
     "package:browser-extension": "node ./scripts/package-browser-extension.mjs",
     "package:macos-open-source-dmg": "node ./scripts/package-macos-open-source-dmg.mjs",
-    "check:pinterest-sidecar-upstream": "node ./scripts/check-pinterest-sidecar-upstream.mjs",
-    "manifest:runtime-sidecars": "node ./scripts/generate-runtime-sidecars-manifest.mjs",
-    "manifest:runtime-sidecars:validate": "node ./scripts/validate-runtime-sidecars-manifest.mjs",
     "lint": "eslint src vite.config.ts --ext .ts,.tsx",
-    "smoke:pinterest-sidecar": "node ./scripts/smoke-pinterest-sidecar.mjs",
     "type-check": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "typecheck": "npm run type-check",
     "test": "vitest run --passWithNoTests",
@@ -69,6 +64,7 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^7.0.4",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "zod": "^4.3.6"
   }
 }

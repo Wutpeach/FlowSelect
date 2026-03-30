@@ -11,9 +11,9 @@ export type RuntimeDependencyStatusEntry = {
 
 export type RuntimeDependencyStatusSnapshot = {
   ytDlp: RuntimeDependencyStatusEntry;
+  galleryDl: RuntimeDependencyStatusEntry;
   ffmpeg: RuntimeDependencyStatusEntry;
   deno: RuntimeDependencyStatusEntry;
-  pinterestDownloader: RuntimeDependencyStatusEntry;
 };
 
 export type RuntimeDependencyGatePhase =
@@ -27,8 +27,7 @@ export type RuntimeDependencyGatePhase =
 
 export type RuntimeDependencyManagedComponent =
   | "ffmpeg"
-  | "deno"
-  | "pinterest-dl";
+  | "deno";
 
 export type RuntimeDependencyGateActivityStage =
   | "checking"

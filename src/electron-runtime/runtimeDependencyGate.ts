@@ -2,13 +2,12 @@ import type {
   RuntimeDependencyGateStatePayload,
   RuntimeDependencyManagedComponent,
   RuntimeDependencyStatusSnapshot,
-} from "../types/runtimeDependencies";
-import type { RuntimeDependencyResolver } from "./contracts";
+} from "../types/runtimeDependencies.js";
+import type { RuntimeDependencyResolver } from "./contracts.js";
 
 const managedComponents: RuntimeDependencyManagedComponent[] = [
   "ffmpeg",
   "deno",
-  "pinterest-dl",
 ];
 
 const now = (): number => Date.now();
@@ -39,9 +38,6 @@ const missingComponentsFrom = (
   }
   if (snapshot.deno.state !== "ready") {
     missing.push("deno");
-  }
-  if (snapshot.pinterestDownloader.state !== "ready") {
-    missing.push("pinterest-dl");
   }
   return missing;
 };
@@ -110,7 +106,10 @@ export const createRuntimeDependencyResolver = (
       );
       return bootstrap(reason);
     },
-    setManagedComponentStatus(component, status) {
+    setManagedComponentStatus(
+      component: RuntimeDependencyManagedComponent,
+      status: RuntimeDependencyStatusSnapshot["ffmpeg"],
+    ) {
       if (!managedComponents.includes(component)) {
         return;
       }
@@ -118,8 +117,6 @@ export const createRuntimeDependencyResolver = (
         currentSnapshot = { ...currentSnapshot, ffmpeg: status };
       } else if (component === "deno") {
         currentSnapshot = { ...currentSnapshot, deno: status };
-      } else {
-        currentSnapshot = { ...currentSnapshot, pinterestDownloader: status };
       }
       syncGateState(currentSnapshot);
     },

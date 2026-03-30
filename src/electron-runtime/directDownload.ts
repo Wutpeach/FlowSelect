@@ -1,7 +1,7 @@
 import { createWriteStream, promises as fs } from "node:fs";
-import type { RuntimeDownloadContext } from "./contracts";
-import { summarizeError } from "./runtimeUtils";
-import type { DownloadResultPayload } from "../types/videoRuntime";
+import type { EngineExecutionContext } from "../core/index.js";
+import { summarizeError } from "./runtimeUtils.js";
+import type { DownloadResultPayload } from "../types/videoRuntime.js";
 
 const isTextishContentType = (value: string | null): boolean => {
   if (!value) {
@@ -15,7 +15,7 @@ const isTextishContentType = (value: string | null): boolean => {
 };
 
 export const runDirectVideoDownload = async (
-  context: RuntimeDownloadContext,
+  context: EngineExecutionContext,
 ): Promise<DownloadResultPayload> => {
   const fetchImpl = context.fetch ?? globalThis.fetch;
   if (!fetchImpl) {
@@ -36,11 +36,18 @@ export const runDirectVideoDownload = async (
     "User-Agent",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
   );
-  if (context.request.pageUrl) {
-    headers.set("Referer", context.request.pageUrl);
+  if (context.intent.pageUrl) {
+    headers.set("Referer", context.intent.pageUrl);
   }
 
-  const response = await fetchImpl(context.request.url, {
+  const sourceUrl = context.enginePlan.sourceUrl
+    || (context.intent.type === "direct" ? context.intent.directUrl : undefined)
+    || context.intent.originalUrl;
+  if (!sourceUrl) {
+    throw new Error("Direct download source URL is missing");
+  }
+
+  const response = await fetchImpl(sourceUrl, {
     headers,
     signal: context.abortSignal,
   });

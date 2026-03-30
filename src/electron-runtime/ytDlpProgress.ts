@@ -1,4 +1,4 @@
-import type { DownloadProgressPayload, DownloadStage } from "../types/videoRuntime";
+import type { DownloadProgressPayload, DownloadStage } from "../types/videoRuntime.js";
 
 const percentPattern = /\[download\]\s+(\d+(?:\.\d+)?)%/i;
 const speedPattern = /at\s+(.+?)\s+ETA/i;

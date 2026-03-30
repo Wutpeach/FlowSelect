@@ -160,14 +160,14 @@
         "button": "Update",
         "updating": "Updating..."
       },
-      "pinterest": {
+      "galleryDl": {
         "version": "Version {{version}}",
-        "description": "Managed Pinterest video downloader.",
+        "description": "Image and gallery downloader used for Pinterest-first flows.",
         "detailsUnavailable": "Details unavailable.",
-        "updatesShipWithApp": "Updates ship with app releases.",
-        "managedByApp": "Auto-downloaded and managed by FlowSelect.",
+        "bundledByApp": "Bundled with FlowSelect when available.",
+        "systemPath": "Using gallery-dl from your system PATH.",
         "releasesButton": "Releases",
-        "openReleasesFailed": "Failed to open FlowSelect releases"
+        "openReleasesFailed": "Failed to open gallery-dl releases"
       },
       "runtime": {
         "description": "Managed runtime readiness for downloads.",

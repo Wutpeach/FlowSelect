@@ -1,18 +1,21 @@
-import type { FlowSelectAppEvent } from "../types/electronBridge";
+import type { FlowSelectAppEvent } from "../types/electronBridge.js";
 import type {
   RuntimeDependencyGateStatePayload,
   RuntimeDependencyManagedComponent,
   RuntimeDependencyStatusEntry,
   RuntimeDependencyStatusSnapshot,
-} from "../types/runtimeDependencies";
+} from "../types/runtimeDependencies.js";
 import type {
-  DownloadResultPayload,
-  DownloadProgressPayload,
   QueuedVideoDownloadAck,
-  QueuedVideoDownloadRequest,
   VideoQueueDetailPayload,
   VideoQueueStatePayload,
-} from "../types/videoRuntime";
+} from "../types/videoRuntime.js";
+import type {
+  DownloadEngine,
+  EngineExecutionContext,
+  RawDownloadInput,
+  SiteProvider,
+} from "../core/index.js";
 
 export type RuntimeManagedComponent = RuntimeDependencyManagedComponent;
 
@@ -52,28 +55,10 @@ export interface ElectronRuntimeEnvironment {
 
 export interface RuntimeBinaryPaths {
   ytDlp: string;
+  galleryDl: string;
   ffmpeg: string;
   ffprobe: string;
   deno: string;
-  pinterestDownloader: string;
-}
-
-export interface RuntimeDownloadContext {
-  traceId: string;
-  request: QueuedVideoDownloadRequest;
-  outputDir: string;
-  outputStem: string;
-  config: Record<string, unknown>;
-  binaries: RuntimeBinaryPaths;
-  abortSignal: AbortSignal;
-  fetch?: typeof fetch;
-  onProgress(payload: DownloadProgressPayload): void | Promise<void>;
-}
-
-export interface RuntimeDownloadExecutors {
-  runYtDlpDownload(context: RuntimeDownloadContext): Promise<DownloadResultPayload>;
-  runDirectDownload(context: RuntimeDownloadContext): Promise<DownloadResultPayload>;
-  runPinterestDownload(context: RuntimeDownloadContext): Promise<DownloadResultPayload>;
 }
 
 export interface RuntimeBootstrapContext {
@@ -88,7 +73,12 @@ export interface ElectronDownloadRuntimeOptions {
   eventSink: RuntimeEventSink;
   logger?: RuntimeLogger;
   maxConcurrent?: number;
-  executors?: Partial<RuntimeDownloadExecutors>;
+  providers?: SiteProvider[];
+  engines?: DownloadEngine[];
+  buildExecutionContext?(
+    context: EngineExecutionContext,
+    input: RawDownloadInput,
+  ): EngineExecutionContext;
   bootstrapManagedComponents?(
     context: RuntimeBootstrapContext,
   ): Promise<RuntimeDependencyStatusSnapshot | void>;
@@ -114,7 +104,7 @@ export interface ElectronDownloadRuntime {
     reason?: string,
   ): Promise<RuntimeDependencyGateStatePayload>;
   queueVideoDownload(
-    request: QueuedVideoDownloadRequest,
+    request: RawDownloadInput,
   ): Promise<QueuedVideoDownloadAck>;
   cancelDownload(traceId: string): Promise<boolean>;
   getQueueState(): VideoQueueStatePayload;

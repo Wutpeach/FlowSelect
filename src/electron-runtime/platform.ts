@@ -22,11 +22,15 @@ export const ytDlpBinaryNameFor = (
   arch: NodeJS.Architecture,
 ): string => `yt-dlp-${resolveRuntimeTarget(platform, arch)}${executableExtensionFor(platform)}`;
 
-export const pinterestBinaryNameFor = (
+export const galleryDlBinaryNameFor = (
   platform: NodeJS.Platform,
   arch: NodeJS.Architecture,
 ): string =>
-  `pinterest-dl-${resolveRuntimeTarget(platform, arch)}${executableExtensionFor(platform)}`;
+  `gallery-dl-${resolveRuntimeTarget(platform, arch)}${executableExtensionFor(platform)}`;
+
+export const galleryDlSystemBinaryNameFor = (
+  platform: NodeJS.Platform,
+): string => `gallery-dl${executableExtensionFor(platform)}`;
 
 export const denoBinaryNameFor = (platform: NodeJS.Platform): string =>
   `deno${executableExtensionFor(platform)}`;

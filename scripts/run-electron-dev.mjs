@@ -14,8 +14,8 @@ const electronBin = path.join(repoRoot, "node_modules", "electron", "cli.js");
 
 const devServerUrl = "http://127.0.0.1:1420";
 const compiledEntries = [
-  path.join(repoRoot, "dist-electron", "main.mjs"),
-  path.join(repoRoot, "dist-electron", "preload.mjs"),
+  path.join(repoRoot, "dist-electron", "electron", "main.mjs"),
+  path.join(repoRoot, "dist-electron", "electron", "preload.mjs"),
 ];
 
 const spawnChild = (label, command, args, env = process.env) => {

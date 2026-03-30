@@ -292,9 +292,6 @@ const getMissingRuntimeComponentsFromStatus = (
   if (status.deno.state !== "ready") {
     missingComponents.push("deno");
   }
-  if (status.pinterestDownloader.state !== "ready") {
-    missingComponents.push("pinterest-dl");
-  }
   return missingComponents;
 };
 

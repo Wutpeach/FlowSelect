@@ -6,10 +6,12 @@ import { inspectRuntimeDependencyStatus } from "./runtimePaths";
 import type { ElectronRuntimeEnvironment } from "./contracts";
 
 const tempRoots: string[] = [];
+const originalPath = process.env.PATH;
 
 const createEnvironment = (): ElectronRuntimeEnvironment => {
   const root = mkdtempSync(path.join(os.tmpdir(), "flowselect-electron-runtime-"));
   tempRoots.push(root);
+  process.env.PATH = path.join(root, "empty-path");
   return {
     repoRoot: root,
     configDir: path.join(root, "config"),
@@ -22,6 +24,7 @@ afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
+  process.env.PATH = originalPath;
 });
 
 describe("inspectRuntimeDependencyStatus", () => {
@@ -42,34 +45,25 @@ describe("inspectRuntimeDependencyStatus", () => {
       "x86_64-pc-windows-msvc",
       "real",
     );
-    const pinterestDir = path.join(
-      environment.configDir,
-      "runtimes",
-      "pinterest-dl",
-      "x86_64-pc-windows-msvc",
-    );
     mkdirSync(binariesDir, { recursive: true });
     mkdirSync(ffmpegRealDir, { recursive: true });
     mkdirSync(denoRealDir, { recursive: true });
-    mkdirSync(pinterestDir, { recursive: true });
 
     writeFileSync(path.join(binariesDir, "yt-dlp-x86_64-pc-windows-msvc.exe"), "binary");
+    writeFileSync(path.join(binariesDir, "gallery-dl-x86_64-pc-windows-msvc.exe"), "binary");
     writeFileSync(path.join(ffmpegRealDir, "ffmpeg.exe"), "binary");
     writeFileSync(path.join(ffmpegRealDir, "ffprobe.exe"), "binary");
     writeFileSync(path.join(denoRealDir, "deno.exe"), "binary");
-    writeFileSync(
-      path.join(pinterestDir, "pinterest-dl-x86_64-pc-windows-msvc.exe"),
-      "binary",
-    );
 
     const snapshot = inspectRuntimeDependencyStatus(environment);
 
     expect(snapshot.ytDlp.state).toBe("ready");
     expect(snapshot.ytDlp.source).toBe("bundled");
+    expect(snapshot.galleryDl.state).toBe("ready");
+    expect(snapshot.galleryDl.source).toBe("bundled");
     expect(snapshot.ffmpeg.state).toBe("ready");
     expect(snapshot.ffmpeg.source).toBe("managed");
     expect(snapshot.deno.state).toBe("ready");
-    expect(snapshot.pinterestDownloader.state).toBe("ready");
   });
 
   it("marks missing runtimes with actionable errors", () => {
@@ -78,9 +72,9 @@ describe("inspectRuntimeDependencyStatus", () => {
 
     expect(snapshot.ytDlp.state).toBe("missing");
     expect(snapshot.ytDlp.error).toContain("Missing bundled yt-dlp runtime");
+    expect(snapshot.galleryDl.state).toBe("missing");
     expect(snapshot.ffmpeg.state).toBe("missing");
     expect(snapshot.deno.state).toBe("missing");
-    expect(snapshot.pinterestDownloader.state).toBe("missing");
   });
 });
 

@@ -25,9 +25,9 @@ const createStatus = (
   overrides: Partial<RuntimeDependencyStatusSnapshot> = {},
 ): RuntimeDependencyStatusSnapshot => ({
   ytDlp: readyEntry,
+  galleryDl: readyEntry,
   ffmpeg: readyEntry,
   deno: readyEntry,
-  pinterestDownloader: readyEntry,
   ...overrides,
 });
 
@@ -46,9 +46,6 @@ describe("hasMissingManagedRuntimeComponents", () => {
     }))).toBe(true);
     expect(hasMissingManagedRuntimeComponents(createStatus({
       deno: missingEntry,
-    }))).toBe(true);
-    expect(hasMissingManagedRuntimeComponents(createStatus({
-      pinterestDownloader: missingEntry,
     }))).toBe(true);
   });
 });

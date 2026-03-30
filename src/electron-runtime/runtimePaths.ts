@@ -3,20 +3,21 @@ import path from "node:path";
 import type {
   ElectronRuntimeEnvironment,
   RuntimeBinaryPaths,
-} from "./contracts";
+} from "./contracts.js";
 import {
   denoBinaryNameFor,
   ffmpegBinaryNameFor,
   ffprobeBinaryNameFor,
-  pinterestBinaryNameFor,
+  galleryDlBinaryNameFor,
+  galleryDlSystemBinaryNameFor,
   resolveRuntimeTarget,
   ytDlpBinaryNameFor,
-} from "./platform";
+} from "./platform.js";
 import type {
   RuntimeDependencySource,
   RuntimeDependencyStatusEntry,
   RuntimeDependencyStatusSnapshot,
-} from "../types/runtimeDependencies";
+} from "../types/runtimeDependencies.js";
 
 const createStatusEntry = (
   state: "ready" | "missing",
@@ -40,8 +41,29 @@ const missingStatus = (error: string): RuntimeDependencyStatusEntry =>
 
 const firstCandidate = (candidates: string[]): string | null => candidates[0] ?? null;
 
+const existingCandidate = (candidates: string[]): string | null =>
+  candidates.find((candidate) => existsSync(candidate)) ?? null;
+
 const existingCandidateOrFirst = (candidates: string[]): string | null =>
-  candidates.find((candidate) => existsSync(candidate)) ?? firstCandidate(candidates);
+  existingCandidate(candidates) ?? firstCandidate(candidates);
+
+const resolveSystemPathCandidate = (
+  commandName: string,
+): string | null => {
+  const pathEntries = (process.env.PATH ?? "")
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  for (const entry of pathEntries) {
+    const candidate = path.join(entry, commandName);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+};
 
 const resolveBundledCandidates = (
   environment: ElectronRuntimeEnvironment,
@@ -90,14 +112,6 @@ const managedDenoPathFor = (environment: ElectronRuntimeEnvironment): string => 
   return path.join(realRoot, denoBinaryNameFor(environment.platform));
 };
 
-const managedPinterestPathFor = (
-  environment: ElectronRuntimeEnvironment,
-): string =>
-  path.join(
-    runtimeRootFor(environment, "pinterest-dl"),
-    pinterestBinaryNameFor(environment.platform, environment.arch),
-  );
-
 const resolveBundledStatus = (
   label: string,
   candidates: string[],
@@ -136,6 +150,16 @@ export const resolveRuntimeBinaryPaths = (
   environment: ElectronRuntimeEnvironment,
 ): RuntimeBinaryPaths => {
   const ffmpegPaths = managedFfmpegPathsFor(environment);
+  const galleryDlBundledCandidates = resolveBundledCandidates(
+    environment,
+    galleryDlBinaryNameFor(environment.platform, environment.arch),
+  );
+  const galleryDlSystemCandidate = resolveSystemPathCandidate(
+    galleryDlSystemBinaryNameFor(environment.platform),
+  );
+  const resolvedGalleryDl = existingCandidate(galleryDlBundledCandidates)
+    ?? galleryDlSystemCandidate
+    ?? firstCandidate(galleryDlBundledCandidates);
   return {
     ytDlp: existingCandidateOrFirst(
       resolveBundledCandidates(
@@ -143,10 +167,10 @@ export const resolveRuntimeBinaryPaths = (
         ytDlpBinaryNameFor(environment.platform, environment.arch),
       ),
     ) ?? "",
+    galleryDl: resolvedGalleryDl ?? "",
     ffmpeg: ffmpegPaths.ffmpeg,
     ffprobe: ffmpegPaths.ffprobe,
     deno: managedDenoPathFor(environment),
-    pinterestDownloader: managedPinterestPathFor(environment),
   };
 };
 
@@ -157,14 +181,29 @@ export const inspectRuntimeDependencyStatus = (
     environment,
     ytDlpBinaryNameFor(environment.platform, environment.arch),
   );
+  const galleryDlBundledCandidates = resolveBundledCandidates(
+    environment,
+    galleryDlBinaryNameFor(environment.platform, environment.arch),
+  );
+  const galleryDlSystemCandidate = resolveSystemPathCandidate(
+    galleryDlSystemBinaryNameFor(environment.platform),
+  );
   const ffmpegPaths = managedFfmpegPathsFor(environment);
   const denoPath = managedDenoPathFor(environment);
-  const pinterestPath = managedPinterestPathFor(environment);
+  const galleryDlPath = existingCandidate(galleryDlBundledCandidates)
+    ?? galleryDlSystemCandidate;
 
   return {
     ytDlp: resolveBundledStatus("yt-dlp", ytDlpCandidates),
+    galleryDl: galleryDlPath
+      ? readyStatus(
+          galleryDlPath,
+          galleryDlBundledCandidates.includes(galleryDlPath) ? "bundled" : "system_path",
+        )
+      : missingStatus(
+          `Missing gallery-dl runtime. Checked bundled ${JSON.stringify(galleryDlBundledCandidates)} and PATH`,
+        ),
     ffmpeg: resolveManagedStatus("ffmpeg", [ffmpegPaths.ffmpeg, ffmpegPaths.ffprobe]),
     deno: resolveManagedStatus("deno", [denoPath]),
-    pinterestDownloader: resolveManagedStatus("pinterest-dl", [pinterestPath]),
   };
 };

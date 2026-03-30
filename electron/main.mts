@@ -48,6 +48,10 @@ import {
   resolveStartupLanguageFromConfig,
 } from "./startupLanguage.mjs";
 import {
+  createElectronDownloadRuntime,
+  inspectRuntimeDependencyStatus,
+} from "../src/electron-runtime/index.js";
+import {
   normalizeVideoCandidateUrls,
   normalizeRequiredVideoRouteUrl,
   normalizeVideoPageUrl,
@@ -74,7 +78,7 @@ import {
 import { waitForInitialWindowReveal } from "./windowRevealWait.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(__dirname, "..");
+const repoRoot = resolve(__dirname, "..", "..");
 
 const WINDOW_LABELS = {
   main: "main",
@@ -103,6 +107,7 @@ const YTDLP_WINDOWS_DOWNLOAD_URL =
   "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
 const YTDLP_MACOS_DOWNLOAD_URL =
   "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos";
+const GALLERY_DL_RELEASES_URL = "https://github.com/gdl-org/builds/releases";
 const LOG_DIR_NAME = "logs";
 const VIDEO_QUEUE_MAX_CONCURRENT = 3;
 const SETTINGS_WINDOW_WIDTH = 320;
@@ -144,17 +149,8 @@ const YTDLP_FORMAT_SELECTOR_DATA_SAVER = [
   "worst[ext=mp4]/",
   "worst",
 ].join("");
-const PINTEREST_LOCK_PATH = join(
-  repoRoot,
-  "desktop-assets",
-  "pinterest-sidecar",
-  "lock.json",
-);
-const PINTEREST_RUNTIME_MANIFEST_URL =
-  "https://github.com/Wutpeach/FlowSelect/releases/download/runtime-sidecars-manifest-latest/runtime-sidecars-manifest.json";
 const BINARY_DIR = join(repoRoot, "desktop-assets", "binaries");
-const MANAGED_RUNTIME_BOOTSTRAP_ORDER = ["ffmpeg", "pinterest-dl", "deno"];
-const RUNTIME_MANIFEST_FETCH_TIMEOUT_MS = 30_000;
+const MANAGED_RUNTIME_BOOTSTRAP_ORDER = ["ffmpeg", "deno"];
 const RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
 const WINDOW_STARTUP_CAPTURE_DELAY_MS = 180;
@@ -162,6 +158,7 @@ const STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS = 1_500;
 let tray = null;
 let registeredShortcut = "";
 let pendingAppUpdate = null;
+let electronDownloadRuntime = null;
 let nextOpaqueSequence = 1;
 let isVideoQueuePumpScheduled = false;
 let hasShownMainWindowOnce = false;
@@ -986,6 +983,11 @@ function normalizeOptionalString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function normalizeOptionalNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
+}
+
 function nextOpaqueId(prefix) {
   const safePrefix = normalizeOptionalString(prefix) ?? "electron";
   const identifier = `${safePrefix}-${Date.now()}-${nextOpaqueSequence}`;
@@ -1348,20 +1350,6 @@ function ffprobeExecutableName() {
   return process.platform === "win32" ? "ffprobe.exe" : "ffprobe";
 }
 
-function pinterestDownloaderBinaryName() {
-  const target = currentManagedRuntimeTarget();
-  if (target === "x86_64-pc-windows-msvc") {
-    return "pinterest-dl-x86_64-pc-windows-msvc.exe";
-  }
-  if (target === "aarch64-apple-darwin") {
-    return "pinterest-dl-aarch64-apple-darwin";
-  }
-  if (target === "x86_64-apple-darwin") {
-    return "pinterest-dl-x86_64-apple-darwin";
-  }
-  throw new Error(`Unsupported Pinterest runtime target: ${target}`);
-}
-
 function managedRuntimeRoot(componentId) {
   return join(getUserDataDir(), "runtimes", componentId, currentManagedRuntimeTarget());
 }
@@ -1381,11 +1369,42 @@ function managedFfmpegPaths() {
   };
 }
 
-function managedPinterestDownloaderPath() {
-  return join(
-    managedRuntimeRoot("pinterest-dl"),
-    pinterestDownloaderBinaryName(),
-  );
+function buildElectronRuntimeEnvironment() {
+  return {
+    repoRoot,
+    configDir: getUserDataDir(),
+    resourceDir: app.isPackaged ? join(process.resourcesPath, "desktop-assets") : null,
+    executableDir: dirname(process.execPath),
+    desktopDir: app.getPath("desktop"),
+    tempDir: tmpdir(),
+    platform: process.platform,
+    arch: process.arch,
+    fetch,
+  };
+}
+
+function getElectronDownloadRuntime() {
+  if (electronDownloadRuntime) {
+    return electronDownloadRuntime;
+  }
+
+  electronDownloadRuntime = createElectronDownloadRuntime({
+    environment: buildElectronRuntimeEnvironment(),
+    configStore: {
+      readConfigString,
+    },
+    eventSink: {
+      emit(event, payload) {
+        emitAppEvent(event, payload);
+      },
+    },
+    logger: {
+      log(message) {
+        logInfo("ElectronRuntime", message);
+      },
+    },
+  });
+  return electronDownloadRuntime;
 }
 
 function readyRuntimeEntry(entryPath, source) {
@@ -1419,9 +1438,9 @@ function assertUiLabEnabled() {
 function cloneRuntimeStatusSnapshot(snapshot) {
   return {
     ytDlp: { ...snapshot.ytDlp },
+    galleryDl: { ...snapshot.galleryDl },
     ffmpeg: { ...snapshot.ffmpeg },
     deno: { ...snapshot.deno },
-    pinterestDownloader: { ...snapshot.pinterestDownloader },
   };
 }
 
@@ -1455,39 +1474,13 @@ async function getRuntimeDependencyStatus() {
     return cloneRuntimeStatusSnapshot(uiLabRuntimeStatusOverride);
   }
 
-  const ytDlpPath = await resolveBundledBinary("yt-dlp");
-  const ffmpegPaths = managedFfmpegPaths();
-  const denoPath = managedDenoPath();
-  const pinterestPath = managedPinterestDownloaderPath();
-
-  return {
-    ytDlp: ytDlpPath
-      ? readyRuntimeEntry(ytDlpPath, "bundled")
-      : missingRuntimeEntry(`Missing bundled yt-dlp runtime in ${BINARY_DIR}`),
-    ffmpeg:
-      existsSync(ffmpegPaths.ffmpeg) && existsSync(ffmpegPaths.ffprobe)
-        ? readyRuntimeEntry(ffmpegPaths.ffmpeg, "managed")
-        : missingRuntimeEntry(
-            `Missing managed ffmpeg runtime. Expected ${JSON.stringify([ffmpegPaths.ffmpeg, ffmpegPaths.ffprobe])}`,
-          ),
-    deno: existsSync(denoPath)
-      ? readyRuntimeEntry(denoPath, "managed")
-      : missingRuntimeEntry(`Missing managed deno runtime. Expected ${JSON.stringify([denoPath])}`),
-    pinterestDownloader: existsSync(pinterestPath)
-      ? readyRuntimeEntry(pinterestPath, "managed")
-      : missingRuntimeEntry(
-          `Missing managed pinterest runtime. Expected ${JSON.stringify([pinterestPath])}`,
-        ),
-  };
+  return inspectRuntimeDependencyStatus(buildElectronRuntimeEnvironment());
 }
 
 function collectMissingManagedRuntimeComponents(snapshot) {
   const missingComponents = [];
   if (snapshot.ffmpeg.state !== "ready") {
     missingComponents.push("ffmpeg");
-  }
-  if (snapshot.pinterestDownloader.state !== "ready") {
-    missingComponents.push("pinterest-dl");
   }
   if (snapshot.deno.state !== "ready") {
     missingComponents.push("deno");
@@ -1604,18 +1597,6 @@ async function refreshRuntimeDependencyGateState() {
     return cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride);
   }
   return getRuntimeDependencyGateState();
-}
-
-function runtimeMinAppVersionSatisfied(minAppVersion) {
-  const normalized = normalizeOptionalString(minAppVersion);
-  if (!normalized) {
-    return true;
-  }
-  const lowered = normalized.toLowerCase();
-  if (lowered === "true" || lowered === "false") {
-    return true;
-  }
-  return compareLooseVersions(app.getVersion(), normalized) >= 0;
 }
 
 async function sha256Hex(filePath) {
@@ -1841,51 +1822,6 @@ function selectFfmpegRuntimeArtifactSpec() {
   throw new Error(`Unsupported managed ffmpeg runtime target: ${target}`);
 }
 
-async function fetchPinterestRuntimeManifest() {
-  const response = await fetchWithDesktopSessionTimeout(
-    PINTEREST_RUNTIME_MANIFEST_URL,
-    {
-      headers: {
-        "User-Agent": `FlowSelect/${app.getVersion()}`,
-        Accept: "application/json",
-      },
-    },
-    RUNTIME_MANIFEST_FETCH_TIMEOUT_MS,
-    `Runtime manifest request timed out after ${Math.round(RUNTIME_MANIFEST_FETCH_TIMEOUT_MS / 1000)}s`,
-  );
-  const body = await response.text();
-  if (!response.ok) {
-    throw new Error(
-      `Runtime manifest request failed with HTTP ${response.status}: ${body.slice(0, 180)}`,
-    );
-  }
-  return JSON.parse(body);
-}
-
-function selectPinterestRuntimeArtifact(manifest) {
-  if (!manifest || manifest.component !== "pinterest-dl" || !Array.isArray(manifest.artifacts)) {
-    throw new Error("Runtime manifest is missing a valid Pinterest sidecar payload");
-  }
-
-  const target = currentManagedRuntimeTarget();
-  const artifact = manifest.artifacts.find((candidate) =>
-    candidate?.component === "pinterest-dl"
-    && candidate?.target === target,
-  );
-  if (!artifact) {
-    throw new Error(`Runtime manifest does not contain a Pinterest sidecar for target ${target}`);
-  }
-  if (!runtimeMinAppVersionSatisfied(artifact.minAppVersion ?? artifact.min_app_version)) {
-    throw new Error(
-      `Runtime artifact requires app version ${(artifact.minAppVersion ?? artifact.min_app_version) || "unknown"} or newer`,
-    );
-  }
-  if (!artifact.url || !artifact.sha256 || !artifact.size) {
-    throw new Error("Runtime artifact is missing url, sha256, or size");
-  }
-  return artifact;
-}
-
 async function ensureManagedDenoRuntimeReady(trigger, missingComponents) {
   const targetPath = managedDenoPath();
   if (existsSync(targetPath)) {
@@ -1985,45 +1921,6 @@ async function ensureManagedFfmpegRuntimeReady(trigger, missingComponents) {
   }
 }
 
-async function ensureManagedPinterestRuntimeReady(trigger, missingComponents) {
-  const targetPath = managedPinterestDownloaderPath();
-  if (existsSync(targetPath)) {
-    return targetPath;
-  }
-
-  const manifest = await fetchPinterestRuntimeManifest();
-  const artifact = selectPinterestRuntimeArtifact(manifest);
-  const tempDir = await mkdtemp(join(tmpdir(), "flowselect-pinterest-"));
-  const tempTargetPath = join(tempDir, basename(targetPath));
-
-  try {
-    logInfo("Electron", `Bootstrapping managed Pinterest runtime (${trigger})`);
-    await downloadRuntimeAssetWithFallbacks(
-      [artifact.url],
-      artifact.size,
-      artifact.sha256,
-      tempTargetPath,
-      "pinterest-dl",
-      missingComponents,
-    );
-    await updateRuntimeDependencyGateDownloadActivity(
-      missingComponents,
-      "pinterest-dl",
-      "installing",
-      artifact.size,
-      artifact.size,
-    );
-    if (process.platform !== "win32") {
-      await chmod(tempTargetPath, 0o755);
-    }
-    await mkdir(dirname(targetPath), { recursive: true });
-    await replaceFile(targetPath, tempTargetPath);
-    return targetPath;
-  } finally {
-    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-  }
-}
-
 async function ensureMissingManagedRuntimesReady(trigger) {
   const initialSnapshot = await getRuntimeDependencyStatus();
   const missingComponents = collectMissingManagedRuntimeComponents(initialSnapshot);
@@ -2036,12 +1933,7 @@ async function ensureMissingManagedRuntimesReady(trigger) {
   }
 
   const afterFfmpeg = await getRuntimeDependencyStatus();
-  if (afterFfmpeg.pinterestDownloader.state !== "ready") {
-    await ensureManagedPinterestRuntimeReady(trigger, missingComponents);
-  }
-
-  const afterPinterest = await getRuntimeDependencyStatus();
-  if (afterPinterest.deno.state !== "ready") {
+  if (afterFfmpeg.deno.state !== "ready") {
     await ensureManagedDenoRuntimeReady(trigger, missingComponents);
   }
 
@@ -2440,14 +2332,52 @@ async function checkYtdlpVersion() {
   };
 }
 
-async function getPinterestDownloaderInfo() {
-  const raw = await readFile(PINTEREST_LOCK_PATH, "utf8");
-  const parsed = JSON.parse(raw);
+async function getGalleryDlInfo() {
+  const status = await getRuntimeDependencyStatus();
+  if (status.galleryDl.state !== "ready" || !status.galleryDl.path) {
+    return {
+      current: "missing",
+      source: "missing",
+      path: null,
+      updateChannel: "unavailable",
+    };
+  }
+
+  const version = await new Promise((resolve) => {
+    const child = spawn(status.galleryDl.path, ["--version"], {
+      cwd: repoRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", () => resolve("unknown"));
+    child.once("close", (code) => {
+      if (code !== 0) {
+        resolve("unknown");
+        return;
+      }
+      const firstLine = `${stdout}\n${stderr}`
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find(Boolean);
+      resolve(firstLine || "unknown");
+    });
+  });
+
   return {
-    current: parsed.upstream?.version || "unknown",
-    packageName: parsed.upstream?.package || "pinterest-dl",
-    flowselectSidecarVersion: parsed.flowselectSidecarVersion || "unknown",
-    updateChannel: "app_release",
+    current: version,
+    source: status.galleryDl.source,
+    path: status.galleryDl.path,
+    updateChannel: status.galleryDl.source === "system_path"
+      ? "system_path"
+      : "bundled_release",
   };
 }
 
@@ -2525,9 +2455,9 @@ function emitAppEvent(event, payload) {
 function createUiLabReadyRuntimeStatus() {
   return {
     ytDlp: readyRuntimeEntry("D:/ui-lab/yt-dlp.exe", "bundled"),
+    galleryDl: readyRuntimeEntry("D:/ui-lab/gallery-dl.exe", "bundled"),
     ffmpeg: readyRuntimeEntry("D:/ui-lab/ffmpeg.exe", "managed"),
     deno: readyRuntimeEntry("D:/ui-lab/deno.exe", "managed"),
-    pinterestDownloader: readyRuntimeEntry("D:/ui-lab/pinterest-dl.exe", "managed"),
   };
 }
 
@@ -2586,10 +2516,9 @@ function emitUiLabEmptyTaskState() {
 }
 
 function emitLiveVideoQueueState() {
-  emitVideoQueueState();
-  for (const task of activeVideoDownloads.values()) {
-    emitVideoTaskProgress(task, task.progress);
-  }
+  const runtime = getElectronDownloadRuntime();
+  emitAppEvent("video-queue-count", runtime.getQueueState());
+  emitAppEvent("video-queue-detail", runtime.getQueueDetail());
 }
 
 async function restoreUiLabLiveState() {
@@ -3338,76 +3267,29 @@ async function enqueueElectronVideoDownload(payload) {
 
   const config = await readConfigObject();
   const mergedPreferences = resolveVideoDownloadPreferencesFromConfig(config);
-  const task = {
-    traceId: nextOpaqueId("video"),
+  return getElectronDownloadRuntime().queueVideoDownload({
     url: rawUrl,
     pageUrl: normalizeVideoPageUrl(payload?.pageUrl),
     videoUrl: normalizeVideoHintUrl(payload?.videoUrl),
     videoCandidates: normalizeVideoCandidateUrls(payload?.videoCandidates),
     title: normalizeOptionalString(payload?.title),
     cookies: normalizeOptionalString(payload?.cookies),
-    selectionScope: normalizeSelectionScope(payload?.selectionScope),
+    selectionScope:
+      payload?.selectionScope === "current_item" || payload?.selectionScope === "playlist"
+        ? payload.selectionScope
+        : undefined,
+    clipStartSec: normalizeOptionalNumber(payload?.clipStartSec ?? payload?.clip_start_sec),
+    clipEndSec: normalizeOptionalNumber(payload?.clipEndSec ?? payload?.clip_end_sec),
     ytdlpQuality:
       normalizeYtdlpQualityPreference(payload?.ytdlpQualityPreference)
+      ?? normalizeYtdlpQualityPreference(payload?.ytdlpQuality)
       ?? normalizeYtdlpQualityPreference(payload?.defaultVideoDownloadQuality)
       ?? mergedPreferences.ytdlpQuality,
-    label: "",
-    status: "pending",
-    settled: false,
-    cancelRequested: false,
-    cookiesPath: null,
-    child: null,
-    filePath: null,
-    lastDiagnostic: "",
-    progress: {
-      percent: 0,
-      stage: "preparing",
-      speed: "",
-      eta: "",
-    },
-  };
-  task.label = buildVideoTaskLabel(task);
-
-  pendingVideoDownloads.push(task);
-  emitVideoQueueState();
-  void pumpVideoDownloadQueue();
-
-  return {
-    accepted: true,
-    traceId: task.traceId,
-  };
+  });
 }
 
 async function cancelVideoDownload(traceId) {
-  const pendingIndex = pendingVideoDownloads.findIndex((task) => task.traceId === traceId);
-  if (pendingIndex >= 0) {
-    const [task] = pendingVideoDownloads.splice(pendingIndex, 1);
-    task.cancelRequested = true;
-    await settleVideoDownloadTask(task, {
-      success: false,
-      error: "cancelled",
-    });
-    return true;
-  }
-
-  const activeTask = activeVideoDownloads.get(traceId);
-  if (!activeTask) {
-    return false;
-  }
-
-  activeTask.cancelRequested = true;
-  if (activeTask.child && !activeTask.child.killed) {
-    activeTask.child.kill("SIGTERM");
-    const forceKillTimer = setTimeout(() => {
-      if (!activeTask.settled && activeTask.child && !activeTask.child.killed) {
-        activeTask.child.kill("SIGKILL");
-      }
-    }, 1000);
-    if (typeof forceKillTimer.unref === "function") {
-      forceKillTimer.unref();
-    }
-  }
-  return true;
+  return getElectronDownloadRuntime().cancelDownload(traceId);
 }
 
 async function broadcastTheme(theme) {
@@ -4248,8 +4130,8 @@ async function handleCommand(command, payload = {}) {
       return startRuntimeDependencyBootstrap(normalizeOptionalString(payload.reason) ?? undefined);
     case "check_ytdlp_version":
       return checkYtdlpVersion();
-    case "get_pinterest_downloader_info":
-      return getPinterestDownloaderInfo();
+    case "get_gallery_dl_info":
+      return getGalleryDlInfo();
     case "queue_video_download":
       return enqueueElectronVideoDownload(payload);
     case "cancel_download":
@@ -4492,10 +4374,9 @@ async function bootstrap() {
   app.on("will-quit", () => {
     app.isQuitting = true;
     globalShortcut.unregisterAll();
-    for (const task of activeVideoDownloads.values()) {
-      task.cancelRequested = true;
-      if (task.child && !task.child.killed) {
-        task.child.kill("SIGTERM");
+    for (const task of getElectronDownloadRuntime().getQueueDetail().tasks) {
+      if (task.status === "active") {
+        void getElectronDownloadRuntime().cancelDownload(task.traceId);
       }
     }
     for (const pending of pendingProtectedImageRequests.values()) {

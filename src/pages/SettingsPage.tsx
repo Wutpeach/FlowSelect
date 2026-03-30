@@ -36,7 +36,7 @@ import { resolveSecondaryWindowPosition } from "../utils/secondaryWindowPlacemen
 import { APP_VERSION } from "../constants/appVersion";
 import { DownloaderDeck } from "./settings/DownloaderDeck";
 import { DownloaderCardContent } from "./settings/DownloaderCardContent";
-import type { PinterestDownloaderInfo } from "../types/pinterestDownloader";
+import type { GalleryDlInfo } from "../types/galleryDl";
 import type {
   RuntimeDependencyGateStatePayload,
   RuntimeDependencyStatusSnapshot,
@@ -191,14 +191,14 @@ function SettingsPage() {
   const [aeExePath, setAeExePath] = useState("");
   const [versionTapHint, setVersionTapHint] = useState("");
   const [ytdlpInfo, setYtdlpInfo] = useState<YtdlpVersionInfo | null>(null);
-  const [pinterestInfo, setPinterestInfo] = useState<PinterestDownloaderInfo | null>(null);
+  const [galleryDlInfo, setGalleryDlInfo] = useState<GalleryDlInfo | null>(null);
   const [runtimeDependencyStatus, setRuntimeDependencyStatus] =
     useState<RuntimeDependencyStatusSnapshot | null>(null);
   const [runtimeDependencyGateState, setRuntimeDependencyGateState] =
     useState<RuntimeDependencyGateStatePayload | null>(null);
   const [isUpdatingYtdlp, setIsUpdatingYtdlp] = useState(false);
   const [ytdlpHint, setYtdlpHint] = useState("");
-  const [pinterestHint, setPinterestHint] = useState("");
+  const [galleryDlHint, setGalleryDlHint] = useState("");
   const [runtimeHint, setRuntimeHint] = useState("");
   const [hoveredThemeOption, setHoveredThemeOption] = useState<"black" | "white" | null>(null);
   const [hoveredShortcutAction, setHoveredShortcutAction] = useState<"confirm" | "cancel" | null>(null);
@@ -206,7 +206,7 @@ function SettingsPage() {
   const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ytdlpHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pinterestHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const galleryDlHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runtimeHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const supportLogExportInFlightRef = useRef(false);
   const currentLanguage = normalizeAppLanguage(i18n.resolvedLanguage) ?? FALLBACK_LANGUAGE;
@@ -240,14 +240,14 @@ function SettingsPage() {
     }, 2000);
   }, []);
 
-  const showPinterestHint = useCallback((message: string) => {
-    setPinterestHint(message);
-    if (pinterestHintTimerRef.current) {
-      clearTimeout(pinterestHintTimerRef.current);
+  const showGalleryDlHint = useCallback((message: string) => {
+    setGalleryDlHint(message);
+    if (galleryDlHintTimerRef.current) {
+      clearTimeout(galleryDlHintTimerRef.current);
     }
-    pinterestHintTimerRef.current = setTimeout(() => {
-      setPinterestHint("");
-      pinterestHintTimerRef.current = null;
+    galleryDlHintTimerRef.current = setTimeout(() => {
+      setGalleryDlHint("");
+      galleryDlHintTimerRef.current = null;
     }, 2200);
   }, []);
 
@@ -292,13 +292,13 @@ function SettingsPage() {
     }
   }, [refreshRuntimeDependencyStatus]);
 
-  const refreshPinterestDownloaderInfo = useCallback(async () => {
+  const refreshGalleryDlInfo = useCallback(async () => {
     try {
-      const info = await desktopCommands.invoke<PinterestDownloaderInfo>("get_pinterest_downloader_info");
-      setPinterestInfo(info);
+      const info = await desktopCommands.invoke<GalleryDlInfo>("get_gallery_dl_info");
+      setGalleryDlInfo(info);
     } catch (err) {
-      console.error("Failed to load Pinterest downloader info:", err);
-      setPinterestInfo(null);
+      console.error("Failed to load gallery-dl info:", err);
+      setGalleryDlInfo(null);
     }
   }, []);
 
@@ -344,12 +344,18 @@ function SettingsPage() {
       message: t("desktop:settings.downloaders.ytdlp.localVersionOnly"),
     };
   })();
-  const pinterestCurrentVersion = pinterestInfo?.current ?? t("desktop:settings.downloaders.unknown");
-  const pinterestStatusMessage = (() => {
-    if (!pinterestInfo) {
-      return t("desktop:settings.downloaders.pinterest.detailsUnavailable");
+  const galleryDlCurrentVersion = galleryDlInfo?.current ?? t("desktop:settings.downloaders.unknown");
+  const galleryDlStatusMessage = (() => {
+    if (!galleryDlInfo) {
+      return t("desktop:settings.downloaders.galleryDl.detailsUnavailable");
     }
-    return t("desktop:settings.downloaders.pinterest.managedByApp");
+    if (galleryDlInfo.source === "system_path") {
+      return t("desktop:settings.downloaders.galleryDl.systemPath");
+    }
+    if (galleryDlInfo.source === "bundled") {
+      return t("desktop:settings.downloaders.galleryDl.bundledByApp");
+    }
+    return t("desktop:settings.downloaders.galleryDl.detailsUnavailable");
   })();
   const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
   const runtimeGatePhaseLabel = t(`desktop:settings.downloaders.runtime.phase.${runtimeGatePhase}`);
@@ -462,7 +468,7 @@ function SettingsPage() {
     loadConfig();
     loadAutostart();
     void refreshYtdlpVersion();
-    void refreshPinterestDownloaderInfo();
+    void refreshGalleryDlInfo();
     void refreshRuntimeDependencyStatus();
     void refreshRuntimeDependencyGateState();
 
@@ -476,7 +482,7 @@ function SettingsPage() {
     };
     loadShortcut();
   }, [
-    refreshPinterestDownloaderInfo,
+    refreshGalleryDlInfo,
     refreshRuntimeDependencyGateState,
     refreshRuntimeDependencyStatus,
     refreshYtdlpVersion,
@@ -581,9 +587,9 @@ function SettingsPage() {
         clearTimeout(ytdlpHintTimerRef.current);
         ytdlpHintTimerRef.current = null;
       }
-      if (pinterestHintTimerRef.current) {
-        clearTimeout(pinterestHintTimerRef.current);
-        pinterestHintTimerRef.current = null;
+      if (galleryDlHintTimerRef.current) {
+        clearTimeout(galleryDlHintTimerRef.current);
+        galleryDlHintTimerRef.current = null;
       }
       if (runtimeHintTimerRef.current) {
         clearTimeout(runtimeHintTimerRef.current);
@@ -692,12 +698,12 @@ function SettingsPage() {
     }
   };
 
-  const openFlowSelectReleases = async () => {
+  const openGalleryDlReleases = async () => {
     try {
-      await desktopSystem.openExternal("https://github.com/Wutpeach/FlowSelect/releases");
+      await desktopSystem.openExternal("https://github.com/gdl-org/builds/releases");
     } catch (err) {
-      console.error("Failed to open FlowSelect releases:", err);
-      showPinterestHint(t("desktop:settings.downloaders.pinterest.openReleasesFailed"));
+      console.error("Failed to open gallery-dl releases:", err);
+      showGalleryDlHint(t("desktop:settings.downloaders.galleryDl.openReleasesFailed"));
     }
   };
 
@@ -1016,24 +1022,24 @@ function SettingsPage() {
       ),
     },
     {
-      id: "pinterest",
-      title: "pin-dlp",
+      id: "gallery-dl",
+      title: "gallery-dl",
       body: (
         <DownloaderCardContent
-          versionLabel={t("desktop:settings.downloaders.pinterest.version", { version: pinterestCurrentVersion })}
-          description={pinterestHint || t("desktop:settings.downloaders.pinterest.description")}
-          descriptionTone={pinterestHint ? "accent" : "default"}
-          statusText={pinterestStatusMessage}
+          versionLabel={t("desktop:settings.downloaders.galleryDl.version", { version: galleryDlCurrentVersion })}
+          description={galleryDlHint || t("desktop:settings.downloaders.galleryDl.description")}
+          descriptionTone={galleryDlHint ? "accent" : "default"}
+          statusText={galleryDlStatusMessage}
           statusColor={colors.textSecondary}
           action={(
             <NeonButton
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => void openFlowSelectReleases()}
+              onClick={() => void openGalleryDlReleases()}
               style={{ minWidth: 78, minHeight: 28, fontSize: 10.5, padding: "4px 10px" }}
             >
-              {t("desktop:settings.downloaders.pinterest.releasesButton")}
+              {t("desktop:settings.downloaders.galleryDl.releasesButton")}
             </NeonButton>
           )}
         />

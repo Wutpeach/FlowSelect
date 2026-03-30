@@ -1,4 +1,4 @@
-import type { AppUpdateInfo } from "./appUpdate";
+import type { AppUpdateInfo } from "./appUpdate.js";
 
 export type FlowSelectWindowLabel =
   | "main"
@@ -22,7 +22,7 @@ export type FlowSelectRendererCommand =
   | "get_clipboard_files"
   | "get_config"
   | "get_current_shortcut"
-  | "get_pinterest_downloader_info"
+  | "get_gallery_dl_info"
   | "get_runtime_dependency_gate_state"
   | "get_runtime_dependency_status"
   | "open_current_output_folder"

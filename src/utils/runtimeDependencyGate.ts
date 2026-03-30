@@ -27,7 +27,6 @@ export const hasMissingManagedRuntimeComponents = (
   && (
     status.ffmpeg.state !== "ready"
     || status.deno.state !== "ready"
-    || status.pinterestDownloader.state !== "ready"
   )
 );
 

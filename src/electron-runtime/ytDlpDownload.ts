@@ -1,13 +1,114 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { RuntimeDownloadContext } from "./contracts";
-import { runStreamingCommand } from "./processRunner";
-import { parseYtDlpProgressLine } from "./ytDlpProgress";
-import { summarizeError } from "./runtimeUtils";
-import type { DownloadResultPayload } from "../types/videoRuntime";
+import type { EngineExecutionContext, YtdlpQualityPreference } from "../core/index.js";
+import { runStreamingCommand } from "./processRunner.js";
+import { parseYtDlpProgressLine } from "./ytDlpProgress.js";
+import { summarizeError } from "./runtimeUtils.js";
+import type { DownloadResultPayload } from "../types/videoRuntime.js";
 
 const isYouTubeUrl = (value: string): boolean =>
   value.includes("youtube.com/") || value.includes("youtu.be/");
+
+const YTDLP_FORMAT_SELECTOR_BEST = "bestvideo+bestaudio/best";
+const YTDLP_FORMAT_SELECTOR_BALANCED = [
+  "bv*[height=1080][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/",
+  "bv*[height=1080][ext=mp4]+ba[ext=m4a]/",
+  "b[height=1080][vcodec^=avc1][ext=mp4]/",
+  "b[height=1080][ext=mp4]/",
+  "best[height=1080][ext=mp4]/",
+  "bv*[height<=1080][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/",
+  "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/",
+  "b[height<=1080][vcodec^=avc1][ext=mp4]/",
+  "b[height<=1080][ext=mp4]/",
+  "best[height<=1080][ext=mp4]/",
+  "bv*[vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/",
+  "bv*[ext=mp4]+ba[ext=m4a]/",
+  "b[vcodec^=avc1][ext=mp4]/",
+  "b[ext=mp4]/",
+  "best[ext=mp4]/",
+  "best",
+].join("");
+const YTDLP_FORMAT_SELECTOR_DATA_SAVER = [
+  "bv*[height=360][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/",
+  "bv*[height=360][ext=mp4]+ba[ext=m4a]/",
+  "b[height=360][vcodec^=avc1][ext=mp4]/",
+  "b[height=360][ext=mp4]/",
+  "best[height=360][ext=mp4]/",
+  "bv*[height<360][ext=mp4]+ba[ext=m4a]/",
+  "b[height<360][ext=mp4]/",
+  "best[height<360][ext=mp4]/",
+  "worstvideo[ext=mp4]+ba[ext=m4a]/",
+  "worst[ext=mp4]/",
+  "worst",
+].join("");
+
+const resolveYtdlpFormatProfile = (
+  quality: YtdlpQualityPreference | undefined,
+  hasFfmpeg: boolean,
+): {
+  selector: string;
+  sort: string | null;
+  mergeOutputFormat: "mp4" | "mkv" | null;
+} => {
+  const normalized = quality ?? "best";
+  if (!hasFfmpeg) {
+    switch (normalized) {
+      case "balanced":
+        return {
+          selector: "best[height<=1080][ext=mp4]/best[ext=mp4]/best",
+          sort: "ext:mp4:m4a",
+          mergeOutputFormat: null,
+        };
+      case "data_saver":
+        return {
+          selector: "best[height<=360][ext=mp4]/worst[ext=mp4]/worst",
+          sort: "ext:mp4:m4a",
+          mergeOutputFormat: null,
+        };
+      case "best":
+      default:
+        return {
+          selector: "best[ext=mp4]/best",
+          sort: "res,codec:h264,acodec:aac,ext",
+          mergeOutputFormat: null,
+        };
+    }
+  }
+
+  switch (normalized) {
+    case "balanced":
+      return {
+        selector: YTDLP_FORMAT_SELECTOR_BALANCED,
+        sort: "ext:mp4:m4a",
+        mergeOutputFormat: "mp4",
+      };
+    case "data_saver":
+      return {
+        selector: YTDLP_FORMAT_SELECTOR_DATA_SAVER,
+        sort: "ext:mp4:m4a",
+        mergeOutputFormat: "mp4",
+      };
+    case "best":
+    default:
+      return {
+        selector: YTDLP_FORMAT_SELECTOR_BEST,
+        sort: "res,codec:h264,acodec:aac,ext",
+        mergeOutputFormat: "mkv",
+      };
+  }
+};
+
+const writeCookiesFile = async (
+  traceId: string,
+  cookies: string | undefined,
+): Promise<string | null> => {
+  if (!cookies?.trim()) {
+    return null;
+  }
+  const target = path.join(process.env.TEMP ?? process.cwd(), `${traceId}-cookies.txt`);
+  await fs.writeFile(target, cookies, "utf8");
+  return target;
+};
 
 const readReportedPath = async (reportPath: string): Promise<string | null> => {
   try {
@@ -23,21 +124,28 @@ const readReportedPath = async (reportPath: string): Promise<string | null> => {
 };
 
 export const runYtDlpDownload = async (
-  context: RuntimeDownloadContext,
+  context: EngineExecutionContext,
 ): Promise<DownloadResultPayload> => {
   const reportPath = path.join(context.outputDir, `${context.traceId}-after-move.txt`);
   const outputTemplate = path.join(context.outputDir, `${context.outputStem}.%(ext)s`);
   const ffmpegDir = path.dirname(context.binaries.ffmpeg);
+  const sourceUrl = context.enginePlan.sourceUrl ?? context.intent.pageUrl ?? context.intent.originalUrl;
+  if (!sourceUrl) {
+    throw new Error("yt-dlp source URL is missing");
+  }
+  const formatProfile = resolveYtdlpFormatProfile(
+    context.intent.ytdlpQuality,
+    Boolean(context.binaries.ffmpeg),
+  );
   const args = [
-    "-f",
-    "bestvideo*+bestaudio/best",
-    "--merge-output-format",
-    "mp4",
     "--newline",
+    "--no-warnings",
+    "--ignore-config",
     "--progress",
+    "-f",
+    formatProfile.selector,
     "--encoding",
     "utf-8",
-    "--ignore-config",
     "--print-to-file",
     "after_move:filepath",
     reportPath,
@@ -45,10 +153,27 @@ export const runYtDlpDownload = async (
     outputTemplate,
   ];
 
+  if (formatProfile.sort) {
+    args.push("--format-sort", formatProfile.sort);
+  }
+  if (formatProfile.mergeOutputFormat) {
+    args.push("--merge-output-format", formatProfile.mergeOutputFormat);
+  }
   if (context.binaries.ffmpeg) {
     args.push("--ffmpeg-location", ffmpegDir);
   }
-  if (isYouTubeUrl(context.request.url)) {
+  if (context.intent.selectionScope === "current_item") {
+    args.push("--no-playlist");
+  }
+  if (context.intent.pageUrl) {
+    args.push("--add-header", `Referer:${context.intent.pageUrl}`);
+  }
+  const cookiesPath = await writeCookiesFile(context.traceId, context.intent.cookies);
+  if (cookiesPath) {
+    args.push("--cookies", cookiesPath);
+  }
+
+  if (isYouTubeUrl(sourceUrl)) {
     args.push(
       "--extractor-args",
       "youtube:player_js_variant=tv",
@@ -63,7 +188,7 @@ export const runYtDlpDownload = async (
       }
     }
   }
-  args.push(context.request.url);
+  args.push(sourceUrl);
 
   await context.onProgress({
     traceId: context.traceId,
@@ -112,6 +237,9 @@ export const runYtDlpDownload = async (
   } catch (error) {
     throw new Error(summarizeError(error));
   } finally {
+    if (cookiesPath) {
+      await fs.unlink(cookiesPath).catch(() => undefined);
+    }
     await fs.unlink(reportPath).catch(() => undefined);
   }
 };

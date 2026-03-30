@@ -15,9 +15,9 @@ const readyStatus = {
 
 const runtimeStatus: RuntimeDependencyStatusSnapshot = {
   ytDlp: readyStatus,
+  galleryDl: { ...readyStatus, source: "bundled" },
   ffmpeg: { ...readyStatus, source: "managed" },
   deno: { ...readyStatus, source: "managed" },
-  pinterestDownloader: { ...readyStatus, source: "managed" },
 };
 
 const gateState: RuntimeDependencyGateStatePayload = {

@@ -1,16 +1,16 @@
-import type { FlowSelectRendererCommand } from "../types/electronBridge";
+import type { FlowSelectRendererCommand } from "../types/electronBridge.js";
 import type {
   RuntimeDependencyGateStatePayload,
   RuntimeDependencyStatusSnapshot,
-} from "../types/runtimeDependencies";
+} from "../types/runtimeDependencies.js";
 import type {
   PinterestDragDiagnostic,
   PinterestDragDiagnosticFlags,
   PinterestVideoCandidate,
   QueuedVideoDownloadAck,
   QueuedVideoDownloadRequest,
-} from "../types/videoRuntime";
-import type { ElectronDownloadRuntime } from "./contracts";
+} from "../types/videoRuntime.js";
+import type { ElectronDownloadRuntime } from "./contracts.js";
 
 export type ElectronRuntimeCommand = Extract<
   FlowSelectRendererCommand,
@@ -305,6 +305,38 @@ const normalizeQueueVideoDownloadRequest = (
     pageUrl: readOptionalHttpUrlString(request, "pageUrl", "page_url"),
     videoUrl: readOptionalVideoHintUrlString(request, "videoUrl", "video_url"),
     videoCandidates: normalizedVideoCandidates.length > 0 ? normalizedVideoCandidates : undefined,
+    title: readOptionalTrimmedString(request, "title"),
+    cookies: readOptionalTrimmedString(request, "cookies"),
+    selectionScope: readOptionalTrimmedString(
+      request,
+      "selectionScope",
+      "selection_scope",
+    ) === "playlist"
+      ? "playlist"
+      : readOptionalTrimmedString(request, "selectionScope", "selection_scope") === "current_item"
+        ? "current_item"
+        : undefined,
+    clipStartSec: (() => {
+      const raw = request.clipStartSec ?? request.clip_start_sec;
+      const value = Number(raw);
+      return Number.isFinite(value) && value >= 0 ? value : undefined;
+    })(),
+    clipEndSec: (() => {
+      const raw = request.clipEndSec ?? request.clip_end_sec;
+      const value = Number(raw);
+      return Number.isFinite(value) && value >= 0 ? value : undefined;
+    })(),
+    ytdlpQuality: (() => {
+      const value = readOptionalTrimmedString(
+        request,
+        "ytdlpQuality",
+        "ytdlpQualityPreference",
+        "defaultVideoDownloadQuality",
+      );
+      return value === "best" || value === "balanced" || value === "data_saver"
+        ? value
+        : undefined;
+    })(),
     dragDiagnostic: normalizeDragDiagnostic(request, normalizedVideoCandidates),
   };
 };

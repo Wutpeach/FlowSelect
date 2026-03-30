@@ -72,6 +72,12 @@ export type QueuedVideoDownloadRequest = {
   pageUrl?: string;
   videoUrl?: string;
   videoCandidates?: PinterestVideoCandidate[];
+  title?: string;
+  cookies?: string;
+  selectionScope?: "current_item" | "playlist";
+  clipStartSec?: number;
+  clipEndSec?: number;
+  ytdlpQuality?: "best" | "balanced" | "data_saver";
   dragDiagnostic?: PinterestDragDiagnostic;
 };
 

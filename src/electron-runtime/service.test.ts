@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { DownloadEngine, RawDownloadInput, SiteProvider } from "../core";
+import { genericProvider } from "../sites/generic";
+import { pinterestProvider } from "../sites/pinterest";
 import { createElectronDownloadRuntime } from "./service";
 import type { RuntimeEmitterEvent } from "./contracts";
 
@@ -14,6 +17,44 @@ const waitFor = async (
   }
 };
 
+const createEngineStub = (
+  id: "yt-dlp" | "gallery-dl" | "direct",
+  execute: DownloadEngine["execute"],
+): DownloadEngine => ({
+  id,
+  validateIntent() {
+    return null;
+  },
+  execute,
+});
+
+const createRuntime = (options: {
+  providers?: SiteProvider[];
+  engines?: DownloadEngine[];
+  maxConcurrent?: number;
+  onEmit?(event: RuntimeEmitterEvent, payload: unknown): void;
+}) => createElectronDownloadRuntime({
+  environment: {
+    repoRoot: "D:/repo",
+    configDir: "D:/repo/config",
+    platform: "win32",
+    arch: "x64",
+  },
+  configStore: {
+    async readConfigString() {
+      return "{}";
+    },
+  },
+  eventSink: {
+    emit(event, payload) {
+      options.onEmit?.(event, payload);
+    },
+  },
+  maxConcurrent: options.maxConcurrent,
+  providers: options.providers,
+  engines: options.engines,
+});
+
 describe("FlowSelectElectronDownloadRuntime", () => {
   it("emits queue state changes and enforces max concurrency", async () => {
     const activeTraceIds: string[] = [];
@@ -22,26 +63,11 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     const completions: Array<() => void> = [];
     const events: Array<{ event: RuntimeEmitterEvent; payload: unknown }> = [];
 
-    const runtime = createElectronDownloadRuntime({
-      environment: {
-        repoRoot: "D:/repo",
-        configDir: "D:/repo/config",
-        platform: "win32",
-        arch: "x64",
-      },
-      configStore: {
-        async readConfigString() {
-          return "{}";
-        },
-      },
-      eventSink: {
-        emit(event, payload) {
-          events.push({ event, payload });
-        },
-      },
+    const runtime = createRuntime({
       maxConcurrent: 2,
-      executors: {
-        async runYtDlpDownload(context) {
+      providers: [genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
           activeTraceIds.push(context.traceId);
           inFlight += 1;
           peakInFlight = Math.max(peakInFlight, inFlight);
@@ -56,7 +82,10 @@ describe("FlowSelectElectronDownloadRuntime", () => {
             success: true,
             file_path: `${context.outputDir}/${context.outputStem}.mp4`,
           };
-        },
+        }),
+      ],
+      onEmit(event, payload) {
+        events.push({ event, payload });
       },
     });
 
@@ -84,35 +113,23 @@ describe("FlowSelectElectronDownloadRuntime", () => {
 
   it("cancels pending work immediately", async () => {
     const completed: Array<{ traceId: string; success: boolean; error?: string }> = [];
-    const runtime = createElectronDownloadRuntime({
-      environment: {
-        repoRoot: "D:/repo",
-        configDir: "D:/repo/config",
-        platform: "win32",
-        arch: "x64",
-      },
-      configStore: {
-        async readConfigString() {
-          return "{}";
-        },
-      },
-      eventSink: {
-        emit(event, payload) {
-          if (event === "video-download-complete") {
-            completed.push(payload as { traceId: string; success: boolean; error?: string });
-          }
-        },
-      },
+    const runtime = createRuntime({
       maxConcurrent: 1,
-      executors: {
-        async runYtDlpDownload(context) {
+      providers: [genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
           await new Promise<void>(() => undefined);
           return {
             traceId: context.traceId,
             success: true,
             file_path: "ignored",
           };
-        },
+        }),
+      ],
+      onEmit(event, payload) {
+        if (event === "video-download-complete") {
+          completed.push(payload as { traceId: string; success: boolean; error?: string });
+        }
       },
     });
 
@@ -125,53 +142,74 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     expect(completed.some((entry) => entry.traceId === pending.traceId)).toBe(true);
   });
 
-  it("falls back to yt-dlp when a Pinterest page has no direct video hint", async () => {
+  it("prefers gallery-dl for a Pinterest page without a verified direct asset", async () => {
     const routes: string[] = [];
-    const runtime = createElectronDownloadRuntime({
-      environment: {
-        repoRoot: "D:/repo",
-        configDir: "D:/repo/config",
-        platform: "win32",
-        arch: "x64",
-      },
-      configStore: {
-        async readConfigString() {
-          return "{}";
-        },
-      },
-      eventSink: {
-        emit() {
-          // No-op.
-        },
-      },
-      maxConcurrent: 1,
-      executors: {
-        async runYtDlpDownload(context) {
+    const runtime = createRuntime({
+      providers: [pinterestProvider, genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
           routes.push(`yt:${context.traceId}`);
           return {
             traceId: context.traceId,
             success: true,
             file_path: "yt.mp4",
           };
-        },
-        async runPinterestDownload(context) {
-          routes.push(`pin:${context.traceId}`);
+        }),
+        createEngineStub("gallery-dl", async (context) => {
+          routes.push(`gallery:${context.traceId}`);
           return {
             traceId: context.traceId,
             success: true,
-            file_path: "pin.mp4",
+            file_path: "gallery.mp4",
           };
-        },
-      },
+        }),
+      ],
     });
 
     await runtime.queueVideoDownload({
-      url: "https://example.com/watch?v=123",
+      url: "https://www.pinterest.com/pin/1234567890/",
       pageUrl: "https://www.pinterest.com/pin/1234567890/",
     });
 
     await waitFor(() => routes.length > 0);
     expect(routes).toHaveLength(1);
-    expect(routes[0]?.startsWith("yt:")).toBe(true);
+    expect(routes[0]?.startsWith("gallery:")).toBe(true);
+  });
+
+  it("prefers direct for a Pinterest page with a verified direct asset", async () => {
+    const routes: string[] = [];
+    const runtime = createRuntime({
+      providers: [pinterestProvider, genericProvider],
+      engines: [
+        createEngineStub("gallery-dl", async (context) => {
+          routes.push(`gallery:${context.traceId}`);
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "gallery.mp4",
+          };
+        }),
+        createEngineStub("direct", async (context) => {
+          routes.push(`direct:${context.traceId}`);
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "direct.mp4",
+          };
+        }),
+      ],
+    });
+
+    const request: RawDownloadInput = {
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: "https://www.pinterest.com/pin/1234567890/",
+      videoUrl: "https://v1.pinimg.com/videos/iht/expmp4/example.mp4",
+    };
+
+    await runtime.queueVideoDownload(request);
+
+    await waitFor(() => routes.length > 0);
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.startsWith("direct:")).toBe(true);
   });
 });

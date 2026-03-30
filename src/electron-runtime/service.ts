@@ -1,34 +1,39 @@
 import type {
   ElectronDownloadRuntime,
   ElectronDownloadRuntimeOptions,
-  RuntimeDownloadContext,
-  RuntimeDownloadExecutors,
   RuntimeManagedComponent,
-} from "./contracts";
-import { inspectRuntimeDependencyStatus, resolveRuntimeBinaryPaths } from "./runtimePaths";
-import { createRuntimeDependencyResolver } from "./runtimeDependencyGate";
+} from "./contracts.js";
+import { inspectRuntimeDependencyStatus, resolveRuntimeBinaryPaths } from "./runtimePaths.js";
+import { createRuntimeDependencyResolver } from "./runtimeDependencyGate.js";
 import {
   buildOutputStem,
   nextDownloadTraceId,
   parseJsonObject,
   resolveOutputDir,
   summarizeError,
-} from "./runtimeUtils";
+} from "./runtimeUtils.js";
 import type {
   DownloadResultPayload,
+  DownloadProgressPayload,
   QueuedVideoDownloadAck,
-  QueuedVideoDownloadRequest,
   VideoQueueDetailPayload,
   VideoQueueStatePayload,
-} from "../types/videoRuntime";
-import { runDirectVideoDownload } from "./directDownload";
-import { runPinterestSidecarDownload } from "./pinterestSidecar";
-import { runYtDlpDownload } from "./ytDlpDownload";
+} from "../types/videoRuntime.js";
+import type {
+  EngineExecutionContext,
+  EnginePlan,
+  RawDownloadInput,
+  ResolvedDownloadPlan,
+} from "../core/index.js";
+import { builtinEngines, createEngineRegistry } from "../engines/index.js";
+import { DownloadOrchestrator } from "../orchestration/download-orchestrator.js";
+import { loadBuiltinProviders } from "../sites/provider-loader.js";
+import { createSiteRegistry } from "../sites/site-registry.js";
 
 type PendingTask = {
   traceId: string;
   label: string;
-  request: QueuedVideoDownloadRequest;
+  request: RawDownloadInput;
 };
 
 type ActiveTask = PendingTask & {
@@ -38,17 +43,12 @@ type ActiveTask = PendingTask & {
 const NOOP_LOGGER = {
   log(message: string): void {
     void message;
-    // Intentionally empty.
   },
 };
 
-const isPinterestUrl = (value: string | undefined): boolean =>
-  Boolean(value && /pinterest\./i.test(value));
-
-const isDirectMediaUrl = (value: string): boolean => /\.(mp4|mov|m4v)(?:$|\?)/i.test(value);
-
-const queueTaskLabel = (request: QueuedVideoDownloadRequest): string =>
-  request.pageUrl?.trim()
+const queueTaskLabel = (request: RawDownloadInput): string =>
+  request.title?.trim()
+  || request.pageUrl?.trim()
   || request.videoUrl?.trim()
   || request.url.trim();
 
@@ -57,24 +57,25 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
 
   private readonly options: ElectronDownloadRuntimeOptions;
   private readonly logger;
-  private readonly executors: RuntimeDownloadExecutors;
   private readonly pending: PendingTask[] = [];
   private readonly active = new Map<string, ActiveTask>();
   private readonly resolver;
+  private readonly orchestrator: DownloadOrchestrator;
 
   constructor(options: ElectronDownloadRuntimeOptions) {
     this.options = options;
     this.maxConcurrent = options.maxConcurrent ?? 3;
     this.logger = options.logger ?? NOOP_LOGGER;
-    this.executors = {
-      runDirectDownload: options.executors?.runDirectDownload ?? runDirectVideoDownload,
-      runPinterestDownload: options.executors?.runPinterestDownload ?? runPinterestSidecarDownload,
-      runYtDlpDownload: options.executors?.runYtDlpDownload ?? runYtDlpDownload,
-    };
+    const providers = options.providers ?? loadBuiltinProviders();
+    const engines = options.engines ?? builtinEngines();
+    this.orchestrator = new DownloadOrchestrator(
+      createSiteRegistry(providers),
+      createEngineRegistry(engines),
+    );
     this.resolver = createRuntimeDependencyResolver(
       inspectRuntimeDependencyStatus(options.environment),
       () => inspectRuntimeDependencyStatus(options.environment),
-      async (reason) => {
+      async (reason: string) => {
         if (!this.options.bootstrapManagedComponents) {
           return this.resolver.refreshGateState();
         }
@@ -138,7 +139,7 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
     };
   }
 
-  async queueVideoDownload(request: QueuedVideoDownloadRequest): Promise<QueuedVideoDownloadAck> {
+  async queueVideoDownload(request: RawDownloadInput): Promise<QueuedVideoDownloadAck> {
     const traceId = nextDownloadTraceId();
     this.pending.push({
       traceId,
@@ -205,20 +206,34 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       const config = parseJsonObject(await this.options.configStore.readConfigString());
       const outputDir = resolveOutputDir(this.options.environment, config);
       const binaries = resolveRuntimeBinaryPaths(this.options.environment);
-      const context: RuntimeDownloadContext = {
-        traceId,
-        request: activeTask.request,
-        outputDir,
-        outputStem: buildOutputStem(traceId, activeTask.request.url, config),
-        config,
-        binaries,
-        abortSignal: activeTask.abortController.signal,
-        fetch: this.options.environment.fetch,
-        onProgress: async (payload) => {
-          await this.options.eventSink.emit("video-download-progress", payload);
+      const result = await this.orchestrator.execute(
+        activeTask.request,
+        (plan: ResolvedDownloadPlan, enginePlan: EnginePlan) => {
+          const context: EngineExecutionContext = {
+            traceId,
+            plan,
+            enginePlan,
+            intent: plan.intent,
+            outputDir,
+            outputStem: buildOutputStem(
+              traceId,
+              enginePlan.sourceUrl ?? plan.intent.originalUrl,
+              config,
+              activeTask.request.title,
+            ),
+            config,
+            binaries,
+            abortSignal: activeTask.abortController.signal,
+            fetch: this.options.environment.fetch,
+            onProgress: async (payload: DownloadProgressPayload) => {
+              await this.options.eventSink.emit("video-download-progress", payload);
+            },
+          };
+          return this.options.buildExecutionContext
+            ? this.options.buildExecutionContext(context, activeTask.request)
+            : context;
         },
-      };
-      const result = await this.selectExecutor(context)(context);
+      );
       await this.options.eventSink.emit("video-download-complete", result);
     } catch (error) {
       this.logger.log(`>>> [ElectronRuntime] task ${traceId} failed: ${String(error)}`);
@@ -232,21 +247,6 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       await this.emitQueueState();
       void this.pumpQueue();
     }
-  }
-
-  private selectExecutor(context: RuntimeDownloadContext) {
-    const pinterestPageKey = context.request.pageUrl ?? context.request.url;
-    const hasPinterestHint = Boolean(
-      context.request.videoUrl
-      || context.request.videoCandidates?.some((candidate) => candidate.url.trim().length > 0),
-    );
-    if (isPinterestUrl(pinterestPageKey) && hasPinterestHint) {
-      return this.executors.runPinterestDownload;
-    }
-    if (isDirectMediaUrl(context.request.url)) {
-      return this.executors.runDirectDownload;
-    }
-    return this.executors.runYtDlpDownload;
   }
 }
 
