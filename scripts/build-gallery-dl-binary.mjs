@@ -1,16 +1,12 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const sidecarDir = join(repoRoot, "desktop-assets", "pinterest-sidecar");
-const lockPath = join(sidecarDir, "lock.json");
 const binariesDir = join(repoRoot, "desktop-assets", "binaries");
-const buildRoot = join(repoRoot, "build", "pinterest-sidecar");
-
-const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+const buildRoot = join(repoRoot, "build", "gallery-dl");
 
 function parseArgs(argv) {
   const parsed = {};
@@ -46,13 +42,13 @@ function localTargetTriple() {
   if (process.platform === "darwin" && process.arch === "x64") {
     return "x86_64-apple-darwin";
   }
-  throw new Error(`Unsupported local sidecar build platform: ${process.platform}-${process.arch}`);
+  throw new Error(`Unsupported local gallery-dl build platform: ${process.platform}-${process.arch}`);
 }
 
 function binaryFileName(target) {
   return process.platform === "win32" || target.endsWith("-windows-msvc")
-    ? `pinterest-dl-${target}.exe`
-    : `pinterest-dl-${target}`;
+    ? `gallery-dl-${target}.exe`
+    : `gallery-dl-${target}`;
 }
 
 function pythonExecutable(venvDir) {
@@ -67,14 +63,6 @@ function run(command, args, options = {}) {
     stdio: "inherit",
     env: {
       ...process.env,
-      ALL_PROXY: "",
-      all_proxy: "",
-      HTTP_PROXY: "",
-      http_proxy: "",
-      HTTPS_PROXY: "",
-      https_proxy: "",
-      NO_PROXY: "",
-      no_proxy: "",
       ...options.env,
     },
     ...options,
@@ -85,13 +73,31 @@ function run(command, args, options = {}) {
   }
 }
 
-function ensureDir(path) {
-  mkdirSync(path, { recursive: true });
+function capture(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...options.env,
+    },
+    ...options,
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`Command failed: ${command} ${args.join(" ")}\n${result.stderr}`);
+  }
+
+  return result.stdout.trim();
 }
 
-function cleanDir(path) {
-  rmSync(path, { recursive: true, force: true });
-  ensureDir(path);
+function ensureDir(entryPath) {
+  mkdirSync(entryPath, { recursive: true });
+}
+
+function cleanDir(entryPath) {
+  rmSync(entryPath, { recursive: true, force: true });
+  ensureDir(entryPath);
 }
 
 function main() {
@@ -104,8 +110,6 @@ function main() {
   const specDir = join(targetBuildRoot, "spec");
   const outputName = binaryFileName(target);
   const outputPath = join(binariesDir, outputName);
-  const entryPoint = join(sidecarDir, "__main__.py");
-  const addDataSeparator = process.platform === "win32" ? ";" : ":";
 
   ensureDir(targetBuildRoot);
   cleanDir(distDir);
@@ -119,12 +123,11 @@ function main() {
 
   const venvPython = pythonExecutable(venvDir);
   run(venvPython, ["-m", "pip", "install", "--upgrade", "pip"]);
-  run(venvPython, [
-    "-m",
-    "pip",
-    "install",
-    `${lock.upstream.package}==${lock.upstream.version}`,
-    `${lock.freezer.package}==${lock.freezer.version}`,
+  run(venvPython, ["-m", "pip", "install", "gallery-dl", "pyinstaller"]);
+
+  const entryPoint = capture(venvPython, [
+    "-c",
+    "import gallery_dl, os; print(os.path.join(os.path.dirname(gallery_dl.__file__), '__main__.py'))",
   ]);
 
   run(venvPython, [
@@ -141,25 +144,24 @@ function main() {
     specDir,
     "--name",
     outputName.replace(/\.exe$/i, ""),
-    "--add-data",
-    `${join(sidecarDir, "lock.json")}${addDataSeparator}.`,
     "--collect-submodules",
-    "pinterest_dl",
+    "gallery_dl",
     "--collect-data",
-    "pinterest_dl",
+    "gallery_dl",
     entryPoint,
   ]);
 
   const builtPath = join(distDir, outputName);
   if (!existsSync(builtPath)) {
-    throw new Error(`Expected built sidecar at ${builtPath}`);
+    throw new Error(`Expected built gallery-dl binary at ${builtPath}`);
   }
 
   cpSync(builtPath, outputPath);
   if (process.platform !== "win32") {
     chmodSync(outputPath, 0o755);
   }
-  console.log(JSON.stringify({ outputPath, target, upstream: lock.upstream }, null, 2));
+
+  console.log(JSON.stringify({ outputPath, target }, null, 2));
 }
 
 main();

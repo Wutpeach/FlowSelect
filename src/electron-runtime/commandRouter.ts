@@ -12,6 +12,7 @@ import type {
 } from "../types/videoRuntime.js";
 import type { ElectronDownloadRuntime } from "./contracts.js";
 import { resolveSiteHint } from "../core/site-hints.js";
+import { orderVideoCandidatesForSite } from "../core/video-candidate-order.js";
 
 export type ElectronRuntimeCommand = Extract<
   FlowSelectRendererCommand,
@@ -185,27 +186,6 @@ const readOptionalVideoHintUrlString = (
   return normalized;
 };
 
-const candidatePriority = (
-  candidate: PinterestVideoCandidate,
-  siteHint: string | undefined,
-): number => {
-  if (resolveSiteHint(siteHint, candidate.url) !== "pinterest") {
-    return 0;
-  }
-
-  const type = candidate.type?.toLowerCase();
-  if (type === "direct_mp4" || isDirectPinterestMp4Url(candidate.url)) {
-    return 300;
-  }
-  if (type === "indirect_media") {
-    return 200;
-  }
-  if (type === "manifest_m3u8" || isPinterestManifestLikeUrl(candidate.url)) {
-    return 100;
-  }
-  return 0;
-};
-
 const normalizeVideoCandidateForSite = (
   candidate: unknown,
   siteHint: string | undefined,
@@ -240,7 +220,7 @@ const normalizeVideoCandidates = (
 
   const seen = new Set<string>();
 
-  return rawCandidates
+  const normalizedCandidates = rawCandidates
     .map((candidate, index) => ({
       candidate: normalizeVideoCandidateForSite(candidate, siteHint),
       index,
@@ -257,12 +237,9 @@ const normalizeVideoCandidates = (
       seen.add(item.candidate.url);
       return true;
     })
-    .sort((left, right) => {
-      const scoreDelta = candidatePriority(right.candidate, siteHint)
-        - candidatePriority(left.candidate, siteHint);
-      return scoreDelta !== 0 ? scoreDelta : left.index - right.index;
-    })
     .map((item) => item.candidate);
+
+  return orderVideoCandidatesForSite(normalizedCandidates, siteHint);
 };
 
 const normalizeBoolean = (value: unknown): boolean => value === true;

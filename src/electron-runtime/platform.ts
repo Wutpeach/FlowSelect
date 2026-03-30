@@ -28,10 +28,6 @@ export const galleryDlBinaryNameFor = (
 ): string =>
   `gallery-dl-${resolveRuntimeTarget(platform, arch)}${executableExtensionFor(platform)}`;
 
-export const galleryDlSystemBinaryNameFor = (
-  platform: NodeJS.Platform,
-): string => `gallery-dl${executableExtensionFor(platform)}`;
-
 export const denoBinaryNameFor = (platform: NodeJS.Platform): string =>
   `deno${executableExtensionFor(platform)}`;
 

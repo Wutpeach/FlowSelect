@@ -67,8 +67,7 @@
       },
       "component": {
         "ffmpeg": "FFmpeg",
-        "deno": "Deno",
-        "pinterest-dl": "Pinterest downloader"
+        "deno": "Deno"
       },
       "stage": {
         "checking": "Checking",
@@ -165,7 +164,6 @@
         "description": "Image and gallery downloader used for Pinterest-first flows.",
         "detailsUnavailable": "Details unavailable.",
         "bundledByApp": "Bundled with FlowSelect when available.",
-        "systemPath": "Using gallery-dl from your system PATH.",
         "releasesButton": "Releases",
         "openReleasesFailed": "Failed to open gallery-dl releases"
       },

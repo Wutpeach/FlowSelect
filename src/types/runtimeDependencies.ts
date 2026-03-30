@@ -1,6 +1,6 @@
 export type RuntimeDependencyState = "ready" | "missing";
 
-export type RuntimeDependencySource = "bundled" | "managed" | "system_path";
+export type RuntimeDependencySource = "bundled" | "managed";
 
 export type RuntimeDependencyStatusEntry = {
   state: RuntimeDependencyState;

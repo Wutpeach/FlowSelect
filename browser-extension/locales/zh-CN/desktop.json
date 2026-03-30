@@ -67,8 +67,7 @@
       },
       "component": {
         "ffmpeg": "FFmpeg",
-        "deno": "Deno",
-        "pinterest-dl": "Pinterest 下载器"
+        "deno": "Deno"
       },
       "stage": {
         "checking": "检测中",
@@ -165,7 +164,6 @@
         "description": "主要用于 Pinterest 等图集型站点的下载器。",
         "detailsUnavailable": "暂时无法获取详情。",
         "bundledByApp": "可用时随 FlowSelect 一起打包分发。",
-        "systemPath": "当前使用系统 PATH 中的 gallery-dl。",
         "releasesButton": "版本发布",
         "openReleasesFailed": "打开 gallery-dl 发布页失败"
       },

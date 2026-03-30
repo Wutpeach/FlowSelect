@@ -1,6 +1,6 @@
 export type GalleryDlInfo = {
   current: string;
-  source: "bundled" | "system_path" | "missing";
+  source: "bundled" | "missing";
   path: string | null;
-  updateChannel: "bundled_release" | "system_path" | "unavailable";
+  updateChannel: "bundled_release" | "unavailable";
 };

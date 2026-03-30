@@ -399,6 +399,64 @@ describe("createElectronRuntimeCommandRouter", () => {
     });
   });
 
+  it("lets the runtime reorder Douyin direct candidates by quality after normalization", async () => {
+    const runtime = createRuntimeStub();
+    const router = createElectronRuntimeCommandRouter({ runtime });
+
+    await router.invoke<{ accepted: boolean; traceId: string }>("queue_video_download", {
+      url: "https://www.douyin.com/video/1234567890",
+      page_url: "https://www.douyin.com/video/1234567890",
+      site_hint: "douyin",
+      video_candidates: [
+        {
+          url: "https://www.douyinvod.com/aweme/v1/play/video_540p.mp4",
+          type: "direct_mp4",
+          source: "video_element",
+        },
+        {
+          url: "https://www.douyin.com/video/1234567890",
+          type: "page_url",
+        },
+        {
+          url: "https://www.douyinvod.com/aweme/v1/play/video_1080p.mp4",
+          type: "direct_mp4",
+          source: "network_probe",
+        },
+      ],
+    });
+
+    expect(runtime.queueVideoDownload).toHaveBeenCalledWith({
+      url: "https://www.douyin.com/video/1234567890",
+      pageUrl: "https://www.douyin.com/video/1234567890",
+      videoUrl: undefined,
+      siteHint: "douyin",
+      videoCandidates: [
+        {
+          url: "https://www.douyinvod.com/aweme/v1/play/video_1080p.mp4",
+          type: "direct_mp4",
+          source: "network_probe",
+          confidence: undefined,
+          mediaType: undefined,
+        },
+        {
+          url: "https://www.douyinvod.com/aweme/v1/play/video_540p.mp4",
+          type: "direct_mp4",
+          source: "video_element",
+          confidence: undefined,
+          mediaType: undefined,
+        },
+        {
+          url: "https://www.douyin.com/video/1234567890",
+          type: "page_url",
+          source: undefined,
+          confidence: undefined,
+          mediaType: undefined,
+        },
+      ],
+      dragDiagnostic: undefined,
+    });
+  });
+
   it("rejects queue requests whose primary url is not HTTP(S)", async () => {
     const runtime = createRuntimeStub();
     const router = createElectronRuntimeCommandRouter({ runtime });

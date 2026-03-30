@@ -96,4 +96,86 @@ describe("builtin site providers", () => {
     });
     expect(intent.siteId).toBe("twitter-x");
   });
+
+  it("keeps YouTube current-item routing on yt-dlp with playlist-safe metadata", () => {
+    const url = "https://www.youtube.com/watch?v=abc123&list=PL123456";
+    const plan = resolvePlan({
+      url,
+      pageUrl: url,
+      selectionScope: "current_item",
+      title: "Current item only",
+    });
+    const intent = expectVideoIntent(plan.intent);
+
+    expect(plan.providerId).toBe("youtube");
+    expect(plan.engines).toHaveLength(1);
+    expect(plan.engines[0]).toMatchObject({
+      engine: "yt-dlp",
+      sourceUrl: url,
+    });
+    expect(intent.siteId).toBe("youtube");
+    expect(intent.selectionScope).toBe("current_item");
+  });
+
+  it("prefers direct then gallery-dl then yt-dlp for Pinterest direct-hint plans", () => {
+    const plan = resolvePlan({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: "https://www.pinterest.com/pin/1234567890/",
+      siteHint: "pinterest",
+      videoCandidates: [
+        {
+          url: "https://v1.pinimg.com/videos/iht/expmp4/example.mp4",
+          type: "direct_mp4",
+          source: "network_probe",
+          confidence: "high",
+        },
+      ],
+    });
+    const intent = expectVideoIntent(plan.intent);
+
+    expect(plan.providerId).toBe("pinterest");
+    expect(plan.engines.map((engine) => engine.engine)).toEqual(["direct", "gallery-dl", "yt-dlp"]);
+    expect(intent.candidates).toEqual([
+      {
+        url: "https://v1.pinimg.com/videos/iht/expmp4/example.mp4",
+        type: "direct_mp4",
+        source: "network_probe",
+        confidence: "high",
+      },
+    ]);
+  });
+
+  it("falls back to the generic provider for unknown sites while preserving normalized metadata", () => {
+    const url = "https://cdn.example.com/media?id=42";
+    const plan = resolvePlan({
+      url,
+      pageUrl: "https://example.com/post/42",
+      siteHint: "generic",
+      title: "Unknown provider",
+      videoCandidates: [
+        {
+          url: "https://cdn.example.com/video-720p.mp4",
+          type: "direct_mp4",
+          source: "page_probe",
+        },
+      ],
+    });
+    const intent = expectVideoIntent(plan.intent);
+
+    expect(plan.providerId).toBe("generic");
+    expect(plan.engines).toMatchObject([
+      {
+        engine: "yt-dlp",
+        sourceUrl: "https://example.com/post/42",
+      },
+    ]);
+    expect(intent.siteId).toBe("generic");
+    expect(intent.candidates).toEqual([
+      {
+        url: "https://cdn.example.com/video-720p.mp4",
+        type: "direct_mp4",
+        source: "page_probe",
+      },
+    ]);
+  });
 });

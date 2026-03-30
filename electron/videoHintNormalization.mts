@@ -1,4 +1,5 @@
 import { resolveSiteHint } from "../src/core/site-hints.js";
+import { orderVideoCandidatesForSite } from "../src/core/video-candidate-order.js";
 
 const normalizeHttpUrl = (value: unknown): string | undefined => {
   if (typeof value !== "string") {
@@ -36,16 +37,6 @@ const isPinterestManifestLikeUrl = (value: string): boolean => (
 const isPinterestVideoHintUrl = (value: string): boolean => (
   isDirectPinterestMp4Url(value) || isPinterestManifestLikeUrl(value)
 );
-
-const videoHintPriority = (value: string): number => {
-  if (isDirectPinterestMp4Url(value)) {
-    return 300;
-  }
-  if (isPinterestManifestLikeUrl(value)) {
-    return 100;
-  }
-  return 0;
-};
 
 const normalizeOptionalLabel = (value: unknown): string | undefined => {
   if (typeof value !== "string") {
@@ -133,16 +124,10 @@ export function normalizeVideoCandidates(
     });
   }
 
-  if (resolvedSiteHint === "pinterest") {
-    return result
-      .sort((left, right) => {
-        const scoreDelta = videoHintPriority(right.candidate.url) - videoHintPriority(left.candidate.url);
-        return scoreDelta !== 0 ? scoreDelta : left.index - right.index;
-      })
-      .map((entry) => entry.candidate);
-  }
-
-  return result.map((entry) => entry.candidate);
+  return orderVideoCandidatesForSite(
+    result.map((entry) => entry.candidate),
+    resolvedSiteHint,
+  );
 }
 
 export function normalizeVideoCandidateUrls(candidates: unknown, siteHint?: string): string[] {

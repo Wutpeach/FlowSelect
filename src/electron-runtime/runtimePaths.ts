@@ -9,7 +9,6 @@ import {
   ffmpegBinaryNameFor,
   ffprobeBinaryNameFor,
   galleryDlBinaryNameFor,
-  galleryDlSystemBinaryNameFor,
   resolveRuntimeTarget,
   ytDlpBinaryNameFor,
 } from "./platform.js";
@@ -46,24 +45,6 @@ const existingCandidate = (candidates: string[]): string | null =>
 
 const existingCandidateOrFirst = (candidates: string[]): string | null =>
   existingCandidate(candidates) ?? firstCandidate(candidates);
-
-const resolveSystemPathCandidate = (
-  commandName: string,
-): string | null => {
-  const pathEntries = (process.env.PATH ?? "")
-    .split(path.delimiter)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-  for (const entry of pathEntries) {
-    const candidate = path.join(entry, commandName);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
-};
 
 const resolveBundledCandidates = (
   environment: ElectronRuntimeEnvironment,
@@ -154,12 +135,7 @@ export const resolveRuntimeBinaryPaths = (
     environment,
     galleryDlBinaryNameFor(environment.platform, environment.arch),
   );
-  const galleryDlSystemCandidate = resolveSystemPathCandidate(
-    galleryDlSystemBinaryNameFor(environment.platform),
-  );
-  const resolvedGalleryDl = existingCandidate(galleryDlBundledCandidates)
-    ?? galleryDlSystemCandidate
-    ?? firstCandidate(galleryDlBundledCandidates);
+  const resolvedGalleryDl = existingCandidateOrFirst(galleryDlBundledCandidates);
   return {
     ytDlp: existingCandidateOrFirst(
       resolveBundledCandidates(
@@ -185,23 +161,16 @@ export const inspectRuntimeDependencyStatus = (
     environment,
     galleryDlBinaryNameFor(environment.platform, environment.arch),
   );
-  const galleryDlSystemCandidate = resolveSystemPathCandidate(
-    galleryDlSystemBinaryNameFor(environment.platform),
-  );
   const ffmpegPaths = managedFfmpegPathsFor(environment);
   const denoPath = managedDenoPathFor(environment);
-  const galleryDlPath = existingCandidate(galleryDlBundledCandidates)
-    ?? galleryDlSystemCandidate;
+  const galleryDlPath = existingCandidate(galleryDlBundledCandidates);
 
   return {
     ytDlp: resolveBundledStatus("yt-dlp", ytDlpCandidates),
     galleryDl: galleryDlPath
-      ? readyStatus(
-          galleryDlPath,
-          galleryDlBundledCandidates.includes(galleryDlPath) ? "bundled" : "system_path",
-        )
+      ? readyStatus(galleryDlPath, "bundled")
       : missingStatus(
-          `Missing gallery-dl runtime. Checked bundled ${JSON.stringify(galleryDlBundledCandidates)} and PATH`,
+          `Missing bundled gallery-dl runtime. Checked ${JSON.stringify(galleryDlBundledCandidates)}`,
         ),
     ffmpeg: resolveManagedStatus("ffmpeg", [ffmpegPaths.ffmpeg, ffmpegPaths.ffprobe]),
     deno: resolveManagedStatus("deno", [denoPath]),

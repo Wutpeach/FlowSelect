@@ -119,6 +119,49 @@ describe("normalizeVideoCandidates", () => {
       },
     ]);
   });
+
+  it("moves Douyin direct candidates into runtime-owned quality order", () => {
+    expect(
+      normalizeVideoCandidates([
+        {
+          url: "https://www.douyinvod.com/aweme/v1/play/video_540p.mp4",
+          type: "direct_mp4",
+          source: "video_element",
+        },
+        {
+          url: "https://www.douyin.com/video/1234567890",
+          type: "page_url",
+        },
+        {
+          url: "https://www.douyinvod.com/aweme/v1/play/video_1080p.mp4",
+          type: "direct_mp4",
+          source: "network_probe",
+        },
+      ], "douyin"),
+    ).toEqual([
+      {
+        url: "https://www.douyinvod.com/aweme/v1/play/video_1080p.mp4",
+        type: "direct_mp4",
+        source: "network_probe",
+        confidence: undefined,
+        mediaType: undefined,
+      },
+      {
+        url: "https://www.douyinvod.com/aweme/v1/play/video_540p.mp4",
+        type: "direct_mp4",
+        source: "video_element",
+        confidence: undefined,
+        mediaType: undefined,
+      },
+      {
+        url: "https://www.douyin.com/video/1234567890",
+        type: "page_url",
+        source: undefined,
+        confidence: undefined,
+        mediaType: undefined,
+      },
+    ]);
+  });
 });
 
 describe("resolveVideoSelectionSiteHint", () => {

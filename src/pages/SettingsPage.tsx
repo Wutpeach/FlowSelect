@@ -349,9 +349,6 @@ function SettingsPage() {
     if (!galleryDlInfo) {
       return t("desktop:settings.downloaders.galleryDl.detailsUnavailable");
     }
-    if (galleryDlInfo.source === "system_path") {
-      return t("desktop:settings.downloaders.galleryDl.systemPath");
-    }
     if (galleryDlInfo.source === "bundled") {
       return t("desktop:settings.downloaders.galleryDl.bundledByApp");
     }

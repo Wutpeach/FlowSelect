@@ -13,7 +13,6 @@ This document freezes the runtime boundary for FlowSelect after the Electron cut
 - Repo-visible desktop assets live in:
   - `desktop-assets/binaries/`
   - `desktop-assets/icons/`
-  - `desktop-assets/pinterest-sidecar/`
 - Browser-extension transport currently lives in:
   - `browser-extension/background.js`
 - Current release/build packaging lives in:
@@ -69,7 +68,7 @@ Request:
 
 ```json
 {
-  "action": "video_selected",
+  "action": "video_selected_v2",
   "data": {
     "requestId": "req-123"
   }
@@ -93,7 +92,7 @@ Rules:
 - If a request includes `data.requestId`, the response must echo `data.requestId`.
 - Failure responses participating in request correlation must include `data.code`.
 - Preserve these extension-facing actions:
-  - inbound: `ping`, `get_theme`, `get_language`, `sync_download_preferences`, `save_image`, `save_data_url`, `protected_image_resolution_result`, `video_selected`
+  - inbound: `ping`, `get_theme`, `get_language`, `sync_download_preferences`, `save_image`, `save_data_url`, `protected_image_resolution_result`, `video_selected_v2`
   - outbound: `request_download_preferences`, `theme_info`, `theme_changed`, `language_info`, `language_changed`, `start_picker`, `stop_picker`, `resolve_protected_image`
 
 ## Config Compatibility
@@ -154,7 +153,7 @@ Renderer updater contract:
   - hidden CLI spawning via Node (`windowsHide`)
   - direct-download execution
   - yt-dlp execution and progress parsing
-  - Pinterest sidecar execution from direct video hints
+  - gallery-dl execution for Pinterest-first extraction paths
   - queue concurrency and cancel semantics
 - Current decision:
   - legacy runtime proxy binaries are no longer part of the supported Electron runtime path

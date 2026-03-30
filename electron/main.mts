@@ -2376,9 +2376,7 @@ async function getGalleryDlInfo() {
     current: version,
     source: status.galleryDl.source,
     path: status.galleryDl.path,
-    updateChannel: status.galleryDl.source === "system_path"
-      ? "system_path"
-      : "bundled_release",
+    updateChannel: "bundled_release",
   };
 }
 
@@ -3994,7 +3992,6 @@ async function handleWsMessage(rawMessage) {
         data: withRequest(null),
       };
     }
-    case "video_selected":
     case "video_selected_v2": {
       if (!data || typeof data !== "object") {
         return {

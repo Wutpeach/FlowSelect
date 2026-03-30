@@ -212,4 +212,39 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     expect(routes).toHaveLength(1);
     expect(routes[0]?.startsWith("direct:")).toBe(true);
   });
+
+  it("falls back from gallery-dl to yt-dlp for Pinterest pages when the primary engine fails", async () => {
+    const routes: string[] = [];
+    const runtime = createRuntime({
+      providers: [pinterestProvider, genericProvider],
+      engines: [
+        createEngineStub("gallery-dl", async (context) => {
+          routes.push(`gallery:${context.traceId}`);
+          return {
+            traceId: context.traceId,
+            success: false,
+            error: "gallery failed",
+          };
+        }),
+        createEngineStub("yt-dlp", async (context) => {
+          routes.push(`yt:${context.traceId}`);
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "yt.mp4",
+          };
+        }),
+      ],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: "https://www.pinterest.com/pin/1234567890/",
+      siteHint: "pinterest",
+    });
+
+    await waitFor(() => routes.length === 2);
+    expect(routes[0]?.startsWith("gallery:")).toBe(true);
+    expect(routes[1]?.startsWith("yt:")).toBe(true);
+  });
 });

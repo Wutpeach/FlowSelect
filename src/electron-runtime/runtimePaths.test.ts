@@ -6,12 +6,10 @@ import { inspectRuntimeDependencyStatus } from "./runtimePaths";
 import type { ElectronRuntimeEnvironment } from "./contracts";
 
 const tempRoots: string[] = [];
-const originalPath = process.env.PATH;
 
 const createEnvironment = (): ElectronRuntimeEnvironment => {
   const root = mkdtempSync(path.join(os.tmpdir(), "flowselect-electron-runtime-"));
   tempRoots.push(root);
-  process.env.PATH = path.join(root, "empty-path");
   return {
     repoRoot: root,
     configDir: path.join(root, "config"),
@@ -24,7 +22,6 @@ afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
-  process.env.PATH = originalPath;
 });
 
 describe("inspectRuntimeDependencyStatus", () => {
@@ -73,6 +70,7 @@ describe("inspectRuntimeDependencyStatus", () => {
     expect(snapshot.ytDlp.state).toBe("missing");
     expect(snapshot.ytDlp.error).toContain("Missing bundled yt-dlp runtime");
     expect(snapshot.galleryDl.state).toBe("missing");
+    expect(snapshot.galleryDl.error).toContain("Missing bundled gallery-dl runtime");
     expect(snapshot.ffmpeg.state).toBe("missing");
     expect(snapshot.deno.state).toBe("missing");
   });

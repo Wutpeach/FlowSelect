@@ -95,7 +95,19 @@ export class DownloadOrchestrator {
       }
 
       try {
-        return await engine.execute(buildContext(resolvedPlan, enginePlan));
+        const result = await engine.execute(buildContext(resolvedPlan, enginePlan));
+        if (result.success) {
+          return result;
+        }
+
+        lastError = new DownloadRuntimeError(
+          "E_EXECUTION_FAILED",
+          result.error || `Engine ${enginePlan.engine} reported an unsuccessful result`,
+        );
+        if (shouldFallbackForError(lastError, enginePlan)) {
+          continue;
+        }
+        throw lastError;
       } catch (error) {
         lastError = toRuntimeError(error, "E_EXECUTION_FAILED");
         if (shouldFallbackForError(lastError, enginePlan)) {

@@ -89,11 +89,11 @@ jobs:
 
           Copy-Item $ffmpegBinary.FullName "desktop-assets/binaries/ffmpeg.exe" -Force
 
-      - name: Build Pinterest sidecar
-        run: node ./scripts/build-pinterest-sidecar.mjs --target x86_64-pc-windows-msvc
+      - name: Build gallery-dl binary
+        run: node ./scripts/build-gallery-dl-binary.mjs --target x86_64-pc-windows-msvc
 
-      - name: Smoke test Pinterest sidecar
-        run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target x86_64-pc-windows-msvc
+      - name: Smoke test gallery-dl binary
+        run: node ./scripts/smoke-gallery-dl-binary.mjs --target x86_64-pc-windows-msvc
 
       - name: Build Windows NSIS installer
         run: npm run package:win
@@ -200,11 +200,11 @@ jobs:
           cp "$FFMPEG_BINARY" "desktop-assets/binaries/ffmpeg"
           chmod +x "desktop-assets/binaries/ffmpeg"
 
-      - name: Build Pinterest sidecar
-        run: node ./scripts/build-pinterest-sidecar.mjs --target ${{ matrix.target }}
+      - name: Build gallery-dl binary
+        run: node ./scripts/build-gallery-dl-binary.mjs --target ${{ matrix.target }}
 
-      - name: Smoke test Pinterest sidecar
-        run: node ./scripts/smoke-pinterest-sidecar.mjs --mode binary --target ${{ matrix.target }}
+      - name: Smoke test gallery-dl binary
+        run: node ./scripts/smoke-gallery-dl-binary.mjs --target ${{ matrix.target }}
 
       - name: Package macOS ZIP and open-source DMG
         run: |

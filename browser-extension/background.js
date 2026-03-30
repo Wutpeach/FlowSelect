@@ -276,15 +276,6 @@ function shouldRetryVideoSelectionRequest(result) {
   return code === 'not_connected' || code === 'send_failed';
 }
 
-function shouldFallbackToLegacyVideoSelection(result) {
-  if (result?.success) {
-    return false;
-  }
-
-  const code = result?.data?.code || result?.message || '';
-  return code === 'unknown_action';
-}
-
 function resetSocketForRetry() {
   if (reconnectTimer !== null) {
     clearTimeout(reconnectTimer);
@@ -950,15 +941,7 @@ function queueVideoSelectionToApp(data) {
     }
   );
 
-  const sendCompatibleSelectionRequest = async () => {
-    const v2Result = await sendSelectionRequest('video_selected_v2');
-    if (shouldFallbackToLegacyVideoSelection(v2Result)) {
-      return await sendSelectionRequest('video_selected');
-    }
-    return v2Result;
-  };
-
-  return sendCompatibleSelectionRequest().then(async (result) => {
+  return sendSelectionRequest('video_selected_v2').then(async (result) => {
     if (!shouldRetryVideoSelectionRequest(result)) {
       return result;
     }
@@ -977,7 +960,7 @@ function queueVideoSelectionToApp(data) {
       return result;
     }
 
-    return sendCompatibleSelectionRequest();
+    return sendSelectionRequest('video_selected_v2');
   });
 }
 
@@ -1069,13 +1052,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const pageUrl = selectFirstHttpUrl(message.pageUrl, sender.tab?.url, message.url);
     const requestedUrl = selectFirstHttpUrl(message.url, pageUrl);
     const selectionScope = normalizeSelectionScope(message.selectionScope);
-    const platform = directDownloadQuality.getDirectPlatform([
-      pageUrl,
-      requestedUrl,
-      message.pageUrl,
-      message.videoUrl,
-      message.url,
-    ]);
     const videoCandidates = normalizeVideoCandidates(message.videoCandidates);
     const siteHint = deriveSiteHint([
       message.siteHint,
@@ -1085,7 +1061,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.videoUrl,
       message.url,
       sender.tab?.url,
-      platform,
     ]);
     const clipStartSec = normalizeClipTimeSeconds(message.clipStartSec);
     const clipEndSec = normalizeClipTimeSeconds(message.clipEndSec);
@@ -1094,10 +1069,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       directDownloadQuality.getQualityPreference(),
     ]).then(([cookies, qualityPreference]) => {
       console.info('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
-      const prioritizedCandidates = directDownloadQuality.prioritizeCandidatesForHighestQuality(
-        videoCandidates,
-        platform
-      );
       const routeUrl = pageUrl || requestedUrl || message.url;
       const rawVideoUrl = normalizeHttpUrl(message.videoUrl);
       return queueVideoSelectionToApp({
@@ -1106,7 +1077,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         siteHint,
         title: message.title,
         videoUrl: rawVideoUrl,
-        videoCandidates: prioritizedCandidates,
+        videoCandidates,
         selectionScope,
         clipStartSec: clipStartSec,
         clipEndSec: clipEndSec,
