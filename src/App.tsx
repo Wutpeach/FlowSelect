@@ -694,9 +694,9 @@ function App({
     shouldStartExpandedOnLaunch(startupWindowEnvironment);
   const FULL_SIZE = 200;
   const ICON_SIZE = 80;
-  const MINIMIZED_SHELL_SIZE = 72;
+  const MINIMIZED_SHELL_SIZE = 60;
   const MINIMIZED_SHELL_SCALE = MINIMIZED_SHELL_SIZE / FULL_SIZE;
-  const MINIMIZED_ICON_SIZE = 42;
+  const MINIMIZED_ICON_SIZE = 38;
   const MINIMIZED_SHELL_INSET = Math.round((ICON_SIZE - MINIMIZED_SHELL_SIZE) / 2);
   const startsInNativeCompactStartupWindow = shouldUseNativeCompactStartupWindow({
     startupWindowMode: initialStartupWindowMode,

@@ -11,6 +11,7 @@ import {
   shouldEnablePackagedStartupDiagnostics,
   shouldUsePackagedWindowsOpaqueWindow,
 } from "./windowVisibility.mjs";
+import { MAIN_WINDOW_COMPACT_STARTUP_SIZE } from "./startupWindowMode.mjs";
 
 describe("shouldUsePackagedWindowsOpaqueWindow", () => {
   it("keeps transparent parity by default on packaged Windows builds", () => {
@@ -138,18 +139,18 @@ describe("resolveMainWindowRevealBounds", () => {
       bounds: {
         x: 100,
         y: 120,
-        width: 80,
-        height: 80,
+        width: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+        height: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
       },
       displays: [display],
       fallbackDisplay: display,
-      minimumWidth: 80,
-      minimumHeight: 80,
+      minimumWidth: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+      minimumHeight: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
     })).toEqual({
       x: 100,
       y: 120,
-      width: 80,
-      height: 80,
+      width: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+      height: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
     });
   });
 
@@ -195,19 +196,19 @@ describe("resolveMainWindowRevealBounds", () => {
       bounds: {
         x: 24,
         y: 32,
-        width: 80,
-        height: 80,
+        width: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+        height: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
       },
       displays: [display],
       fallbackDisplay: display,
       forceCenter: true,
-      minimumWidth: 80,
-      minimumHeight: 80,
+      minimumWidth: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+      minimumHeight: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
     })).toEqual({
       x: 920,
       y: 500,
-      width: 80,
-      height: 80,
+      width: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+      height: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
     });
   });
 });
