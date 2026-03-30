@@ -483,6 +483,50 @@ function SettingsPage() {
   ]);
 
   useEffect(() => {
+    if (!isDevBuild) {
+      return;
+    }
+
+    let cancelled = false;
+    let firstFrameId: number | null = null;
+    let secondFrameId: number | null = null;
+
+    const preloadUiLabPage = () => {
+      if (cancelled) {
+        return;
+      }
+
+      void import("./UiLabPage").catch((err) => {
+        if (!cancelled) {
+          console.error("Failed to preload UI Lab page:", err);
+        }
+      });
+    };
+
+    if (typeof window.requestAnimationFrame === "function") {
+      firstFrameId = window.requestAnimationFrame(() => {
+        firstFrameId = null;
+        secondFrameId = window.requestAnimationFrame(() => {
+          secondFrameId = null;
+          preloadUiLabPage();
+        });
+      });
+    } else {
+      preloadUiLabPage();
+    }
+
+    return () => {
+      cancelled = true;
+      if (firstFrameId !== null) {
+        window.cancelAnimationFrame(firstFrameId);
+      }
+      if (secondFrameId !== null) {
+        window.cancelAnimationFrame(secondFrameId);
+      }
+    };
+  }, [isDevBuild]);
+
+  useEffect(() => {
     const unlisten = desktopEvents.on<{ path: string }>("output-path-changed", (event) => {
       setOutputPath(event.payload.path);
     });
