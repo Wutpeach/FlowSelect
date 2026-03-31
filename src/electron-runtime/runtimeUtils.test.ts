@@ -1,6 +1,9 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { buildOutputStem, sanitizeFileStem } from "./runtimeUtils";
+import { buildOutputStem, resolveAvailableOutputStem, sanitizeFileStem } from "./runtimeUtils";
 
 describe("buildOutputStem", () => {
   it("decodes percent-escaped path segments before deriving the output stem", () => {
@@ -11,6 +14,18 @@ describe("buildOutputStem", () => {
         {},
       ),
     ).toBe("My Clip (1)");
+  });
+
+  it("uses a pinterest short-id stem for pinterest requests", () => {
+    expect(
+      buildOutputStem(
+        "trace-1",
+        "https://www.pinterest.com/pin/403705554121341216/",
+        {},
+        "Pin 图卡片",
+        "pinterest",
+      ),
+    ).toMatch(/^pinterest_[0-9a-f]{6}$/);
   });
 });
 
@@ -27,5 +42,42 @@ describe("sanitizeFileStem", () => {
   it("avoids reserved Windows device names even when they are followed by dot suffixes", () => {
     expect(sanitizeFileStem("CON.txt")).toBe("CON_.txt");
     expect(sanitizeFileStem("nul.part1")).toBe("nul_.part1");
+  });
+});
+
+describe("resolveAvailableOutputStem", () => {
+  it("adds a numeric suffix when the preferred stem already exists on disk", async () => {
+    const outputDir = mkdtempSync(path.join(os.tmpdir(), "flowselect-runtime-utils-"));
+    try {
+      writeFileSync(path.join(outputDir, "Pin 图卡片.mp4"), "video");
+      writeFileSync(path.join(outputDir, "Pin 图卡片 (2).mp4"), "video");
+
+      await expect(resolveAvailableOutputStem(outputDir, "Pin 图卡片")).resolves.toBe("Pin 图卡片 (3)");
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores sidecar artifacts when picking the next available stem", async () => {
+    const outputDir = mkdtempSync(path.join(os.tmpdir(), "flowselect-runtime-utils-"));
+    try {
+      writeFileSync(path.join(outputDir, "Pin 图卡片.txt"), "metadata");
+      writeFileSync(path.join(outputDir, "Pin 图卡片.mp4.part"), "partial");
+
+      await expect(resolveAvailableOutputStem(outputDir, "Pin 图卡片")).resolves.toBe("Pin 图卡片");
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reserves suffixes that are already claimed by active tasks", async () => {
+    const outputDir = mkdtempSync(path.join(os.tmpdir(), "flowselect-runtime-utils-"));
+    try {
+      await expect(
+        resolveAvailableOutputStem(outputDir, "Pin 图卡片", ["Pin 图卡片", "Pin 图卡片 (2)"]),
+      ).resolves.toBe("Pin 图卡片 (3)");
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
   });
 });

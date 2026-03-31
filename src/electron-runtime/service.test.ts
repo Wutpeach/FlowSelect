@@ -1,3 +1,6 @@
+import { rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { DownloadEngine, RawDownloadInput, SiteProvider } from "../core";
 import { genericProvider } from "../sites/generic";
@@ -32,17 +35,26 @@ const createRuntime = (options: {
   providers?: SiteProvider[];
   engines?: DownloadEngine[];
   maxConcurrent?: number;
+  configString?: string;
+  environment?: {
+    repoRoot?: string;
+    configDir?: string;
+    platform?: "win32" | "darwin" | "linux";
+    arch?: "x64" | "arm64";
+    desktopDir?: string;
+  };
   onEmit?(event: RuntimeEmitterEvent, payload: unknown): void;
 }) => createElectronDownloadRuntime({
   environment: {
-    repoRoot: "D:/repo",
-    configDir: "D:/repo/config",
-    platform: "win32",
-    arch: "x64",
+    repoRoot: options.environment?.repoRoot ?? process.cwd(),
+    configDir: options.environment?.configDir ?? path.join(process.cwd(), ".tmp-config"),
+    platform: options.environment?.platform ?? "win32",
+    arch: options.environment?.arch ?? "x64",
+    desktopDir: options.environment?.desktopDir,
   },
   configStore: {
     async readConfigString() {
-      return "{}";
+      return options.configString ?? "{}";
     },
   },
   eventSink: {
@@ -93,6 +105,7 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     const second = await runtime.queueVideoDownload({ url: "https://example.com/2" });
     const third = await runtime.queueVideoDownload({ url: "https://example.com/3" });
 
+    await waitFor(() => peakInFlight === 2);
     expect(runtime.getQueueState().totalCount).toBe(3);
     expect(peakInFlight).toBe(2);
     expect(activeTraceIds).toContain(first.traceId);
@@ -322,5 +335,97 @@ describe("FlowSelectElectronDownloadRuntime", () => {
 
     await waitFor(() => routes.length > 0);
     expect(routes).toEqual([expect.stringMatching(/^gallery:/)]);
+  });
+
+  it("reserves distinct output stems for concurrent same-title tasks", async () => {
+    const outputDir = path.join(os.tmpdir(), `flowselect-service-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const outputStems: string[] = [];
+    const completions: Array<() => void> = [];
+
+    const runtime = createRuntime({
+      maxConcurrent: 2,
+      configString: JSON.stringify({ outputPath: outputDir }),
+      providers: [genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
+          outputStems.push(context.outputStem);
+          await new Promise<void>((resolve) => {
+            completions.push(resolve);
+          });
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: `${context.outputDir}/${context.outputStem}.mp4`,
+          };
+        }),
+      ],
+    });
+
+    try {
+      await runtime.queueVideoDownload({
+        url: "https://example.com/1",
+        title: "Pin 图卡片",
+      });
+      await runtime.queueVideoDownload({
+        url: "https://example.com/2",
+        title: "Pin 图卡片",
+      });
+
+      await waitFor(() => outputStems.length === 2);
+      expect(outputStems).toContain("Pin 图卡片");
+      expect(outputStems).toContain("Pin 图卡片 (2)");
+    } finally {
+      completions.splice(0).forEach((complete) => complete());
+      await waitFor(() => runtime.getQueueState().totalCount === 0);
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses pinterest short-id stems instead of repeated titles", async () => {
+    const outputStems: string[] = [];
+    const completions: Array<() => void> = [];
+
+    const runtime = createRuntime({
+      maxConcurrent: 2,
+      providers: [pinterestProvider, genericProvider],
+      engines: [
+        createEngineStub("gallery-dl", async (context) => {
+          outputStems.push(context.outputStem);
+          await new Promise<void>((resolve) => {
+            completions.push(resolve);
+          });
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: `${context.outputDir}/${context.outputStem}.mp4`,
+          };
+        }),
+      ],
+    });
+
+    try {
+      await runtime.queueVideoDownload({
+        url: "https://www.pinterest.com/pin/111111111111111111/",
+        pageUrl: "https://www.pinterest.com/pin/111111111111111111/",
+        title: "Pin 图卡片",
+        siteHint: "pinterest",
+      });
+      await runtime.queueVideoDownload({
+        url: "https://www.pinterest.com/pin/222222222222222222/",
+        pageUrl: "https://www.pinterest.com/pin/222222222222222222/",
+        title: "Pin 图卡片",
+        siteHint: "pinterest",
+      });
+
+      await waitFor(() => outputStems.length === 2);
+      expect(outputStems[0]).toMatch(/^pinterest_[0-9a-f]{6}$/);
+      expect(outputStems[1]).toMatch(/^pinterest_[0-9a-f]{6}$/);
+      expect(new Set(outputStems).size).toBe(2);
+      expect(outputStems).not.toContain("Pin 图卡片");
+      expect(outputStems).not.toContain("Pin 图卡片 (2)");
+    } finally {
+      completions.splice(0).forEach((complete) => complete());
+      await waitFor(() => runtime.getQueueState().totalCount === 0);
+    }
   });
 });

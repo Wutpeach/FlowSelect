@@ -9,6 +9,7 @@ import {
   buildOutputStem,
   nextDownloadTraceId,
   parseJsonObject,
+  resolveAvailableOutputStem,
   resolveOutputDir,
   summarizeError,
 } from "./runtimeUtils.js";
@@ -59,6 +60,8 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
   private readonly logger;
   private readonly pending: PendingTask[] = [];
   private readonly active = new Map<string, ActiveTask>();
+  private readonly reservedOutputStems = new Map<string, string>();
+  private outputStemReservationLock: Promise<void> = Promise.resolve();
   private readonly resolver;
   private readonly orchestrator: DownloadOrchestrator;
 
@@ -180,6 +183,31 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
     await this.options.eventSink.emit("video-queue-detail", this.getQueueDetail());
   }
 
+  private async reserveOutputStem(
+    traceId: string,
+    outputDir: string,
+    preferredOutputStem: string,
+  ): Promise<string> {
+    const previousLock = this.outputStemReservationLock;
+    let releaseLock = (): void => undefined;
+    this.outputStemReservationLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    await previousLock;
+    try {
+      const outputStem = await resolveAvailableOutputStem(
+        outputDir,
+        preferredOutputStem,
+        this.reservedOutputStems.values(),
+      );
+      this.reservedOutputStems.set(traceId, outputStem);
+      return outputStem;
+    } finally {
+      releaseLock();
+    }
+  }
+
   private async pumpQueue(): Promise<void> {
     while (this.active.size < this.maxConcurrent && this.pending.length > 0) {
       const nextTask = this.pending.shift();
@@ -205,6 +233,18 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
     try {
       const config = parseJsonObject(await this.options.configStore.readConfigString());
       const outputDir = resolveOutputDir(this.options.environment, config);
+      const preferredOutputStem = buildOutputStem(
+        traceId,
+        activeTask.request.pageUrl ?? activeTask.request.url,
+        config,
+        activeTask.request.title,
+        activeTask.request.siteHint,
+      );
+      const outputStem = await this.reserveOutputStem(
+        traceId,
+        outputDir,
+        preferredOutputStem,
+      );
       const binaries = resolveRuntimeBinaryPaths(this.options.environment);
       const result = await this.orchestrator.execute(
         activeTask.request,
@@ -215,12 +255,7 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
             enginePlan,
             intent: plan.intent,
             outputDir,
-            outputStem: buildOutputStem(
-              traceId,
-              enginePlan.sourceUrl ?? plan.intent.originalUrl,
-              config,
-              activeTask.request.title,
-            ),
+            outputStem,
             config,
             binaries,
             abortSignal: activeTask.abortController.signal,
@@ -243,6 +278,7 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
         error: summarizeError(error),
       } satisfies DownloadResultPayload);
     } finally {
+      this.reservedOutputStems.delete(traceId);
       this.active.delete(traceId);
       await this.emitQueueState();
       void this.pumpQueue();

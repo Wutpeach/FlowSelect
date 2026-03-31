@@ -1,11 +1,14 @@
-import { mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, promises as fs } from "node:fs";
 import path from "node:path";
+import { resolveSiteHint } from "../core/site-hints.js";
 import type { ElectronRuntimeEnvironment } from "./contracts.js";
 
 let traceSequence = 0;
 
 const WINDOWS_RESERVED_FILE_STEM_PATTERN =
   /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?=\.|$)/i;
+const OUTPUT_STEM_SIDECAR_PATTERN = /\.(json|txt|part|ytdl)$/i;
 
 export const nextDownloadTraceId = (): string => {
   traceSequence += 1;
@@ -79,10 +82,19 @@ export const buildOutputStem = (
   url: string,
   config: Record<string, unknown>,
   preferredTitle?: string,
+  siteHint?: string,
 ): string => {
   const renameEnabled = resolveRenameEnabled(config);
   if (renameEnabled) {
     return traceId;
+  }
+  const resolvedSiteHint = resolveSiteHint(siteHint, url);
+  if (resolvedSiteHint === "pinterest") {
+    const shortId = createHash("sha1")
+      .update(url || traceId, "utf8")
+      .digest("hex")
+      .slice(0, 6);
+    return sanitizeFileStem(`pinterest_${shortId}`);
   }
   if (typeof preferredTitle === "string" && preferredTitle.trim()) {
     return sanitizeFileStem(preferredTitle);
@@ -106,4 +118,55 @@ export const buildOutputStem = (
     // Fall through to trace-based naming.
   }
   return sanitizeFileStem(traceId);
+};
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export const resolveAvailableOutputStem = async (
+  outputDir: string,
+  preferredStem: string,
+  reservedStems: Iterable<string> = [],
+): Promise<string> => {
+  const suffixPattern = new RegExp(`^${escapeRegExp(preferredStem)} \\((\\d+)\\)$`);
+  let baseInUse = false;
+  const usedSuffixes = new Set<number>();
+
+  const registerStem = (stem: string): void => {
+    if (stem === preferredStem) {
+      baseInUse = true;
+      return;
+    }
+
+    const suffixMatch = stem.match(suffixPattern);
+    if (!suffixMatch) {
+      return;
+    }
+
+    const suffix = Number(suffixMatch[1]);
+    if (Number.isInteger(suffix) && suffix >= 2) {
+      usedSuffixes.add(suffix);
+    }
+  };
+
+  for (const reservedStem of reservedStems) {
+    registerStem(reservedStem);
+  }
+
+  const entries = await fs.readdir(outputDir).catch(() => []);
+  for (const entry of entries) {
+    if (OUTPUT_STEM_SIDECAR_PATTERN.test(entry)) {
+      continue;
+    }
+    registerStem(path.parse(entry).name);
+  }
+
+  if (!baseInUse) {
+    return preferredStem;
+  }
+
+  let nextSuffix = 2;
+  while (usedSuffixes.has(nextSuffix)) {
+    nextSuffix += 1;
+  }
+  return `${preferredStem} (${nextSuffix})`;
 };
