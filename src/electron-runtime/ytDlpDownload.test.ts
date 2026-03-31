@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { readdirMock, readFileMock, unlinkMock, runStreamingCommandMock } = vi.hoisted(() => ({
   readdirMock: vi.fn(),
@@ -27,6 +27,52 @@ vi.mock("./sidecarCookies.js", () => ({
 import { runYtDlpDownload } from "./ytDlpDownload.js";
 
 describe("runYtDlpDownload", () => {
+  beforeEach(() => {
+    readdirMock.mockReset();
+    readFileMock.mockReset();
+    unlinkMock.mockClear();
+    runStreamingCommandMock.mockReset();
+  });
+
+  it("uses title plus resolution and quality in the output template when rename is disabled", async () => {
+    readdirMock.mockResolvedValue([]);
+    readFileMock.mockResolvedValue("D:\\downloads\\Sample Video[1920x1080][highest].mp4");
+    runStreamingCommandMock.mockImplementation(async (_command, args) => {
+      const outputIndex = args.indexOf("-o");
+      expect(outputIndex).toBeGreaterThanOrEqual(0);
+      expect(args[outputIndex + 1]).toBe(
+        "D:\\downloads\\Sample Video[%(width|unknown)sx%(height|unknown)s][highest].%(ext)s",
+      );
+      return 0;
+    });
+
+    const context = {
+      traceId: "trace-template",
+      outputDir: "D:/downloads",
+      outputStem: "Sample Video",
+      config: {},
+      binaries: {
+        ytDlp: "D:/yt-dlp.exe",
+        ffmpeg: "D:/ffmpeg/ffmpeg.exe",
+        deno: "D:/deno/deno.exe",
+      },
+      enginePlan: {
+        sourceUrl: "https://www.youtube.com/watch?v=1",
+      },
+      intent: {
+        originalUrl: "https://www.youtube.com/watch?v=1",
+        ytdlpQuality: "best",
+      },
+      abortSignal: new AbortController().signal,
+      onProgress: vi.fn(async () => undefined),
+    } as never;
+
+    await expect(runYtDlpDownload(context)).resolves.toMatchObject({
+      success: true,
+      file_path: "D:\\downloads\\Sample Video[1920x1080][highest].mp4",
+    });
+  });
+
   it("cleans up newly created task artifacts when yt-dlp fails", async () => {
     readdirMock
       .mockResolvedValueOnce([])
@@ -38,6 +84,7 @@ describe("runYtDlpDownload", () => {
       traceId: "trace-yt",
       outputDir: "D:/downloads",
       outputStem: "video",
+      config: {},
       binaries: {
         ytDlp: "D:/yt-dlp.exe",
         ffmpeg: "D:/ffmpeg/ffmpeg.exe",

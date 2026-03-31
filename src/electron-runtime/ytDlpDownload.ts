@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { EngineExecutionContext, YtdlpQualityPreference } from "../core/index.js";
 import { runStreamingCommand } from "./processRunner.js";
+import { resolveRenameEnabled } from "./runtimeUtils.js";
 import { parseYtDlpProgressLine } from "./ytDlpProgress.js";
 import { summarizeError } from "./runtimeUtils.js";
 import type { DownloadResultPayload } from "../types/videoRuntime.js";
@@ -114,17 +115,85 @@ const readReportedPath = async (reportPath: string): Promise<string | null> => {
 
 const collectTaskArtifacts = async (
   outputDir: string,
-  outputStem: string,
+  outputStemPrefixes: string[],
 ): Promise<string[]> => (
   await fs.readdir(outputDir).catch(() => [])
-).filter((entry) => entry.startsWith(`${outputStem}.`));
+).filter((entry) => outputStemPrefixes.some((prefix) => (
+  entry.startsWith(`${prefix}.`) || entry.startsWith(`${prefix}[`)
+)));
+
+const resolveYtdlpQualityLabel = (
+  quality: YtdlpQualityPreference | undefined,
+): "highest" | "balanced" | "data-saver" => {
+  switch (quality) {
+    case "balanced":
+      return "balanced";
+    case "data_saver":
+      return "data-saver";
+    case "best":
+    default:
+      return "highest";
+  }
+};
+
+const resolveClipRangeSeconds = (
+  context: EngineExecutionContext,
+): { startSec: number; endSec: number } | null => {
+  const rawIntent = context.intent as Record<string, unknown>;
+  const startSec = rawIntent.clipStartSec;
+  const endSec = rawIntent.clipEndSec;
+  if (
+    typeof startSec !== "number"
+    || !Number.isFinite(startSec)
+    || typeof endSec !== "number"
+    || !Number.isFinite(endSec)
+  ) {
+    return null;
+  }
+  return { startSec, endSec };
+};
+
+const resolveClipRangeStemPrefix = (context: EngineExecutionContext): string | null => {
+  const clipRange = resolveClipRangeSeconds(context);
+  if (!clipRange) {
+    return null;
+  }
+  const clipStartMs = Math.max(0, Math.round(clipRange.startSec * 1000));
+  const clipEndMs = Math.max(0, Math.round(clipRange.endSec * 1000));
+  return `${clipStartMs}-${clipEndMs}_${context.outputStem}`;
+};
+
+const resolveYtdlpArtifactPrefixes = (context: EngineExecutionContext): string[] => {
+  const clipRangePrefix = resolveClipRangeStemPrefix(context);
+  return clipRangePrefix
+    ? [context.outputStem, clipRangePrefix]
+    : [context.outputStem];
+};
+
+const buildYtdlpOutputTemplate = (context: EngineExecutionContext): string => {
+  const runtimeConfig = context.config ?? {};
+  if (resolveRenameEnabled(runtimeConfig)) {
+    return path.join(context.outputDir, `${context.outputStem}.%(ext)s`);
+  }
+
+  const clipRangePrefix = resolveClipRangeStemPrefix(context);
+  if (clipRangePrefix) {
+    return path.join(context.outputDir, `${clipRangePrefix}.%(ext)s`);
+  }
+
+  const qualityLabel = resolveYtdlpQualityLabel(context.intent.ytdlpQuality);
+  return path.join(
+    context.outputDir,
+    `${context.outputStem}[%(width|unknown)sx%(height|unknown)s][${qualityLabel}].%(ext)s`,
+  );
+};
 
 const cleanupTaskArtifacts = async (
   outputDir: string,
   beforeFiles: Set<string>,
-  outputStem: string,
+  outputStemPrefixes: string[],
 ): Promise<void> => {
-  const afterFiles = await collectTaskArtifacts(outputDir, outputStem);
+  const afterFiles = await collectTaskArtifacts(outputDir, outputStemPrefixes);
   await Promise.all(afterFiles
     .filter((entry) => !beforeFiles.has(entry))
     .map((entry) => fs.unlink(path.join(outputDir, entry)).catch(() => undefined)));
@@ -134,8 +203,9 @@ export const runYtDlpDownload = async (
   context: EngineExecutionContext,
 ): Promise<DownloadResultPayload> => {
   const reportPath = path.join(context.outputDir, `${context.traceId}-after-move.txt`);
-  const outputTemplate = path.join(context.outputDir, `${context.outputStem}.%(ext)s`);
-  const beforeFiles = new Set(await collectTaskArtifacts(context.outputDir, context.outputStem));
+  const outputTemplate = buildYtdlpOutputTemplate(context);
+  const artifactPrefixes = resolveYtdlpArtifactPrefixes(context);
+  const beforeFiles = new Set(await collectTaskArtifacts(context.outputDir, artifactPrefixes));
   const ffmpegDir = path.dirname(context.binaries.ffmpeg);
   const sourceUrl = context.enginePlan.sourceUrl ?? context.intent.pageUrl ?? context.intent.originalUrl;
   if (!sourceUrl) {
@@ -243,7 +313,7 @@ export const runYtDlpDownload = async (
       file_path: reportedPath,
     };
   } catch (error) {
-    await cleanupTaskArtifacts(context.outputDir, beforeFiles, context.outputStem);
+    await cleanupTaskArtifacts(context.outputDir, beforeFiles, artifactPrefixes);
     throw new Error(summarizeError(error));
   } finally {
     await cleanupCookiesFile(cookiesPath);
