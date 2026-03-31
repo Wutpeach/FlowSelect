@@ -10,6 +10,7 @@ const isGallerySidecar = (entryPath: string, outputStem: string): boolean =>
   entryPath.startsWith(outputStem) && /\.(json|txt|part)$/i.test(entryPath);
 
 const GALLERY_DL_LINE_TAIL_LIMIT = 20;
+const GALLERY_DL_ACTIVITY_FALLBACK = "activity:galleryDl.resolvingMedia";
 
 const pushTailLine = (target: string[], line: string): void => {
   const trimmed = line.trim();
@@ -32,6 +33,43 @@ const summarizeGalleryDlFailure = (
     return `gallery-dl exited with code ${exitCode}`;
   }
   return `gallery-dl exited with code ${exitCode}: ${detail}`;
+};
+
+const normalizeGalleryDlActivity = (line: string): string | null => {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const withoutPrefix = trimmed
+    .replace(/^\[gallery-dl\]\[(?:info|warning|debug)\]\s*/i, "")
+    .replace(/^\[[^\]]+\]\s*/, "");
+  const normalized = withoutPrefix.toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (/\b(error|forbidden|failed|traceback|exception)\b/i.test(normalized)) {
+    return null;
+  }
+  if (/\bcollect(?:ing)?\b.*\b(metadata|pin)\b/i.test(normalized)) {
+    return "activity:galleryDl.collectingMetadata";
+  }
+  if (/\b(metadata|extract(?:ing|or)?)\b/i.test(normalized)) {
+    return "activity:galleryDl.extractingMedia";
+  }
+  if (/\b(download|retriev|request|fetch)\b/i.test(normalized)) {
+    return "activity:galleryDl.downloadingMedia";
+  }
+  if (/\b(already exists|already downloaded|exists on disk|skip(ping)?)\b/i.test(normalized)) {
+    return "activity:galleryDl.checkingExistingFile";
+  }
+  if (/\b(write|saving|moving|finaliz|finish)\b/i.test(normalized)) {
+    return "activity:galleryDl.savingFile";
+  }
+
+  return GALLERY_DL_ACTIVITY_FALLBACK;
 };
 
 const collectTaskArtifacts = async (
@@ -102,11 +140,27 @@ export const runGalleryDlDownload = async (
   try {
     const stdoutLines: string[] = [];
     const stderrLines: string[] = [];
+    let lastActivityLabel: string | null = null;
+    const emitGalleryDlActivity = async (line?: string): Promise<void> => {
+      const activity = line ? normalizeGalleryDlActivity(line) : GALLERY_DL_ACTIVITY_FALLBACK;
+      if (!activity || activity === lastActivityLabel) {
+        return;
+      }
+      lastActivityLabel = activity;
+      await context.onProgress({
+        traceId: context.traceId,
+        percent: -1,
+        stage: "downloading",
+        speed: activity,
+        eta: "",
+      });
+    };
     cookiesPath = await writeCookiesFile(context.traceId, context.intent.cookies);
     if (cookiesPath) {
       args.unshift(cookiesPath);
       args.unshift("--cookies");
     }
+    await emitGalleryDlActivity();
     const exitCode = await runStreamingCommand(context.binaries.galleryDl, args, {
       signal: context.abortSignal,
       onStdoutLine: async (line: string) => {
@@ -114,16 +168,11 @@ export const runGalleryDlDownload = async (
         if (!line.trim()) {
           return;
         }
-        await context.onProgress({
-          traceId: context.traceId,
-          percent: -1,
-          stage: "downloading",
-          speed: "gallery-dl",
-          eta: "",
-        });
+        await emitGalleryDlActivity(line);
       },
-      onStderrLine: (line: string) => {
+      onStderrLine: async (line: string) => {
         pushTailLine(stderrLines, line);
+        await emitGalleryDlActivity(line);
       },
     });
 

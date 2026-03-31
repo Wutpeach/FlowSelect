@@ -337,10 +337,45 @@ const DEFAULT_STAGE_FALLBACK_LABELS: Record<DownloadStage, string> = {
   merging: "Merging...",
   post_processing: "Post-processing...",
 };
+const DOWNLOAD_ACTIVITY_TOKEN_PREFIX = "activity:";
 
 const getDownloadStageLabel = (stage: DownloadStage): string => {
   const translationKey = stage === "post_processing" ? "postProcessing" : stage;
   return i18n.t(`desktop:app.downloadStage.${translationKey}`);
+};
+
+const getDownloadActivityLabel = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.startsWith(DOWNLOAD_ACTIVITY_TOKEN_PREFIX)) {
+    const activityKey = trimmed.slice(DOWNLOAD_ACTIVITY_TOKEN_PREFIX.length);
+    if (!activityKey) {
+      return null;
+    }
+    const fullKey = `desktop:app.downloadActivity.${activityKey}`;
+    const translated = i18n.t(fullKey);
+    return translated !== fullKey ? translated : null;
+  }
+
+  switch (trimmed) {
+    case "Resolving media...":
+      return i18n.t("desktop:app.downloadActivity.galleryDl.resolvingMedia");
+    case "Collecting metadata...":
+      return i18n.t("desktop:app.downloadActivity.galleryDl.collectingMetadata");
+    case "Extracting media...":
+      return i18n.t("desktop:app.downloadActivity.galleryDl.extractingMedia");
+    case "Downloading media...":
+      return i18n.t("desktop:app.downloadActivity.galleryDl.downloadingMedia");
+    case "Checking existing file...":
+      return i18n.t("desktop:app.downloadActivity.galleryDl.checkingExistingFile");
+    case "Saving file...":
+      return i18n.t("desktop:app.downloadActivity.galleryDl.savingFile");
+    default:
+      return null;
+  }
 };
 
 const getTranscodeStageLabel = (stage: VideoTranscodeStage): string => {
@@ -400,12 +435,22 @@ const getDownloadStatusText = (
   const etaText = progress.eta.trim();
   const hasEta = etaText.length > 0 && etaText !== "N/A";
   const etaLabel = i18n.t("desktop:app.downloadStatus.eta", { eta: etaText });
+  const activityLabel = getDownloadActivityLabel(speedText);
 
   if (effectiveStage !== "downloading") {
     return stageLabel;
   }
 
-  if (!speedText || speedText === stageLabel || speedText === DEFAULT_STAGE_FALLBACK_LABELS[effectiveStage]) {
+  if (activityLabel) {
+    return activityLabel;
+  }
+
+  if (
+    !speedText
+    || speedText === "gallery-dl"
+    || speedText === stageLabel
+    || speedText === DEFAULT_STAGE_FALLBACK_LABELS[effectiveStage]
+  ) {
     if (hasEta) {
       return `${stageLabel} ${etaLabel}`;
     }

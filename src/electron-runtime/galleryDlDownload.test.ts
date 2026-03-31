@@ -28,6 +28,48 @@ import { DownloadRuntimeError } from "../core/index.js";
 import { runGalleryDlDownload } from "./galleryDlDownload.js";
 
 describe("runGalleryDlDownload", () => {
+  it("switches gallery-dl tasks into downloading state before detailed output is available", async () => {
+    readdirMock.mockResolvedValue([]);
+    runStreamingCommandMock.mockResolvedValue(0);
+    const onProgress = vi.fn(async () => undefined);
+
+    const context = {
+      traceId: "trace-progress",
+      outputDir: "D:/downloads",
+      outputStem: "pin",
+      binaries: {
+        galleryDl: "D:/gallery-dl.exe",
+      },
+      enginePlan: {
+        sourceUrl: "https://www.pinterest.com/pin/123/",
+      },
+      intent: {
+        originalUrl: "https://www.pinterest.com/pin/123/",
+      },
+      plan: {
+        providerId: "pinterest",
+      },
+      abortSignal: new AbortController().signal,
+      onProgress,
+    } as never;
+
+    await expect(runGalleryDlDownload(context)).rejects.toMatchObject({
+      message: "gallery-dl finished without producing an output file",
+    } satisfies Partial<DownloadRuntimeError>);
+
+    expect(onProgress).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      traceId: "trace-progress",
+      percent: 0,
+      stage: "preparing",
+    }));
+    expect(onProgress).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      traceId: "trace-progress",
+      percent: -1,
+      stage: "downloading",
+      speed: "activity:galleryDl.resolvingMedia",
+    }));
+  });
+
   it("passes extension cookies to gallery-dl through a Netscape cookie file", async () => {
     readdirMock.mockResolvedValue([]);
     runStreamingCommandMock.mockImplementation(async (_command, args) => {
@@ -62,6 +104,48 @@ describe("runGalleryDlDownload", () => {
     await expect(runGalleryDlDownload(context)).rejects.toMatchObject({
       message: "gallery-dl finished without producing an output file",
     } satisfies Partial<DownloadRuntimeError>);
+  });
+
+  it("maps gallery-dl output lines to human-friendly activity labels", async () => {
+    readdirMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(["pin.mp4"]);
+    const onProgress = vi.fn(async () => undefined);
+    runStreamingCommandMock.mockImplementation(async (_command, _args, options) => {
+      await options.onStdoutLine?.("[gallery-dl][info] collecting pin metadata");
+      return 0;
+    });
+
+    const context = {
+      traceId: "trace-humanized",
+      outputDir: "D:/downloads",
+      outputStem: "pin",
+      binaries: {
+        galleryDl: "D:/gallery-dl.exe",
+      },
+      enginePlan: {
+        sourceUrl: "https://www.pinterest.com/pin/123/",
+      },
+      intent: {
+        originalUrl: "https://www.pinterest.com/pin/123/",
+      },
+      plan: {
+        providerId: "pinterest",
+      },
+      abortSignal: new AbortController().signal,
+      onProgress,
+    } as never;
+
+    await expect(runGalleryDlDownload(context)).resolves.toMatchObject({
+      success: true,
+      file_path: "D:\\downloads\\pin.mp4",
+    });
+
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
+      traceId: "trace-humanized",
+      stage: "downloading",
+      speed: "activity:galleryDl.collectingMetadata",
+    }));
   });
 
   it("surfaces the tail of gallery-dl stderr when the command fails", async () => {
