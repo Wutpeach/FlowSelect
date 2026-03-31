@@ -1399,7 +1399,7 @@ function buildElectronRuntimeEnvironment() {
     tempDir: tmpdir(),
     platform: process.platform,
     arch: process.arch,
-    fetch,
+    fetch: fetchWithDesktopSession,
   };
 }
 

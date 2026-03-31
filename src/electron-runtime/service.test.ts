@@ -42,6 +42,7 @@ const createRuntime = (options: {
     platform?: "win32" | "darwin" | "linux";
     arch?: "x64" | "arm64";
     desktopDir?: string;
+    fetch?: typeof fetch;
   };
   onEmit?(event: RuntimeEmitterEvent, payload: unknown): void;
 }) => createElectronDownloadRuntime({
@@ -51,6 +52,7 @@ const createRuntime = (options: {
     platform: options.environment?.platform ?? "win32",
     arch: options.environment?.arch ?? "x64",
     desktopDir: options.environment?.desktopDir,
+    fetch: options.environment?.fetch,
   },
   configStore: {
     async readConfigString() {
@@ -265,6 +267,37 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     await waitFor(() => routes.length > 0);
     expect(routes).toHaveLength(1);
     expect(routes[0]?.startsWith("direct:")).toBe(true);
+  });
+
+  it("passes the injected environment fetch into engine execution context", async () => {
+    const sessionFetch = async () => new Response(null, { status: 204 });
+    let receivedFetch: typeof fetch | undefined;
+
+    const runtime = createRuntime({
+      providers: [pinterestProvider, genericProvider],
+      environment: {
+        fetch: sessionFetch,
+      },
+      engines: [
+        createEngineStub("direct", async (context) => {
+          receivedFetch = context.fetch;
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "direct.mp4",
+          };
+        }),
+      ],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: "https://www.pinterest.com/pin/1234567890/",
+      videoUrl: "https://v1.pinimg.com/videos/iht/expmp4/example.mp4",
+    });
+
+    await waitFor(() => receivedFetch != null);
+    expect(receivedFetch).toBe(sessionFetch);
   });
 
   it("surfaces a Pinterest gallery-dl failure without falling back to yt-dlp", async () => {
