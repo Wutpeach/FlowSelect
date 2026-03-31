@@ -162,10 +162,14 @@
       "galleryDl": {
         "version": "版本 {{version}}",
         "description": "主要用于 Pinterest 等图集型站点的下载器。",
-        "detailsUnavailable": "暂时无法获取详情。",
-        "bundledByApp": "可用时随 FlowSelect 一起打包分发。",
-        "releasesButton": "版本发布",
-        "openReleasesFailed": "打开 gallery-dl 发布页失败"
+        "checkUnavailable": "暂时无法检查。",
+        "updateAvailable": "可更新到：{{version}}",
+        "upToDate": "已是最新。",
+        "localVersionOnly": "仅显示本地版本。",
+        "updatedTo": "gallery-dl 已更新到 {{version}}",
+        "updateFailed": "gallery-dl 更新失败",
+        "button": "更新",
+        "updating": "更新中..."
       },
       "runtime": {
         "description": "下载托管运行时就绪状态。",

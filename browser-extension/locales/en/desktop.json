@@ -162,10 +162,14 @@
       "galleryDl": {
         "version": "Version {{version}}",
         "description": "Image and gallery downloader used for Pinterest-first flows.",
-        "detailsUnavailable": "Details unavailable.",
-        "bundledByApp": "Bundled with FlowSelect when available.",
-        "releasesButton": "Releases",
-        "openReleasesFailed": "Failed to open gallery-dl releases"
+        "checkUnavailable": "Check unavailable.",
+        "updateAvailable": "Update: {{version}}",
+        "upToDate": "Up to date.",
+        "localVersionOnly": "Local version only.",
+        "updatedTo": "gallery-dl updated to {{version}}",
+        "updateFailed": "Failed to update gallery-dl",
+        "button": "Update",
+        "updating": "Updating..."
       },
       "runtime": {
         "description": "Managed runtime readiness for downloads.",
