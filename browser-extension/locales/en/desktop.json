@@ -10,6 +10,16 @@
       "merging": "Merging...",
       "postProcessing": "Post-processing..."
     },
+    "downloadActivity": {
+      "galleryDl": {
+        "resolvingMedia": "Resolving media...",
+        "collectingMetadata": "Collecting metadata...",
+        "extractingMedia": "Extracting media...",
+        "downloadingMedia": "Downloading media...",
+        "checkingExistingFile": "Checking existing file...",
+        "savingFile": "Saving file..."
+      }
+    },
     "downloadStatus": {
       "eta": "ETA {{eta}}"
     },

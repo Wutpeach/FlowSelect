@@ -10,6 +10,16 @@
       "merging": "合并中...",
       "postProcessing": "后处理中..."
     },
+    "downloadActivity": {
+      "galleryDl": {
+        "resolvingMedia": "解析媒体中...",
+        "collectingMetadata": "收集元数据中...",
+        "extractingMedia": "提取媒体中...",
+        "downloadingMedia": "下载媒体中...",
+        "checkingExistingFile": "检查已有文件中...",
+        "savingFile": "保存文件中..."
+      }
+    },
     "downloadStatus": {
       "eta": "预计 {{eta}}"
     },
