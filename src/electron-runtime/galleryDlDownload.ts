@@ -34,6 +34,24 @@ const summarizeGalleryDlFailure = (
   return `gallery-dl exited with code ${exitCode}: ${detail}`;
 };
 
+const collectTaskArtifacts = async (
+  outputDir: string,
+  outputStem: string,
+): Promise<string[]> => (
+  await fs.readdir(outputDir).catch(() => [])
+).filter((entry) => entry.startsWith(`${outputStem}.`));
+
+const cleanupTaskArtifacts = async (
+  outputDir: string,
+  beforeFiles: Set<string>,
+  outputStem: string,
+): Promise<void> => {
+  const afterFiles = await collectTaskArtifacts(outputDir, outputStem);
+  await Promise.all(afterFiles
+    .filter((entry) => !beforeFiles.has(entry))
+    .map((entry) => fs.unlink(path.join(outputDir, entry)).catch(() => undefined)));
+};
+
 export const runGalleryDlDownload = async (
   context: EngineExecutionContext,
 ): Promise<DownloadResultPayload> => {
@@ -62,10 +80,7 @@ export const runGalleryDlDownload = async (
   }
 
   const prefix = `${context.outputStem}.`;
-  const beforeFiles = new Set(
-    (await fs.readdir(context.outputDir).catch(() => []))
-      .filter((entry) => entry.startsWith(prefix)),
-  );
+  const beforeFiles = new Set(await collectTaskArtifacts(context.outputDir, context.outputStem));
   const args = [
     "--config-ignore",
     "--directory",
@@ -150,6 +165,7 @@ export const runGalleryDlDownload = async (
       file_path: finalPath,
     };
   } catch (error) {
+    await cleanupTaskArtifacts(context.outputDir, beforeFiles, context.outputStem);
     const runtimeError = error instanceof DownloadRuntimeError ? error : null;
     throw new DownloadRuntimeError(
       runtimeError?.code ?? "E_EXECUTION_FAILED",

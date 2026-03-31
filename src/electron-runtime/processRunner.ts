@@ -48,17 +48,44 @@ const attachLineStream = (
   });
 };
 
+const waitForChildExit = async (
+  child: StreamingChildProcess,
+  timeoutMs: number,
+): Promise<boolean> => {
+  if (child.exitCode !== null) {
+    return true;
+  }
+  const timedOut = await Promise.race([
+    once(child, "exit").then(() => false),
+    sleep(timeoutMs).then(() => true),
+  ]);
+  return timedOut === false;
+};
+
 const killChild = async (child: StreamingChildProcess): Promise<void> => {
   if (child.exitCode !== null || child.killed) {
     return;
   }
 
-  child.kill();
-  const timedOut = await Promise.race([
-    once(child, "exit").then(() => false),
-    sleep(500).then(() => true),
-  ]);
-  if (timedOut && child.exitCode === null) {
+  if (process.platform === "win32" && typeof child.pid === "number" && child.pid > 0) {
+    const taskkill = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    await once(taskkill, "close").catch(() => undefined);
+    const exited = await waitForChildExit(child, 800);
+    if (exited || child.exitCode !== null) {
+      return;
+    }
+  } else {
+    child.kill();
+    const exited = await waitForChildExit(child, 500);
+    if (exited || child.exitCode !== null) {
+      return;
+    }
+  }
+
+  if (child.exitCode === null) {
     child.kill("SIGKILL");
   }
 };

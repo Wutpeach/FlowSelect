@@ -50,6 +50,9 @@ CLAUDE.md
 
 # Desktop runtime binaries (downloaded or built in CI)
 desktop-assets/binaries/*.exe
+!desktop-assets/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
+!desktop-assets/binaries/gallery-dl-x86_64-pc-windows-msvc.exe
+!desktop-assets/binaries/.official-downloader-binaries.json
 desktop-assets/binaries/pinterest-dl-*
 
 # Python cache artifacts

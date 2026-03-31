@@ -50,6 +50,7 @@ import {
 import {
   createElectronDownloadRuntime,
   inspectRuntimeDependencyStatus,
+  resolveRuntimeBinaryPaths,
 } from "../src/electron-runtime/index.js";
 import {
   normalizeVideoCandidates,
@@ -150,7 +151,6 @@ const YTDLP_FORMAT_SELECTOR_DATA_SAVER = [
   "worst[ext=mp4]/",
   "worst",
 ].join("");
-const BINARY_DIR = join(repoRoot, "desktop-assets", "binaries");
 const MANAGED_RUNTIME_BOOTSTRAP_ORDER = ["ffmpeg", "deno"];
 const RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
@@ -1316,14 +1316,10 @@ async function exportSupportLog() {
   return outputPath;
 }
 
-async function resolveBundledBinary(prefix) {
-  if (!existsSync(BINARY_DIR)) {
-    return null;
-  }
-
-  const entries = await readdir(BINARY_DIR);
-  const match = entries.find((entry) => entry.startsWith(prefix));
-  return match ? join(BINARY_DIR, match) : null;
+function resolveBundledBinary(toolId) {
+  const binaries = resolveRuntimeBinaryPaths(buildElectronRuntimeEnvironment());
+  const candidate = toolId === "gallery-dl" ? binaries.galleryDl : binaries.ytDlp;
+  return existsSync(candidate) ? candidate : null;
 }
 
 function currentManagedRuntimeTarget() {
@@ -2145,27 +2141,14 @@ function resolveYtdlpDownloadUrl() {
   throw new Error(`yt-dlp updater is not supported on ${process.platform}`);
 }
 
-function resolveDefaultYtdlpBinaryName() {
-  if (process.platform === "win32") {
-    return "yt-dlp-x86_64-pc-windows-msvc.exe";
-  }
-  if (process.platform === "darwin" && process.arch === "arm64") {
-    return "yt-dlp-aarch64-apple-darwin";
-  }
-  if (process.platform === "darwin" && process.arch === "x64") {
-    return "yt-dlp-x86_64-apple-darwin";
-  }
-  throw new Error(`Unsupported platform for yt-dlp binary resolution: ${process.platform}-${process.arch}`);
-}
-
 async function resolveYtdlpBinaryPathForUpdate() {
-  const existing = await resolveBundledBinary("yt-dlp");
-  if (existing) {
-    return existing;
+  const candidate = resolveRuntimeBinaryPaths(buildElectronRuntimeEnvironment()).ytDlp;
+  if (existsSync(candidate)) {
+    return candidate;
   }
 
-  await mkdir(BINARY_DIR, { recursive: true });
-  return join(BINARY_DIR, resolveDefaultYtdlpBinaryName());
+  await mkdir(dirname(candidate), { recursive: true });
+  return candidate;
 }
 
 async function downloadToFile(url, destinationPath, options = {}) {
@@ -2271,6 +2254,7 @@ async function downloadToFile(url, destinationPath, options = {}) {
 
 async function replaceFile(targetPath, temporaryPath) {
   try {
+    await unlink(targetPath).catch(() => {});
     await rename(temporaryPath, targetPath);
   } catch {
     await copyFile(temporaryPath, targetPath);
@@ -2306,7 +2290,7 @@ async function updateYtdlpBinary() {
 }
 
 async function checkYtdlpVersion() {
-  const binaryPath = await resolveBundledBinary("yt-dlp");
+  const binaryPath = resolveBundledBinary("yt-dlp");
   let current = "missing";
   let localError = null;
 
@@ -3085,7 +3069,7 @@ async function settleVideoDownloadTask(task, outcome) {
 }
 
 async function runVideoDownloadTask(task) {
-  const ytdlpPath = await resolveBundledBinary("yt-dlp");
+  const ytdlpPath = resolveBundledBinary("yt-dlp");
   if (!ytdlpPath) {
     await settleVideoDownloadTask(task, {
       success: false,

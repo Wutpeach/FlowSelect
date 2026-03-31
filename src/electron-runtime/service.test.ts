@@ -142,6 +142,47 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     expect(completed.some((entry) => entry.traceId === pending.traceId)).toBe(true);
   });
 
+  it("settles an active task after cancellation", async () => {
+    const completed: Array<{ traceId: string; success: boolean; error?: string }> = [];
+    const runtime = createRuntime({
+      maxConcurrent: 1,
+      providers: [genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context): Promise<never> => (
+          await new Promise<never>((_resolve, reject) => {
+            if (context.abortSignal.aborted) {
+              reject(new Error("active task aborted"));
+              return;
+            }
+            context.abortSignal.addEventListener(
+              "abort",
+              () => reject(new Error("active task aborted")),
+              { once: true },
+            );
+          })
+        )),
+      ],
+      onEmit(event, payload) {
+        if (event === "video-download-complete") {
+          completed.push(payload as { traceId: string; success: boolean; error?: string });
+        }
+      },
+    });
+
+    const active = await runtime.queueVideoDownload({ url: "https://example.com/active" });
+    await waitFor(() => runtime.getQueueState().activeCount === 1);
+
+    const cancelled = await runtime.cancelDownload(active.traceId);
+
+    expect(cancelled).toBe(true);
+    await waitFor(() => completed.some((entry) => entry.traceId === active.traceId));
+    expect(completed.some((entry) => entry.traceId === active.traceId)).toBe(true);
+    expect(completed.find((entry) => entry.traceId === active.traceId)).toMatchObject({
+      success: false,
+    });
+    await waitFor(() => runtime.getQueueState().totalCount === 0);
+  });
+
   it("prefers gallery-dl for a Pinterest page without a verified direct asset", async () => {
     const routes: string[] = [];
     const runtime = createRuntime({

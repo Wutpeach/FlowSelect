@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "binaries": {
+    "yt-dlp:x86_64-pc-windows-msvc": {
+      "toolId": "yt-dlp",
+      "target": "x86_64-pc-windows-msvc",
+      "path": "D:\\FlowSelect\\desktop-assets\\binaries\\yt-dlp-x86_64-pc-windows-msvc.exe",
+      "outputName": "yt-dlp-x86_64-pc-windows-msvc.exe",
+      "source": "official-upstream",
+      "releaseRepo": "yt-dlp/yt-dlp",
+      "releaseTag": "2026.03.17",
+      "releaseName": "yt-dlp 2026.03.17",
+      "releaseUrl": "https://github.com/yt-dlp/yt-dlp/releases/tag/2026.03.17",
+      "assetName": "yt-dlp.exe",
+      "assetUrl": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.03.17/yt-dlp.exe",
+      "assetDigest": "sha256:3db811b366b2da47337d2fcfdfe5bbd9a258dad3f350c54974f005df115a1545",
+      "downloadedAt": "2026-03-31T07:15:29.460Z"
+    },
+    "gallery-dl:x86_64-pc-windows-msvc": {
+      "toolId": "gallery-dl",
+      "target": "x86_64-pc-windows-msvc",
+      "path": "D:\\FlowSelect\\desktop-assets\\binaries\\gallery-dl-x86_64-pc-windows-msvc.exe",
+      "outputName": "gallery-dl-x86_64-pc-windows-msvc.exe",
+      "source": "official-upstream",
+      "releaseRepo": "gdl-org/builds",
+      "releaseTag": "2026.03.30",
+      "releaseName": "2026.03.30",
+      "releaseUrl": "https://github.com/gdl-org/builds/releases/tag/2026.03.30",
+      "assetName": "gallery-dl_windows.exe",
+      "assetUrl": "https://github.com/gdl-org/builds/releases/download/2026.03.30/gallery-dl_windows.exe",
+      "assetDigest": "sha256:e8ea5d324d073d9a844a4e5c57a6c203bb75137548081194888834e6a94b22ec",
+      "downloadedAt": "2026-03-31T07:15:35.805Z"
+    }
+  }
+}

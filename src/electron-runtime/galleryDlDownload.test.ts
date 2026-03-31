@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
-const { readdirMock, runStreamingCommandMock } = vi.hoisted(() => ({
+const { readdirMock, unlinkMock, runStreamingCommandMock } = vi.hoisted(() => ({
   readdirMock: vi.fn(),
+  unlinkMock: vi.fn(async () => undefined),
   runStreamingCommandMock: vi.fn(),
 }));
 
 vi.mock("node:fs", () => ({
   promises: {
     readdir: readdirMock,
+    unlink: unlinkMock,
   },
 }));
 
@@ -63,7 +65,9 @@ describe("runGalleryDlDownload", () => {
   });
 
   it("surfaces the tail of gallery-dl stderr when the command fails", async () => {
-    readdirMock.mockResolvedValue([]);
+    readdirMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(["pin.mp4.part", "pin.mp4.txt"]);
     runStreamingCommandMock.mockImplementation(async (_command, _args, options) => {
       await options.onStdoutLine?.("[gallery-dl][info] collecting pin metadata");
       await options.onStderrLine?.("HTTP Error 403: Forbidden");
@@ -94,5 +98,7 @@ describe("runGalleryDlDownload", () => {
       name: "DownloadRuntimeError",
       message: "gallery-dl exited with code 4: HTTP Error 403: Forbidden",
     } satisfies Partial<DownloadRuntimeError>);
+    expect(unlinkMock).toHaveBeenCalledWith("D:\\downloads\\pin.mp4.part");
+    expect(unlinkMock).toHaveBeenCalledWith("D:\\downloads\\pin.mp4.txt");
   });
 });

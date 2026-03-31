@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { access } from "node:fs/promises";
@@ -17,6 +17,18 @@ const compiledEntries = [
   path.join(repoRoot, "dist-electron", "electron", "main.mjs"),
   path.join(repoRoot, "dist-electron", "electron", "preload.mjs"),
 ];
+
+const runBlocking = (label, command, args, env = process.env) => {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    env,
+    stdio: "inherit",
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`[${label}] exited with code ${result.status ?? 1}`);
+  }
+};
 
 const spawnChild = (label, command, args, env = process.env) => {
   const child = spawn(command, args, {
@@ -102,6 +114,12 @@ process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
 const start = async () => {
+  runBlocking(
+    "tsc-initial",
+    process.execPath,
+    [tscBin, "-p", "tsconfig.electron.json"],
+  );
+
   const tsc = spawnChild(
     "tsc",
     process.execPath,

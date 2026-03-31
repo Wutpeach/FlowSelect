@@ -746,6 +746,7 @@ function App({
   const runtimeSuccessTimerRef = useRef<number | null>(null);
   const runtimeBootstrapAfterVisibleTimerRef = useRef<number | null>(null);
   const startupAutoMinimizeReleaseTimerRef = useRef<number | null>(null);
+  const foregroundTaskOutcomeTimerRef = useRef<number | null>(null);
   const panelTransitionModeResetFrameRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
   const isDraggingRef = useRef(false);
@@ -764,6 +765,7 @@ function App({
   const windowResizedRef = useRef(windowResized);
   const isInitialMountRef = useRef(isInitialMount);
   const isUiLabPreviewActiveRef = useRef(isUiLabPreviewActive);
+  const shouldReturnToCompactAfterForegroundTaskRef = useRef(false);
   const previousTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
@@ -862,10 +864,19 @@ function App({
   const isMainWindowModeLockedRef = useRef(isMainWindowModeLocked);
   const previousMainWindowModeLockedRef = useRef(isMainWindowModeLocked);
 
+  const clearForegroundTaskOutcomeTimer = useCallback(() => {
+    if (foregroundTaskOutcomeTimerRef.current !== null) {
+      clearTimeout(foregroundTaskOutcomeTimerRef.current);
+      foregroundTaskOutcomeTimerRef.current = null;
+    }
+  }, []);
+
   const resetDownloadOutcome = useCallback(() => {
+    clearForegroundTaskOutcomeTimer();
+    setIsProcessing(false);
     setDownloadCancelled(false);
     setDownloadErrorMessage(null);
-  }, []);
+  }, [clearForegroundTaskOutcomeTimer]);
 
   useEffect(() => {
     isMinimizedRef.current = isMinimized;
@@ -1144,11 +1155,31 @@ function App({
       return;
     }
 
+    shouldReturnToCompactAfterForegroundTaskRef.current = true;
     await ensureMainWindowFullMode({
       armIdleAfter: false,
       focusContainer: false,
     });
   }, [clearWindowIdleTimers, ensureMainWindowFullMode]);
+
+  const showForegroundTaskOutcome = useCallback(({
+    cancelled,
+    error,
+    durationMs,
+  }: {
+    cancelled: boolean;
+    error: string | null;
+    durationMs: number;
+  }) => {
+    clearForegroundTaskOutcomeTimer();
+    setDownloadCancelled(cancelled);
+    setDownloadErrorMessage(cancelled ? error : null);
+    setIsProcessing(true);
+    foregroundTaskOutcomeTimerRef.current = window.setTimeout(() => {
+      foregroundTaskOutcomeTimerRef.current = null;
+      setIsProcessing(false);
+    }, durationMs);
+  }, [clearForegroundTaskOutcomeTimer]);
 
   const startForegroundProcessing = useCallback(async () => {
     await prepareMainWindowForForegroundTask();
@@ -1770,12 +1801,13 @@ function App({
         const success = Boolean(payload?.success) && !cancelled;
         const errorSummary = summarizeDownloadError(payload?.error);
 
-        setDownloadCancelled(!success);
-        setDownloadErrorMessage(success ? null : errorSummary);
+        showForegroundTaskOutcome({
+          cancelled: !success,
+          error: success ? null : errorSummary,
+          durationMs: 1500,
+        });
         if (!success) {
           console.error(">>> [Frontend] Video download failed:", payload?.error ?? "Unknown error");
-          setIsProcessing(true);
-          setTimeout(() => setIsProcessing(false), 1500);
         }
       }
     );
@@ -1786,6 +1818,7 @@ function App({
   }, [
     prepareMainWindowForForegroundTask,
     removeCancellingTraceId,
+    showForegroundTaskOutcome,
   ]);
 
   // Listen for output path changes from settings window
@@ -1805,6 +1838,10 @@ function App({
       unlisten.then((fn) => fn());
     };
   }, [updateContextMenuOpen]);
+
+  useEffect(() => () => {
+    clearForegroundTaskOutcomeTimer();
+  }, [clearForegroundTaskOutcomeTimer]);
 
   // Listen for devMode changes from settings window
   useEffect(() => {
@@ -2079,10 +2116,11 @@ function App({
         delete next[normalized.traceId];
         return next;
       });
-      setDownloadCancelled(true);
-      setDownloadErrorMessage(normalized.error ?? getTranscodeStageLabel("failed"));
-      setIsProcessing(true);
-      setTimeout(() => setIsProcessing(false), 1800);
+      showForegroundTaskOutcome({
+        cancelled: true,
+        error: normalized.error ?? getTranscodeStageLabel("failed"),
+        durationMs: 1800,
+      });
       showQueueNotice(t("app.queue.transcodeFailedNotice"));
     });
 
@@ -2100,10 +2138,11 @@ function App({
         delete next[payload.traceId];
         return next;
       });
-      setDownloadCancelled(false);
-      setDownloadErrorMessage(null);
-      setIsProcessing(true);
-      setTimeout(() => setIsProcessing(false), 1400);
+      showForegroundTaskOutcome({
+        cancelled: false,
+        error: null,
+        durationMs: 1400,
+      });
       showQueueNotice(t("app.queue.transcodeCompleted"));
     });
 
@@ -2120,6 +2159,7 @@ function App({
   }, [
     prepareMainWindowForForegroundTask,
     removePendingTranscodeActionTraceId,
+    showForegroundTaskOutcome,
     showQueueNotice,
     t,
   ]);
@@ -2172,6 +2212,30 @@ function App({
 
     armIdleTimer();
   }, [armIdleTimer, expandWindow, isMinimized]);
+
+  useEffect(() => {
+    if (hasOngoingTask || isProcessing || !shouldReturnToCompactAfterForegroundTaskRef.current) {
+      return;
+    }
+
+    if (isMinimizedRef.current && windowResizedRef.current) {
+      shouldReturnToCompactAfterForegroundTaskRef.current = false;
+      return;
+    }
+
+    const collapsed = collapseMainWindowToIcon();
+    if (collapsed) {
+      shouldReturnToCompactAfterForegroundTaskRef.current = false;
+      return;
+    }
+
+    resetIdleTimer({ expandIfMinimized: false });
+  }, [
+    collapseMainWindowToIcon,
+    hasOngoingTask,
+    isProcessing,
+    resetIdleTimer,
+  ]);
 
   useEffect(() => {
     if (startupAutoMinimizeGraceMs <= 0) {
