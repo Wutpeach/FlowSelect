@@ -42,8 +42,17 @@ const missingComponentsFrom = (
   return missing;
 };
 
-const hasBundledFailure = (snapshot: RuntimeDependencyStatusSnapshot): boolean =>
-  snapshot.ytDlp.state !== "ready";
+const bundledFailureErrorFrom = (
+  snapshot: RuntimeDependencyStatusSnapshot,
+): string | null => {
+  if (snapshot.ytDlp.state !== "ready") {
+    return snapshot.ytDlp.error ?? "Missing bundled yt-dlp runtime";
+  }
+  if (snapshot.galleryDl.state !== "ready") {
+    return snapshot.galleryDl.error ?? "Missing bundled gallery-dl runtime";
+  }
+  return null;
+};
 
 export const createRuntimeDependencyResolver = (
   initialSnapshot: RuntimeDependencyStatusSnapshot,
@@ -55,11 +64,12 @@ export const createRuntimeDependencyResolver = (
 
   const syncGateState = (snapshot: RuntimeDependencyStatusSnapshot): RuntimeDependencyGateStatePayload => {
     const missingManaged = missingComponentsFrom(snapshot);
-    if (hasBundledFailure(snapshot)) {
+    const bundledFailureError = bundledFailureErrorFrom(snapshot);
+    if (bundledFailureError) {
       gateState = createGatePayload(
         "failed",
         missingManaged,
-        snapshot.ytDlp.error ?? "Missing bundled yt-dlp runtime",
+        bundledFailureError,
       );
       return gateState;
     }

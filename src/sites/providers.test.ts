@@ -117,7 +117,7 @@ describe("builtin site providers", () => {
     expect(intent.selectionScope).toBe("current_item");
   });
 
-  it("prefers direct then gallery-dl then yt-dlp for Pinterest direct-hint plans", () => {
+  it("prefers direct then gallery-dl for Pinterest direct-hint plans", () => {
     const plan = resolvePlan({
       url: "https://www.pinterest.com/pin/1234567890/",
       pageUrl: "https://www.pinterest.com/pin/1234567890/",
@@ -134,7 +134,7 @@ describe("builtin site providers", () => {
     const intent = expectVideoIntent(plan.intent);
 
     expect(plan.providerId).toBe("pinterest");
-    expect(plan.engines.map((engine) => engine.engine)).toEqual(["direct", "gallery-dl", "yt-dlp"]);
+    expect(plan.engines.map((engine) => engine.engine)).toEqual(["direct", "gallery-dl"]);
     expect(intent.candidates).toEqual([
       {
         url: "https://v1.pinimg.com/videos/iht/expmp4/example.mp4",

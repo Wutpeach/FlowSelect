@@ -5,6 +5,7 @@ import { runStreamingCommand } from "./processRunner.js";
 import { parseYtDlpProgressLine } from "./ytDlpProgress.js";
 import { summarizeError } from "./runtimeUtils.js";
 import type { DownloadResultPayload } from "../types/videoRuntime.js";
+import { cleanupCookiesFile, writeCookiesFile } from "./sidecarCookies.js";
 
 const isYouTubeUrl = (value: string): boolean =>
   value.includes("youtube.com/") || value.includes("youtu.be/");
@@ -96,18 +97,6 @@ const resolveYtdlpFormatProfile = (
         mergeOutputFormat: "mkv",
       };
   }
-};
-
-const writeCookiesFile = async (
-  traceId: string,
-  cookies: string | undefined,
-): Promise<string | null> => {
-  if (!cookies?.trim()) {
-    return null;
-  }
-  const target = path.join(process.env.TEMP ?? process.cwd(), `${traceId}-cookies.txt`);
-  await fs.writeFile(target, cookies, "utf8");
-  return target;
 };
 
 const readReportedPath = async (reportPath: string): Promise<string | null> => {
@@ -237,9 +226,7 @@ export const runYtDlpDownload = async (
   } catch (error) {
     throw new Error(summarizeError(error));
   } finally {
-    if (cookiesPath) {
-      await fs.unlink(cookiesPath).catch(() => undefined);
-    }
+    await cleanupCookiesFile(cookiesPath);
     await fs.unlink(reportPath).catch(() => undefined);
   }
 };

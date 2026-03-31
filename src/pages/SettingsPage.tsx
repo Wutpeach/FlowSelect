@@ -50,6 +50,7 @@ import {
 } from "../i18n/contract";
 import { normalizeAppLanguage } from "../i18n/language";
 import {
+  getMissingRuntimeComponentsFromStatus,
   getRuntimeGateHeadline,
   getRuntimeGateNextLabel,
   getRuntimeGateProgressLabel,
@@ -384,7 +385,9 @@ function SettingsPage() {
         return colors.textSecondary;
     }
   })();
-  const runtimeMissingComponents = runtimeDependencyGateState?.missingComponents ?? [];
+  const runtimeMissingComponents = runtimeDependencyGateState?.missingComponents.length
+    ? runtimeDependencyGateState.missingComponents
+    : getMissingRuntimeComponentsFromStatus(runtimeDependencyStatus);
   const runtimeSummaryMessage = (() => {
     if (!runtimeDependencyStatus) {
       return t("desktop:settings.downloaders.runtime.unavailable");

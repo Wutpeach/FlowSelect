@@ -3277,8 +3277,8 @@ async function enqueueElectronVideoDownload(payload) {
     pageUrl: normalizeVideoPageUrl(payload?.pageUrl),
     videoUrl: normalizeVideoHintUrl(payload?.videoUrl, siteHint),
     videoCandidates: normalizeVideoCandidates(payload?.videoCandidates, siteHint),
-    title: normalizeOptionalString(payload?.title),
-    cookies: normalizeOptionalString(payload?.cookies),
+    title: normalizeOptionalString(payload?.title) ?? undefined,
+    cookies: normalizeOptionalString(payload?.cookies) ?? undefined,
     selectionScope:
       payload?.selectionScope === "current_item" || payload?.selectionScope === "playlist"
         ? payload.selectionScope

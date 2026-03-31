@@ -4,9 +4,35 @@ import { DownloadRuntimeError, type EngineExecutionContext } from "../core/index
 import type { DownloadResultPayload } from "../types/videoRuntime.js";
 import { runStreamingCommand } from "./processRunner.js";
 import { summarizeError } from "./runtimeUtils.js";
+import { cleanupCookiesFile, writeCookiesFile } from "./sidecarCookies.js";
 
 const isGallerySidecar = (entryPath: string, outputStem: string): boolean =>
   entryPath.startsWith(outputStem) && /\.(json|txt|part)$/i.test(entryPath);
+
+const GALLERY_DL_LINE_TAIL_LIMIT = 20;
+
+const pushTailLine = (target: string[], line: string): void => {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return;
+  }
+  target.push(trimmed);
+  if (target.length > GALLERY_DL_LINE_TAIL_LIMIT) {
+    target.shift();
+  }
+};
+
+const summarizeGalleryDlFailure = (
+  exitCode: number,
+  stderrLines: string[],
+  stdoutLines: string[],
+): string => {
+  const detail = stderrLines[stderrLines.length - 1] ?? stdoutLines[stdoutLines.length - 1] ?? "";
+  if (!detail) {
+    return `gallery-dl exited with code ${exitCode}`;
+  }
+  return `gallery-dl exited with code ${exitCode}: ${detail}`;
+};
 
 export const runGalleryDlDownload = async (
   context: EngineExecutionContext,
@@ -57,10 +83,19 @@ export const runGalleryDlDownload = async (
     eta: "",
   });
 
+  let cookiesPath: string | null = null;
   try {
+    const stdoutLines: string[] = [];
+    const stderrLines: string[] = [];
+    cookiesPath = await writeCookiesFile(context.traceId, context.intent.cookies);
+    if (cookiesPath) {
+      args.unshift(cookiesPath);
+      args.unshift("--cookies");
+    }
     const exitCode = await runStreamingCommand(context.binaries.galleryDl, args, {
       signal: context.abortSignal,
       onStdoutLine: async (line: string) => {
+        pushTailLine(stdoutLines, line);
         if (!line.trim()) {
           return;
         }
@@ -72,14 +107,21 @@ export const runGalleryDlDownload = async (
           eta: "",
         });
       },
+      onStderrLine: (line: string) => {
+        pushTailLine(stderrLines, line);
+      },
     });
 
     if (exitCode !== 0) {
       throw new DownloadRuntimeError(
         "E_EXECUTION_FAILED",
-        `gallery-dl exited with code ${exitCode}`,
+        summarizeGalleryDlFailure(exitCode, stderrLines, stdoutLines),
         {
-          context: { sourceUrl },
+          context: {
+            sourceUrl,
+            stderrTail: stderrLines,
+            stdoutTail: stdoutLines,
+          },
         },
       );
     }
@@ -116,5 +158,7 @@ export const runGalleryDlDownload = async (
         cause: error,
       },
     );
+  } finally {
+    await cleanupCookiesFile(cookiesPath);
   }
 };

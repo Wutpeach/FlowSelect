@@ -69,29 +69,13 @@ export const pinterestProvider: SiteProvider = {
               sourceUrl: input.pageUrl ?? input.url,
               fallbackOn: "any",
             },
-            {
-              engine: "yt-dlp",
-              priority: 60,
-              when: "fallback",
-              reason: "Fallback to yt-dlp when gallery-dl cannot resolve the pin",
-              sourceUrl: input.pageUrl ?? input.url,
-              fallbackOn: "any",
-            },
           ]
         : [
             {
               engine: "gallery-dl",
               priority: 100,
               when: "primary",
-              reason: "Pinterest is primarily handled by gallery-dl",
-              sourceUrl: input.pageUrl ?? input.url,
-              fallbackOn: "any",
-            },
-            {
-              engine: "yt-dlp",
-              priority: 60,
-              when: "fallback",
-              reason: "Fallback to yt-dlp for Pinterest edge cases",
+              reason: "Pinterest resources are handled by gallery-dl",
               sourceUrl: input.pageUrl ?? input.url,
               fallbackOn: "any",
             },

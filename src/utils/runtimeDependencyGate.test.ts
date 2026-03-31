@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RuntimeDependencyStatusSnapshot } from "../types/runtimeDependencies";
 import {
+  getMissingRuntimeComponentsFromStatus,
   getRuntimeGateHeadline,
   hasMissingManagedRuntimeComponents,
   shouldAutoStartManagedRuntimeBootstrapOnStartup,
@@ -47,6 +48,22 @@ describe("hasMissingManagedRuntimeComponents", () => {
     expect(hasMissingManagedRuntimeComponents(createStatus({
       deno: missingEntry,
     }))).toBe(true);
+  });
+});
+
+describe("getMissingRuntimeComponentsFromStatus", () => {
+  it("includes missing bundled and managed runtimes in user-facing order", () => {
+    expect(getMissingRuntimeComponentsFromStatus(createStatus({
+      ytDlp: missingEntry,
+      galleryDl: missingEntry,
+      ffmpeg: missingEntry,
+      deno: missingEntry,
+    }))).toEqual(["yt-dlp", "gallery-dl", "ffmpeg", "deno"]);
+  });
+
+  it("returns an empty list when status is unavailable or all runtimes are ready", () => {
+    expect(getMissingRuntimeComponentsFromStatus(null)).toEqual([]);
+    expect(getMissingRuntimeComponentsFromStatus(createStatus())).toEqual([]);
   });
 });
 

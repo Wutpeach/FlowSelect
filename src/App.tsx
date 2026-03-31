@@ -68,6 +68,7 @@ import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
 import i18n from "./i18n";
 import {
+  getMissingRuntimeComponentsFromStatus,
   clampRuntimeGateProgressPercent,
   getRuntimeGateHeadline,
   getRuntimeGateNextLabel,
@@ -276,24 +277,14 @@ type QueuedVideoDownloadRequest = {
   dragDiagnostic?: PinterestDragDiagnostic;
 };
 
-const getMissingRuntimeComponentsFromStatus = (
-  status: RuntimeDependencyStatusSnapshot | null,
-): string[] => {
-  if (!status) {
-    return [];
-  }
-
-  const missingComponents: string[] = [];
-  if (status.ytDlp.state !== "ready") {
-    missingComponents.push("yt-dlp");
-  }
-  if (status.ffmpeg.state !== "ready") {
-    missingComponents.push("ffmpeg");
-  }
-  if (status.deno.state !== "ready") {
-    missingComponents.push("deno");
-  }
-  return missingComponents;
+const isPinterestDownloadRequest = (request: QueuedVideoDownloadRequest): boolean => {
+  const pinterestUrlPattern = /(?:pinterest\.|pinimg\.com\/videos\/)/i;
+  return (
+    request.siteHint === "pinterest"
+    || pinterestUrlPattern.test(request.url)
+    || pinterestUrlPattern.test(request.pageUrl ?? "")
+    || pinterestUrlPattern.test(request.videoUrl ?? "")
+  );
 };
 
 const runtimeGatePhaseNeedsAttention = (phase: RuntimeDependencyGatePhase): boolean => (
@@ -1146,18 +1137,35 @@ function App({
     windowResized,
   ]);
 
+  const prepareMainWindowForForegroundTask = useCallback(async () => {
+    clearWindowIdleTimers();
+
+    if (!isMinimizedRef.current && !windowResizedRef.current) {
+      return;
+    }
+
+    await ensureMainWindowFullMode({
+      armIdleAfter: false,
+      focusContainer: false,
+    });
+  }, [clearWindowIdleTimers, ensureMainWindowFullMode]);
+
+  const startForegroundProcessing = useCallback(async () => {
+    await prepareMainWindowForForegroundTask();
+    setIsProcessing(true);
+  }, [prepareMainWindowForForegroundTask]);
+
   useEffect(() => {
     if (!hasOngoingTask) {
       return;
     }
 
-    clearWindowIdleTimers();
     if (isMinimized || windowResized) {
-      void expandWindow();
+      void prepareMainWindowForForegroundTask();
       return;
     }
     setIsMinimized(false);
-  }, [clearWindowIdleTimers, expandWindow, hasOngoingTask, isMinimized, windowResized]);
+  }, [hasOngoingTask, isMinimized, prepareMainWindowForForegroundTask, windowResized]);
 
   // Shrink window after minimize animation completes
   const handleAnimationComplete = async () => {
@@ -1486,22 +1494,30 @@ function App({
     return { status, gate };
   }, [refreshRuntimeDependencyGateState, refreshRuntimeDependencyStatus]);
 
-  const enqueueVideoDownload = useCallback((request: string | QueuedVideoDownloadRequest) => {
-    clearWindowIdleTimers();
-    if (isMinimized || windowResized) {
-      void expandWindow();
-    } else {
-      setIsMinimized(false);
-    }
+  const enqueueVideoDownload = useCallback(async (request: string | QueuedVideoDownloadRequest) => {
+    await prepareMainWindowForForegroundTask();
     resetDownloadOutcome();
     const payload = typeof request === "string" ? { url: request } : request;
+    if (isPinterestDownloadRequest(payload) && runtimeDependencyStatus?.galleryDl.state !== "ready") {
+      const missingGalleryDlMessage = summarizeDownloadError(
+        runtimeDependencyStatus?.galleryDl.error ?? "Missing bundled gallery-dl runtime",
+      ) ?? "Missing bundled gallery-dl runtime";
+      console.error("Cannot queue Pinterest download because gallery-dl is unavailable:", missingGalleryDlMessage);
+      setDownloadCancelled(true);
+      setDownloadErrorMessage(missingGalleryDlMessage);
+      return;
+    }
     void desktopCommands.invoke<QueuedVideoDownloadAck>("queue_video_download", payload).catch((err) => {
       console.error("Failed to queue video download:", err);
       checkSequenceOverflow(err);
       setDownloadCancelled(true);
       setDownloadErrorMessage(summarizeDownloadError(String(err)));
     });
-  }, [clearWindowIdleTimers, expandWindow, isMinimized, resetDownloadOutcome, windowResized]);
+  }, [
+    prepareMainWindowForForegroundTask,
+    resetDownloadOutcome,
+    runtimeDependencyStatus,
+  ]);
 
   const cancelVideoTask = useCallback(async (
     traceId: string,
@@ -1720,9 +1736,7 @@ function App({
       "video-download-progress",
       async (event) => {
         const payload = event.payload;
-        clearWindowIdleTimers();
-        // Set progress immediately (sync) before async operations
-        setIsMinimized(false);
+        await prepareMainWindowForForegroundTask();
         setDownloadProgressByTrace((current) => {
           const previous = current[payload.traceId];
           const nextStage = advanceDownloadStage(previous?.stage ?? null, payload.stage, payload.percent);
@@ -1735,17 +1749,6 @@ function App({
           };
         });
         setDownloadErrorMessage(null);
-        // 直接恢复窗口大小（避免闭包问题）
-        if (!isMacOS) {
-          try {
-            await resizeMainWindowPreservingPosition(FULL_SIZE, FULL_SIZE);
-            setWindowResized(false);
-          } catch (err) {
-            console.error('Failed to expand window for download:', err);
-          }
-        } else {
-          setWindowResized(false);
-        }
       }
     );
     const unlistenComplete = desktopEvents.on<DownloadResult>(
@@ -1781,10 +1784,8 @@ function App({
       unlistenComplete.then(fn => fn());
     };
   }, [
-    clearWindowIdleTimers,
-    isMacOS,
+    prepareMainWindowForForegroundTask,
     removeCancellingTraceId,
-    resizeMainWindowPreservingPosition,
   ]);
 
   // Listen for output path changes from settings window
@@ -1999,9 +2000,7 @@ function App({
         return;
       }
 
-      clearWindowIdleTimers();
-
-      setIsMinimized(false);
+      await prepareMainWindowForForegroundTask();
       setTranscodeProgressByTrace((current) => ({
         ...current,
         [normalized.traceId]: {
@@ -2016,17 +2015,6 @@ function App({
         }),
       }));
       setDownloadErrorMessage(null);
-
-      if (!isMacOS) {
-        try {
-          await resizeMainWindowPreservingPosition(FULL_SIZE, FULL_SIZE);
-          setWindowResized(false);
-        } catch (err) {
-          console.error("Failed to expand window for transcode:", err);
-        }
-      } else {
-        setWindowResized(false);
-      }
     });
 
     const unlistenQueued = desktopEvents.on<VideoTranscodeTaskPayload>("video-transcode-queued", (event) => {
@@ -2130,10 +2118,8 @@ function App({
       unlistenComplete.then((fn) => fn());
     };
   }, [
-    clearWindowIdleTimers,
-    isMacOS,
+    prepareMainWindowForForegroundTask,
     removePendingTranscodeActionTraceId,
-    resizeMainWindowPreservingPosition,
     showQueueNotice,
     t,
   ]);
@@ -2613,7 +2599,7 @@ function App({
     if (text && isVideoUrl(text)) {
       console.log("Pasted video URL:", text);
       resetDownloadOutcome();
-      enqueueVideoDownload(text);
+      await enqueueVideoDownload(text);
       return;
     }
 
@@ -2621,7 +2607,7 @@ function App({
     if (text && isImageUrl(text)) {
       console.log("Pasted image URL:", text);
       resetDownloadOutcome();
-      setIsProcessing(true);
+      await startForegroundProcessing();
       try {
         // Distinguish between Data URL and HTTP URL
         if (text.startsWith("data:image/")) {
@@ -2653,7 +2639,7 @@ function App({
         pastedImageFile.name || "<unnamed>",
       );
       resetDownloadOutcome();
-      setIsProcessing(true);
+      await startForegroundProcessing();
 
       try {
         const dataUrl = await fileToDataUrl(pastedImageFile);
@@ -2678,7 +2664,7 @@ function App({
     if (pastedHtmlImageUrl) {
       console.log("Detected clipboard image from HTML payload:", pastedHtmlImageUrl);
       resetDownloadOutcome();
-      setIsProcessing(true);
+      await startForegroundProcessing();
 
       try {
         if (pastedHtmlImageUrl.startsWith("data:image/")) {
@@ -2709,7 +2695,7 @@ function App({
       if (clipboardImageDataUrl) {
         console.log("Detected clipboard image, saving to output folder");
         resetDownloadOutcome();
-        setIsProcessing(true);
+        await startForegroundProcessing();
 
         try {
           const result = await desktopCommands.invoke<string>("save_data_url", {
@@ -2736,7 +2722,7 @@ function App({
       if (paths && paths.length > 0) {
         console.log("Clipboard files from backend:", paths);
         resetDownloadOutcome();
-        setIsProcessing(true);
+        await startForegroundProcessing();
 
         try {
           await desktopCommands.invoke("process_files", {
@@ -2817,7 +2803,7 @@ function App({
         setDownloadErrorMessage(t("app.drop.errors.saveFailed"));
       }
 
-      setIsProcessing(true);
+      await startForegroundProcessing();
       setTimeout(() => setIsProcessing(false), 1000);
       return;
     }
@@ -2828,7 +2814,7 @@ function App({
       setDownloadErrorMessage(
         t(getDroppedFolderErrorTranslationKey(droppedFolderResult.reason)),
       );
-      setIsProcessing(true);
+      await startForegroundProcessing();
       setTimeout(() => setIsProcessing(false), 1000);
       return;
     }
@@ -2870,7 +2856,7 @@ function App({
       const localPath = parseLocalFileUrl(url) ?? decodeURIComponent(url.replace("file:///", ""));
       console.log("Detected local file URL:", localPath);
       resetDownloadOutcome();
-      setIsProcessing(true);
+      await startForegroundProcessing();
 
       try {
         const copyResult = await desktopCommands.invoke<string>("process_files", {
@@ -2909,7 +2895,7 @@ function App({
         if (imageUrl) {
           console.log("Detected Pinterest image pin, downloading extracted image:", imageUrl);
           resetDownloadOutcome();
-          setIsProcessing(true);
+          await startForegroundProcessing();
           try {
             await desktopCommands.invoke<string>("download_image", {
               url: imageUrl,
@@ -2938,7 +2924,7 @@ function App({
         topVideoCandidates: mergedVideoCandidates.slice(0, 4),
       });
       resetDownloadOutcome();
-      enqueueVideoDownload({
+      await enqueueVideoDownload({
         url,
         pageUrl: embeddedPinterestDragPayload?.pageUrl ?? url,
         videoUrl: mergedVideoUrl,
@@ -2958,7 +2944,7 @@ function App({
     if (url && isVideoUrl(url)) {
       console.log("Detected video URL:", url);
       resetDownloadOutcome();
-      enqueueVideoDownload(url);
+      await enqueueVideoDownload(url);
       return;
     }
 
@@ -2973,7 +2959,7 @@ function App({
         console.log("Detected image URL:", resolvedImageUrl);
       }
       resetDownloadOutcome();
-      setIsProcessing(true);
+      await startForegroundProcessing();
 
       try {
         const protectedImageFallback =
@@ -3058,7 +3044,7 @@ function App({
     if (e.dataTransfer.files.length > 0) {
       console.log("URL not recognized, trying dataTransfer.files...");
       resetDownloadOutcome();
-      setIsProcessing(true);
+      await startForegroundProcessing();
 
       // 收集所有文件路径
       const filePaths: string[] = [];

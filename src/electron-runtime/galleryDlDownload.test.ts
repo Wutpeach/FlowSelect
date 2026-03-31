@@ -1,0 +1,98 @@
+import { describe, expect, it, vi } from "vitest";
+
+const { readdirMock, runStreamingCommandMock } = vi.hoisted(() => ({
+  readdirMock: vi.fn(),
+  runStreamingCommandMock: vi.fn(),
+}));
+
+vi.mock("node:fs", () => ({
+  promises: {
+    readdir: readdirMock,
+  },
+}));
+
+vi.mock("./processRunner.js", () => ({
+  runStreamingCommand: runStreamingCommandMock,
+}));
+
+vi.mock("./sidecarCookies.js", () => ({
+  writeCookiesFile: vi.fn(async (traceId: string, cookies: string | undefined) => (
+    cookies?.trim() ? `C:/temp/${traceId}-cookies.txt` : null
+  )),
+  cleanupCookiesFile: vi.fn(async () => undefined),
+}));
+
+import { DownloadRuntimeError } from "../core/index.js";
+import { runGalleryDlDownload } from "./galleryDlDownload.js";
+
+describe("runGalleryDlDownload", () => {
+  it("passes extension cookies to gallery-dl through a Netscape cookie file", async () => {
+    readdirMock.mockResolvedValue([]);
+    runStreamingCommandMock.mockImplementation(async (_command, args) => {
+      expect(args).toContain("--cookies");
+      const cookieFlagIndex = args.indexOf("--cookies");
+      expect(cookieFlagIndex).toBeGreaterThanOrEqual(0);
+      expect(String(args[cookieFlagIndex + 1] ?? "")).toMatch(/trace-cookie-cookies\.txt$/);
+      return 0;
+    });
+
+    const context = {
+      traceId: "trace-cookie",
+      outputDir: "D:/downloads",
+      outputStem: "pin",
+      binaries: {
+        galleryDl: "D:/gallery-dl.exe",
+      },
+      enginePlan: {
+        sourceUrl: "https://www.pinterest.com/pin/123/",
+      },
+      intent: {
+        originalUrl: "https://www.pinterest.com/pin/123/",
+        cookies: "# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t0\tsid\tabc",
+      },
+      plan: {
+        providerId: "pinterest",
+      },
+      abortSignal: new AbortController().signal,
+      onProgress: vi.fn(async () => undefined),
+    } as never;
+
+    await expect(runGalleryDlDownload(context)).rejects.toMatchObject({
+      message: "gallery-dl finished without producing an output file",
+    } satisfies Partial<DownloadRuntimeError>);
+  });
+
+  it("surfaces the tail of gallery-dl stderr when the command fails", async () => {
+    readdirMock.mockResolvedValue([]);
+    runStreamingCommandMock.mockImplementation(async (_command, _args, options) => {
+      await options.onStdoutLine?.("[gallery-dl][info] collecting pin metadata");
+      await options.onStderrLine?.("HTTP Error 403: Forbidden");
+      return 4;
+    });
+
+    const context = {
+      traceId: "trace-1",
+      outputDir: "D:/downloads",
+      outputStem: "pin",
+      binaries: {
+        galleryDl: "D:/gallery-dl.exe",
+      },
+      enginePlan: {
+        sourceUrl: "https://www.pinterest.com/pin/123/",
+      },
+      intent: {
+        originalUrl: "https://www.pinterest.com/pin/123/",
+      },
+      plan: {
+        providerId: "pinterest",
+      },
+      abortSignal: new AbortController().signal,
+      onProgress: vi.fn(async () => undefined),
+    } as never;
+
+    await expect(runGalleryDlDownload(context)).rejects.toMatchObject({
+      name: "DownloadRuntimeError",
+      message: "gallery-dl exited with code 4: HTTP Error 403: Forbidden",
+    } satisfies Partial<DownloadRuntimeError>);
+  });
+});

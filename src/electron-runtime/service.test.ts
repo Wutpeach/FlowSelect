@@ -213,8 +213,9 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     expect(routes[0]?.startsWith("direct:")).toBe(true);
   });
 
-  it("falls back from gallery-dl to yt-dlp for Pinterest pages when the primary engine fails", async () => {
+  it("surfaces a Pinterest gallery-dl failure without falling back to yt-dlp", async () => {
     const routes: string[] = [];
+    const completions: Array<{ traceId: string; success: boolean; error?: string }> = [];
     const runtime = createRuntime({
       providers: [pinterestProvider, genericProvider],
       engines: [
@@ -224,6 +225,41 @@ describe("FlowSelectElectronDownloadRuntime", () => {
             traceId: context.traceId,
             success: false,
             error: "gallery failed",
+          };
+        }),
+      ],
+      onEmit(event, payload) {
+        if (event === "video-download-complete") {
+          completions.push(payload as { traceId: string; success: boolean; error?: string });
+        }
+      },
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: "https://www.pinterest.com/pin/1234567890/",
+      siteHint: "pinterest",
+    });
+
+    await waitFor(() => completions.length > 0);
+    expect(routes).toEqual([expect.stringMatching(/^gallery:/)]);
+    expect(completions[0]).toMatchObject({
+      success: false,
+      error: "gallery failed",
+    });
+  });
+
+  it("does not invoke a registered yt-dlp engine for Pinterest fallback plans", async () => {
+    const routes: string[] = [];
+    const runtime = createRuntime({
+      providers: [pinterestProvider, genericProvider],
+      engines: [
+        createEngineStub("gallery-dl", async (context) => {
+          routes.push(`gallery:${context.traceId}`);
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "gallery.mp4",
           };
         }),
         createEngineStub("yt-dlp", async (context) => {
@@ -243,8 +279,7 @@ describe("FlowSelectElectronDownloadRuntime", () => {
       siteHint: "pinterest",
     });
 
-    await waitFor(() => routes.length === 2);
-    expect(routes[0]?.startsWith("gallery:")).toBe(true);
-    expect(routes[1]?.startsWith("yt:")).toBe(true);
+    await waitFor(() => routes.length > 0);
+    expect(routes).toEqual([expect.stringMatching(/^gallery:/)]);
   });
 });

@@ -91,6 +91,18 @@ function capture(command, args, options = {}) {
   return result.stdout.trim();
 }
 
+function pipEnv() {
+  return {
+    ALL_PROXY: "",
+    all_proxy: "",
+    HTTP_PROXY: "",
+    http_proxy: "",
+    HTTPS_PROXY: "",
+    https_proxy: "",
+    PIP_DISABLE_PIP_VERSION_CHECK: "1",
+  };
+}
+
 function ensureDir(entryPath) {
   mkdirSync(entryPath, { recursive: true });
 }
@@ -122,8 +134,9 @@ function main() {
   }
 
   const venvPython = pythonExecutable(venvDir);
-  run(venvPython, ["-m", "pip", "install", "--upgrade", "pip"]);
-  run(venvPython, ["-m", "pip", "install", "gallery-dl", "pyinstaller"]);
+  run(venvPython, ["-m", "pip", "install", "gallery-dl", "pyinstaller"], {
+    env: pipEnv(),
+  });
 
   const entryPoint = capture(venvPython, [
     "-c",

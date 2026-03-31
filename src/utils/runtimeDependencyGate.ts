@@ -30,6 +30,29 @@ export const hasMissingManagedRuntimeComponents = (
   )
 );
 
+export const getMissingRuntimeComponentsFromStatus = (
+  status: RuntimeDependencyStatusSnapshot | null | undefined,
+): string[] => {
+  if (!status) {
+    return [];
+  }
+
+  const missingComponents: string[] = [];
+  if (status.ytDlp.state !== "ready") {
+    missingComponents.push("yt-dlp");
+  }
+  if (status.galleryDl.state !== "ready") {
+    missingComponents.push("gallery-dl");
+  }
+  if (status.ffmpeg.state !== "ready") {
+    missingComponents.push("ffmpeg");
+  }
+  if (status.deno.state !== "ready") {
+    missingComponents.push("deno");
+  }
+  return missingComponents;
+};
+
 export const shouldAutoStartManagedRuntimeBootstrapOnStartup = ({
   isInitialMount,
   hasTriggeredStartupBootstrap,
