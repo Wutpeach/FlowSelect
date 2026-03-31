@@ -7,7 +7,9 @@ import type { ElectronRuntimeEnvironment } from "./contracts";
 
 const tempRoots: string[] = [];
 
-const createEnvironment = (): ElectronRuntimeEnvironment => {
+const createEnvironment = (
+  overrides: Partial<ElectronRuntimeEnvironment> = {},
+): ElectronRuntimeEnvironment => {
   const root = mkdtempSync(path.join(os.tmpdir(), "flowselect-electron-runtime-"));
   tempRoots.push(root);
   return {
@@ -15,6 +17,7 @@ const createEnvironment = (): ElectronRuntimeEnvironment => {
     configDir: path.join(root, "config"),
     platform: "win32",
     arch: "x64",
+    ...overrides,
   };
 };
 
@@ -73,6 +76,44 @@ describe("inspectRuntimeDependencyStatus", () => {
     expect(snapshot.galleryDl.error).toContain("Missing bundled gallery-dl runtime");
     expect(snapshot.ffmpeg.state).toBe("missing");
     expect(snapshot.deno.state).toBe("missing");
+  });
+
+  it("resolves macOS bundled downloader names without Windows extensions", () => {
+    const environment = createEnvironment({
+      platform: "darwin",
+      arch: "arm64",
+    });
+    const binariesDir = path.join(environment.repoRoot, "desktop-assets", "binaries");
+    const ffmpegDir = path.join(
+      environment.configDir,
+      "runtimes",
+      "ffmpeg",
+      "aarch64-apple-darwin",
+    );
+    const denoDir = path.join(
+      environment.configDir,
+      "runtimes",
+      "deno",
+      "aarch64-apple-darwin",
+    );
+    mkdirSync(binariesDir, { recursive: true });
+    mkdirSync(ffmpegDir, { recursive: true });
+    mkdirSync(denoDir, { recursive: true });
+
+    writeFileSync(path.join(binariesDir, "yt-dlp-aarch64-apple-darwin"), "binary");
+    writeFileSync(path.join(binariesDir, "gallery-dl-aarch64-apple-darwin"), "binary");
+    writeFileSync(path.join(ffmpegDir, "ffmpeg"), "binary");
+    writeFileSync(path.join(ffmpegDir, "ffprobe"), "binary");
+    writeFileSync(path.join(denoDir, "deno"), "binary");
+
+    const snapshot = inspectRuntimeDependencyStatus(environment);
+
+    expect(snapshot.ytDlp.state).toBe("ready");
+    expect(snapshot.ytDlp.path).toContain("yt-dlp-aarch64-apple-darwin");
+    expect(snapshot.galleryDl.state).toBe("ready");
+    expect(snapshot.galleryDl.path).toContain("gallery-dl-aarch64-apple-darwin");
+    expect(snapshot.ffmpeg.path).toContain(path.join("ffmpeg", "aarch64-apple-darwin", "ffmpeg"));
+    expect(snapshot.deno.path).toContain(path.join("deno", "aarch64-apple-darwin", "deno"));
   });
 });
 

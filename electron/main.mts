@@ -102,14 +102,8 @@ const CONTEXT_MENU_CLOSED_EVENT = "context-menu-closed";
 const LANGUAGE_CHANGED_EVENT = "language-changed";
 const UI_LAB_RESET_EVENT = "ui-lab-reset";
 const YTDLP_LATEST_CACHE_FILE_NAME = "ytdlp-latest.json";
-const YTDLP_LATEST_RELEASE_API =
-  "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest";
+const GALLERY_DL_LATEST_CACHE_FILE_NAME = "gallery-dl-latest.json";
 const YTDLP_LATEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const YTDLP_WINDOWS_DOWNLOAD_URL =
-  "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
-const YTDLP_MACOS_DOWNLOAD_URL =
-  "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos";
-const GALLERY_DL_RELEASES_URL = "https://github.com/gdl-org/builds/releases";
 const LOG_DIR_NAME = "logs";
 const VIDEO_QUEUE_MAX_CONCURRENT = 3;
 const SETTINGS_WINDOW_WIDTH = 320;
@@ -156,6 +150,24 @@ const RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
 const WINDOW_STARTUP_CAPTURE_DELAY_MS = 180;
 const STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS = 1_500;
+const OFFICIAL_DOWNLOADER_RELEASES = {
+  "yt-dlp": {
+    latestCacheFileName: YTDLP_LATEST_CACHE_FILE_NAME,
+    releaseApi: "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
+    assetNameByPlatform: {
+      win32: "yt-dlp.exe",
+      darwin: "yt-dlp_macos",
+    },
+  },
+  "gallery-dl": {
+    latestCacheFileName: GALLERY_DL_LATEST_CACHE_FILE_NAME,
+    releaseApi: "https://api.github.com/repos/gdl-org/builds/releases/latest",
+    assetNameByPlatform: {
+      win32: "gallery-dl_windows.exe",
+      darwin: "gallery-dl_macos",
+    },
+  },
+};
 let tray = null;
 let registeredShortcut = "";
 let pendingAppUpdate = null;
@@ -894,8 +906,19 @@ function getLogsDir() {
   return join(getUserDataDir(), LOG_DIR_NAME);
 }
 
-function getYtdlpLatestCachePath() {
-  return join(getUserDataDir(), YTDLP_LATEST_CACHE_FILE_NAME);
+function resolveOfficialDownloaderRelease(toolId) {
+  const config = OFFICIAL_DOWNLOADER_RELEASES[toolId];
+  if (!config) {
+    throw new Error(`Unsupported downloader tool: ${toolId}`);
+  }
+  return config;
+}
+
+function getDownloaderLatestCachePath(toolId) {
+  return join(
+    getUserDataDir(),
+    resolveOfficialDownloaderRelease(toolId).latestCacheFileName,
+  );
 }
 
 async function migrateLegacyConfigIfNeeded() {
@@ -2020,8 +2043,8 @@ function compareLooseVersions(left, right) {
   return 0;
 }
 
-async function readYtdlpLatestCache() {
-  const cachePath = getYtdlpLatestCachePath();
+async function readDownloaderLatestCache(toolId) {
+  const cachePath = getDownloaderLatestCachePath(toolId);
   if (!(await pathExists(cachePath))) {
     return null;
   }
@@ -2040,8 +2063,8 @@ async function readYtdlpLatestCache() {
   }
 }
 
-async function writeYtdlpLatestCache(version) {
-  const cachePath = getYtdlpLatestCachePath();
+async function writeDownloaderLatestCache(toolId, version) {
+  const cachePath = getDownloaderLatestCachePath(toolId);
   await writeFile(
     cachePath,
     JSON.stringify({
@@ -2059,9 +2082,21 @@ function buildGitHubHeaders() {
   };
 }
 
-async function resolveLatestYtdlpVersion(forceRefresh = false) {
+async function fetchLatestDownloaderRelease(toolId) {
+  const config = resolveOfficialDownloaderRelease(toolId);
+  const response = await fetchWithDesktopSession(config.releaseApi, {
+    headers: buildGitHubHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub latest lookup failed: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function resolveLatestDownloaderVersion(toolId, forceRefresh = false) {
   await ensureUserDataDirs();
-  const cached = await readYtdlpLatestCache();
+  const cached = await readDownloaderLatestCache(toolId);
   if (
     !forceRefresh
     && cached
@@ -2074,20 +2109,13 @@ async function resolveLatestYtdlpVersion(forceRefresh = false) {
   }
 
   try {
-    const response = await fetchWithDesktopSession(YTDLP_LATEST_RELEASE_API, {
-      headers: buildGitHubHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`GitHub latest lookup failed: ${response.status}`);
-    }
-
-    const payload = await response.json();
+    const payload = await fetchLatestDownloaderRelease(toolId);
     const latest = normalizeVersionString(payload?.tag_name ?? payload?.name);
     if (!latest) {
       throw new Error("GitHub latest lookup did not return a version tag");
     }
 
-    await writeYtdlpLatestCache(latest);
+    await writeDownloaderLatestCache(toolId, latest);
     return {
       latest,
       latestError: null,
@@ -2106,7 +2134,7 @@ async function resolveLatestYtdlpVersion(forceRefresh = false) {
   }
 }
 
-async function getLocalYtdlpVersion(binaryPath) {
+async function getLocalDownloaderVersion(toolId, binaryPath) {
   return new Promise((resolveVersion, rejectVersion) => {
     const child = spawn(binaryPath, ["--version"], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -2123,26 +2151,43 @@ async function getLocalYtdlpVersion(binaryPath) {
     child.once("error", rejectVersion);
     child.once("close", (code) => {
       if (code === 0) {
-        resolveVersion(normalizeVersionString(stdout) ?? "unknown");
+        const firstLine = `${stdout}\n${stderr}`
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(Boolean);
+        resolveVersion(normalizeVersionString(firstLine) ?? "unknown");
         return;
       }
-      rejectVersion(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
+      rejectVersion(new Error(stderr.trim() || `${toolId} exited with code ${code}`));
     });
   });
 }
 
-function resolveYtdlpDownloadUrl() {
-  if (process.platform === "win32") {
-    return YTDLP_WINDOWS_DOWNLOAD_URL;
+function resolveDownloaderReleaseAssetName(toolId) {
+  const config = resolveOfficialDownloaderRelease(toolId);
+  const assetName = config.assetNameByPlatform[process.platform];
+  if (!assetName) {
+    throw new Error(`${toolId} updater is not supported on ${process.platform}`);
   }
-  if (process.platform === "darwin") {
-    return YTDLP_MACOS_DOWNLOAD_URL;
-  }
-  throw new Error(`yt-dlp updater is not supported on ${process.platform}`);
+  return assetName;
 }
 
-async function resolveYtdlpBinaryPathForUpdate() {
-  const candidate = resolveRuntimeBinaryPaths(buildElectronRuntimeEnvironment()).ytDlp;
+function selectDownloaderReleaseAsset(toolId, release) {
+  const assetName = resolveDownloaderReleaseAssetName(toolId);
+  const asset = Array.isArray(release?.assets)
+    ? release.assets.find((candidate) => candidate?.name === assetName)
+    : null;
+  if (!asset?.browser_download_url) {
+    throw new Error(
+      `Official ${toolId} release ${release?.tag_name ?? "<unknown>"} does not expose asset ${assetName}`,
+    );
+  }
+  return asset;
+}
+
+async function resolveDownloaderBinaryPathForUpdate(toolId) {
+  const binaries = resolveRuntimeBinaryPaths(buildElectronRuntimeEnvironment());
+  const candidate = toolId === "gallery-dl" ? binaries.galleryDl : binaries.ytDlp;
   if (existsSync(candidate)) {
     return candidate;
   }
@@ -2262,14 +2307,18 @@ async function replaceFile(targetPath, temporaryPath) {
   }
 }
 
-async function updateYtdlpBinary() {
-  const binaryPath = await resolveYtdlpBinaryPathForUpdate();
-  const downloadUrl = resolveYtdlpDownloadUrl();
-  const tempDir = await mkdtemp(join(tmpdir(), "flowselect-ytdlp-"));
+async function updateDownloaderBinary(toolId) {
+  const binaryPath = await resolveDownloaderBinaryPathForUpdate(toolId);
+  const release = await fetchLatestDownloaderRelease(toolId);
+  const asset = selectDownloaderReleaseAsset(toolId, release);
+  const tempDir = await mkdtemp(join(tmpdir(), `flowselect-${toolId.replace(/[^a-z0-9]/gi, "-")}-`));
   const tempPath = join(tempDir, basename(binaryPath));
 
-  await downloadToFile(downloadUrl, tempPath, {
+  await downloadToFile(asset.browser_download_url, tempPath, {
     onProgress: ({ downloaded, total }) => {
+      if (toolId !== "yt-dlp") {
+        return;
+      }
       const percent = total > 0 ? (downloaded / total) * 100 : 0;
       emitAppEvent("ytdlp-update-progress", {
         percent,
@@ -2284,28 +2333,36 @@ async function updateYtdlpBinary() {
     await chmod(binaryPath, 0o755);
   }
 
-  const currentVersion = await getLocalYtdlpVersion(binaryPath);
-  await writeYtdlpLatestCache(currentVersion);
+  const currentVersion = await getLocalDownloaderVersion(toolId, binaryPath);
+  await writeDownloaderLatestCache(toolId, currentVersion);
   return currentVersion;
 }
 
-async function checkYtdlpVersion() {
-  const binaryPath = resolveBundledBinary("yt-dlp");
+async function updateYtdlpBinary() {
+  return updateDownloaderBinary("yt-dlp");
+}
+
+async function updateGalleryDlBinary() {
+  return updateDownloaderBinary("gallery-dl");
+}
+
+async function checkBundledDownloaderVersion(toolId) {
+  const binaryPath = resolveBundledBinary(toolId);
   let current = "missing";
   let localError = null;
 
   if (binaryPath) {
     try {
-      current = await getLocalYtdlpVersion(binaryPath);
+      current = await getLocalDownloaderVersion(toolId, binaryPath);
     } catch (error) {
       current = "unknown";
       localError = String(error);
     }
   } else {
-    localError = "Bundled yt-dlp binary is missing";
+    localError = `Bundled ${toolId} binary is missing`;
   }
 
-  const { latest, latestError } = await resolveLatestYtdlpVersion();
+  const { latest, latestError } = await resolveLatestDownloaderVersion(toolId);
   return {
     current,
     latest,
@@ -2314,50 +2371,41 @@ async function checkYtdlpVersion() {
         ? compareLooseVersions(current, latest) < 0
         : null,
     latestError: latestError ?? localError,
+    localError,
+    path: binaryPath,
+  };
+}
+
+async function checkYtdlpVersion() {
+  const versionInfo = await checkBundledDownloaderVersion("yt-dlp");
+  return {
+    current: versionInfo.current,
+    latest: versionInfo.latest,
+    updateAvailable: versionInfo.updateAvailable,
+    latestError: versionInfo.latestError,
   };
 }
 
 async function getGalleryDlInfo() {
   const status = await getRuntimeDependencyStatus();
+  const versionInfo = await checkBundledDownloaderVersion("gallery-dl");
   if (status.galleryDl.state !== "ready" || !status.galleryDl.path) {
     return {
-      current: "missing",
+      current: versionInfo.current,
+      latest: versionInfo.latest,
+      updateAvailable: versionInfo.updateAvailable,
+      latestError: versionInfo.latestError,
       source: "missing",
       path: null,
       updateChannel: "unavailable",
     };
   }
 
-  const version = await new Promise((resolve) => {
-    const child = spawn(status.galleryDl.path, ["--version"], {
-      cwd: repoRoot,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.once("error", () => resolve("unknown"));
-    child.once("close", (code) => {
-      if (code !== 0) {
-        resolve("unknown");
-        return;
-      }
-      const firstLine = `${stdout}\n${stderr}`
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .find(Boolean);
-      resolve(firstLine || "unknown");
-    });
-  });
-
   return {
-    current: version,
+    current: versionInfo.current,
+    latest: versionInfo.latest,
+    updateAvailable: versionInfo.updateAvailable,
+    latestError: versionInfo.latestError,
     source: status.galleryDl.source,
     path: status.galleryDl.path,
     updateChannel: "bundled_release",
@@ -4133,6 +4181,8 @@ async function handleCommand(command, payload = {}) {
       return false;
     case "update_ytdlp":
       return updateYtdlpBinary();
+    case "update_gallery_dl":
+      return updateGalleryDlBinary();
     default:
       throw new Error(`Unsupported Electron command: ${command}`);
   }

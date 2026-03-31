@@ -52,6 +52,10 @@ CLAUDE.md
 desktop-assets/binaries/*.exe
 !desktop-assets/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
 !desktop-assets/binaries/gallery-dl-x86_64-pc-windows-msvc.exe
+!desktop-assets/binaries/yt-dlp-aarch64-apple-darwin
+!desktop-assets/binaries/yt-dlp-x86_64-apple-darwin
+!desktop-assets/binaries/gallery-dl-aarch64-apple-darwin
+!desktop-assets/binaries/gallery-dl-x86_64-apple-darwin
 !desktop-assets/binaries/.official-downloader-binaries.json
 desktop-assets/binaries/pinterest-dl-*
 

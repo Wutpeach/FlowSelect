@@ -40,6 +40,7 @@ export type FlowSelectRendererCommand =
   | "set_window_position"
   | "set_window_size"
   | "start_runtime_dependency_bootstrap"
+  | "update_gallery_dl"
   | "update_ytdlp";
 
 export type FlowSelectAppEvent =

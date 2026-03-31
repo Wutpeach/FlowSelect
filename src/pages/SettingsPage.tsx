@@ -198,6 +198,7 @@ function SettingsPage() {
   const [runtimeDependencyGateState, setRuntimeDependencyGateState] =
     useState<RuntimeDependencyGateStatePayload | null>(null);
   const [isUpdatingYtdlp, setIsUpdatingYtdlp] = useState(false);
+  const [isUpdatingGalleryDl, setIsUpdatingGalleryDl] = useState(false);
   const [ytdlpHint, setYtdlpHint] = useState("");
   const [galleryDlHint, setGalleryDlHint] = useState("");
   const [runtimeHint, setRuntimeHint] = useState("");
@@ -323,6 +324,7 @@ function SettingsPage() {
         message: t("desktop:settings.downloaders.ytdlp.checkUnavailable"),
       };
     }
+    const hasCurrentVersion = ytdlpInfo.current !== "missing" && ytdlpInfo.current !== "unknown";
 
     if (ytdlpInfo.updateAvailable === true && ytdlpInfo.latest) {
       return {
@@ -333,10 +335,17 @@ function SettingsPage() {
       };
     }
 
-    if (ytdlpInfo.latest) {
+    if (ytdlpInfo.latest && hasCurrentVersion) {
       return {
         color: colors.textSecondary,
         message: t("desktop:settings.downloaders.ytdlp.upToDate"),
+      };
+    }
+
+    if (!hasCurrentVersion) {
+      return {
+        color: colors.textSecondary,
+        message: t("desktop:settings.downloaders.ytdlp.checkUnavailable"),
       };
     }
 
@@ -346,14 +355,42 @@ function SettingsPage() {
     };
   })();
   const galleryDlCurrentVersion = galleryDlInfo?.current ?? t("desktop:settings.downloaders.unknown");
-  const galleryDlStatusMessage = (() => {
+  const galleryDlStatus = (() => {
     if (!galleryDlInfo) {
-      return t("desktop:settings.downloaders.galleryDl.detailsUnavailable");
+      return {
+        color: colors.textSecondary,
+        message: t("desktop:settings.downloaders.galleryDl.checkUnavailable"),
+      };
     }
-    if (galleryDlInfo.source === "bundled") {
-      return t("desktop:settings.downloaders.galleryDl.bundledByApp");
+    const hasCurrentVersion = galleryDlInfo.current !== "missing" && galleryDlInfo.current !== "unknown";
+
+    if (galleryDlInfo.updateAvailable === true && galleryDlInfo.latest) {
+      return {
+        color: colors.dangerText,
+        message: t("desktop:settings.downloaders.galleryDl.updateAvailable", {
+          version: galleryDlInfo.latest,
+        }),
+      };
     }
-    return t("desktop:settings.downloaders.galleryDl.detailsUnavailable");
+
+    if (galleryDlInfo.latest && hasCurrentVersion) {
+      return {
+        color: colors.textSecondary,
+        message: t("desktop:settings.downloaders.galleryDl.upToDate"),
+      };
+    }
+
+    if (!hasCurrentVersion) {
+      return {
+        color: colors.textSecondary,
+        message: t("desktop:settings.downloaders.galleryDl.checkUnavailable"),
+      };
+    }
+
+    return {
+      color: colors.textSecondary,
+      message: t("desktop:settings.downloaders.galleryDl.localVersionOnly"),
+    };
   })();
   const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
   const runtimeGatePhaseLabel = t(`desktop:settings.downloaders.runtime.phase.${runtimeGatePhase}`);
@@ -698,12 +735,17 @@ function SettingsPage() {
     }
   };
 
-  const openGalleryDlReleases = async () => {
+  const handleGalleryDlUpdate = async () => {
+    setIsUpdatingGalleryDl(true);
     try {
-      await desktopSystem.openExternal("https://github.com/gdl-org/builds/releases");
+      const latestVersion = await desktopCommands.invoke<string>("update_gallery_dl");
+      await refreshGalleryDlInfo();
+      showGalleryDlHint(t("desktop:settings.downloaders.galleryDl.updatedTo", { version: latestVersion }));
     } catch (err) {
-      console.error("Failed to open gallery-dl releases:", err);
-      showGalleryDlHint(t("desktop:settings.downloaders.galleryDl.openReleasesFailed"));
+      console.error("Failed to update gallery-dl:", err);
+      showGalleryDlHint(t("desktop:settings.downloaders.galleryDl.updateFailed"));
+    } finally {
+      setIsUpdatingGalleryDl(false);
     }
   };
 
@@ -1029,17 +1071,31 @@ function SettingsPage() {
           versionLabel={t("desktop:settings.downloaders.galleryDl.version", { version: galleryDlCurrentVersion })}
           description={galleryDlHint || t("desktop:settings.downloaders.galleryDl.description")}
           descriptionTone={galleryDlHint ? "accent" : "default"}
-          statusText={galleryDlStatusMessage}
-          statusColor={colors.textSecondary}
+          statusText={galleryDlStatus.message}
+          statusColor={galleryDlStatus.color}
+          indicator={galleryDlInfo?.updateAvailable ? <span style={statusDotStyle} /> : undefined}
           action={(
             <NeonButton
               type="button"
-              variant="ghost"
+              variant={isUpdatingGalleryDl ? "outline" : "ghost"}
               size="sm"
-              onClick={() => void openGalleryDlReleases()}
-              style={{ minWidth: 78, minHeight: 28, fontSize: 10.5, padding: "4px 10px" }}
+              onClick={handleGalleryDlUpdate}
+              disabled={isUpdatingGalleryDl}
+              style={{
+                minWidth: 78,
+                minHeight: 28,
+                fontSize: 10.5,
+                gap: 6,
+                padding: "4px 10px",
+                cursor: isUpdatingGalleryDl ? "wait" : "pointer",
+              }}
             >
-              {t("desktop:settings.downloaders.galleryDl.releasesButton")}
+              {isUpdatingGalleryDl ? (
+                <span style={spinnerStyle} />
+              ) : null}
+              {isUpdatingGalleryDl
+                ? t("desktop:settings.downloaders.galleryDl.updating")
+                : t("desktop:settings.downloaders.galleryDl.button")}
             </NeonButton>
           )}
         />
