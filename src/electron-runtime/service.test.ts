@@ -1,10 +1,20 @@
 import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DownloadEngine, RawDownloadInput, SiteProvider } from "../core";
 import { genericProvider } from "../sites/generic";
 import { pinterestProvider } from "../sites/pinterest";
+import { youtubeProvider } from "../sites/youtube";
+
+const { probeYtDlpMetadataTitleMock } = vi.hoisted(() => ({
+  probeYtDlpMetadataTitleMock: vi.fn<() => Promise<string | undefined>>(async () => undefined),
+}));
+
+vi.mock("./ytDlpMetadata.js", () => ({
+  probeYtDlpMetadataTitle: probeYtDlpMetadataTitleMock,
+}));
+
 import { createElectronDownloadRuntime } from "./service";
 import type { RuntimeEmitterEvent } from "./contracts";
 import { resetRenameSequenceState } from "./renameRules";
@@ -73,6 +83,8 @@ const createRuntime = (options: {
 describe("FlowSelectElectronDownloadRuntime", () => {
   afterEach(() => {
     resetRenameSequenceState();
+    probeYtDlpMetadataTitleMock.mockReset();
+    probeYtDlpMetadataTitleMock.mockResolvedValue(undefined);
   });
 
   it("emits queue state changes and enforces max concurrency", async () => {
@@ -552,5 +564,34 @@ describe("FlowSelectElectronDownloadRuntime", () => {
       await waitFor(() => runtime.getQueueState().totalCount === 0);
       rmSync(outputDir, { recursive: true, force: true });
     }
+  });
+
+  it("probes yt-dlp metadata titles for pasted YouTube URLs before allocating the output stem", async () => {
+    const outputStems: string[] = [];
+    probeYtDlpMetadataTitleMock.mockResolvedValue("Recovered YouTube Title");
+
+    const runtime = createRuntime({
+      providers: [youtubeProvider, genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
+          outputStems.push(context.outputStem);
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: `${context.outputDir}/${context.outputStem}.mp4`,
+          };
+        }),
+      ],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.youtube.com/watch?v=abc123",
+    });
+
+    await waitFor(() => outputStems.length === 1);
+    expect(probeYtDlpMetadataTitleMock).toHaveBeenCalledWith(expect.objectContaining({
+      sourceUrl: "https://www.youtube.com/watch?v=abc123",
+    }));
+    expect(outputStems).toEqual(["Recovered YouTube Title"]);
   });
 });

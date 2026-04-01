@@ -18,6 +18,7 @@ import {
   releaseRenameStem,
   resolveRenameEnabled,
 } from "./renameRules.js";
+import { probeYtDlpMetadataTitle } from "./ytDlpMetadata.js";
 import type {
   DownloadResultPayload,
   DownloadProgressPayload,
@@ -26,11 +27,13 @@ import type {
   VideoQueueStatePayload,
 } from "../types/videoRuntime.js";
 import type {
+  KnownSiteHint,
   EngineExecutionContext,
   EnginePlan,
   RawDownloadInput,
   ResolvedDownloadPlan,
 } from "../core/index.js";
+import { resolveSiteHint } from "../core/index.js";
 import { builtinEngines, createEngineRegistry } from "../engines/index.js";
 import { DownloadOrchestrator } from "../orchestration/download-orchestrator.js";
 import { loadBuiltinProviders } from "../sites/provider-loader.js";
@@ -57,6 +60,17 @@ const queueTaskLabel = (request: RawDownloadInput): string =>
   || request.pageUrl?.trim()
   || request.videoUrl?.trim()
   || request.url.trim();
+
+const shouldProbeMissingYtDlpTitle = (
+  request: RawDownloadInput,
+  resolvedSiteHint: KnownSiteHint | undefined,
+): boolean => {
+  if (request.title?.trim() || request.selectionScope === "playlist") {
+    return false;
+  }
+
+  return resolvedSiteHint === "youtube" || resolvedSiteHint === "bilibili";
+};
 
 export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntime {
   readonly maxConcurrent: number;
@@ -247,6 +261,27 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       const config = parseJsonObject(await this.options.configStore.readConfigString());
       const resolvedOutputDir = resolveOutputDir(this.options.environment, config);
       outputDir = resolvedOutputDir;
+      const binaries = resolveRuntimeBinaryPaths(this.options.environment);
+      const resolvedSiteHint = resolveSiteHint(
+        activeTask.request.siteHint,
+        activeTask.request.pageUrl,
+        activeTask.request.url,
+      );
+      if (shouldProbeMissingYtDlpTitle(activeTask.request, resolvedSiteHint)) {
+        const probedTitle = await probeYtDlpMetadataTitle({
+          sourceUrl: activeTask.request.url,
+          pageUrl: activeTask.request.pageUrl,
+          cookies: activeTask.request.cookies,
+          selectionScope: activeTask.request.selectionScope,
+          binaries,
+          signal: activeTask.abortController.signal,
+        });
+        if (probedTitle && probedTitle !== activeTask.request.title) {
+          activeTask.request.title = probedTitle;
+          activeTask.label = queueTaskLabel(activeTask.request);
+          await this.emitQueueState();
+        }
+      }
       const preferredOutputStem = buildOutputStem(
         traceId,
         activeTask.request.pageUrl ?? activeTask.request.url,
@@ -260,7 +295,6 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
         preferredOutputStem,
         config,
       );
-      const binaries = resolveRuntimeBinaryPaths(this.options.environment);
       const result = await this.orchestrator.execute(
         activeTask.request,
         (plan: ResolvedDownloadPlan, enginePlan: EnginePlan) => {
