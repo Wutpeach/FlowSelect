@@ -3438,6 +3438,20 @@ function App({
   };
 
   const shouldShowMiniControls = isPanelHovered && !visualIsMinimized;
+  const miniControlsRevealDelay = visualIsMinimized ? "0s" : "0.08s";
+  const miniControlsRevealDurationSeconds = shouldReduceMotion ? 0.14 : 0.22;
+  const miniControlsTransition = [
+    `opacity ${miniControlsRevealDurationSeconds}s ${COMPACT_EASE}`,
+    `transform ${miniControlsRevealDurationSeconds}s ${COMPACT_EASE}`,
+    `background-color 0.18s ${COMPACT_EASE}`,
+    `box-shadow 0.18s ${COMPACT_EASE}`,
+    `color 0.18s ${COMPACT_EASE}`,
+  ].join(", ");
+  const miniControlsTransform = shouldReduceMotion
+    ? "none"
+    : shouldShowMiniControls
+      ? "translateY(0) scale(1)"
+      : "translateY(2px) scale(0.94)";
   const containerOuterShadow = primaryTask || isHovering
     ? colors.panelShadowStrong
     : colors.panelShadow;
@@ -4423,7 +4437,10 @@ function App({
           top: 10,
           right: 10,
           zIndex: 10,
-          transitionDelay: !visualIsMinimized ? '0.2s' : '0s',
+          transition: miniControlsTransition,
+          transitionDelay: miniControlsRevealDelay,
+          transform: miniControlsTransform,
+          transformOrigin: 'center',
         }}
         title={t("app.actions.hideWindow")}
       >
@@ -4953,10 +4970,15 @@ function App({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: isPanelHovered && !visualIsMinimized ? 1 : 0,
-            transition: 'opacity 0.2s ease',
-            transitionDelay: !visualIsMinimized ? '0.2s' : '0s',
-            pointerEvents: isPanelHovered && !visualIsMinimized ? 'auto' : 'none',
+            opacity: shouldShowMiniControls ? 1 : 0,
+            transition: [
+              `opacity ${miniControlsRevealDurationSeconds}s ${COMPACT_EASE}`,
+              `transform ${miniControlsRevealDurationSeconds}s ${COMPACT_EASE}`,
+            ].join(", "),
+            transitionDelay: miniControlsRevealDelay,
+            transform: miniControlsTransform,
+            transformOrigin: 'center',
+            pointerEvents: shouldShowMiniControls ? 'auto' : 'none',
             zIndex: 10,
           }}
           title={appUpdateIndicatorTitle}
@@ -5004,7 +5026,10 @@ function App({
             bottom: 8,
             left: 8,
             zIndex: 10,
-            transitionDelay: !visualIsMinimized ? '0.2s' : '0s',
+            transition: miniControlsTransition,
+            transitionDelay: miniControlsRevealDelay,
+            transform: miniControlsTransform,
+            transformOrigin: 'center',
           }}
           title={t("app.actions.resetRenameCounter")}
         >
@@ -5034,7 +5059,10 @@ function App({
           bottom: 8,
           right: 8,
           zIndex: 10,
-          transitionDelay: !visualIsMinimized ? '0.2s' : '0s',
+          transition: miniControlsTransition,
+          transitionDelay: miniControlsRevealDelay,
+          transform: miniControlsTransform,
+          transformOrigin: 'center',
         }}
         title={t("app.actions.settings")}
       >
