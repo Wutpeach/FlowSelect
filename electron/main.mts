@@ -641,12 +641,19 @@ async function waitForWindowReadyToReveal(
   win: BrowserWindow,
   label: string,
   transparentWindow: boolean,
+  {
+    awaitRendererReady = true,
+  }: {
+    awaitRendererReady?: boolean;
+  } = {},
 ) {
   const initialRevealReady = waitForInitialWindowReveal(win);
-  const rendererReady = waitForRendererReady(win, label);
+  const rendererReadyPromise = awaitRendererReady
+    ? waitForRendererReady(win, label)
+    : Promise.resolve();
 
   await initialRevealReady;
-  await rendererReady;
+  await rendererReadyPromise;
   await delayTransparentPackagedWindowReveal(label, transparentWindow);
 }
 
@@ -3537,8 +3544,19 @@ async function createMainWindow() {
     });
   }
 
+  const revealReadyPromise = waitForWindowReadyToReveal(
+    mainWindow,
+    WINDOW_LABELS.main,
+    transparentWindow,
+    {
+      // Development should reveal the window on the first stable paint instead of
+      // holding first show behind the full renderer-ready handshake.
+      awaitRendererReady: app.isPackaged,
+    },
+  );
+
   await mainWindow.loadURL(buildRendererRoute("/"));
-  await waitForWindowReadyToReveal(mainWindow, WINDOW_LABELS.main, transparentWindow);
+  await revealReadyPromise;
   void queueStartupDiagnostic("WindowDiag", "main:create-complete", getWindowSnapshot(mainWindow));
   return mainWindow;
 }
@@ -3651,6 +3669,7 @@ async function openSecondaryWindow(label, options) {
     ) && options.transparent !== false,
   });
 
+  const initialRevealReady = waitForInitialWindowReveal(browserWindow);
   const loadUrlPromise = browserWindow.loadURL(
     buildRendererRoute(routePath),
   );
@@ -3661,7 +3680,7 @@ async function openSecondaryWindow(label, options) {
 
   // Secondary utility windows should reveal on the first stable paint signal
   // instead of waiting for the full renderer-ready handshake.
-  await waitForInitialWindowReveal(browserWindow);
+  await initialRevealReady;
   await delayTransparentPackagedWindowReveal(label, transparentWindow);
   if (!browserWindow.isVisible()) {
     if (loadUrlError === null) {
@@ -3724,6 +3743,18 @@ async function registerShortcutFromConfig() {
   const config = await readConfigObject();
   if (typeof config.shortcut === "string" && config.shortcut.trim()) {
     await registerShortcut(config.shortcut.trim());
+  }
+}
+
+async function runDeferredDevStartupTasks() {
+  try {
+    await ensureUserDataDirs();
+    await Promise.all([
+      updateTrayMenu(),
+      registerShortcutFromConfig(),
+    ]);
+  } catch (error) {
+    console.error(">>> [Electron] Deferred dev startup task failed:", error);
   }
 }
 
@@ -4490,7 +4521,9 @@ async function bootstrap() {
   await app.whenReady();
   registerIpcHandlers();
   registerWsServer();
-  await ensureUserDataDirs();
+  if (app.isPackaged || startupDiagnosticsEnabled) {
+    await ensureUserDataDirs();
+  }
   if (startupDiagnosticsEnabled) {
     await writeFile(getStartupDiagnosticsPath(), "", "utf8");
     await queueStartupDiagnostic("StartupDiag", "bootstrap-environment", {
@@ -4507,10 +4540,18 @@ async function bootstrap() {
       configPath: getConfigPath(),
     });
   }
-  await updateTrayMenu();
-  await showMainWindow({
-    preserveExistingBounds: process.platform === "win32",
-  });
+  if (!app.isPackaged) {
+    await showMainWindow({
+      preserveExistingBounds: process.platform === "win32",
+    });
+    void runDeferredDevStartupTasks();
+  } else {
+    await updateTrayMenu();
+    await showMainWindow({
+      preserveExistingBounds: process.platform === "win32",
+    });
+    await registerShortcutFromConfig();
+  }
   if (startupDiagnosticsEnabled) {
     setTimeout(() => {
       void openSecondaryWindow(WINDOW_LABELS.settings, {
@@ -4526,7 +4567,6 @@ async function bootstrap() {
       });
     }, STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS);
   }
-  await registerShortcutFromConfig();
 }
 
 void bootstrap().catch((error) => {

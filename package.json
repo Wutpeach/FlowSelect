@@ -7,10 +7,10 @@
   "type": "module",
   "main": "dist-electron/electron/main.mjs",
   "scripts": {
-    "predev": "npm run locales:sync && npm run runtime:ensure:downloaders",
+    "predev": "node ./scripts/dev-preflight.mjs",
     "dev": "node ./scripts/run-electron-dev.mjs",
     "dev:renderer": "vite",
-    "preelectron:dev": "npm run runtime:ensure:downloaders",
+    "preelectron:dev": "node ./scripts/dev-preflight.mjs",
     "electron:dev": "node ./scripts/run-electron-dev.mjs",
     "preelectron:build": "npm run runtime:ensure:downloaders",
     "electron:build": "node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\" && tsc -p tsconfig.electron.json",

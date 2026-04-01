@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { access } from "node:fs/promises";
@@ -18,17 +18,26 @@ const compiledEntries = [
   path.join(repoRoot, "dist-electron", "electron", "preload.mjs"),
 ];
 
-const runBlocking = (label, command, args, env = process.env) => {
-  const result = spawnSync(command, args, {
+const runToCompletion = (label, command, args, env = process.env) => new Promise((resolve, reject) => {
+  const child = spawn(command, args, {
     cwd: repoRoot,
     env,
     stdio: "inherit",
   });
 
-  if (result.status !== 0) {
-    throw new Error(`[${label}] exited with code ${result.status ?? 1}`);
-  }
-};
+  child.once("error", reject);
+  child.once("exit", (code, signal) => {
+    if (signal) {
+      reject(new Error(`[${label}] exited with signal ${signal}`));
+      return;
+    }
+    if (code !== 0) {
+      reject(new Error(`[${label}] exited with code ${code ?? 1}`));
+      return;
+    }
+    resolve();
+  });
+});
 
 const spawnChild = (label, command, args, env = process.env) => {
   const child = spawn(command, args, {
@@ -114,19 +123,6 @@ process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
 const start = async () => {
-  runBlocking(
-    "tsc-initial",
-    process.execPath,
-    [tscBin, "-p", "tsconfig.electron.json"],
-  );
-
-  const tsc = spawnChild(
-    "tsc",
-    process.execPath,
-    [tscBin, "-p", "tsconfig.electron.json", "--watch", "--preserveWatchOutput"],
-  );
-  children.push(tsc);
-
   const vite = spawnChild(
     "vite",
     process.execPath,
@@ -134,10 +130,24 @@ const start = async () => {
   );
   children.push(vite);
 
+  const initialTsc = runToCompletion(
+    "tsc-initial",
+    process.execPath,
+    [tscBin, "-p", "tsconfig.electron.json"],
+  );
+
   await Promise.all([
+    initialTsc,
     waitForFiles(compiledEntries),
     waitForHttp(devServerUrl),
   ]);
+
+  const tsc = spawnChild(
+    "tsc",
+    process.execPath,
+    [tscBin, "-p", "tsconfig.electron.json", "--watch", "--preserveWatchOutput"],
+  );
+  children.push(tsc);
 
   const electron = spawnChild(
     "electron",
