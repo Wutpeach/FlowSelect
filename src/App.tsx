@@ -1104,6 +1104,46 @@ function App({
     return true;
   }, [clearWindowIdleTimers, startsExpandedOnLaunch]);
 
+  const syncPanelHoverStateWithDom = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return isPanelHoveredRef.current;
+    }
+
+    let isHovered = isPanelHoveredRef.current;
+    try {
+      isHovered = container.matches(":hover");
+    } catch {
+      return isPanelHoveredRef.current;
+    }
+
+    if (isPanelHoveredRef.current !== isHovered) {
+      isPanelHoveredRef.current = isHovered;
+      setIsPanelHovered(isHovered);
+    }
+
+    return isHovered;
+  }, []);
+
+  const collapseMainWindowIfPointerOutside = useCallback(() => {
+    const isPanelActuallyHovered = syncPanelHoverStateWithDom();
+    if (isPanelActuallyHovered) {
+      return false;
+    }
+
+    if (!shouldCollapseMainWindowOnPointerLeave({
+      isMinimized: isMinimizedRef.current,
+      startupAutoMinimizeUnlocked: startupAutoMinimizeUnlockedRef.current,
+      isDragging: isDraggingRef.current,
+      isContextMenuOpen: isContextMenuOpenRef.current,
+      isMainWindowModeLocked: isMainWindowModeLockedRef.current,
+    })) {
+      return false;
+    }
+
+    return collapseMainWindowToIcon();
+  }, [collapseMainWindowToIcon, syncPanelHoverStateWithDom]);
+
   const armIdleTimer = useCallback(() => {
     if (!startupAutoMinimizeUnlockedRef.current) {
       return;
@@ -1122,12 +1162,37 @@ function App({
   }, [updateContextMenuOpen]);
 
   const finishExpandMorph = useCallback(() => {
+    const isPanelActuallyHovered = syncPanelHoverStateWithDom();
+    const shouldCollapseAfterExpandMorph =
+      !isPanelActuallyHovered
+      && shouldCollapseMainWindowOnPointerLeave({
+        isMinimized: false,
+        startupAutoMinimizeUnlocked: startupAutoMinimizeUnlockedRef.current,
+        isDragging: isDraggingRef.current,
+        isContextMenuOpen: isContextMenuOpenRef.current,
+        isMainWindowModeLocked: isMainWindowModeLockedRef.current,
+      });
+
+    if (shouldCollapseAfterExpandMorph) {
+      clearWindowIdleTimers();
+      setPanelTransitionMode("animated");
+      setWindowResized(false);
+      setIsExpandingFromMinimized(false);
+      setIsMinimized(true);
+      setShowEdgeGlow(false);
+      return;
+    }
+
     setPanelTransitionMode("instant");
     setWindowResized(false);
     setIsMinimized(false);
     setIsExpandingFromMinimized(false);
     restoreAnimatedPanelTransitions();
-  }, [restoreAnimatedPanelTransitions]);
+  }, [
+    clearWindowIdleTimers,
+    restoreAnimatedPanelTransitions,
+    syncPanelHoverStateWithDom,
+  ]);
 
   // Expand window from icon mode
   const expandWindow = useCallback(async () => {
@@ -2338,8 +2403,15 @@ function App({
     }
 
     shouldReturnToCompactAfterForegroundTaskRef.current = false;
+
+    const collapsed = collapseMainWindowIfPointerOutside();
+    if (collapsed) {
+      return;
+    }
+
     resetIdleTimer({ expandIfMinimized: false });
   }, [
+    collapseMainWindowIfPointerOutside,
     hasOngoingTask,
     isProcessing,
     resetIdleTimer,
@@ -3776,6 +3848,10 @@ function App({
       onMouseLeave={() => {
         isPanelHoveredRef.current = false;
         setIsPanelHovered(false);
+        if (visualIsExpandingFromMinimized) {
+          clearWindowIdleTimers();
+          return;
+        }
         if (shouldCollapseMainWindowOnPointerLeave({
           isMinimized: visualIsMinimized,
           startupAutoMinimizeUnlocked: startupAutoMinimizeUnlockedRef.current,
