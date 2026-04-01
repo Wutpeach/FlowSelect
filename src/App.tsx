@@ -790,6 +790,7 @@ function App({
   const [isProgressCancelHovered, setIsProgressCancelHovered] = useState(false);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const idleTimerRef = useRef<number | null>(null);
+  const pointerLeaveCollapseTimerRef = useRef<number | null>(null);
   const resetCounterFeedbackTimerRef = useRef<number | null>(null);
   const queueNoticeTimerRef = useRef<number | null>(null);
   const runtimeRetryFeedbackTimerRef = useRef<number | null>(null);
@@ -1038,12 +1039,20 @@ function App({
     }
   }, []);
 
+  const clearPointerLeaveCollapseTimer = useCallback(() => {
+    if (pointerLeaveCollapseTimerRef.current !== null) {
+      clearTimeout(pointerLeaveCollapseTimerRef.current);
+      pointerLeaveCollapseTimerRef.current = null;
+    }
+  }, []);
+
   const clearWindowIdleTimers = useCallback(() => {
+    clearPointerLeaveCollapseTimer();
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
     }
-  }, []);
+  }, [clearPointerLeaveCollapseTimer]);
 
   const getCurrentWindowPosition = useCallback(async () => {
     if (lastKnownWindowPositionRef.current) {
@@ -1863,6 +1872,9 @@ function App({
       if (deferredStartupInitializationTimerRef.current !== null) {
         clearTimeout(deferredStartupInitializationTimerRef.current);
       }
+      if (pointerLeaveCollapseTimerRef.current !== null) {
+        clearTimeout(pointerLeaveCollapseTimerRef.current);
+      }
       if (panelTransitionModeResetFrameRef.current !== null) {
         cancelAnimationFrame(panelTransitionModeResetFrameRef.current);
       }
@@ -2363,6 +2375,7 @@ function App({
 
   // Idle auto-minimize: reset timer helper
   const resetIdleTimer = useCallback(({ expandIfMinimized = true }: { expandIfMinimized?: boolean } = {}) => {
+    clearPointerLeaveCollapseTimer();
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
@@ -2390,7 +2403,7 @@ function App({
     ) return;
 
     armIdleTimer();
-  }, [armIdleTimer, expandWindow, isMinimized]);
+  }, [armIdleTimer, clearPointerLeaveCollapseTimer, expandWindow, isMinimized]);
 
   useEffect(() => {
     if (hasOngoingTask || isProcessing || !shouldReturnToCompactAfterForegroundTaskRef.current) {
@@ -3840,6 +3853,7 @@ function App({
           x: e.clientX - rect.left,
           y: e.clientY - rect.top,
         });
+        clearPointerLeaveCollapseTimer();
         isPanelHoveredRef.current = true;
         setIsPanelHovered(true);
         resetIdleTimer();
@@ -3848,31 +3862,35 @@ function App({
       onMouseLeave={() => {
         isPanelHoveredRef.current = false;
         setIsPanelHovered(false);
-        if (
-          isWindowPointerDownRef.current
-          || pendingDragStartRef.current !== null
-          || activeWindowDragRef.current !== null
-        ) {
-          clearWindowIdleTimers();
-          return;
-        }
-        if (visualIsExpandingFromMinimized) {
-          clearWindowIdleTimers();
-          return;
-        }
-        if (shouldCollapseMainWindowOnPointerLeave({
-          isMinimized: visualIsMinimized,
-          startupAutoMinimizeUnlocked: startupAutoMinimizeUnlockedRef.current,
-          isDragging: isDraggingRef.current,
-          isContextMenuOpen,
-          isMainWindowModeLocked,
-        })) {
-          const collapsed = collapseMainWindowToIcon();
-          if (collapsed) {
+        clearPointerLeaveCollapseTimer();
+        pointerLeaveCollapseTimerRef.current = window.setTimeout(() => {
+          pointerLeaveCollapseTimerRef.current = null;
+          if (
+            isWindowPointerDownRef.current
+            || pendingDragStartRef.current !== null
+            || activeWindowDragRef.current !== null
+          ) {
+            clearWindowIdleTimers();
             return;
           }
-        }
-        resetIdleTimer({ expandIfMinimized: false });
+          if (visualIsExpandingFromMinimized) {
+            clearWindowIdleTimers();
+            return;
+          }
+          if (shouldCollapseMainWindowOnPointerLeave({
+            isMinimized: visualIsMinimized,
+            startupAutoMinimizeUnlocked: startupAutoMinimizeUnlockedRef.current,
+            isDragging: isDraggingRef.current,
+            isContextMenuOpen,
+            isMainWindowModeLocked,
+          })) {
+            const collapsed = collapseMainWindowToIcon();
+            if (collapsed) {
+              return;
+            }
+          }
+          resetIdleTimer({ expandIfMinimized: false });
+        }, 140);
       }}
       onPointerDown={handlePanelPointerDown}
       onPointerUp={handlePanelPointerUp}
