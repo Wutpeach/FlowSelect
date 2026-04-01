@@ -2,11 +2,11 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { EngineExecutionContext, YtdlpQualityPreference } from "../core/index.js";
 import { runStreamingCommand } from "./processRunner.js";
-import { resolveRenameEnabled } from "./runtimeUtils.js";
 import { parseYtDlpProgressLine } from "./ytDlpProgress.js";
 import { summarizeError } from "./runtimeUtils.js";
 import type { DownloadResultPayload } from "../types/videoRuntime.js";
 import { cleanupCookiesFile, writeCookiesFile } from "./sidecarCookies.js";
+import { resolveRenameEnabled } from "./renameRules.js";
 
 const isYouTubeUrl = (value: string): boolean =>
   value.includes("youtube.com/") || value.includes("youtu.be/");

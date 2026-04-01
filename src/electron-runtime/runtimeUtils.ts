@@ -67,27 +67,17 @@ export const resolveOutputDir = (
   return outputDir;
 };
 
-export const resolveRenameEnabled = (config: Record<string, unknown>): boolean => {
-  if (typeof config.renameMediaOnDownload === "boolean") {
-    return config.renameMediaOnDownload;
-  }
-  if (typeof config.videoKeepOriginalName === "boolean") {
-    return !config.videoKeepOriginalName;
-  }
-  return false;
-};
-
 export const buildOutputStem = (
   traceId: string,
   url: string,
-  config: Record<string, unknown>,
+  _config: Record<string, unknown>,
   preferredTitle?: string,
   siteHint?: string,
 ): string => {
-  const renameEnabled = resolveRenameEnabled(config);
-  if (renameEnabled) {
-    return traceId;
+  if (typeof preferredTitle === "string" && preferredTitle.trim()) {
+    return sanitizeFileStem(preferredTitle);
   }
+
   const resolvedSiteHint = resolveSiteHint(siteHint, url);
   if (resolvedSiteHint === "pinterest") {
     const shortId = createHash("sha1")
@@ -95,9 +85,6 @@ export const buildOutputStem = (
       .digest("hex")
       .slice(0, 6);
     return sanitizeFileStem(`pinterest_${shortId}`);
-  }
-  if (typeof preferredTitle === "string" && preferredTitle.trim()) {
-    return sanitizeFileStem(preferredTitle);
   }
   try {
     const parsed = new URL(url);

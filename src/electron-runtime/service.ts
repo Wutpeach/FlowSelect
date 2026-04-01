@@ -13,6 +13,11 @@ import {
   resolveOutputDir,
   summarizeError,
 } from "./runtimeUtils.js";
+import {
+  allocateRenameStem,
+  releaseRenameStem,
+  resolveRenameEnabled,
+} from "./renameRules.js";
 import type {
   DownloadResultPayload,
   DownloadProgressPayload,
@@ -187,6 +192,7 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
     traceId: string,
     outputDir: string,
     preferredOutputStem: string,
+    config: Record<string, unknown>,
   ): Promise<string> {
     const previousLock = this.outputStemReservationLock;
     let releaseLock = (): void => undefined;
@@ -196,6 +202,12 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
 
     await previousLock;
     try {
+      if (resolveRenameEnabled(config)) {
+        const outputStem = await allocateRenameStem(outputDir, config);
+        this.reservedOutputStems.set(traceId, outputStem);
+        return outputStem;
+      }
+
       const outputStem = await resolveAvailableOutputStem(
         outputDir,
         preferredOutputStem,
@@ -230,9 +242,11 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       return;
     }
 
+    let outputDir: string | null = null;
     try {
       const config = parseJsonObject(await this.options.configStore.readConfigString());
-      const outputDir = resolveOutputDir(this.options.environment, config);
+      const resolvedOutputDir = resolveOutputDir(this.options.environment, config);
+      outputDir = resolvedOutputDir;
       const preferredOutputStem = buildOutputStem(
         traceId,
         activeTask.request.pageUrl ?? activeTask.request.url,
@@ -242,8 +256,9 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       );
       const outputStem = await this.reserveOutputStem(
         traceId,
-        outputDir,
+        resolvedOutputDir,
         preferredOutputStem,
+        config,
       );
       const binaries = resolveRuntimeBinaryPaths(this.options.environment);
       const result = await this.orchestrator.execute(
@@ -254,7 +269,7 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
             plan,
             enginePlan,
             intent: plan.intent,
-            outputDir,
+            outputDir: resolvedOutputDir,
             outputStem,
             config,
             binaries,
@@ -278,6 +293,10 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
         error: summarizeError(error),
       } satisfies DownloadResultPayload);
     } finally {
+      const reservedOutputStem = this.reservedOutputStems.get(traceId);
+      if (outputDir && reservedOutputStem) {
+        releaseRenameStem(outputDir, reservedOutputStem);
+      }
       this.reservedOutputStems.delete(traceId);
       this.active.delete(traceId);
       await this.emitQueueState();

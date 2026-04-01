@@ -4,6 +4,7 @@ export * from "./directDownload.js";
 export * from "./galleryDlDownload.js";
 export * from "./platform.js";
 export * from "./processRunner.js";
+export * from "./renameRules.js";
 export * from "./runtimePaths.js";
 export * from "./runtimeDependencyGate.js";
 export * from "./runtimeUtils.js";

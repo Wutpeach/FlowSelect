@@ -22,10 +22,33 @@ describe("buildOutputStem", () => {
         "trace-1",
         "https://www.pinterest.com/pin/403705554121341216/",
         {},
-        "Pin 图卡片",
+        undefined,
         "pinterest",
       ),
     ).toMatch(/^pinterest_[0-9a-f]{6}$/);
+  });
+
+  it("prefers title-first stems even for pinterest requests", () => {
+    expect(
+      buildOutputStem(
+        "trace-1",
+        "https://www.pinterest.com/pin/403705554121341216/",
+        {},
+        "Pin Title",
+        "pinterest",
+      ),
+    ).toBe("Pin Title");
+  });
+
+  it("keeps title-first source naming even when rename mode is enabled", () => {
+    expect(
+      buildOutputStem(
+        "trace-1",
+        "https://www.bilibili.com/video/BV1xx411c7mD",
+        { renameMediaOnDownload: true },
+        "Sample Video",
+      ),
+    ).toBe("Sample Video");
   });
 });
 

@@ -1,12 +1,13 @@
 import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { DownloadEngine, RawDownloadInput, SiteProvider } from "../core";
 import { genericProvider } from "../sites/generic";
 import { pinterestProvider } from "../sites/pinterest";
 import { createElectronDownloadRuntime } from "./service";
 import type { RuntimeEmitterEvent } from "./contracts";
+import { resetRenameSequenceState } from "./renameRules";
 
 const waitFor = async (
   predicate: () => boolean,
@@ -70,6 +71,10 @@ const createRuntime = (options: {
 });
 
 describe("FlowSelectElectronDownloadRuntime", () => {
+  afterEach(() => {
+    resetRenameSequenceState();
+  });
+
   it("emits queue state changes and enforces max concurrency", async () => {
     const activeTraceIds: string[] = [];
     let inFlight = 0;
@@ -414,7 +419,7 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     }
   });
 
-  it("uses pinterest short-id stems instead of repeated titles", async () => {
+  it("prefers title-first stems for pinterest tasks when a title is available", async () => {
     const outputStems: string[] = [];
     const completions: Array<() => void> = [];
 
@@ -451,14 +456,101 @@ describe("FlowSelectElectronDownloadRuntime", () => {
       });
 
       await waitFor(() => outputStems.length === 2);
-      expect(outputStems[0]).toMatch(/^pinterest_[0-9a-f]{6}$/);
-      expect(outputStems[1]).toMatch(/^pinterest_[0-9a-f]{6}$/);
-      expect(new Set(outputStems).size).toBe(2);
-      expect(outputStems).not.toContain("Pin 图卡片");
-      expect(outputStems).not.toContain("Pin 图卡片 (2)");
+      expect(outputStems[0]).toBe("Pin 图卡片");
+      expect(outputStems[1]).toBe("Pin 图卡片 (2)");
     } finally {
       completions.splice(0).forEach((complete) => complete());
       await waitFor(() => runtime.getQueueState().totalCount === 0);
+    }
+  });
+
+  it("falls back to pinterest short-id stems when no title is available", async () => {
+    const outputStems: string[] = [];
+    const completions: Array<() => void> = [];
+
+    const runtime = createRuntime({
+      maxConcurrent: 2,
+      providers: [pinterestProvider, genericProvider],
+      engines: [
+        createEngineStub("gallery-dl", async (context) => {
+          outputStems.push(context.outputStem);
+          await new Promise<void>((resolve) => {
+            completions.push(resolve);
+          });
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: `${context.outputDir}/${context.outputStem}.mp4`,
+          };
+        }),
+      ],
+    });
+
+    try {
+      await runtime.queueVideoDownload({
+        url: "https://www.pinterest.com/pin/111111111111111111/",
+        pageUrl: "https://www.pinterest.com/pin/111111111111111111/",
+        siteHint: "pinterest",
+      });
+      await runtime.queueVideoDownload({
+        url: "https://www.pinterest.com/pin/222222222222222222/",
+        pageUrl: "https://www.pinterest.com/pin/222222222222222222/",
+        siteHint: "pinterest",
+      });
+
+      await waitFor(() => outputStems.length === 2);
+      expect(outputStems[0]).toMatch(/^pinterest_[0-9a-f]{6}$/);
+      expect(outputStems[1]).toMatch(/^pinterest_[0-9a-f]{6}$/);
+      expect(new Set(outputStems).size).toBe(2);
+    } finally {
+      completions.splice(0).forEach((complete) => complete());
+      await waitFor(() => runtime.getQueueState().totalCount === 0);
+    }
+  });
+
+  it("uses shared rename-rule stems when rename mode is enabled", async () => {
+    const outputDir = path.join(os.tmpdir(), `flowselect-service-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const outputStems: string[] = [];
+    const completions: Array<() => void> = [];
+
+    const runtime = createRuntime({
+      maxConcurrent: 2,
+      configString: JSON.stringify({
+        outputPath: outputDir,
+        renameMediaOnDownload: true,
+      }),
+      providers: [genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
+          outputStems.push(context.outputStem);
+          await new Promise<void>((resolve) => {
+            completions.push(resolve);
+          });
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: `${context.outputDir}/${context.outputStem}.mp4`,
+          };
+        }),
+      ],
+    });
+
+    try {
+      await runtime.queueVideoDownload({
+        url: "https://example.com/1",
+        title: "Sample Video",
+      });
+      await runtime.queueVideoDownload({
+        url: "https://example.com/2",
+        title: "Another Video",
+      });
+
+      await waitFor(() => outputStems.length === 2);
+      expect(outputStems).toEqual(["99", "98"]);
+    } finally {
+      completions.splice(0).forEach((complete) => complete());
+      await waitFor(() => runtime.getQueueState().totalCount === 0);
+      rmSync(outputDir, { recursive: true, force: true });
     }
   });
 });

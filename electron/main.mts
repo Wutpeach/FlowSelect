@@ -48,9 +48,13 @@ import {
   resolveStartupLanguageFromConfig,
 } from "./startupLanguage.mjs";
 import {
+  allocateRenameStem,
   createElectronDownloadRuntime,
   inspectRuntimeDependencyStatus,
+  releaseRenameStem,
+  resetRenameSequenceState,
   resolveRuntimeBinaryPaths,
+  resolveRenameEnabled,
 } from "../src/electron-runtime/index.js";
 import {
   normalizeVideoCandidates,
@@ -1050,16 +1054,6 @@ function resolveVideoDownloadPreferencesFromConfig(config) {
   };
 }
 
-function isRenameMediaEnabled(config) {
-  if (typeof config.renameMediaOnDownload === "boolean") {
-    return config.renameMediaOnDownload;
-  }
-  if (typeof config.videoKeepOriginalName === "boolean") {
-    return !config.videoKeepOriginalName;
-  }
-  return false;
-}
-
 async function syncIncomingDownloadPreferences(data) {
   const incomingQuality = normalizeYtdlpQualityPreference(
     normalizeOptionalString(data?.ytdlpQualityPreference)
@@ -1138,6 +1132,17 @@ async function buildUniqueTargetPath(targetDir, preferredName, extension) {
   throw new Error(`Failed to resolve a unique file path for ${safeBaseName}.${safeExtension}`);
 }
 
+async function buildRenamedTargetPath(targetDir, extension, config) {
+  await mkdir(targetDir, { recursive: true });
+  const safeExtension = ensureExtension(extension);
+  const stem = await allocateRenameStem(targetDir, config);
+
+  return {
+    stem,
+    filePath: join(targetDir, `${stem}.${safeExtension}`),
+  };
+}
+
 function inferExtensionFromUrl(url) {
   try {
     const parsed = new URL(url);
@@ -1188,6 +1193,8 @@ async function resolveCurrentOutputFolderPath() {
 async function processFiles(paths, targetDir) {
   const finalTargetDir = targetDir || (await resolveCurrentOutputFolderPath());
   await mkdir(finalTargetDir, { recursive: true });
+  const config = await readConfigObject();
+  const renameEnabled = resolveRenameEnabled(config);
 
   let copiedCount = 0;
   for (const sourcePath of paths) {
@@ -1205,12 +1212,26 @@ async function processFiles(paths, targetDir) {
     const sourceName = basename(sourcePath);
     const stem = parse(sourceName).name;
     const extension = ensureExtension(extname(sourceName), "bin");
-    const destinationPath = await buildUniqueTargetPath(finalTargetDir, stem, extension);
 
     if (sourceStats.isDirectory()) {
+      const destinationPath = await buildUniqueTargetPath(finalTargetDir, stem, extension);
       await cp(sourcePath, destinationPath.replace(/\.[^.]+$/, ""), { recursive: true });
     } else {
-      await copyFile(sourcePath, destinationPath);
+      let renamedStem = null;
+      try {
+        if (renameEnabled) {
+          const renamedTarget = await buildRenamedTargetPath(finalTargetDir, extension, config);
+          renamedStem = renamedTarget.stem;
+          await copyFile(sourcePath, renamedTarget.filePath);
+        } else {
+          const destinationPath = await buildUniqueTargetPath(finalTargetDir, stem, extension);
+          await copyFile(sourcePath, destinationPath);
+        }
+      } finally {
+        if (renamedStem) {
+          releaseRenameStem(finalTargetDir, renamedStem);
+        }
+      }
     }
     copiedCount += 1;
   }
@@ -1225,6 +1246,8 @@ async function downloadImage(url, targetDir, originalFilename, protectedImageFal
       throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
     }
 
+    const config = await readConfigObject();
+    const renameEnabled = resolveRenameEnabled(config);
     const finalTargetDir = targetDir || (await resolveCurrentOutputFolderPath());
     const mimeType = response.headers.get("content-type")?.split(";")[0].trim() || "image/png";
     const extension = originalFilename
@@ -1233,9 +1256,24 @@ async function downloadImage(url, targetDir, originalFilename, protectedImageFal
     const preferredName = originalFilename
       ? parse(originalFilename).name
       : inferNameFromUrl(url);
-    const destinationPath = await buildUniqueTargetPath(finalTargetDir, preferredName, extension);
-    await pipeline(response.body, createWriteStream(destinationPath));
-    return destinationPath;
+    let renamedStem = null;
+
+    try {
+      if (renameEnabled) {
+        const renamedTarget = await buildRenamedTargetPath(finalTargetDir, extension, config);
+        renamedStem = renamedTarget.stem;
+        await pipeline(response.body, createWriteStream(renamedTarget.filePath));
+        return renamedTarget.filePath;
+      }
+
+      const destinationPath = await buildUniqueTargetPath(finalTargetDir, preferredName, extension);
+      await pipeline(response.body, createWriteStream(destinationPath));
+      return destinationPath;
+    } finally {
+      if (renamedStem) {
+        releaseRenameStem(finalTargetDir, renamedStem);
+      }
+    }
   } catch (error) {
     if (!protectedImageFallback?.token) {
       throw error;
@@ -1259,9 +1297,9 @@ async function downloadImage(url, targetDir, originalFilename, protectedImageFal
 }
 
 async function saveDataUrl(dataUrl, targetDir, originalFilename, options = {}) {
+  const config = await readConfigObject();
   if (options.requireRenameEnabled) {
-    const config = await readConfigObject();
-    if (!isRenameMediaEnabled(config)) {
+    if (!resolveRenameEnabled(config)) {
       throw new Error("rename_disabled");
     }
   }
@@ -1281,10 +1319,27 @@ async function saveDataUrl(dataUrl, targetDir, originalFilename, options = {}) {
     ? parse(originalFilename).name
     : "flowselect";
   const finalTargetDir = targetDir || (await resolveCurrentOutputFolderPath());
-  const destinationPath = await buildUniqueTargetPath(finalTargetDir, preferredName, extension);
-  await mkdir(dirname(destinationPath), { recursive: true });
-  await writeFile(destinationPath, buffer);
-  return destinationPath;
+  const renameEnabled = resolveRenameEnabled(config);
+  let renamedStem = null;
+
+  try {
+    if (renameEnabled) {
+      const renamedTarget = await buildRenamedTargetPath(finalTargetDir, extension, config);
+      renamedStem = renamedTarget.stem;
+      await mkdir(dirname(renamedTarget.filePath), { recursive: true });
+      await writeFile(renamedTarget.filePath, buffer);
+      return renamedTarget.filePath;
+    }
+
+    const destinationPath = await buildUniqueTargetPath(finalTargetDir, preferredName, extension);
+    await mkdir(dirname(destinationPath), { recursive: true });
+    await writeFile(destinationPath, buffer);
+    return destinationPath;
+  } finally {
+    if (renamedStem) {
+      releaseRenameStem(finalTargetDir, renamedStem);
+    }
+  }
 }
 
 function parseClipboardFileNameBuffer(buffer) {
@@ -4133,6 +4188,7 @@ async function handleCommand(command, payload = {}) {
       await shell.openPath(String(payload.path ?? ""));
       return;
     case "reset_rename_counter":
+      resetRenameSequenceState();
       return true;
     case "process_files":
       return processFiles(Array.isArray(payload.paths) ? payload.paths : [], payload.targetDir ?? null);
