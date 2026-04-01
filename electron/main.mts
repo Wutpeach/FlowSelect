@@ -571,10 +571,10 @@ async function createFlowSelectBrowserWindow(label: string, {
   skipTaskbar = process.platform === "win32",
   parentLabel,
   preferZeroAlphaTransparentBackground = false,
-}: FlowSelectBrowserWindowCreationOptions) {
+}: FlowSelectBrowserWindowCreationOptions, startupConfigSnapshot = null) {
   const preloadPath = join(__dirname, "preload.mjs");
   const iconPath = getIconPath();
-  const currentTheme = await readCurrentTheme();
+  const currentTheme = startupConfigSnapshot?.theme ?? await readCurrentTheme();
   const {
     transparentWindow,
     backgroundColor,
@@ -987,11 +987,29 @@ async function readCurrentLanguage() {
   return resolveLanguageFromConfigString(await readConfigString());
 }
 
-async function readCurrentTheme() {
-  const config = await readConfigObject();
+function resolveThemeFromConfigObject(config) {
   return config.theme === "white" || config.theme === "black"
     ? config.theme
     : FALLBACK_THEME;
+}
+
+async function readCurrentTheme() {
+  return resolveThemeFromConfigObject(await readConfigObject());
+}
+
+function buildStartupConfigSnapshot(configRaw) {
+  const config = parseJsonObject(configRaw);
+  return {
+    raw: configRaw,
+    config,
+    language: resolveLanguageFromConfigString(configRaw),
+    theme: resolveThemeFromConfigObject(config),
+    shortcut: typeof config.shortcut === "string" ? config.shortcut.trim() : "",
+  };
+}
+
+async function readStartupConfigSnapshot() {
+  return buildStartupConfigSnapshot(await readConfigString());
 }
 
 async function saveConfigString(raw) {
@@ -3401,8 +3419,8 @@ async function broadcastTheme(theme) {
   });
 }
 
-async function updateTrayMenu() {
-  const language = await readCurrentLanguage();
+async function updateTrayMenu(startupConfigSnapshot = null) {
+  const language = startupConfigSnapshot?.language ?? await readCurrentLanguage();
   const labels = await loadTrayLabels(language);
   const menu = Menu.buildFromTemplate([
     {
@@ -3503,7 +3521,7 @@ function registerWindow(label, win) {
   });
 }
 
-async function createMainWindow() {
+async function createMainWindow(startupConfigSnapshot = null) {
   const existing = getWindow(WINDOW_LABELS.main);
   if (existing && !existing.isDestroyed()) {
     return existing;
@@ -3530,7 +3548,7 @@ async function createMainWindow() {
     frame: false,
     resizable: false,
     preferZeroAlphaTransparentBackground: true,
-  });
+  }, startupConfigSnapshot);
   mainWindowUsesTransparentShell = transparentWindow;
   mainWindow.on("close", (event) => {
     if (!app.isQuitting) {
@@ -3563,10 +3581,12 @@ async function createMainWindow() {
 
 async function showMainWindow({
   preserveExistingBounds = false,
+  startupConfigSnapshot = null,
 }: {
   preserveExistingBounds?: boolean;
+  startupConfigSnapshot?: unknown;
 } = {}) {
-  const mainWindow = await createMainWindow();
+  const mainWindow = await createMainWindow(startupConfigSnapshot);
   const currentBounds = mainWindow.getBounds();
   const revealBounds = resolveMainWindowRevealBounds({
     bounds: currentBounds,
@@ -3739,7 +3759,15 @@ async function registerShortcut(shortcut) {
   registeredShortcut = shortcut;
 }
 
-async function registerShortcutFromConfig() {
+async function registerShortcutFromConfig(startupConfigSnapshot = null) {
+  const shortcut = startupConfigSnapshot?.shortcut;
+  if (typeof shortcut === "string") {
+    if (shortcut) {
+      await registerShortcut(shortcut);
+    }
+    return;
+  }
+
   const config = await readConfigObject();
   if (typeof config.shortcut === "string" && config.shortcut.trim()) {
     await registerShortcut(config.shortcut.trim());
@@ -4546,11 +4574,14 @@ async function bootstrap() {
     });
     void runDeferredDevStartupTasks();
   } else {
-    await updateTrayMenu();
+    const startupConfigSnapshot = await readStartupConfigSnapshot();
+    const trayMenuPromise = updateTrayMenu(startupConfigSnapshot);
+    const shortcutPromise = registerShortcutFromConfig(startupConfigSnapshot);
     await showMainWindow({
       preserveExistingBounds: process.platform === "win32",
+      startupConfigSnapshot,
     });
-    await registerShortcutFromConfig();
+    await Promise.all([trayMenuPromise, shortcutPromise]);
   }
   if (startupDiagnosticsEnabled) {
     setTimeout(() => {
