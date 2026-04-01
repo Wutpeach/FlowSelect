@@ -10,14 +10,14 @@ import {
 } from "./startupWindowMode.mjs";
 
 describe("startupWindowMode", () => {
-  it("uses compact startup mode for the first Windows main-window reveal", () => {
+  it("uses full startup mode for the first Windows main-window reveal", () => {
     expect(resolveMainWindowStartupMode({
       platform: "win32",
       hasShownMainWindowOnce: false,
-    })).toBe("compact");
+    })).toBe("full");
   });
 
-  it("uses full startup mode after the main window has already been shown or on other platforms", () => {
+  it("keeps full startup mode after the main window has already been shown or on other platforms", () => {
     expect(resolveMainWindowStartupMode({
       platform: "win32",
       hasShownMainWindowOnce: true,

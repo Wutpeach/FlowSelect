@@ -54,6 +54,7 @@ import {
 import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImageDrag";
 import { resolveSecondaryWindowPosition } from "./utils/secondaryWindowPlacement";
 import {
+  getDeferredStartupInitializationDelayMs,
   getStartupAutoMinimizeGraceMs,
   shouldUseNativeCompactStartupWindow,
   shouldStartExpandedOnLaunch,
@@ -731,6 +732,8 @@ function App({
   };
   const startupAutoMinimizeGraceMs =
     getStartupAutoMinimizeGraceMs(startupWindowEnvironment);
+  const deferredStartupInitializationDelayMs =
+    getDeferredStartupInitializationDelayMs(startupWindowEnvironment);
   const startsExpandedOnLaunch =
     shouldStartExpandedOnLaunch(startupWindowEnvironment);
   const FULL_SIZE = 200;
@@ -781,6 +784,8 @@ function App({
   const [expandMorphAnimationKey, setExpandMorphAnimationKey] = useState(0);
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
   const [isInitialMount, setIsInitialMount] = useState(!startsInNativeCompactStartupWindow);
+  const [isDeferredStartupInitializationReady, setIsDeferredStartupInitializationReady] =
+    useState(deferredStartupInitializationDelayMs <= 0);
   const [isResetCounterActive, setIsResetCounterActive] = useState(false);
   const [isProgressCancelHovered, setIsProgressCancelHovered] = useState(false);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
@@ -791,6 +796,7 @@ function App({
   const runtimeSuccessTimerRef = useRef<number | null>(null);
   const runtimeBootstrapAfterVisibleTimerRef = useRef<number | null>(null);
   const startupAutoMinimizeReleaseTimerRef = useRef<number | null>(null);
+  const deferredStartupInitializationTimerRef = useRef<number | null>(null);
   const foregroundTaskOutcomeTimerRef = useRef<number | null>(null);
   const panelTransitionModeResetFrameRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
@@ -811,6 +817,7 @@ function App({
   const isInitialMountRef = useRef(isInitialMount);
   const isUiLabPreviewActiveRef = useRef(isUiLabPreviewActive);
   const shouldReturnToCompactAfterForegroundTaskRef = useRef(false);
+  const hasCompactedSinceLaunchRef = useRef(!startsExpandedOnLaunch);
   const previousTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
@@ -870,6 +877,11 @@ function App({
     : isExpandingFromMinimized;
   const isWindowReadyForStartupRuntimeBootstrap =
     !visualIsMinimized && !visualWindowResized && !visualIsExpandingFromMinimized;
+  const shouldEvaluateDeferredStartupIndicators =
+    isDeferredStartupInitializationReady
+    || runtimeDependencyStatus !== null
+    || runtimeDependencyGateState !== null
+    || showRuntimeSuccessIndicator;
   const primaryTask = downloadProgress && primaryDownloadTask
     ? {
         kind: "download" as const,
@@ -1059,7 +1071,11 @@ function App({
     lastKnownWindowPositionRef.current = position;
   }, [getCurrentWindowPosition]);
 
-  const collapseMainWindowToIcon = useCallback(() => {
+  const collapseMainWindowToIcon = useCallback(({
+    source = "interaction",
+  }: {
+    source?: "interaction" | "idle";
+  } = {}) => {
     if (
       isUiLabPreviewActiveRef.current
       || isMainWindowModeLockedRef.current
@@ -1071,11 +1087,22 @@ function App({
       return false;
     }
 
+    if (
+      source !== "idle"
+      && startsExpandedOnLaunch
+      && !hasCompactedSinceLaunchRef.current
+    ) {
+      return false;
+    }
+
     clearWindowIdleTimers();
     setIsMinimized(true);
     setShowEdgeGlow(false);
+    if (source === "idle") {
+      hasCompactedSinceLaunchRef.current = true;
+    }
     return true;
-  }, [clearWindowIdleTimers]);
+  }, [clearWindowIdleTimers, startsExpandedOnLaunch]);
 
   const armIdleTimer = useCallback(() => {
     if (!startupAutoMinimizeUnlockedRef.current) {
@@ -1083,7 +1110,7 @@ function App({
     }
 
     idleTimerRef.current = window.setTimeout(() => {
-      collapseMainWindowToIcon();
+      collapseMainWindowToIcon({ source: "idle" });
     }, MAIN_WINDOW_IDLE_MINIMIZE_MS);
   }, [collapseMainWindowToIcon]);
 
@@ -1574,9 +1601,11 @@ function App({
     await prepareMainWindowForForegroundTask();
     resetDownloadOutcome();
     const payload = typeof request === "string" ? { url: request } : request;
-    if (isPinterestDownloadRequest(payload) && runtimeDependencyStatus?.galleryDl.state !== "ready") {
+    const runtimeStatusForRequest = runtimeDependencyStatus
+      ?? (await refreshRuntimeDependencyContext()).status;
+    if (isPinterestDownloadRequest(payload) && runtimeStatusForRequest?.galleryDl.state !== "ready") {
       const missingGalleryDlMessage = summarizeDownloadError(
-        runtimeDependencyStatus?.galleryDl.error ?? "Missing bundled gallery-dl runtime",
+        runtimeStatusForRequest?.galleryDl.error ?? "Missing bundled gallery-dl runtime",
       ) ?? "Missing bundled gallery-dl runtime";
       console.error("Cannot queue Pinterest download because gallery-dl is unavailable:", missingGalleryDlMessage);
       setDownloadCancelled(true);
@@ -1591,6 +1620,7 @@ function App({
     });
   }, [
     prepareMainWindowForForegroundTask,
+    refreshRuntimeDependencyContext,
     resetDownloadOutcome,
     runtimeDependencyStatus,
   ]);
@@ -1697,6 +1727,10 @@ function App({
   }, [applyRuntimeConfig, isMacOS]);
 
   useEffect(() => {
+    if (!isDeferredStartupInitializationReady) {
+      return;
+    }
+
     const loadRuntimeDependencies = async () => {
       await Promise.all([
         refreshRuntimeDependencyStatus(),
@@ -1706,6 +1740,7 @@ function App({
 
     void loadRuntimeDependencies();
   }, [
+    isDeferredStartupInitializationReady,
     loadRuntimeDependencyGateState,
     refreshRuntimeDependencyStatus,
   ]);
@@ -1760,6 +1795,9 @@ function App({
       if (startupAutoMinimizeReleaseTimerRef.current !== null) {
         clearTimeout(startupAutoMinimizeReleaseTimerRef.current);
       }
+      if (deferredStartupInitializationTimerRef.current !== null) {
+        clearTimeout(deferredStartupInitializationTimerRef.current);
+      }
       if (panelTransitionModeResetFrameRef.current !== null) {
         cancelAnimationFrame(panelTransitionModeResetFrameRef.current);
       }
@@ -1767,8 +1805,35 @@ function App({
   }, []);
 
   useEffect(() => {
+    if (isDeferredStartupInitializationReady || isInitialMount) {
+      return;
+    }
+    if (deferredStartupInitializationDelayMs <= 0) {
+      setIsDeferredStartupInitializationReady(true);
+      return;
+    }
+
+    deferredStartupInitializationTimerRef.current = window.setTimeout(() => {
+      deferredStartupInitializationTimerRef.current = null;
+      setIsDeferredStartupInitializationReady(true);
+    }, deferredStartupInitializationDelayMs);
+
+    return () => {
+      if (deferredStartupInitializationTimerRef.current !== null) {
+        clearTimeout(deferredStartupInitializationTimerRef.current);
+        deferredStartupInitializationTimerRef.current = null;
+      }
+    };
+  }, [
+    deferredStartupInitializationDelayMs,
+    isDeferredStartupInitializationReady,
+    isInitialMount,
+  ]);
+
+  useEffect(() => {
     if (
       isInitialMount
+      || !isDeferredStartupInitializationReady
       || hasTriggeredStartupRuntimeBootstrapRef.current
     ) {
       return;
@@ -1799,6 +1864,7 @@ function App({
       }
     };
   }, [
+    isDeferredStartupInitializationReady,
     isInitialMount,
     runtimeDependencyGateState?.phase,
     runtimeDependencyStatus,
@@ -1963,8 +2029,11 @@ function App({
 
   // Check app update availability on startup
   useEffect(() => {
+    if (!isDeferredStartupInitializationReady) {
+      return;
+    }
     void refreshAppUpdate();
-  }, [refreshAppUpdate]);
+  }, [isDeferredStartupInitializationReady, refreshAppUpdate]);
 
   useEffect(() => {
     const unlisten = desktopEvents.on<RuntimeDependencyGateStatePayload>(
@@ -2268,15 +2337,9 @@ function App({
       return;
     }
 
-    const collapsed = collapseMainWindowToIcon();
-    if (collapsed) {
-      shouldReturnToCompactAfterForegroundTaskRef.current = false;
-      return;
-    }
-
+    shouldReturnToCompactAfterForegroundTaskRef.current = false;
     resetIdleTimer({ expandIfMinimized: false });
   }, [
-    collapseMainWindowToIcon,
     hasOngoingTask,
     isProcessing,
     resetIdleTimer,
@@ -3528,9 +3591,11 @@ function App({
   const runtimeMissingComponents = runtimeDependencyGateState?.missingComponents.length
     ? runtimeDependencyGateState.missingComponents
     : getMissingRuntimeComponentsFromStatus(runtimeDependencyStatus);
-  const hasRuntimeGateIssue = runtimeGatePhaseNeedsAttention(runtimeGatePhase)
+  const hasRuntimeGateIssue = shouldEvaluateDeferredStartupIndicators && (
+    runtimeGatePhaseNeedsAttention(runtimeGatePhase)
     || runtimeMissingComponents.length > 0
-    || runtimeDependencyStatus === null;
+    || runtimeDependencyStatus === null
+  );
   const runtimeGateRequiresManualAction = runtimeGateNeedsManualAction(runtimeGatePhase)
     || (!runtimeGateIsBusy && runtimeDependencyStatus === null);
   const shouldShowRuntimeIndicator = !visualIsMinimized && !isQueuePopoverOpen && (
@@ -3704,8 +3769,10 @@ function App({
           isContextMenuOpen,
           isMainWindowModeLocked,
         })) {
-          collapseMainWindowToIcon();
-          return;
+          const collapsed = collapseMainWindowToIcon();
+          if (collapsed) {
+            return;
+          }
         }
         resetIdleTimer({ expandIfMinimized: false });
       }}

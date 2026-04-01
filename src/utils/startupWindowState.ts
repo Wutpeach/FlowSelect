@@ -11,12 +11,18 @@ type NativeCompactStartupWindowOptions = {
   isMacOS: boolean;
 };
 
+export const DEFERRED_STARTUP_INITIALIZATION_DELAY_MS = 260;
+
+const isElectronDesktopLaunch = ({
+  protocol,
+  userAgent,
+}: StartupWindowEnvironment): boolean => (
+  protocol === "file:" || userAgent.toLowerCase().includes("electron")
+);
+
 export const shouldStartExpandedOnLaunch = (
   environment: StartupWindowEnvironment,
-): boolean => {
-  void environment;
-  return false;
-};
+): boolean => isElectronDesktopLaunch(environment);
 
 export const getStartupAutoMinimizeGraceMs = (
   environment: StartupWindowEnvironment,
@@ -24,6 +30,14 @@ export const getStartupAutoMinimizeGraceMs = (
   void environment;
   return 0;
 };
+
+export const getDeferredStartupInitializationDelayMs = (
+  environment: StartupWindowEnvironment,
+): number => (
+  shouldStartExpandedOnLaunch(environment)
+    ? DEFERRED_STARTUP_INITIALIZATION_DELAY_MS
+    : 0
+);
 
 export const shouldUseNativeCompactStartupWindow = ({
   startupWindowMode,

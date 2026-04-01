@@ -10,11 +10,11 @@ export const resolveMainWindowStartupMode = ({
 }: {
   platform: NodeJS.Platform;
   hasShownMainWindowOnce: boolean;
-}): StartupWindowMode => (
-  platform === "win32" && !hasShownMainWindowOnce
-    ? "compact"
-    : "full"
-);
+}): StartupWindowMode => {
+  void platform;
+  void hasShownMainWindowOnce;
+  return "full";
+};
 
 export const resolveMainWindowInitialSize = (
   startupWindowMode: StartupWindowMode,

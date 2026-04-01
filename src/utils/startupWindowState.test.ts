@@ -1,31 +1,41 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFERRED_STARTUP_INITIALIZATION_DELAY_MS,
+  getDeferredStartupInitializationDelayMs,
   getStartupAutoMinimizeGraceMs,
   shouldStartExpandedOnLaunch,
   shouldUseNativeCompactStartupWindow,
 } from "./startupWindowState";
 
 describe("startup window state", () => {
-  it("keeps packaged Windows launches on the compact startup path", () => {
+  it("starts packaged Windows launches expanded and defers non-critical startup work", () => {
     const environment = {
       protocol: "file:",
       userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Electron/41.0.4",
     };
 
-    expect(shouldStartExpandedOnLaunch(environment)).toBe(false);
+    expect(shouldStartExpandedOnLaunch(environment)).toBe(true);
     expect(getStartupAutoMinimizeGraceMs(environment)).toBe(0);
+    expect(getDeferredStartupInitializationDelayMs(environment)).toBe(
+      DEFERRED_STARTUP_INITIALIZATION_DELAY_MS,
+    );
   });
 
-  it("keeps the same compact startup behavior in dev and on other platforms", () => {
+  it("keeps the same expanded startup behavior in Electron dev and returns no delay for plain web", () => {
     expect(shouldStartExpandedOnLaunch({
       protocol: "http:",
       userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Electron/41.0.4",
-    })).toBe(false);
+    })).toBe(true);
 
     expect(getStartupAutoMinimizeGraceMs({
       protocol: "file:",
       userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Electron/41.0.4",
+    })).toBe(0);
+
+    expect(getDeferredStartupInitializationDelayMs({
+      protocol: "http:",
+      userAgent: "Mozilla/5.0 Chrome/135.0.0.0 Safari/537.36",
     })).toBe(0);
   });
 
