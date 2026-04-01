@@ -3848,6 +3848,14 @@ function App({
       onMouseLeave={() => {
         isPanelHoveredRef.current = false;
         setIsPanelHovered(false);
+        if (
+          isWindowPointerDownRef.current
+          || pendingDragStartRef.current !== null
+          || activeWindowDragRef.current !== null
+        ) {
+          clearWindowIdleTimers();
+          return;
+        }
         if (visualIsExpandingFromMinimized) {
           clearWindowIdleTimers();
           return;
