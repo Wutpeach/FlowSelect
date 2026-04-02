@@ -4422,6 +4422,13 @@ function registerIpcHandlers() {
     }, {
       durationMs: request?.options?.durationMs,
     });
+
+    return {
+      transitionToken:
+        typeof request?.options?.transitionToken === "number"
+          ? request.options.transitionToken
+          : null,
+    };
   });
 
   ipcMain.handle("flowselect:current-window:close", (event) => {

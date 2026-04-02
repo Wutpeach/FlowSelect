@@ -481,11 +481,24 @@ DOM hover reconciliation:
 const isPanelActuallyHovered = containerRef.current?.matches(":hover") ?? false;
 ```
 
+Transition-token guard:
+
+```tsx
+const transitionToken = beginMainWindowBoundsTransition("full");
+const result = await currentWindow.animateBounds(bounds, {
+  durationMs: 0,
+  transitionToken,
+});
+if (!isMainWindowBoundsTransitionStillCurrent(result.transitionToken, "full")) return;
+```
+
 ### 3. Contracts
 
 - Do not treat `onMouseLeave` as the sole source of truth for compact-window collapse. During icon-to-panel morphs, React hover events can become stale or arrive before the visual state is stable.
 - If pointer exit happens while the expand morph is still running, let the current morph finish and decide the next state in the expand-complete handoff. Do not briefly land on the steady full window for one frame and then immediately collapse.
 - Collapse checks that happen after a morph, task outcome, or other transient lock release must reconcile hover from the DOM first, for example via `element.matches(":hover")`, before mutating minimized state.
+- Compact/full native-bounds requests must have one logical owner. If multiple async callbacks can request `animateBounds(...)`, every request must carry a transition token or epoch and every completion must verify that the token is still current before committing renderer-state follow-up such as `setIsMinimized(false)` or `setWindowResized(true)`.
+- For Windows compact-shell flows, keep the restore target behind a shared constant such as `INTERMEDIATE_EXPAND_SIZE` instead of scattering raw `200` literals across expand, foreground-task restore, and morph handoff code.
 - Pointer-leave collapse must be guarded while pointer-down, drag-threshold pending, or active drag state exists. Do not allow leave handling to cancel window dragging.
 - If a leave-delay grace window is used, it must be cancelable on re-enter and cleared by shared timer reset helpers. Do not scatter independent leave timers across handlers.
 - Hover response may stay immediate on enter, but leave grace for this compact surface should remain short and intentional. Start in the `0.12s` to `0.18s` range; values around `0.20s` are already noticeably sticky on a 200x200 utility window.
@@ -498,6 +511,7 @@ const isPanelActuallyHovered = containerRef.current?.matches(":hover") ?? false;
 | Pointer briefly slips out and back in | Collapse is canceled and window stays expanded | Use one cancelable leave-delay timer |
 | Pointer leaves while drag gesture is starting | Window drag continues; leave handling does not interrupt | Guard leave handling on pointer-down / pending drag / active drag |
 | Post-task unlock runs after hover state drift | Window uses real hover truth, not stale React state | Reconcile with `matches(":hover")` before collapse |
+| A stale shrink callback resolves after a newer full-mode request | Full panel never renders inside an `80x80` native shell | Guard `animateBounds(...)` completions with the current transition token |
 | Enter feels laggy | Window feels sticky or slow | Keep enter immediate; do not mirror leave delay onto enter |
 
 ### 5. Good / Base / Bad Cases
@@ -517,6 +531,7 @@ const isPanelActuallyHovered = containerRef.current?.matches(":hover") ?? false;
 
 - Rapidly enter and leave from icon mode: verify no one-frame flash of the full panel appears.
 - Repeated icon -> panel -> leave cycles: verify collapse remains consistent after many repetitions.
+- Trigger compact -> expand -> compact -> expand stress cycles and verify a late compact callback cannot leave the main panel clipped inside the native `80x80` window.
 - Start dragging the main window and cross the panel edge: verify dragging still works and collapse does not interrupt it.
 - Leave and re-enter within the leave-delay window: verify collapse is canceled.
 - Finish a foreground task while the pointer is already outside the panel: verify collapse resumes promptly without waiting for idle.

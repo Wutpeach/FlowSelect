@@ -125,6 +125,17 @@ interface FlowSelectCurrentWindowApi {
 }
 ```
 
+Typed bounds-animation contract:
+
+```ts
+interface FlowSelectCurrentWindowApi {
+  animateBounds(
+    bounds: FlowSelectBounds,
+    options?: { durationMs?: number; transitionToken?: number },
+  ): Promise<{ transitionToken: number | null }>;
+}
+```
+
 Current renderer-facing command names that must remain stable through the preload bridge:
 
 ```ts
@@ -253,6 +264,7 @@ Current extension request/response envelope:
 
 - When a foreground task or direct-processing feedback flow such as download, transcode, image save, or file copy restores `main` from compact icon mode, renderer state must not switch to full-mode visuals before the native BrowserWindow bounds have returned to the full shell size.
 - If `main` is still in compact native bounds (`windowResized === true` or equivalent), restore the native bounds first through `currentWindow.animateBounds(...)` or a shared helper that owns that contract, then clear minimized/full-mode renderer state.
+- If multiple async compact/full requests can overlap, renderer must attach a monotonic transition token to `currentWindow.animateBounds(...)` and must ignore any completion whose echoed token is no longer current before committing `setIsMinimized(false)`, `setWindowResized(false)`, or compact-shrink follow-up.
 - Download, transcode, and direct-processing feedback paths must share the same restore helper so renderer/native ordering cannot drift between task types.
 - If a foreground task forced `main` out of compact mode, completion/cancel settlement should return the shell to compact behavior once the transient success/error indicator finishes and no other foreground-task lock remains.
 - Once `main` is already in full native bounds, repeated progress events must not trigger redundant resize work or re-arm focus/idle side effects unnecessarily.
@@ -466,6 +478,7 @@ Current extension request/response envelope:
 | Non-runtime UI Lab preview leaks the live runtime indicator into download/transcode scenes | Preview-tooling review | Each preview shows only the state it is meant to demonstrate | Apply a ready runtime override for non-runtime scenarios and emit the override on every gate event while preview mode is active |
 | UI Lab scenario replay reuses `shortcut-show` or renderer preview mode does not suppress minimized visuals | Preview-tooling review | Preview opens once and stays in full main-window mode without circular-shell clipping, disappearance, or first-click flicker | Keep preview activation on the dedicated `ui-lab-reset` path and force renderer visual state to full mode while preview is active |
 | Renderer clears minimized/full-mode task or processing state before compact native bounds are restored during download/transcode/direct-processing | Main window enters a foreground feedback mode from compact icon mode | Foreground UI never appears cropped inside the compact native window | Restore BrowserWindow bounds first, then flip renderer state through one shared foreground-task helper |
+| A stale compact/full bounds completion resolves after a newer request | Main window compact/full transition | Late async work cannot reapply stale `80x80` / `200x200` bounds or renderer state | Carry and validate a transition token across the `currentWindow.animateBounds(...)` request/response contract |
 | Windows autostart reads only `openAtLogin` | Settings autostart status | UI can show enabled even when the current executable will not actually launch at login | Query the current executable path and treat `executableWillLaunchAtLogin` plus matching `launchItems.enabled` as the effective status |
 | Windows autostart write path omits a stable registry name or Startup Approved state | Settings autostart toggle | Re-enabling can create drifted entries or fail to reactivate the existing startup item cleanly | Write explicit `name`, `path`, `args`, and `enabled` fields together |
 | Frameless drag awaits `invoke(...)` or `set_window_position` on every pointer move | Main window drag path | Drag remains smooth and continuous | Use `currentWindow.setPosition(...)` fire-and-forget IPC, optionally RAF-batched |

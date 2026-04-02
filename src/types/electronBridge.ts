@@ -152,6 +152,15 @@ export type FlowSelectContextMenuWindowOptions = FlowSelectSecondaryWindowOption
   parent: "main";
 };
 
+export type FlowSelectAnimateBoundsOptions = {
+  durationMs?: number;
+  transitionToken?: number;
+};
+
+export type FlowSelectAnimateBoundsResult = {
+  transitionToken: number | null;
+};
+
 export interface FlowSelectCurrentWindowApi {
   outerPosition(): Promise<FlowSelectPoint>;
   outerSize(): Promise<FlowSelectSize>;
@@ -159,7 +168,10 @@ export interface FlowSelectCurrentWindowApi {
   startupWindowMode(): FlowSelectStartupWindowMode;
   startDragging(): Promise<void>;
   setPosition(position: FlowSelectPoint): void;
-  animateBounds(bounds: FlowSelectBounds, options?: { durationMs?: number }): Promise<void>;
+  animateBounds(
+    bounds: FlowSelectBounds,
+    options?: FlowSelectAnimateBoundsOptions,
+  ): Promise<FlowSelectAnimateBoundsResult>;
   rendererReady(): Promise<void>;
   close(): Promise<void>;
   hide(): Promise<void>;

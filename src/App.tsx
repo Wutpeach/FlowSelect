@@ -64,6 +64,11 @@ import {
   resolveMainWindowModeLock,
   shouldCollapseMainWindowOnPointerLeave,
 } from "./utils/mainWindowMode";
+import {
+  advanceMainWindowBoundsTransition,
+  isMainWindowBoundsTransitionCurrent,
+  type MainWindowBoundsTransitionState,
+} from "./utils/mainWindowTransitionToken";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
@@ -736,7 +741,8 @@ function App({
     getDeferredStartupInitializationDelayMs(startupWindowEnvironment);
   const startsExpandedOnLaunch =
     shouldStartExpandedOnLaunch(startupWindowEnvironment);
-  const FULL_SIZE = 200;
+  const INTERMEDIATE_EXPAND_SIZE = 200;
+  const FULL_SIZE = INTERMEDIATE_EXPAND_SIZE;
   const ICON_SIZE = 80;
   const MINIMIZED_SHELL_SIZE = 60;
   const MINIMIZED_SHELL_SCALE = MINIMIZED_SHELL_SIZE / FULL_SIZE;
@@ -813,6 +819,13 @@ function App({
   const isWindowPointerDownRef = useRef(false);
   const windowDragFrameRef = useRef<number | null>(null);
   const lastKnownWindowPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const mainWindowBoundsTransitionRef = useRef<MainWindowBoundsTransitionState>({
+    token: 0,
+    target: startsInNativeCompactStartupWindow ? "compact" : "full",
+  });
+  const pendingCompactResizeTokenRef = useRef<number | null>(
+    startsInNativeCompactStartupWindow ? 0 : null,
+  );
   const isMinimizedRef = useRef(isMinimized);
   const windowResizedRef = useRef(windowResized);
   const isInitialMountRef = useRef(isInitialMount);
@@ -1064,20 +1077,52 @@ function App({
     return nextPosition;
   }, []);
 
+  const beginMainWindowBoundsTransition = useCallback((
+    target: "compact" | "full",
+  ) => {
+    const nextTransition = advanceMainWindowBoundsTransition(
+      mainWindowBoundsTransitionRef.current,
+      target,
+    );
+    mainWindowBoundsTransitionRef.current = nextTransition;
+    if (target === "full") {
+      pendingCompactResizeTokenRef.current = null;
+    }
+    return nextTransition.token;
+  }, []);
+
+  const isMainWindowBoundsTransitionStillCurrent = useCallback((
+    expectedToken: number | null | undefined,
+    expectedTarget?: "compact" | "full",
+  ) => (
+    isMainWindowBoundsTransitionCurrent(
+      mainWindowBoundsTransitionRef.current,
+      expectedToken,
+      expectedTarget,
+    )
+  ), []);
+
   const resizeMainWindowPreservingPosition = useCallback(async (
     width: number,
     height: number,
+    {
+      transitionToken,
+    }: {
+      transitionToken?: number;
+    } = {},
   ) => {
     const position = await getCurrentWindowPosition();
-    await desktopCurrentWindow.animateBounds({
+    const result = await desktopCurrentWindow.animateBounds({
       x: position.x,
       y: position.y,
       width,
       height,
     }, {
       durationMs: 0,
+      transitionToken,
     });
     lastKnownWindowPositionRef.current = position;
+    return result.transitionToken;
   }, [getCurrentWindowPosition]);
 
   const collapseMainWindowToIcon = useCallback(({
@@ -1105,13 +1150,21 @@ function App({
     }
 
     clearWindowIdleTimers();
+    if (!isMacOS) {
+      pendingCompactResizeTokenRef.current = beginMainWindowBoundsTransition("compact");
+    }
     setIsMinimized(true);
     setShowEdgeGlow(false);
     if (source === "idle") {
       hasCompactedSinceLaunchRef.current = true;
     }
     return true;
-  }, [clearWindowIdleTimers, startsExpandedOnLaunch]);
+  }, [
+    beginMainWindowBoundsTransition,
+    clearWindowIdleTimers,
+    isMacOS,
+    startsExpandedOnLaunch,
+  ]);
 
   const syncPanelHoverStateWithDom = useCallback(() => {
     const container = containerRef.current;
@@ -1187,17 +1240,20 @@ function App({
       setPanelTransitionMode("animated");
       setWindowResized(false);
       setIsExpandingFromMinimized(false);
+      pendingCompactResizeTokenRef.current = beginMainWindowBoundsTransition("compact");
       setIsMinimized(true);
       setShowEdgeGlow(false);
       return;
     }
 
+    beginMainWindowBoundsTransition("full");
     setPanelTransitionMode("instant");
     setWindowResized(false);
     setIsMinimized(false);
     setIsExpandingFromMinimized(false);
     restoreAnimatedPanelTransitions();
   }, [
+    beginMainWindowBoundsTransition,
     clearWindowIdleTimers,
     restoreAnimatedPanelTransitions,
     syncPanelHoverStateWithDom,
@@ -1208,36 +1264,42 @@ function App({
     if (isExpandingFromMinimized) {
       return;
     }
+    const transitionToken = beginMainWindowBoundsTransition("full");
     if (isMacOS || !windowResized) {
+      if (!isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
+        return;
+      }
       setWindowResized(false);
       setIsMinimized(false);
       return;
     }
 
     try {
-      const currentWindow = desktopCurrentWindow;
-      const pos = await getCurrentWindowPosition();
-      await currentWindow.animateBounds({
-        x: pos.x,
-        y: pos.y,
-        width: FULL_SIZE,
-        height: FULL_SIZE,
-      }, {
-        durationMs: 0,
-      });
+      const echoedTransitionToken = await resizeMainWindowPreservingPosition(
+        INTERMEDIATE_EXPAND_SIZE,
+        INTERMEDIATE_EXPAND_SIZE,
+        { transitionToken },
+      );
+      if (!isMainWindowBoundsTransitionStillCurrent(echoedTransitionToken, "full")) {
+        return;
+      }
       setExpandMorphAnimationKey(Date.now());
       setPanelTransitionMode("instant");
       setIsExpandingFromMinimized(true);
     } catch (err) {
       console.error('Failed to expand window:', err);
-      finishExpandMorph();
+      if (isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
+        finishExpandMorph();
+      }
     }
   }, [
-    FULL_SIZE,
+    INTERMEDIATE_EXPAND_SIZE,
+    beginMainWindowBoundsTransition,
     finishExpandMorph,
-    getCurrentWindowPosition,
     isExpandingFromMinimized,
+    isMainWindowBoundsTransitionStillCurrent,
     isMacOS,
+    resizeMainWindowPreservingPosition,
     windowResized,
   ]);
 
@@ -1249,20 +1311,37 @@ function App({
     focusContainer?: boolean;
   } = {}) => {
     clearWindowIdleTimers();
+    const transitionToken = beginMainWindowBoundsTransition("full");
     setPanelTransitionMode("instant");
     setIsExpandingFromMinimized(false);
 
     if (windowResized && !isMacOS) {
       try {
-        await resizeMainWindowPreservingPosition(FULL_SIZE, FULL_SIZE);
+        const echoedTransitionToken = await resizeMainWindowPreservingPosition(
+          INTERMEDIATE_EXPAND_SIZE,
+          INTERMEDIATE_EXPAND_SIZE,
+          { transitionToken },
+        );
+        if (!isMainWindowBoundsTransitionStillCurrent(echoedTransitionToken, "full")) {
+          return;
+        }
         setWindowResized(false);
       } catch (err) {
         console.error("Failed to restore window size:", err);
+        if (!isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
+          return;
+        }
       }
     } else {
+      if (!isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
+        return;
+      }
       setWindowResized(false);
     }
 
+    if (!isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
+      return;
+    }
     setIsMinimized(false);
     restoreAnimatedPanelTransitions();
     setShowEdgeGlow(false);
@@ -1285,9 +1364,11 @@ function App({
       }, 100);
     }
   }, [
-    FULL_SIZE,
+    INTERMEDIATE_EXPAND_SIZE,
     armIdleTimer,
+    beginMainWindowBoundsTransition,
     clearWindowIdleTimers,
+    isMainWindowBoundsTransitionStillCurrent,
     isMacOS,
     resizeMainWindowPreservingPosition,
     restoreAnimatedPanelTransitions,
@@ -1341,8 +1422,15 @@ function App({
       void prepareMainWindowForForegroundTask();
       return;
     }
+    beginMainWindowBoundsTransition("full");
     setIsMinimized(false);
-  }, [hasOngoingTask, isMinimized, prepareMainWindowForForegroundTask, windowResized]);
+  }, [
+    beginMainWindowBoundsTransition,
+    hasOngoingTask,
+    isMinimized,
+    prepareMainWindowForForegroundTask,
+    windowResized,
+  ]);
 
   // Shrink window after minimize animation completes
   const handleAnimationComplete = async () => {
@@ -1353,11 +1441,23 @@ function App({
       if (isMacOS) {
         return;
       }
+      const compactResizeToken = pendingCompactResizeTokenRef.current;
+      if (!isMainWindowBoundsTransitionStillCurrent(compactResizeToken, "compact")) {
+        return;
+      }
       try {
         // Shrink the native window only after the visual minimize motion settles.
-        await resizeMainWindowPreservingPosition(ICON_SIZE, ICON_SIZE);
+        const echoedTransitionToken = await resizeMainWindowPreservingPosition(
+          ICON_SIZE,
+          ICON_SIZE,
+          { transitionToken: compactResizeToken ?? undefined },
+        );
+        if (!isMainWindowBoundsTransitionStillCurrent(echoedTransitionToken, "compact")) {
+          return;
+        }
         setPanelTransitionMode("instant");
         setWindowResized(true);
+        pendingCompactResizeTokenRef.current = null;
         restoreAnimatedPanelTransitions();
       } catch (err) {
         console.error('Failed to shrink window:', err);
@@ -2462,8 +2562,10 @@ function App({
       void expandWindow();
       return;
     }
+    beginMainWindowBoundsTransition("full");
     setIsMinimized(false);
   }, [
+    beginMainWindowBoundsTransition,
     clearWindowIdleTimers,
     expandWindow,
     isMinimized,
