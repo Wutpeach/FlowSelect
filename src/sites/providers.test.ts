@@ -145,6 +145,50 @@ describe("builtin site providers", () => {
     ]);
   });
 
+  it("routes gallery-dl-supported sites through gallery-dl before the generic yt-dlp fallback", () => {
+    const url = "https://www.instagram.com/p/C7example/";
+    const plan = resolvePlan({
+      url,
+      pageUrl: url,
+      title: "Gallery-dl supported page",
+    });
+    const intent = expectVideoIntent(plan.intent);
+
+    expect(plan.providerId).toBe("gallery-dl-supported");
+    expect(plan.engines.map((engine) => engine.engine)).toEqual(["gallery-dl", "yt-dlp"]);
+    expect(plan.engines[0]).toMatchObject({
+      sourceUrl: url,
+    });
+    expect(intent.siteId).toBe("instagram.com");
+  });
+
+  it("normalizes Weibo layerid links to the canonical detail URL for gallery-dl", () => {
+    const plan = resolvePlan({
+      url: "https://weibo.com/?layerid=4913212871149937",
+    });
+    const intent = expectVideoIntent(plan.intent);
+
+    expect(plan.providerId).toBe("weibo");
+    expect(plan.engines.map((engine) => engine.engine)).toEqual(["gallery-dl", "yt-dlp"]);
+    expect(plan.engines[0]).toMatchObject({
+      sourceUrl: "https://weibo.com/detail/4913212871149937",
+    });
+    expect(plan.engines[1]).toMatchObject({
+      sourceUrl: "https://weibo.com/?layerid=4913212871149937",
+    });
+    expect(intent.siteId).toBe("weibo");
+  });
+
+  it("does not guess a synthetic Weibo detail URL from a tv/show fid without a status id", () => {
+    const url = "https://weibo.com/tv/show/1034:4913203381993532";
+    const plan = resolvePlan({ url });
+
+    expect(plan.providerId).toBe("weibo");
+    expect(plan.engines[0]).toMatchObject({
+      sourceUrl: url,
+    });
+  });
+
   it("falls back to the generic provider for unknown sites while preserving normalized metadata", () => {
     const url = "https://cdn.example.com/media?id=42";
     const plan = resolvePlan({
