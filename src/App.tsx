@@ -2081,6 +2081,7 @@ function App({
       isInitialMount
       || !isDeferredStartupInitializationReady
       || hasTriggeredStartupRuntimeBootstrapRef.current
+      || runtimeBootstrapAfterVisibleTimerRef.current !== null
     ) {
       return;
     }
@@ -2097,18 +2098,15 @@ function App({
       return;
     }
 
-    hasTriggeredStartupRuntimeBootstrapRef.current = true;
     runtimeBootstrapAfterVisibleTimerRef.current = window.setTimeout(() => {
       runtimeBootstrapAfterVisibleTimerRef.current = null;
-      void startRuntimeDependencyBootstrap("startup_auto_retry");
+      hasTriggeredStartupRuntimeBootstrapRef.current = true;
+      void startRuntimeDependencyBootstrap("startup_auto_retry").then((state) => {
+        if (!state || state.phase === "idle") {
+          hasTriggeredStartupRuntimeBootstrapRef.current = false;
+        }
+      });
     }, 220);
-
-    return () => {
-      if (runtimeBootstrapAfterVisibleTimerRef.current !== null) {
-        clearTimeout(runtimeBootstrapAfterVisibleTimerRef.current);
-        runtimeBootstrapAfterVisibleTimerRef.current = null;
-      }
-    };
   }, [
     isDeferredStartupInitializationReady,
     isInitialMount,

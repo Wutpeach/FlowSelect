@@ -126,6 +126,26 @@ describe("shouldAutoStartManagedRuntimeBootstrapOnStartup", () => {
     expect(shouldAutoStartManagedRuntimeBootstrapOnStartup({
       isInitialMount: false,
       hasTriggeredStartupBootstrap: false,
+      runtimeDependencyStatus: createStatus({
+        ffmpeg: missingEntry,
+      }),
+      gatePhase: "failed",
+      isWindowReadyForStartupBootstrap: true,
+    })).toBe(false);
+
+    expect(shouldAutoStartManagedRuntimeBootstrapOnStartup({
+      isInitialMount: false,
+      hasTriggeredStartupBootstrap: false,
+      runtimeDependencyStatus: createStatus({
+        ffmpeg: missingEntry,
+      }),
+      gatePhase: "awaiting_confirmation",
+      isWindowReadyForStartupBootstrap: true,
+    })).toBe(false);
+
+    expect(shouldAutoStartManagedRuntimeBootstrapOnStartup({
+      isInitialMount: false,
+      hasTriggeredStartupBootstrap: false,
       runtimeDependencyStatus: createStatus(),
       gatePhase: "idle",
       isWindowReadyForStartupBootstrap: true,

@@ -75,7 +75,7 @@ export const shouldAutoStartManagedRuntimeBootstrapOnStartup = ({
   if (!hasMissingManagedRuntimeComponents(runtimeDependencyStatus)) {
     return false;
   }
-  return gatePhase !== "checking" && gatePhase !== "downloading";
+  return gatePhase == null || gatePhase === "idle";
 };
 
 export const getRuntimeManagedComponentLabel = (
