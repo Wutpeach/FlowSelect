@@ -819,6 +819,7 @@ function App({
   const isWindowPointerDownRef = useRef(false);
   const windowDragFrameRef = useRef<number | null>(null);
   const lastKnownWindowPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const isDropHoveringRef = useRef(false);
   const mainWindowBoundsTransitionRef = useRef<MainWindowBoundsTransitionState>({
     token: 0,
     target: startsInNativeCompactStartupWindow ? "compact" : "full",
@@ -1134,6 +1135,7 @@ function App({
       isUiLabPreviewActiveRef.current
       || isMainWindowModeLockedRef.current
       || isDraggingRef.current
+      || isDropHoveringRef.current
       || isPanelHoveredRef.current
       || isContextMenuOpenRef.current
       || !startupAutoMinimizeUnlockedRef.current
@@ -1167,9 +1169,21 @@ function App({
   ]);
 
   const syncPanelHoverStateWithDom = useCallback(() => {
+    if (isDropHoveringRef.current) {
+      if (!isPanelHoveredRef.current) {
+        isPanelHoveredRef.current = true;
+        setIsPanelHovered(true);
+      }
+      return true;
+    }
+
     const container = containerRef.current;
     if (!container) {
-      return isPanelHoveredRef.current;
+      if (isPanelHoveredRef.current) {
+        isPanelHoveredRef.current = false;
+        setIsPanelHovered(false);
+      }
+      return false;
     }
 
     let isHovered = isPanelHoveredRef.current;
@@ -1186,6 +1200,20 @@ function App({
 
     return isHovered;
   }, []);
+
+  const updateDropHoverState = useCallback((isDropHovering: boolean) => {
+    isDropHoveringRef.current = isDropHovering;
+    if (isDropHovering) {
+      clearPointerLeaveCollapseTimer();
+      if (!isPanelHoveredRef.current) {
+        isPanelHoveredRef.current = true;
+        setIsPanelHovered(true);
+      }
+      return;
+    }
+
+    syncPanelHoverStateWithDom();
+  }, [clearPointerLeaveCollapseTimer, syncPanelHoverStateWithDom]);
 
   const collapseMainWindowIfPointerOutside = useCallback(() => {
     const isPanelActuallyHovered = syncPanelHoverStateWithDom();
@@ -3149,7 +3177,9 @@ function App({
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsHovering(false);
+    updateDropHoverState(true);
 
+    try {
     const droppedFolderResult = await desktopDrop.consumePendingFolderDrop();
     if (droppedFolderResult?.success) {
       try {
@@ -3455,6 +3485,9 @@ function App({
 
     // If not a URL and no files, let the desktop runtime handle it
     console.log("Not an image URL and no files, letting the desktop runtime handle it");
+    } finally {
+      updateDropHoverState(false);
+    }
   };
 
   // Open settings window
@@ -3939,6 +3972,7 @@ function App({
         e.preventDefault();
         e.dataTransfer.dropEffect = "copy";
         console.log("DragOver types:", e.dataTransfer.types);
+        updateDropHoverState(true);
         resetIdleTimer();
         const hasFiles = e.dataTransfer.files.length > 0 || e.dataTransfer.types.includes("Files");
         const hasUrl = e.dataTransfer.types.includes("text/uri-list")
@@ -3948,7 +3982,10 @@ function App({
         }
       }}
       onDrop={handleDrop}
-      onDragLeave={() => setIsHovering(false)}
+      onDragLeave={() => {
+        setIsHovering(false);
+        updateDropHoverState(false);
+      }}
       onMouseEnter={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         setMousePos({
