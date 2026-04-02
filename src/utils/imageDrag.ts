@@ -6,6 +6,7 @@ const IMAGE_EXTENSION_PATTERN = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#]|$)/i
 const IMAGE_HOST_HINT_PATTERN = /(?:image|img|photo|media|cdn|static|usercontent)/i;
 const LOW_VALUE_IMAGE_HINT_PATTERN = /(?:sprite|icon|favicon|emoji|avatar|logo)/i;
 const ABSOLUTE_IMAGE_URL_PATTERN = /https?:\/\/[^"'\\\s<>]+/gi;
+const CSS_URL_PATTERN = /url\((?:"([^"]+)"|'([^']+)'|([^)"']+))\)/gi;
 
 function normalizeDragHtml(value: string): string {
   return value
@@ -189,6 +190,10 @@ export function extractImageUrlFromHtml(
     /<meta\b[^>]*(?:property|name|itemprop)=(?:"(?:og:image|twitter:image|image)"|'(?:og:image|twitter:image|image)'|(?:og:image|twitter:image|image))[^>]*\bcontent=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi,
   )) {
     addCandidate(candidates, match[1] ?? match[2] ?? match[3], 760, options);
+  }
+
+  for (const match of normalizedHtml.matchAll(CSS_URL_PATTERN)) {
+    addCandidate(candidates, match[1] ?? match[2] ?? match[3], 680, options);
   }
 
   for (const match of normalizedHtml.matchAll(ABSOLUTE_IMAGE_URL_PATTERN)) {

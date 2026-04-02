@@ -1,24 +1,14 @@
 // @ts-nocheck
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
-import {
-  parseLocalPathFromDropText,
-  VALIDATE_DROPPED_FOLDER_PATH_CHANNEL,
-} from "./folderDrop.mjs";
+import { VALIDATE_DROPPED_FOLDER_PATH_CHANNEL } from "./folderDrop.mjs";
+import { resolvePendingFolderDrop } from "./preloadDrop.mjs";
 import { parseStartupWindowModeArgument } from "./startupWindowMode.mjs";
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload);
 const eventChannel = (event) => `flowselect:event:${event}`;
 let pendingFolderDropPromise = null;
 const startupWindowMode = parseStartupWindowModeArgument(process.argv);
-
-const hasLocalFileItems = (dataTransfer) => (
-  Boolean(dataTransfer)
-  && (
-    dataTransfer.files.length > 0
-    || Array.from(dataTransfer.items ?? []).some((item) => item.kind === "file")
-  )
-);
 
 const resolvePathFromFile = (file) => {
   try {
@@ -29,67 +19,13 @@ const resolvePathFromFile = (file) => {
   }
 };
 
-const resolveLocalPathFromDataTransfer = (dataTransfer) => {
-  for (const item of Array.from(dataTransfer.items ?? [])) {
-    if (item.kind !== "file") {
-      continue;
-    }
-
-    const file = item.getAsFile?.();
-    if (!file) {
-      continue;
-    }
-
-    const resolvedFromItem = resolvePathFromFile(file);
-    if (resolvedFromItem) {
-      return resolvedFromItem;
-    }
-  }
-
-  for (const file of Array.from(dataTransfer.files ?? [])) {
-    const resolvedFromFile = resolvePathFromFile(file);
-    if (resolvedFromFile) {
-      return resolvedFromFile;
-    }
-  }
-
-  const fallbackFromUriList = parseLocalPathFromDropText(dataTransfer.getData("text/uri-list"));
-  if (fallbackFromUriList) {
-    return fallbackFromUriList;
-  }
-
-  return parseLocalPathFromDropText(dataTransfer.getData("text/plain"));
-};
-
-const resolvePendingFolderDrop = async (dataTransfer) => {
-  if (!hasLocalFileItems(dataTransfer)) {
-    return null;
-  }
-
-  const path = resolveLocalPathFromDataTransfer(dataTransfer);
-  if (!path) {
-    return {
-      success: false,
-      path: "",
-      error: "Could not resolve a path from the dropped item.",
-      reason: "UNRESOLVED_DROP",
-    };
-  }
-
-  try {
-    return await invoke(VALIDATE_DROPPED_FOLDER_PATH_CHANNEL, { path });
-  } catch {
-    return {
-      success: false,
-      path,
-      error: "Failed to validate the dropped folder.",
-      reason: "PRELOAD_ERROR",
-    };
-  }
-};
-
 window.addEventListener("drop", (event) => {
-  pendingFolderDropPromise = resolvePendingFolderDrop(event.dataTransfer ?? null);
+  pendingFolderDropPromise = resolvePendingFolderDrop(event.dataTransfer ?? null, {
+    resolvePathFromFile,
+    validateDroppedFolderPath: async (path) => (
+      invoke(VALIDATE_DROPPED_FOLDER_PATH_CHANNEL, { path })
+    ),
+  });
 }, true);
 
 contextBridge.exposeInMainWorld("flowselect", {

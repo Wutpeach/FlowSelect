@@ -9,11 +9,13 @@
   const PAGE_MESSAGE_SOURCE = "flowselect-protected-image-page";
   const EXTENSION_MESSAGE_SOURCE = "flowselect-protected-image-extension";
   const PAGE_RESPONSE_TIMEOUT_MS = 12000;
+  const PAGE_BRIDGE_SCRIPT_PATH = "protected-image-page-bridge.js";
   const EXCLUDED_HOST_RE =
     /(^|\.)pinterest\.com$|(^|\.)youtube\.com$|(^|\.)bilibili\.com$|(^|\.)douyin\.com$|(^|\.)xiaohongshu\.com$|(^|\.)xhslink\.com$|(^|\.)twitter\.com$|(^|\.)x\.com$/i;
 
   let pageRequestCounter = 0;
   let pageBridgeInjected = false;
+  let pageBridgeInjectionPromise = null;
 
   function shouldSkipPage() {
     return EXCLUDED_HOST_RE.test(window.location.hostname || "");
@@ -74,17 +76,133 @@
     return direct instanceof HTMLImageElement ? direct : null;
   }
 
-  function resolveDraggedImageUrl(image) {
-    if (!(image instanceof HTMLImageElement)) {
+  function looksLikeImageUrl(url) {
+    return /(?:^data:image\/)|(?:\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#]|$))|(?:sinaimg\.cn\/)/i.test(
+      url,
+    );
+  }
+
+  function resolveImageUrlCandidate(raw) {
+    const normalized = normalizeHttpUrl(raw);
+    return normalized && looksLikeImageUrl(normalized) ? normalized : null;
+  }
+
+  function extractCssImageUrl(value) {
+    if (typeof value !== "string" || !value.trim()) {
       return null;
     }
 
-    return (
-      normalizeHttpUrl(image.currentSrc) ||
-      normalizeHttpUrl(image.src) ||
-      normalizeHttpUrl(image.getAttribute("src")) ||
-      null
-    );
+    for (const match of value.matchAll(/url\((?:"([^"]+)"|'([^']+)'|([^)"']+))\)/gi)) {
+      const candidate = resolveImageUrlCandidate(match[1] || match[2] || match[3]);
+      if (candidate) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  function resolveImageUrlFromElement(element) {
+    if (!(element instanceof Element)) {
+      return null;
+    }
+
+    if (element instanceof HTMLImageElement) {
+      return (
+        resolveImageUrlCandidate(element.currentSrc) ||
+        resolveImageUrlCandidate(element.src) ||
+        resolveImageUrlCandidate(element.getAttribute("src")) ||
+        null
+      );
+    }
+
+    for (const attribute of [
+      "data-image-url",
+      "data-image",
+      "data-src",
+      "data-url",
+      "src",
+      "href",
+    ]) {
+      const candidate = resolveImageUrlCandidate(element.getAttribute(attribute));
+      if (candidate) {
+        return candidate;
+      }
+    }
+
+    const inlineBackground = extractCssImageUrl(element.getAttribute("style"));
+    if (inlineBackground) {
+      return inlineBackground;
+    }
+
+    if (typeof window.getComputedStyle === "function") {
+      const computedBackground = extractCssImageUrl(window.getComputedStyle(element).backgroundImage);
+      if (computedBackground) {
+        return computedBackground;
+      }
+    }
+
+    return null;
+  }
+
+  function findImageUrlInElementSubtree(element) {
+    if (!(element instanceof Element)) {
+      return null;
+    }
+
+    const nestedImage = element.querySelector("img");
+    if (nestedImage instanceof HTMLImageElement) {
+      const nestedImageUrl =
+        resolveImageUrlCandidate(nestedImage.currentSrc) ||
+        resolveImageUrlCandidate(nestedImage.src) ||
+        resolveImageUrlCandidate(nestedImage.getAttribute("src"));
+      if (nestedImageUrl) {
+        return nestedImageUrl;
+      }
+    }
+
+    const styledNode = element.querySelector("[style*='background-image'], [data-image], [data-image-url], [data-src]");
+    if (styledNode instanceof Element) {
+      return resolveImageUrlFromElement(styledNode);
+    }
+
+    return null;
+  }
+
+  function resolveDraggedImageUrl(image, target) {
+    if (image instanceof HTMLImageElement) {
+      const directUrl =
+        resolveImageUrlCandidate(image.currentSrc) ||
+        resolveImageUrlCandidate(image.src) ||
+        resolveImageUrlCandidate(image.getAttribute("src"));
+      if (directUrl) {
+        return directUrl;
+      }
+    }
+
+    if (!(target instanceof Element)) {
+      return null;
+    }
+
+    let current = target;
+    let depth = 0;
+
+    while (current && depth < 5) {
+      const elementUrl = resolveImageUrlFromElement(current);
+      if (elementUrl) {
+        return elementUrl;
+      }
+
+      const subtreeUrl = findImageUrlInElementSubtree(current);
+      if (subtreeUrl) {
+        return subtreeUrl;
+      }
+
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return null;
   }
 
   function deriveFilenameFromUrl(rawUrl) {
@@ -245,209 +363,42 @@
   }
 
   function injectPageBridge() {
-    if (pageBridgeInjected || window[PAGE_BRIDGE_FLAG]) {
-      pageBridgeInjected = true;
-      return;
+    if (pageBridgeInjected) {
+      return Promise.resolve();
     }
 
-    const script = document.createElement("script");
-    script.textContent = `(() => {
-      "use strict";
-      if (window[${JSON.stringify(PAGE_BRIDGE_FLAG)}]) {
+    if (pageBridgeInjectionPromise) {
+      return pageBridgeInjectionPromise;
+    }
+
+    pageBridgeInjectionPromise = new Promise((resolve, reject) => {
+      const parent = document.documentElement || document.head || document.body;
+      if (!parent) {
+        reject(new Error("Protected image page bridge injection target was not available"));
         return;
       }
-      window[${JSON.stringify(PAGE_BRIDGE_FLAG)}] = true;
-      const REQUEST_TYPE = ${JSON.stringify(PAGE_REQUEST_TYPE)};
-      const RESPONSE_TYPE = ${JSON.stringify(PAGE_RESPONSE_TYPE)};
-      const PAGE_SOURCE = ${JSON.stringify(PAGE_MESSAGE_SOURCE)};
-      const EXTENSION_SOURCE = ${JSON.stringify(EXTENSION_MESSAGE_SOURCE)};
 
-      function normalizeHttpUrl(raw) {
-        if (typeof raw !== "string") {
-          return null;
-        }
-        const trimmed = raw.trim();
-        if (!trimmed) {
-          return null;
-        }
-        try {
-          const resolved = new URL(trimmed, window.location.href).toString();
-          return /^https?:\\/\\//i.test(resolved) ? resolved : null;
-        } catch (_) {
-          return null;
-        }
-      }
+      const script = document.createElement("script");
+      script.src = chrome.runtime.getURL(PAGE_BRIDGE_SCRIPT_PATH);
+      script.async = false;
 
-      function deriveFilename(rawUrl) {
-        const normalized = normalizeHttpUrl(rawUrl);
-        if (!normalized) {
-          return null;
-        }
-        try {
-          const parsed = new URL(normalized);
-          const rawName = parsed.pathname.split("/").filter(Boolean).pop() || "";
-          return rawName ? decodeURIComponent(rawName) : null;
-        } catch (_) {
-          return null;
-        }
-      }
+      script.onload = () => {
+        script.remove();
+        pageBridgeInjected = true;
+        pageBridgeInjectionPromise = null;
+        resolve();
+      };
 
-      function blobToDataUrl(blob) {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
-          reader.onerror = () => reject(new Error("Failed to read protected image blob"));
-          reader.readAsDataURL(blob);
-        });
-      }
+      script.onerror = () => {
+        script.remove();
+        pageBridgeInjectionPromise = null;
+        reject(new Error("Protected image page bridge failed to load"));
+      };
 
-      function findMatchingImage(imageUrl) {
-        const normalizedUrl = normalizeHttpUrl(imageUrl);
-        if (!normalizedUrl) {
-          return null;
-        }
+      parent.appendChild(script);
+    });
 
-        const images = Array.from(document.images || []);
-        return images.find((image) => {
-          const candidate =
-            normalizeHttpUrl(image.currentSrc) ||
-            normalizeHttpUrl(image.src) ||
-            normalizeHttpUrl(image.getAttribute("src"));
-          return candidate === normalizedUrl;
-        }) || null;
-      }
-
-      function exportImageElement(image, imageUrl) {
-        if (!(image instanceof HTMLImageElement) || !image.complete || !image.naturalWidth || !image.naturalHeight) {
-          return null;
-        }
-
-        const canvas = document.createElement("canvas");
-        canvas.width = image.naturalWidth;
-        canvas.height = image.naturalHeight;
-        const context = canvas.getContext("2d");
-        if (!context) {
-          return null;
-        }
-
-        context.drawImage(image, 0, 0);
-        return {
-          dataUrl: canvas.toDataURL(),
-          filename: deriveFilename(image.currentSrc || image.src || imageUrl),
-        };
-      }
-
-      async function resolveProtectedImage(imageUrl) {
-        const normalizedUrl = normalizeHttpUrl(imageUrl);
-        if (!normalizedUrl) {
-          return {
-            success: false,
-            code: "protected_image_invalid_url",
-            error: "Invalid protected image URL",
-          };
-        }
-
-        const matchingImage = findMatchingImage(normalizedUrl);
-        if (matchingImage) {
-          try {
-            const exported = exportImageElement(matchingImage, normalizedUrl);
-            if (exported && typeof exported.dataUrl === "string" && exported.dataUrl.startsWith("data:image/")) {
-              return {
-                success: true,
-                dataUrl: exported.dataUrl,
-                filename: exported.filename,
-              };
-            }
-          } catch (_) {
-            // Canvas export can fail on tainted images; continue to page fetch.
-          }
-        }
-
-        try {
-          const response = await fetch(normalizedUrl, {
-            credentials: "include",
-            cache: "force-cache",
-          });
-
-          if (!response.ok) {
-            return {
-              success: false,
-              code: "protected_image_fetch_failed",
-              error: "Protected image fetch failed with status " + response.status,
-            };
-          }
-
-          const contentType = (response.headers.get("content-type") || "").toLowerCase();
-          if (!contentType.startsWith("image/")) {
-            return {
-              success: false,
-              code: "protected_image_non_image_response",
-              error: "Protected image fetch returned non-image content",
-            };
-          }
-
-          const blob = await response.blob();
-          const dataUrl = await blobToDataUrl(blob);
-          if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
-            return {
-              success: false,
-              code: "protected_image_blob_encode_failed",
-              error: "Protected image blob encoding failed",
-            };
-          }
-
-          return {
-            success: true,
-            dataUrl,
-            filename: deriveFilename(response.url || normalizedUrl),
-          };
-        } catch (error) {
-          return {
-            success: false,
-            code: "protected_image_resolution_failed",
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-      }
-
-      window.addEventListener("message", async (event) => {
-        if (event.source !== window) {
-          return;
-        }
-
-        const data = event.data;
-        if (!data || data.source !== EXTENSION_SOURCE || data.type !== REQUEST_TYPE) {
-          return;
-        }
-
-        const requestId = typeof data.requestId === "string" ? data.requestId : "";
-        const pageUrl = normalizeHttpUrl(typeof data.pageUrl === "string" ? data.pageUrl : "");
-        const currentPageUrl = normalizeHttpUrl(window.location.href);
-        if (pageUrl && currentPageUrl && pageUrl !== currentPageUrl) {
-          window.postMessage({
-            source: PAGE_SOURCE,
-            type: RESPONSE_TYPE,
-            requestId,
-            success: false,
-            code: "protected_image_page_mismatch",
-            error: "Protected image page context changed before fallback resolved",
-          }, "*");
-          return;
-        }
-
-        const result = await resolveProtectedImage(data.imageUrl);
-        window.postMessage({
-          source: PAGE_SOURCE,
-          type: RESPONSE_TYPE,
-          requestId,
-          ...result,
-        }, "*");
-      });
-    })();`;
-
-    (document.documentElement || document.head || document.body).appendChild(script);
-    script.remove();
-    pageBridgeInjected = true;
+    return pageBridgeInjectionPromise;
   }
 
   function nextPageRequestId() {
@@ -455,8 +406,16 @@
     return `protected-image-${Date.now()}-${pageRequestCounter}`;
   }
 
-  function resolveProtectedImageFromPage(imageUrl, pageUrl) {
-    injectPageBridge();
+  async function resolveProtectedImageFromPage(imageUrl, pageUrl) {
+    try {
+      await injectPageBridge();
+    } catch (error) {
+      return {
+        success: false,
+        code: "protected_image_page_bridge_injection_failed",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
 
     return new Promise((resolve) => {
       const requestId = nextPageRequestId();
@@ -509,7 +468,7 @@
     }
 
     const image = resolveImageElement(event.target);
-    const imageUrl = resolveDraggedImageUrl(image);
+    const imageUrl = resolveDraggedImageUrl(image, event.target);
     if (!imageUrl) {
       return;
     }

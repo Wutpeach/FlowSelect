@@ -7,7 +7,7 @@
   "host_permissions": ["<all_urls>"],
   "web_accessible_resources": [
     {
-      "resources": ["locales/*/*.json"],
+      "resources": ["locales/*/*.json", "protected-image-page-bridge.js"],
       "matches": ["<all_urls>"]
     }
   ],
@@ -69,6 +69,19 @@
     {
       "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
       "js": ["dom-injection-utils.js", "instagram-detector.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://weibo.com/*",
+        "https://www.weibo.com/*",
+        "https://m.weibo.com/*",
+        "https://m.weibo.cn/*",
+        "https://video.weibo.com/*",
+        "https://weibo.cn/*"
+      ],
+      "js": ["control-style-utils.js", "weibo-detector.js"],
+      "css": ["flowselect-shared.css", "weibo-button.css"],
       "run_at": "document_idle"
     }
   ],

@@ -400,6 +400,43 @@ Current extension request/response envelope:
   - `ytdlpQualityPreference`
   - `cookies`
   - `requestId`
+- `save_image` payload fields to preserve when the extension asks Electron main to perform an authenticated protected-image download:
+  - `url`
+  - `targetDir?`
+  - `originalFilename?`
+  - `requestHeaders?`
+  - `referrer?`
+- `requestHeaders` for `save_image` are an Electron-owned allowlist contract:
+  - allowed keys: `Accept`, `Cookie`, `Origin`, `Referer`, `User-Agent`
+  - all other extension-supplied header keys must be ignored before main-process fetch
+- Protected-image fallback order is part of the transport contract:
+  1. renderer `download_image`
+  2. Electron direct download
+  3. extension `resolve_protected_image`
+  4. content-script local export
+  5. page bridge fetch
+  6. extension background fetch
+  7. authenticated Electron `save_image` with forwarded `requestHeaders` / `referrer`
+  8. extension reports `protected_image_resolution_result`
+- The page-bridge asset `browser-extension/protected-image-page-bridge.js` must stay listed in MV3 `web_accessible_resources`; otherwise CSP-protected sites can break the protected-image fallback before step 5.
+
+Validation and error matrix:
+
+| Condition | Validation Point | Expected Behavior | Action |
+|-----------|------------------|-------------------|--------|
+| Site CSP blocks inline bridge injection | MV3 content script + manifest | Page bridge still loads from `chrome.runtime.getURL(...)` | Keep `protected-image-page-bridge.js` in `web_accessible_resources` |
+| Content script and page bridge both fail to read bytes | `browser-extension/background.js` fallback chain | Extension tries background fetch, then authenticated `save_image` | Report only the final correlated result back to Electron |
+| Extension sends unexpected request header names | `electron/main.mts` `save_image` path | Main process drops unapproved headers before fetch | Restrict to the allowlist |
+| Authenticated desktop download succeeds after browser-context failure | `protected_image_resolution_result` correlation | Original `download_image` call resolves with the saved path instead of timing out | Resolve the pending protected-image request once |
+
+Good / Base / Bad cases:
+- Good:
+  - Weibo protected-image drag fails canvas export and browser-context fetches, then succeeds through authenticated `save_image` with forwarded cookies and referrer.
+- Base:
+  - Public image download still uses the normal `download_image` path with no `save_image` metadata.
+- Bad:
+  - Extension forwards arbitrary header names to Electron main.
+  - Electron main changes the protected-image action names or payload keys without updating this contract in the same task.
 
 #### Config Compatibility Contract
 

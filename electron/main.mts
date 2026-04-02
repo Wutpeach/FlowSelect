@@ -186,6 +186,13 @@ const wsClients = new Set();
 const pendingVideoDownloads = [];
 const activeVideoDownloads = new Map();
 const pendingProtectedImageRequests = new Map();
+const ALLOWED_IMAGE_DOWNLOAD_REQUEST_HEADERS = new Set([
+  "accept",
+  "cookie",
+  "origin",
+  "referer",
+  "user-agent",
+]);
 
 const runtimeDependencyGateState = {
   phase: "idle",
@@ -1036,6 +1043,118 @@ function normalizeOptionalString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function normalizeHttpUrl(value) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeImageDownloadRequestHeaders(rawHeaders) {
+  if (!rawHeaders || typeof rawHeaders !== "object" || Array.isArray(rawHeaders)) {
+    return undefined;
+  }
+
+  const headers = {};
+  for (const [rawName, rawValue] of Object.entries(rawHeaders)) {
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+    const value = typeof rawValue === "string" ? rawValue.trim() : "";
+    if (!name || !value) {
+      continue;
+    }
+
+    if (!ALLOWED_IMAGE_DOWNLOAD_REQUEST_HEADERS.has(name.toLowerCase())) {
+      continue;
+    }
+
+    headers[name] = value;
+  }
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+function deriveImageDownloadHeaders(requestOptions = {}) {
+  const headers = {
+    ...(normalizeImageDownloadRequestHeaders(
+      requestOptions?.requestHeaders ?? requestOptions?.headers,
+    ) ?? {}),
+  };
+  const normalizedReferrer =
+    normalizeHttpUrl(requestOptions?.referrer ?? requestOptions?.pageUrl) ?? undefined;
+
+  if (normalizedReferrer && !headers.Referer && !headers.referer) {
+    headers.Referer = normalizedReferrer;
+  }
+
+  if (!headers.Origin && !headers.origin && normalizedReferrer) {
+    try {
+      headers.Origin = new URL(normalizedReferrer).origin;
+    } catch {
+      // Ignore invalid referrer values after normalization failure.
+    }
+  }
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+async function fetchImageForDownload(url, requestOptions = {}) {
+  const headers = deriveImageDownloadHeaders(requestOptions);
+  const hasExplicitHeaders = Boolean(headers && Object.keys(headers).length > 0);
+
+  if (hasExplicitHeaders && typeof globalThis.fetch === "function") {
+    try {
+      logInfo(
+        "ProtectedImage",
+        "Trying global fetch with explicit request headers",
+        JSON.stringify({
+          url,
+          headerNames: Object.keys(headers),
+        }),
+      );
+      const response = await globalThis.fetch(url, {
+        headers,
+        redirect: "follow",
+      });
+      if (response.ok && response.body) {
+        return response;
+      }
+      logInfo(
+        "ProtectedImage",
+        "Global fetch did not return a usable image response; falling back to Electron session fetch",
+        JSON.stringify({
+          url,
+          status: response.status,
+          statusText: response.statusText,
+        }),
+      );
+    } catch (error) {
+      logInfo(
+        "ProtectedImage",
+        "Global fetch with explicit request headers failed; falling back to Electron session fetch",
+        String(error),
+      );
+    }
+  }
+
+  return fetchWithDesktopSession(url, {
+    credentials: "include",
+    headers,
+    referrer:
+      normalizeHttpUrl(requestOptions?.referrer ?? requestOptions?.pageUrl)
+      ?? undefined,
+    referrerPolicy: "strict-origin-when-cross-origin",
+  });
+}
+
 function normalizeOptionalNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
@@ -1264,9 +1383,15 @@ async function processFiles(paths, targetDir) {
   return `Copied ${copiedCount} files to ${finalTargetDir}`;
 }
 
-async function downloadImage(url, targetDir, originalFilename, protectedImageFallback = null) {
+async function downloadImage(
+  url,
+  targetDir,
+  originalFilename,
+  protectedImageFallback = null,
+  requestOptions = {},
+) {
   try {
-    const response = await fetchWithDesktopSession(url);
+    const response = await fetchImageForDownload(url, requestOptions);
     if (!response.ok || !response.body) {
       throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
     }
@@ -4046,6 +4171,11 @@ async function handleWsMessage(rawMessage) {
           data.url,
           typeof data.targetDir === "string" ? data.targetDir : null,
           typeof data.originalFilename === "string" ? data.originalFilename : null,
+          null,
+          {
+            requestHeaders: data.requestHeaders ?? data.request_headers,
+            referrer: data.referrer ?? data.pageUrl ?? data.page_url,
+          },
         );
         return {
           success: true,
@@ -4257,6 +4387,10 @@ async function handleCommand(command, payload = {}) {
         payload.targetDir ?? null,
         payload.originalFilename ?? null,
         payload.protectedImageFallback ?? null,
+        {
+          requestHeaders: payload.requestHeaders ?? payload.request_headers,
+          referrer: payload.referrer ?? payload.pageUrl ?? payload.page_url,
+        },
       );
     case "dev_ui_lab_apply_scenario":
       await applyUiLabScenario(String(payload.scenario ?? ""));

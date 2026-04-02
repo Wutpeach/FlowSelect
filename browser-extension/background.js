@@ -14,6 +14,7 @@ const VIDEO_SELECTION_CONNECT_TIMEOUT_MS = 3500;
 const VIDEO_SELECTION_RETRY_CONNECT_TIMEOUT_MS = 5000;
 const PROTECTED_IMAGE_DRAG_TTL_MS = 2 * 60 * 1000;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15000;
+const PROTECTED_IMAGE_BACKGROUND_FETCH_TIMEOUT_MS = 12000;
 const CONNECTING_STATUS_TEXT = 'Connecting';
 const OFFLINE_STATUS_TEXT = 'Offline';
 const FALLBACK_LANGUAGE = 'en';
@@ -359,6 +360,9 @@ function normalizeSiteHint(value) {
   if (normalized === 'pinterest') {
     return 'pinterest';
   }
+  if (normalized === 'weibo' || normalized === 'weibo.cn') {
+    return 'weibo';
+  }
   if (normalized === 'generic') {
     return 'generic';
   }
@@ -402,6 +406,15 @@ function deriveSiteHint(values) {
     if (value.includes('pinterest.com/') || value.includes('pinimg.com/')) {
       return 'pinterest';
     }
+    if (
+      value.includes('weibo.com/')
+      || value.includes('weibo.cn/')
+      || value.includes('m.weibo.com/')
+      || value.includes('m.weibo.cn/')
+      || value.includes('video.weibo.com/')
+    ) {
+      return 'weibo';
+    }
   }
 
   return null;
@@ -429,6 +442,149 @@ function deriveFilenameFromUrl(rawUrl) {
   } catch (error) {
     return null;
   }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+    reader.onerror = () => reject(new Error('Failed to read protected image blob'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function buildCookieHeader(cookies) {
+  if (!Array.isArray(cookies) || cookies.length === 0) {
+    return '';
+  }
+
+  return cookies
+    .filter((cookie) => typeof cookie?.name === 'string' && typeof cookie?.value === 'string')
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .join('; ');
+}
+
+async function getCookieHeaderForRequestUrl(url) {
+  const normalizedUrl = normalizeHttpUrl(url);
+  if (!normalizedUrl) {
+    return '';
+  }
+
+  try {
+    const cookies = await chrome.cookies.getAll({ url: normalizedUrl });
+    return buildCookieHeader(cookies);
+  } catch (error) {
+    console.warn('[FlowSelect] Failed to read cookies for protected image request:', error);
+    return '';
+  }
+}
+
+async function fetchProtectedImageInBackground(imageUrl, pageUrl) {
+  const normalizedUrl = normalizeHttpUrl(imageUrl);
+  if (!normalizedUrl) {
+    return {
+      success: false,
+      code: 'protected_image_invalid_url',
+      error: 'Invalid protected image URL',
+    };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(new Error('Protected image background fetch timed out'));
+  }, PROTECTED_IMAGE_BACKGROUND_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(normalizedUrl, {
+      credentials: 'include',
+      cache: 'force-cache',
+      referrer: normalizeHttpUrl(pageUrl) || undefined,
+      referrerPolicy: 'strict-origin-when-cross-origin',
+      headers: {
+        Accept: 'image/*,*/*;q=0.8',
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        code: 'protected_image_fetch_failed',
+        error: `Protected image background fetch failed with status ${response.status}`,
+      };
+    }
+
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.startsWith('image/')) {
+      return {
+        success: false,
+        code: 'protected_image_non_image_response',
+        error: 'Protected image background fetch returned non-image content',
+      };
+    }
+
+    const blob = await response.blob();
+    const dataUrl = await blobToDataUrl(blob);
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+      return {
+        success: false,
+        code: 'protected_image_blob_encode_failed',
+        error: 'Protected image background blob encoding failed',
+      };
+    }
+
+    return {
+      success: true,
+      dataUrl,
+      filename: deriveFilenameFromUrl(response.url || normalizedUrl),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      code: 'protected_image_background_fetch_failed',
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function downloadProtectedImageViaDesktopApp(imageUrl, pageUrl, targetDir, originalFilename) {
+  const normalizedUrl = normalizeHttpUrl(imageUrl);
+  if (!normalizedUrl) {
+    return buildRequestFailure('protected_image_invalid_url');
+  }
+
+  const normalizedPageUrl = normalizeHttpUrl(pageUrl);
+  let originHeader;
+  try {
+    originHeader = normalizedPageUrl ? new URL(normalizedPageUrl).origin : undefined;
+  } catch (error) {
+    originHeader = undefined;
+  }
+
+  const headers = {
+    Accept: 'image/*,*/*;q=0.8',
+    Referer: normalizedPageUrl || undefined,
+    Origin: originHeader,
+    'User-Agent': self.navigator?.userAgent || undefined,
+  };
+  const cookieHeader = await getCookieHeaderForRequestUrl(normalizedUrl);
+  if (cookieHeader) {
+    headers.Cookie = cookieHeader;
+  }
+
+  return sendRequestToApp(
+    'save_image',
+    {
+      url: normalizedUrl,
+      targetDir,
+      originalFilename,
+      requestHeaders: headers,
+      referrer: normalizedPageUrl || undefined,
+    },
+    PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS,
+  );
 }
 
 function sendMessageToTab(tabId, message, options = {}) {
@@ -528,7 +684,7 @@ async function handleProtectedImageResolveRequest(data) {
   }
 
   try {
-    const resolution = await sendMessageToTab(
+    let resolution = await sendMessageToTab(
       entry.tabId,
       {
         type: 'resolve_protected_image',
@@ -540,14 +696,55 @@ async function handleProtectedImageResolveRequest(data) {
     );
 
     if (!resolution?.success || typeof resolution?.dataUrl !== 'string') {
+      console.warn(
+        '[FlowSelect] Protected image tab resolution failed, trying extension background fetch:',
+        resolution?.code || resolution?.error || 'unknown'
+      );
+      resolution = await fetchProtectedImageInBackground(imageUrl, pageUrl);
+    }
+
+    if (!resolution?.success || typeof resolution?.dataUrl !== 'string') {
+      console.warn(
+        '[FlowSelect] Protected image byte resolution failed, trying desktop authenticated download:',
+        resolution?.code || resolution?.error || 'unknown'
+      );
+      const desktopDownloadResult = await downloadProtectedImageViaDesktopApp(
+        imageUrl,
+        pageUrl,
+        targetDir,
+        typeof resolution?.filename === 'string' && resolution.filename.trim()
+          ? resolution.filename.trim()
+          : deriveFilenameFromUrl(imageUrl) || undefined,
+      );
+
+      if (
+        desktopDownloadResult?.success
+        && typeof desktopDownloadResult.message === 'string'
+        && desktopDownloadResult.message.trim()
+      ) {
+        console.info(
+          '[FlowSelect] Protected image fallback saved via authenticated desktop download:',
+          desktopDownloadResult.message.trim()
+        );
+        await reportProtectedImageResolutionResult(requestId, {
+          success: true,
+          filePath: desktopDownloadResult.message.trim(),
+        });
+        return;
+      }
+
       await reportProtectedImageResolutionResult(requestId, {
         success: false,
-        code: typeof resolution?.code === 'string'
-          ? resolution.code
-          : 'protected_image_resolution_failed',
-        error: typeof resolution?.error === 'string'
-          ? resolution.error
-          : 'Protected image resolver did not return image bytes',
+        code: typeof desktopDownloadResult?.data?.code === 'string'
+          ? desktopDownloadResult.data.code
+          : typeof resolution?.code === 'string'
+            ? resolution.code
+            : 'protected_image_resolution_failed',
+        error: typeof desktopDownloadResult?.message === 'string'
+          ? desktopDownloadResult.message
+          : typeof resolution?.error === 'string'
+            ? resolution.error
+            : 'Protected image resolver did not return image bytes',
       });
       return;
     }

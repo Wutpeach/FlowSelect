@@ -170,6 +170,57 @@ const fileToDataUrl = async (file: Blob): Promise<string> => {
   return `data:${mimeType};base64,${base64}`;
 };
 
+const filterDroppedFilesByMimePrefix = (
+  dataTransfer: DataTransfer | null,
+  mimePrefix: `${string}/`,
+): File[] => Array.from(dataTransfer?.files ?? []).filter((file) => file.type.startsWith(mimePrefix));
+
+const saveDroppedFilesToOutput = async (
+  files: File[],
+  targetDir: string | null,
+): Promise<number> => {
+  let savedCount = 0;
+
+  for (const file of files) {
+    try {
+      const filePath = typeof (file as File & { path?: unknown }).path === "string"
+        ? (file as File & { path?: string }).path?.trim() ?? ""
+        : "";
+
+      if (filePath) {
+        const copyResult = await desktopCommands.invoke<string>("process_files", {
+          paths: [filePath],
+          targetDir,
+        });
+        if (!copyResult.includes("Copied 0 files")) {
+          savedCount += 1;
+          continue;
+        }
+
+        console.warn(
+          "Dropped browser file path did not resolve on disk, falling back to in-memory blob:",
+          file.name || "<unnamed>",
+          filePath,
+        );
+      }
+
+      const dataUrl = await fileToDataUrl(file);
+      await desktopCommands.invoke<string>("save_data_url", {
+        dataUrl,
+        targetDir,
+        originalFilename: file.name || undefined,
+      });
+
+      savedCount += 1;
+    } catch (error) {
+      console.error("Failed to save dropped browser file:", file.name || "<unnamed>", error);
+      checkSequenceOverflow(error);
+    }
+  }
+
+  return savedCount;
+};
+
 const extractClipboardImageFile = (clipboardData: DataTransfer | null): File | null => {
   if (!clipboardData) {
     return null;
@@ -3240,6 +3291,18 @@ function App({
       url = embeddedPinterestDragPayload.pageUrl;
     }
 
+    const droppedVideoFiles = filterDroppedFilesByMimePrefix(e.dataTransfer, "video/");
+    if (droppedVideoFiles.length > 0) {
+      console.log("Detected dragged video file payload, saving directly from dataTransfer.files");
+      resetDownloadOutcome();
+      await startForegroundProcessing();
+
+      await saveDroppedFilesToOutput(droppedVideoFiles, outputPath || null);
+
+      setTimeout(() => setIsProcessing(false), 1000);
+      return;
+    }
+
     // === 优先处理本地文件 file:// URL ===
     if (url && url.startsWith("file://")) {
       const localPath = parseLocalFileUrl(url) ?? decodeURIComponent(url.replace("file:///", ""));
@@ -3413,12 +3476,33 @@ function App({
             }
           }
         } else {
-          const result = await desktopCommands.invoke<string>("download_image", {
-            url: resolvedImageUrl,
-            targetDir: outputPath || null,
-            protectedImageFallback,
-          });
-          console.log("Download result:", result);
+          try {
+            const result = await desktopCommands.invoke<string>("download_image", {
+              url: resolvedImageUrl,
+              targetDir: outputPath || null,
+              protectedImageFallback,
+            });
+            console.log("Download result:", result);
+          } catch (downloadErr) {
+            const droppedImageFiles = filterDroppedFilesByMimePrefix(e.dataTransfer, "image/");
+            if (protectedImageFallback && droppedImageFiles.length > 0) {
+              console.warn(
+                "Protected image download failed, falling back to dragged image file payloads:",
+                downloadErr,
+              );
+              const savedCount = await saveDroppedFilesToOutput(
+                droppedImageFiles,
+                outputPath || null,
+              );
+              if (savedCount > 0) {
+                console.log("Saved protected image from dataTransfer.files fallback:", savedCount);
+              } else {
+                throw downloadErr;
+              }
+            } else {
+              throw downloadErr;
+            }
+          }
         }
       } catch (err) {
         console.error("Failed to process image:", err);

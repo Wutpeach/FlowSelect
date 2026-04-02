@@ -35,4 +35,15 @@ describe("extractImageUrlFromHtml", () => {
 
     expect(imageUrl).toBe("https://images.example.com/fallback.png");
   });
+
+  it("extracts an image URL from a dragged background-image style", () => {
+    const imageUrl = extractImageUrlFromHtml(`
+      <div
+        class="thumb"
+        style="background-image:url('https://wx1.sinaimg.cn/orj360/0040jbadgy1ibrnjcevumj63b04eoqv702.jpg')"
+      ></div>
+    `);
+
+    expect(imageUrl).toBe("https://wx1.sinaimg.cn/orj360/0040jbadgy1ibrnjcevumj63b04eoqv702.jpg");
+  });
 });
