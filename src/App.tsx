@@ -52,7 +52,6 @@ import {
   shouldHandleDroppedFolderResult,
 } from "./utils/folderDrop";
 import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImageDrag";
-import { resolveSecondaryWindowPosition } from "./utils/secondaryWindowPlacement";
 import {
   getDeferredStartupInitializationDelayMs,
   getStartupAutoMinimizeGraceMs,
@@ -899,7 +898,6 @@ function App({
   const CONTEXT_MENU_HEIGHT = 80;
   const SETTINGS_WINDOW_WIDTH = 320;
   const SETTINGS_WINDOW_HEIGHT = 400;
-  const SETTINGS_WINDOW_GAP = 16;
   const totalDownloadTaskCount = videoQueueState.totalCount;
   const downloadQueueTasks = videoQueueDetail.tasks;
   const activeDownloadQueueTasks = downloadQueueTasks.filter((task) => task.status === "active");
@@ -1203,9 +1201,7 @@ function App({
     }
 
     clearWindowIdleTimers();
-    if (!isMacOS) {
-      pendingCompactResizeTokenRef.current = beginMainWindowBoundsTransition("compact");
-    }
+    pendingCompactResizeTokenRef.current = beginMainWindowBoundsTransition("compact");
     setIsMinimized(true);
     setShowEdgeGlow(false);
     if (source === "idle") {
@@ -1215,7 +1211,6 @@ function App({
   }, [
     beginMainWindowBoundsTransition,
     clearWindowIdleTimers,
-    isMacOS,
     startsExpandedOnLaunch,
   ]);
 
@@ -1344,7 +1339,7 @@ function App({
       return;
     }
     const transitionToken = beginMainWindowBoundsTransition("full");
-    if (isMacOS || !windowResized) {
+    if (!windowResized) {
       if (!isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
         return;
       }
@@ -1377,7 +1372,6 @@ function App({
     finishExpandMorph,
     isExpandingFromMinimized,
     isMainWindowBoundsTransitionStillCurrent,
-    isMacOS,
     resizeMainWindowPreservingPosition,
     windowResized,
   ]);
@@ -1394,7 +1388,7 @@ function App({
     setPanelTransitionMode("instant");
     setIsExpandingFromMinimized(false);
 
-    if (windowResized && !isMacOS) {
+    if (windowResized) {
       try {
         const echoedTransitionToken = await resizeMainWindowPreservingPosition(
           INTERMEDIATE_EXPAND_SIZE,
@@ -1448,7 +1442,6 @@ function App({
     beginMainWindowBoundsTransition,
     clearWindowIdleTimers,
     isMainWindowBoundsTransitionStillCurrent,
-    isMacOS,
     resizeMainWindowPreservingPosition,
     restoreAnimatedPanelTransitions,
     windowResized,
@@ -1517,9 +1510,6 @@ function App({
       return;
     }
     if (isMinimizedRef.current && !windowResizedRef.current && !isInitialMountRef.current) {
-      if (isMacOS) {
-        return;
-      }
       const compactResizeToken = pendingCompactResizeTokenRef.current;
       if (!isMainWindowBoundsTransitionStillCurrent(compactResizeToken, "compact")) {
         return;
@@ -1548,22 +1538,22 @@ function App({
     isPanelHovered && !isHovering && !primaryTask && !visualIsMinimized && showEdgeGlow;
   const shouldShowDragGlow = isHovering && !primaryTask && !visualIsMinimized;
   const isExpandMorphVisible =
-    visualIsExpandingFromMinimized && visualWindowResized && !isMacOS;
+    visualIsExpandingFromMinimized && visualWindowResized;
   const isNativeSizedMinimizedShell =
-    visualIsMinimized && visualWindowResized && !isMacOS && !isExpandMorphVisible;
+    visualIsMinimized && visualWindowResized && !isExpandMorphVisible;
   const panelRenderSize = isExpandMorphVisible
     ? FULL_SIZE
-    : visualIsMinimized && !isMacOS
+    : visualIsMinimized
       ? MINIMIZED_SHELL_SIZE
       : FULL_SIZE;
   const minimizedPanelOffset = isExpandMorphVisible
     ? 0
-    : visualIsMinimized && !isMacOS
+    : visualIsMinimized
       ? MINIMIZED_SHELL_INSET
       : 0;
-  const minimizedPanelScale = isMacOS ? 0.3 : 1;
-  const minimizedIconSize = isMacOS ? 120 : MINIMIZED_ICON_SIZE;
-  const minimizedIconFrameSize = minimizedIconSize;
+  const minimizedPanelScale = 1;
+  const minimizedIconSize = MINIMIZED_ICON_SIZE;
+  const minimizedIconFrameSize = isMacOS ? MINIMIZED_SHELL_SIZE : minimizedIconSize;
   const minimizedIconWrapperScale = 1;
   const shouldUseInstantPanelTransition = panelTransitionMode === "instant";
   const minimizedIconAnimate = shouldReduceMotion
@@ -3585,51 +3575,11 @@ function App({
       return;
     }
 
-    const currentWindow = desktopCurrentWindow;
-    let settingsPosition: { x: number; y: number } | null = null;
-    try {
-      const [outerPosition, outerSize, scaleFactor, monitor] = await Promise.all([
-        currentWindow.outerPosition(),
-        currentWindow.outerSize(),
-        currentWindow.scaleFactor(),
-        desktopSystem.currentMonitor(),
-      ]);
-      settingsPosition = resolveSecondaryWindowPosition({
-        anchorPosition: outerPosition,
-        anchorSize: outerSize,
-        targetSize: {
-          width: SETTINGS_WINDOW_WIDTH,
-          height: SETTINGS_WINDOW_HEIGHT,
-        },
-        gap: SETTINGS_WINDOW_GAP,
-        edgePadding: WINDOW_EDGE_PADDING,
-        scaleFactor,
-        monitor,
-      });
-    } catch (err) {
-      console.error("Failed to resolve settings window position:", err);
-    }
-
-    const baseOptions = {
+    await desktopWindows.openSettings({
       title: t("app.windows.settingsTitle"),
       width: SETTINGS_WINDOW_WIDTH,
       height: SETTINGS_WINDOW_HEIGHT,
       alwaysOnTop: true,
-    };
-
-    if (settingsPosition) {
-      await desktopWindows.openSettings({
-        ...baseOptions,
-        center: false,
-        x: settingsPosition.x,
-        y: settingsPosition.y,
-      });
-      return;
-    }
-
-    await desktopWindows.openSettings({
-      ...baseOptions,
-      center: true,
     });
   };
 
@@ -3761,7 +3711,7 @@ function App({
     : colors.panelShadow;
   const panelViewportSize = isNativeSizedMinimizedShell ? ICON_SIZE : FULL_SIZE;
   const shouldShowMinimizedChromeOverlay =
-    visualIsMinimized && !visualIsExpandingFromMinimized;
+    visualIsMinimized && !visualIsExpandingFromMinimized && !isMacOS;
   const panelBorderColor = visualIsMinimized
     ? colors.borderStart
     : primaryTask?.kind === "transcode"
@@ -4136,7 +4086,7 @@ function App({
         alignItems: 'center',
         gap: 8,
         outline: 'none',
-        ...(visualIsExpandingFromMinimized
+        ...(visualIsExpandingFromMinimized || (visualIsMinimized && isMacOS)
           ? {
               background: "transparent",
               boxShadow: "none",
@@ -4991,6 +4941,14 @@ function App({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                ...getContinuousCornerStyle("50%"),
+                background: isMacOS
+                  ? `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`
+                  : "transparent",
+                boxShadow: isMacOS
+                  ? `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadowCompact}`
+                  : "none",
+                overflow: "hidden",
                 transform: `scale(${minimizedIconWrapperScale})`,
                 transformOrigin: "center center",
                 willChange: "transform",

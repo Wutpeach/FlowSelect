@@ -51,6 +51,22 @@ describe("resolveSecondaryWindowPosition", () => {
     })).toEqual({ x: 456, y: 512 });
   });
 
+  it("keeps placement inside the monitor work area when the usable origin is offset", () => {
+    expect(resolveSecondaryWindowPosition({
+      anchorPosition: { x: 24, y: 32 },
+      anchorSize: { width: 320, height: 400 },
+      targetSize: { width: 420, height: 560 },
+      gap: 16,
+      edgePadding: 8,
+      scaleFactor: 1,
+      monitor: {
+        position: { x: 0, y: 38 },
+        size: { width: 1512, height: 945 },
+        scaleFactor: 1,
+      },
+    })).toEqual({ x: 360, y: 46 });
+  });
+
   it("returns logical coordinates after applying scale-aware placement math", () => {
     expect(resolveSecondaryWindowPosition({
       anchorPosition: { x: 400, y: 300 },
