@@ -1,5 +1,5 @@
 // FlowSelect Browser Extension - Pinterest Detector
-// Injects download icons on animated Pinterest feed cards and pin detail pages.
+// Keeps Pinterest card drag payloads enriched and injects a download icon on animated pin detail pages.
 
 (function () {
   "use strict";
@@ -9,25 +9,11 @@
   const DETAIL_GROUP_BUTTON_CLASS = "flowselect-pinterest-detail-group-btn";
   const DETAIL_GROUP_SLOT_CLASS = "flowselect-pinterest-detail-group-slot";
   const DETAIL_SLOT_ATTR = "data-flowselect-pinterest-detail-slot";
-  const CARD_BUTTON_CLASS = "flowselect-pinterest-card-btn";
   const CARD_HOST_ATTR = "data-flowselect-pinterest-card-host";
-  const CARD_BUTTON_MODE_ATTR = "data-flowselect-card-mode";
-  const CARD_MODE_SHARE = "share";
-  const CARD_MODE_COMPACT = "compact";
-  const CARD_READY_ATTR = "data-flowselect-card-ready";
-  const CARD_RESOLVED_ATTR = "data-flowselect-card-resolved";
   const HOST_PATCH_ATTR = "data-flowselect-pinterest-host-patched";
-  const HOST_SYNC_BOUND_ATTR = "data-flowselect-pinterest-card-sync-bound";
   const DRAG_SYNC_BOUND_ATTR = "data-flowselect-pinterest-drag-bound";
-  const COMPACT_CARD_MAX_HEIGHT = 180;
-  const COMPACT_CARD_MAX_AREA = 56000;
+  const LEGACY_CARD_BUTTON_CLASS = "flowselect-pinterest-card-btn";
   const DRAG_PAYLOAD_MARKER = "FLOWSELECT_PINTEREST_DRAG";
-  const CARD_ACTION_SHELL_BASE_CLASSES = ["VHreRh", "cUw_ba"];
-  const CARD_SHARE_CLASS_SETS = [
-    ["VHreRh", "cUw_ba", "cLlqFI"],
-    ["VHreRh", "cUw_ba", "cLlqFl"],
-    ["VHreRh", "cUw_ba"],
-  ];
   const PIN_PATH_RE = /\/pin\/(\d+)\/?/i;
   const EXACT_DURATION_RE = /^(?:\d{1,2}:)?\d{1,2}:\d{2}$/;
   const VIDEO_HINT_RE =
@@ -559,7 +545,7 @@
 
     const host = target.closest(`[${CARD_HOST_ATTR}]`);
     if (host instanceof HTMLElement) {
-      const pageUrl = resolveCardPageUrl(host, host.querySelector(`.${CARD_BUTTON_CLASS}`));
+      const pageUrl = resolveCardPageUrl(host);
       if (pageUrl) {
         return { scope: host, pageUrl };
       }
@@ -589,18 +575,6 @@
     return null;
   }
 
-  function ensurePositionedHost(host) {
-    if (!(host instanceof HTMLElement)) {
-      return;
-    }
-
-    const computedStyle = window.getComputedStyle(host);
-    if (computedStyle.position === "static") {
-      host.style.position = "relative";
-      host.setAttribute(HOST_PATCH_ATTR, "true");
-    }
-  }
-
   function maybeRestorePatchedHost(host) {
     if (!(host instanceof HTMLElement)) {
       return;
@@ -610,6 +584,17 @@
       host.style.removeProperty("position");
       host.removeAttribute(HOST_PATCH_ATTR);
     }
+  }
+
+  function removeLegacyCardButtons() {
+    document.querySelectorAll(`.${LEGACY_CARD_BUTTON_CLASS}`).forEach((button) => {
+      const host = button.closest(`[${CARD_HOST_ATTR}]`);
+      button.remove();
+      if (host instanceof HTMLElement && !host.querySelector(`.${LEGACY_CARD_BUTTON_CLASS}`)) {
+        host.removeAttribute(CARD_HOST_ATTR);
+        maybeRestorePatchedHost(host);
+      }
+    });
   }
 
   function collectDistinctPinUrls(root) {
@@ -757,261 +742,15 @@
     return /\b(save|pin)\b/i.test(label) || /\u4fdd\u5b58/.test(label);
   }
 
-  function isShareLikeControl(element) {
-    if (!(element instanceof HTMLElement)) {
-      return false;
-    }
-
-    const label = extractControlLabel(element);
-    return /\b(share|send)\b/i.test(label) || /(\u5206\u4eab|\u53d1\u9001)/.test(label);
-  }
-
-  function matchesClassSet(element, classSet) {
-    return classSet.every((className) => element.classList.contains(className));
-  }
-
-  function parseCssColor(value) {
-    if (typeof value !== "string" || !value.trim()) {
-      return null;
-    }
-
-    const match = value.match(/rgba?\(([^)]+)\)/i);
-    if (!match) {
-      return null;
-    }
-
-    const parts = match[1]
-      .split(",")
-      .map((part) => Number.parseFloat(part.trim()))
-      .filter((part) => !Number.isNaN(part));
-    if (parts.length < 3) {
-      return null;
-    }
-
-    return {
-      r: parts[0],
-      g: parts[1],
-      b: parts[2],
-      a: parts.length >= 4 ? parts[3] : 1,
-    };
-  }
-
-  function hasVisibleCssColor(value) {
-    if (typeof value !== "string" || !value.trim() || value === "transparent") {
-      return false;
-    }
-
-    const parsed = parseCssColor(value);
-    return parsed ? parsed.a > 0.01 : true;
-  }
-
-  function pickContrastColor(backgroundColor, fallback = "#ffffff") {
-    const parsed = parseCssColor(backgroundColor);
-    if (!parsed) {
-      return fallback;
-    }
-
-    const brightness = (parsed.r * 299 + parsed.g * 587 + parsed.b * 114) / 1000;
-    return brightness >= 170 ? "#111111" : "#ffffff";
-  }
-
-  function looksLikeCardActionShell(element) {
-    if (!(element instanceof HTMLElement)) {
-      return false;
-    }
-
-    if (!matchesClassSet(element, CARD_ACTION_SHELL_BASE_CLASSES)) {
-      return false;
-    }
-
-    const rect = element.getBoundingClientRect();
-    return rect.width >= 24 && rect.width <= 56 && rect.height >= 24 && rect.height <= 56;
-  }
-
-  function resolveCardControlVisualTarget(control) {
-    if (!(control instanceof HTMLElement)) {
-      return null;
-    }
-
-    const shellCandidates = [control, ...Array.from(control.querySelectorAll("div, span"))].filter(
-      (element) => element instanceof HTMLElement && looksLikeCardActionShell(element),
-    );
-    if (!shellCandidates.length) {
-      return control;
-    }
-
-    shellCandidates.sort((left, right) => {
-      const leftScore = left.classList.length;
-      const rightScore = right.classList.length;
-      return rightScore - leftScore;
-    });
-
-    return shellCandidates[0];
-  }
-
-  function findExplicitCardShareControl(host) {
-    if (!(host instanceof HTMLElement)) {
-      return null;
-    }
-
-    const labeledShareControl = findCardControl(host, isShareLikeControl, "bottom-right");
-    if (labeledShareControl instanceof HTMLElement) {
-      return resolveCardControlVisualTarget(labeledShareControl) || labeledShareControl;
-    }
-
-    const elements = Array.from(host.querySelectorAll("div, button, a, span")).filter(
-      (element) => element instanceof HTMLElement,
-    );
-    for (const classSet of CARD_SHARE_CLASS_SETS) {
-      const matched = elements.find(
-        (element) => element instanceof HTMLElement && matchesClassSet(element, classSet),
-      );
-      if (matched instanceof HTMLElement) {
-        const owner = matched.closest("button, a, div[role='button']");
-        if (owner instanceof HTMLElement && isShareLikeControl(owner)) {
-          return resolveCardControlVisualTarget(owner) || matched;
-        }
-
-        return resolveCardControlVisualTarget(matched) || matched;
+  function resolveCardPageUrl(host) {
+    if (host instanceof HTMLElement) {
+      const hostPinUrls = collectDistinctPinUrls(host);
+      if (hostPinUrls.length === 1) {
+        return hostPinUrls[0];
       }
     }
 
     return null;
-  }
-
-  function setCardButtonReady(button, isReady) {
-    if (!(button instanceof HTMLElement)) {
-      return;
-    }
-
-    if (isReady) {
-      button.setAttribute(CARD_READY_ATTR, "true");
-      return;
-    }
-
-    button.removeAttribute(CARD_READY_ATTR);
-  }
-
-  function setCardButtonMode(button, mode) {
-    if (!(button instanceof HTMLElement) || typeof mode !== "string" || !mode.trim()) {
-      return;
-    }
-
-    button.setAttribute(CARD_BUTTON_MODE_ATTR, mode);
-  }
-
-  function setCardButtonResolved(button, isResolved) {
-    if (!(button instanceof HTMLElement)) {
-      return;
-    }
-
-    if (isResolved) {
-      button.setAttribute(CARD_RESOLVED_ATTR, "true");
-      return;
-    }
-
-    button.removeAttribute(CARD_RESOLVED_ATTR);
-  }
-
-  function shouldUseCompactCardMode(host) {
-    if (!(host instanceof HTMLElement)) {
-      return false;
-    }
-
-    const rect = host.getBoundingClientRect();
-    return rect.height <= COMPACT_CARD_MAX_HEIGHT && rect.width * rect.height <= COMPACT_CARD_MAX_AREA;
-  }
-
-  function resolveCompactCardReferenceRect(host) {
-    if (!(host instanceof HTMLElement)) {
-      return null;
-    }
-
-    const hostRect = host.getBoundingClientRect();
-    const anchor = host.querySelector('a[href*="/pin/"]');
-    if (!(anchor instanceof HTMLAnchorElement)) {
-      return hostRect;
-    }
-
-    const anchorRect = anchor.getBoundingClientRect();
-    if (
-      anchorRect.width < 80 ||
-      anchorRect.height < 80 ||
-      anchorRect.right < hostRect.left ||
-      anchorRect.bottom < hostRect.top ||
-      anchorRect.left > hostRect.right ||
-      anchorRect.top > hostRect.bottom
-    ) {
-      return hostRect;
-    }
-
-    return anchorRect;
-  }
-
-  function applyCompactCardPlacement(host, button) {
-    if (!(host instanceof HTMLElement) || !(button instanceof HTMLElement)) {
-      return false;
-    }
-
-    const hostRect = host.getBoundingClientRect();
-    const referenceRect = resolveCompactCardReferenceRect(host) || hostRect;
-    const inset = Math.max(
-      8,
-      Math.min(12, Math.round(Math.min(referenceRect.width, referenceRect.height) * 0.07)),
-    );
-    const size = Math.max(
-      30,
-      Math.min(36, Math.round(Math.min(referenceRect.width, referenceRect.height) * 0.26)),
-    );
-    const rightOffset = Math.max(Math.ceil(hostRect.right - referenceRect.right + inset), inset);
-    const bottomOffset = Math.max(Math.ceil(hostRect.bottom - referenceRect.bottom + inset), inset);
-    setCardButtonMode(button, CARD_MODE_COMPACT);
-    button.style.setProperty("--flowselect-pinterest-card-top", "auto");
-    button.style.setProperty("--flowselect-pinterest-card-right", `${rightOffset}px`);
-    button.style.setProperty("--flowselect-pinterest-card-bottom", `${bottomOffset}px`);
-    button.style.setProperty("--flowselect-pinterest-card-size", `${size}px`);
-    button.style.setProperty("--flowselect-pinterest-card-bg", "rgba(255, 255, 255, 0.96)");
-    button.style.setProperty("--flowselect-pinterest-card-fg", "#111111");
-    button.style.setProperty("--flowselect-pinterest-card-border", "none");
-    button.style.setProperty("--flowselect-pinterest-card-shadow", "0 6px 16px rgba(0, 0, 0, 0.18)");
-    button.style.setProperty("--flowselect-pinterest-card-border-radius", "12px");
-    setCardButtonResolved(button, true);
-    setCardButtonReady(button, true);
-    return true;
-  }
-
-  function queueCardButtonSync(host) {
-    if (!(host instanceof HTMLElement)) {
-      return;
-    }
-
-    const button = host.querySelector(`.${CARD_BUTTON_CLASS}`);
-    if (!(button instanceof HTMLElement)) {
-      return;
-    }
-
-    if (!button.hasAttribute(CARD_RESOLVED_ATTR)) {
-      setCardButtonReady(button, false);
-    }
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        syncCardButtonPlacement(host, button);
-      });
-    });
-  }
-
-  function ensureCardHostInteractionSync(host) {
-    if (!(host instanceof HTMLElement) || host.getAttribute(HOST_SYNC_BOUND_ATTR) === "true") {
-      return;
-    }
-
-    const refreshPlacement = () => {
-      queueCardButtonSync(host);
-    };
-
-    host.addEventListener("mouseenter", refreshPlacement);
-    host.addEventListener("focusin", refreshPlacement);
-    host.setAttribute(HOST_SYNC_BOUND_ATTR, "true");
   }
 
   function ensureCardHostDragSync(host) {
@@ -1022,7 +761,7 @@
     host.addEventListener(
       "dragstart",
       (event) => {
-        const pageUrl = resolveCardPageUrl(host, host.querySelector(`.${CARD_BUTTON_CLASS}`));
+        const pageUrl = resolveCardPageUrl(host);
         if (!pageUrl) {
           return;
         }
@@ -1031,6 +770,54 @@
       true,
     );
     host.setAttribute(DRAG_SYNC_BOUND_ATTR, "true");
+  }
+
+  function removeStaleCardHosts(activeHosts) {
+    document.querySelectorAll(`[${CARD_HOST_ATTR}]`).forEach((host) => {
+      if (!(host instanceof HTMLElement)) {
+        return;
+      }
+
+      if (activeHosts.has(host) && host.isConnected) {
+        return;
+      }
+
+      host.removeAttribute(CARD_HOST_ATTR);
+      maybeRestorePatchedHost(host);
+    });
+  }
+
+  function ensureCardDragHosts() {
+    const activeHosts = new Set();
+    const currentPinUrl = isPinterestPinPage() ? normalizePinUrl(window.location.href) : null;
+    const anchors = Array.from(document.querySelectorAll('a[href*="/pin/"]'));
+
+    for (const anchor of anchors) {
+      if (!isRenderableCardAnchor(anchor)) {
+        continue;
+      }
+
+      const pageUrl = normalizePinUrl(anchor.href);
+      if (!pageUrl || (currentPinUrl && pageUrl === currentPinUrl)) {
+        continue;
+      }
+
+      const host = resolveCardHost(anchor);
+      if (!(host instanceof HTMLElement)) {
+        continue;
+      }
+
+      const hostPinUrls = collectDistinctPinUrls(host);
+      if (hostPinUrls.length !== 1 || hostPinUrls[0] !== pageUrl) {
+        continue;
+      }
+
+      activeHosts.add(host);
+      host.setAttribute(CARD_HOST_ATTR, "true");
+      ensureCardHostDragSync(host);
+    }
+
+    removeStaleCardHosts(activeHosts);
   }
 
   function findActionMountPoint() {
@@ -1155,140 +942,6 @@
     return slot;
   }
 
-  function resolveCardPageUrl(host, button) {
-    const datasetUrl = button?.dataset?.pageUrl;
-    const normalizedDatasetUrl = normalizePinUrl(datasetUrl);
-    if (normalizedDatasetUrl) {
-      return normalizedDatasetUrl;
-    }
-
-    if (host instanceof HTMLElement) {
-      const hostPinUrls = collectDistinctPinUrls(host);
-      if (hostPinUrls.length === 1) {
-        return hostPinUrls[0];
-      }
-    }
-
-    return null;
-  }
-
-  function findCardControl(host, predicate, placement) {
-    if (!(host instanceof HTMLElement)) {
-      return null;
-    }
-
-    const hostRect = host.getBoundingClientRect();
-    const controls = Array.from(
-      host.querySelectorAll("button, a, div[role='button']"),
-    ).filter((control) => predicate(control));
-
-    let bestControl = null;
-    let bestScore = Number.POSITIVE_INFINITY;
-
-    for (const control of controls) {
-      const rect = control.getBoundingClientRect();
-      if (rect.width < 20 || rect.height < 20) {
-        continue;
-      }
-
-      let score = Number.POSITIVE_INFINITY;
-      if (placement === "top-right") {
-        const topInset = Math.abs(rect.top - hostRect.top);
-        const rightInset = Math.abs(hostRect.right - rect.right);
-        if (topInset > Math.min(hostRect.height * 0.45, 120)) {
-          continue;
-        }
-        score = topInset * 2 + rightInset;
-      } else if (placement === "bottom-right") {
-        const bottomInset = Math.abs(hostRect.bottom - rect.bottom);
-        const rightInset = Math.abs(hostRect.right - rect.right);
-        if (bottomInset > Math.min(hostRect.height * 0.45, 140)) {
-          continue;
-        }
-        score = bottomInset * 2 + rightInset;
-      }
-
-      if (score < bestScore) {
-        bestScore = score;
-        bestControl = control;
-      }
-    }
-
-    return bestControl;
-  }
-
-  function syncCardButtonPlacement(host, button) {
-    if (!(host instanceof HTMLElement) || !(button instanceof HTMLElement)) {
-      return false;
-    }
-
-    const hostRect = host.getBoundingClientRect();
-    const shareControl =
-      findExplicitCardShareControl(host) || findCardControl(host, isShareLikeControl, "bottom-right");
-
-    if (shareControl instanceof HTMLElement) {
-      const shareRect = shareControl.getBoundingClientRect();
-      const shareStyle = window.getComputedStyle(shareControl);
-      const backgroundColor = hasVisibleCssColor(shareStyle.backgroundColor)
-        ? shareStyle.backgroundColor
-        : "rgba(0, 0, 0, 0.55)";
-      const foregroundColor = hasVisibleCssColor(shareStyle.color)
-        ? shareStyle.color
-        : pickContrastColor(backgroundColor);
-      const rightOffset = Math.min(
-        Math.max(Math.ceil(hostRect.right - shareRect.right), 12),
-        Math.max(12, Math.round(hostRect.width - 40)),
-      );
-      const bottomOffset = Math.min(
-        Math.max(Math.ceil(hostRect.bottom - shareRect.top + 8), 52),
-        Math.max(52, Math.round(hostRect.height - 40)),
-      );
-
-      button.style.setProperty("--flowselect-pinterest-card-right", `${rightOffset}px`);
-      button.style.setProperty("--flowselect-pinterest-card-bottom", `${bottomOffset}px`);
-      button.style.setProperty("--flowselect-pinterest-card-top", "auto");
-      button.style.setProperty(
-        "--flowselect-pinterest-card-size",
-        `${Math.round(Math.max(32, Math.min(40, Math.max(shareRect.width, shareRect.height))))}px`,
-      );
-      button.style.setProperty("--flowselect-pinterest-card-bg", backgroundColor);
-      button.style.setProperty("--flowselect-pinterest-card-fg", foregroundColor);
-      button.style.setProperty("--flowselect-pinterest-card-border", "none");
-      button.style.setProperty(
-        "--flowselect-pinterest-card-shadow",
-        shareStyle.boxShadow && shareStyle.boxShadow !== "none"
-          ? shareStyle.boxShadow
-          : "0 6px 16px rgba(0, 0, 0, 0.18)",
-      );
-      button.style.setProperty(
-        "--flowselect-pinterest-card-border-radius",
-        shareStyle.borderRadius || "999px",
-      );
-      setCardButtonMode(button, CARD_MODE_SHARE);
-      setCardButtonResolved(button, true);
-      setCardButtonReady(button, true);
-      return true;
-    }
-
-    if (shouldUseCompactCardMode(host)) {
-      return applyCompactCardPlacement(host, button);
-    }
-
-    if (button.getAttribute(CARD_BUTTON_MODE_ATTR) === CARD_MODE_COMPACT) {
-      setCardButtonResolved(button, false);
-      setCardButtonReady(button, false);
-      return false;
-    }
-
-    if (button.hasAttribute(CARD_RESOLVED_ATTR)) {
-      setCardButtonReady(button, true);
-      return true;
-    }
-
-    setCardButtonReady(button, false);
-    return false;
-  }
-
   function ensureDetailButton() {
     const existing = document.getElementById(DETAIL_BUTTON_ID);
     const existingSlot = document.querySelector(`[${DETAIL_SLOT_ATTR}="true"]`);
@@ -1364,106 +1017,10 @@
     }
   }
 
-  function removeStaleCardButtons(activeHosts) {
-    document.querySelectorAll(`.${CARD_BUTTON_CLASS}`).forEach((button) => {
-      const host = button.closest(`[${CARD_HOST_ATTR}]`);
-      if (!(host instanceof HTMLElement) || !activeHosts.has(host) || !host.isConnected) {
-        button.remove();
-        if (host instanceof HTMLElement && !host.querySelector(`.${CARD_BUTTON_CLASS}`)) {
-          maybeRestorePatchedHost(host);
-          host.removeAttribute(CARD_HOST_ATTR);
-        }
-      }
-    });
-  }
-
-  function ensureCardButtons() {
-    const activeHosts = new Set();
-    const currentPinUrl = isPinterestPinPage() ? normalizePinUrl(window.location.href) : null;
-
-    const anchors = Array.from(document.querySelectorAll('a[href*="/pin/"]'));
-    for (const anchor of anchors) {
-      if (!isRenderableCardAnchor(anchor)) {
-        continue;
-      }
-
-      const pageUrl = normalizePinUrl(anchor.href);
-      if (!pageUrl) {
-        continue;
-      }
-      if (currentPinUrl && pageUrl === currentPinUrl) {
-        continue;
-      }
-
-      const existingHost = anchor.closest(`[${CARD_HOST_ATTR}]`);
-      const host =
-        existingHost instanceof HTMLElement && existingHost.querySelector(`.${CARD_BUTTON_CLASS}`)
-          ? existingHost
-          : resolveCardHost(anchor);
-      if (!(host instanceof HTMLElement)) {
-        continue;
-      }
-
-      const hostPinUrls = collectDistinctPinUrls(host);
-      if (hostPinUrls.length !== 1 || hostPinUrls[0] !== pageUrl) {
-        continue;
-      }
-
-      activeHosts.add(host);
-      host.setAttribute(CARD_HOST_ATTR, "true");
-      ensurePositionedHost(host);
-      ensureCardHostInteractionSync(host);
-      ensureCardHostDragSync(host);
-      let button = host.querySelector(`.${CARD_BUTTON_CLASS}`);
-      if (button) {
-        button.dataset.pageUrl = pageUrl;
-        if (!button.getAttribute(CARD_BUTTON_MODE_ATTR)) {
-          setCardButtonMode(button, CARD_MODE_SHARE);
-        }
-        if (button.parentElement !== host) {
-          host.appendChild(button);
-        }
-        syncCardButtonPlacement(host, button);
-        if ((host.matches(":hover") || host.matches(":focus-within")) && !button.hasAttribute(CARD_READY_ATTR)) {
-          queueCardButtonSync(host);
-        }
-        continue;
-      }
-
-      button = createIconButton(CARD_BUTTON_CLASS, "Download with FlowSelect", (currentButton) => {
-        const currentPageUrl = resolveCardPageUrl(host, currentButton);
-        if (!currentPageUrl) {
-          return;
-        }
-
-        const scopedCandidates = extractVideoCandidates(host, {
-          includeScripts: false,
-          includePerformance: false,
-        });
-        sendDownloadMessage({
-          pageUrl: currentPageUrl,
-          videoUrl: selectPreferredVideoUrl(scopedCandidates),
-          videoCandidates: scopedCandidates,
-          title: extractTitle(host),
-        });
-      });
-      button.dataset.pageUrl = pageUrl;
-      setCardButtonMode(button, CARD_MODE_SHARE);
-      setCardButtonResolved(button, false);
-      setCardButtonReady(button, false);
-      host.appendChild(button);
-      syncCardButtonPlacement(host, button);
-      if (host.matches(":hover") || host.matches(":focus-within")) {
-        queueCardButtonSync(host);
-      }
-    }
-
-    removeStaleCardButtons(activeHosts);
-  }
-
   function detectAll() {
     ensureDetailButton();
-    ensureCardButtons();
+    removeLegacyCardButtons();
+    ensureCardDragHosts();
   }
 
   function scheduleDetect() {
