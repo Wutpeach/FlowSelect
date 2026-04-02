@@ -65,6 +65,11 @@
       "js": ["pinterest-detector.js"],
       "css": ["flowselect-shared.css", "pinterest-button.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
+      "js": ["instagram-detector.js"],
+      "run_at": "document_idle"
     }
   ],
   "background": {
