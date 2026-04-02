@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const { readdirMock, unlinkMock, runStreamingCommandMock } = vi.hoisted(() => ({
@@ -138,7 +139,7 @@ describe("runGalleryDlDownload", () => {
 
     await expect(runGalleryDlDownload(context)).resolves.toMatchObject({
       success: true,
-      file_path: "D:\\downloads\\pin.mp4",
+      file_path: path.join("D:/downloads", "pin.mp4"),
     });
 
     expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
@@ -182,7 +183,7 @@ describe("runGalleryDlDownload", () => {
       name: "DownloadRuntimeError",
       message: "gallery-dl exited with code 4: HTTP Error 403: Forbidden",
     } satisfies Partial<DownloadRuntimeError>);
-    expect(unlinkMock).toHaveBeenCalledWith("D:\\downloads\\pin.mp4.part");
-    expect(unlinkMock).toHaveBeenCalledWith("D:\\downloads\\pin.mp4.txt");
+    expect(unlinkMock).toHaveBeenCalledWith(path.join("D:/downloads", "pin.mp4.part"));
+    expect(unlinkMock).toHaveBeenCalledWith(path.join("D:/downloads", "pin.mp4.txt"));
   });
 });
