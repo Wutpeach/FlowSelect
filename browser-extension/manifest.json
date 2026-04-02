@@ -68,7 +68,7 @@
     },
     {
       "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
-      "js": ["instagram-detector.js"],
+      "js": ["dom-injection-utils.js", "instagram-detector.js"],
       "run_at": "document_idle"
     }
   ],
