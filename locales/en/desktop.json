@@ -217,6 +217,10 @@
       "windowTitle": "UI Lab",
       "developerSectionTitle": "Developer",
       "developerSectionHint": "Open UI Lab to preview runtime, download, and transcode states without real workflows.",
+      "injectionDebug": {
+        "title": "Extension Injection Debug",
+        "hint": "Enable control-bar injection outlines and layout diagnostics inside supported site detectors."
+      },
       "developerButton": "Open UI Lab",
       "title": "UI Lab",
       "subtitle": "Dev-only state presets for reviewing the real main-window UI without running actual downloads or transcodes.",

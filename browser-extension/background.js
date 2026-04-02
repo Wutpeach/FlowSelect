@@ -1,7 +1,7 @@
 // FlowSelect Browser Extension - Background Service Worker
 // WebSocket client for communication with FlowSelect desktop app
 
-importScripts("direct-download-quality.js");
+importScripts("direct-download-quality.js", "injection-debug-config.js");
 
 let ws = null;
 let reconnectAttempts = 0;
@@ -34,6 +34,7 @@ let lastConnectionIssue = OFFLINE_STATUS_TEXT;
 let currentTheme = 'black';
 let currentLanguage = resolvePreferredLanguage(undefined, self.navigator?.language);
 const directDownloadQuality = self.FlowSelectDirectDownloadQuality;
+const injectionDebugConfig = self.FlowSelectInjectionDebugConfig;
 const languageInitializationPromise = initializeLanguageState();
 
 function isEnglishVariant(normalized) {
@@ -277,6 +278,59 @@ function shouldRetryVideoSelectionRequest(result) {
 
   const code = result?.data?.code || result?.message || '';
   return code === 'not_connected' || code === 'send_failed';
+}
+
+function notifyExtensionInjectionDebugConfigUpdate(enabled) {
+  chrome.runtime.sendMessage({
+    type: 'extension_injection_debug_config_update',
+    enabled: enabled === true,
+  }).catch(() => {});
+}
+
+async function setExtensionInjectionDebugEnabled(enabled) {
+  const normalized = enabled === true;
+
+  if (!injectionDebugConfig?.setEnabled) {
+    return normalized;
+  }
+
+  try {
+    await injectionDebugConfig.setEnabled(normalized);
+    notifyExtensionInjectionDebugConfigUpdate(normalized);
+    return normalized;
+  } catch (error) {
+    console.error('[FlowSelect] Failed to persist injection debug config:', error);
+    return normalized;
+  }
+}
+
+function syncExtensionInjectionDebugConfigFromApp() {
+  return sendRequestToApp(
+    'get_extension_debug_config',
+    {},
+    REQUEST_TIMEOUT_MS,
+    {
+      forceConnect: true,
+    }
+  ).then((response) => {
+    if (!response?.success) {
+      console.warn(
+        '[FlowSelect] Failed to sync extension injection debug config:',
+        response?.data?.code || response?.message || 'unknown'
+      );
+      return false;
+    }
+
+    const enabled = response?.data?.enabled === true;
+    return setExtensionInjectionDebugEnabled(enabled).then(() => true);
+  }).catch((error) => {
+    console.error('[FlowSelect] Failed to sync extension injection debug config:', error);
+    return false;
+  });
+}
+
+function clearExtensionInjectionDebugConfigOnDisconnect() {
+  void setExtensionInjectionDebugEnabled(false);
 }
 
 function resetSocketForRetry() {
@@ -834,6 +888,7 @@ function connect(options = {}) {
 
     requestLanguageFromApp(socket);
     void bootstrapDownloadPreferencesSync();
+    void syncExtensionInjectionDebugConfigFromApp();
   };
 
   socket.onmessage = (event) => {
@@ -858,6 +913,7 @@ function connect(options = {}) {
     }
 
     console.info('[FlowSelect] Disconnected');
+    clearExtensionInjectionDebugConfigOnDisconnect();
     rejectPendingRequests('ws_closed');
     detachSocketHandlers(socket);
     ws = null;
@@ -872,6 +928,7 @@ function connect(options = {}) {
     }
 
     if (!isConnected()) {
+      clearExtensionInjectionDebugConfigOnDisconnect();
       lastConnectionIssue = unavailableStatusText();
       console.warn('[FlowSelect] WebSocket unavailable. Open the FlowSelect desktop app to enable browser-extension features.');
       notifyConnectionStatus();
@@ -973,6 +1030,10 @@ function handleMessage(message) {
       setCurrentLanguage(nextLanguage);
       break;
     }
+    case 'extension_debug_config_changed':
+    case 'extension_debug_config_info':
+      void setExtensionInjectionDebugEnabled(message.data?.enabled === true || message.enabled === true);
+      break;
     case 'request_download_preferences':
       void bootstrapDownloadPreferencesSync();
       break;
@@ -1435,5 +1496,6 @@ if (chrome?.storage?.onChanged) {
 }
 
 // Auto-connect on startup
+clearExtensionInjectionDebugConfigOnDisconnect();
 connect();
 void bootstrapDownloadPreferencesSync();

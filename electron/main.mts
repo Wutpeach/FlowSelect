@@ -1000,6 +1000,10 @@ function resolveThemeFromConfigObject(config) {
     : FALLBACK_THEME;
 }
 
+function resolveExtensionInjectionDebugEnabledFromConfigObject(config) {
+  return config.extensionInjectionDebugEnabled === true;
+}
+
 async function readCurrentTheme() {
   return resolveThemeFromConfigObject(await readConfigObject());
 }
@@ -1022,9 +1026,13 @@ async function readStartupConfigSnapshot() {
 async function saveConfigString(raw) {
   await ensureUserDataDirs();
   const previousLanguage = await readCurrentLanguage();
+  const previousConfig = await readConfigObject();
+  const previousExtensionInjectionDebugEnabled =
+    resolveExtensionInjectionDebugEnabledFromConfigObject(previousConfig);
   await writeFile(getConfigPath(), raw, "utf8");
 
-  const nextLanguage = normalizeAppLanguage(parseJsonObject(raw).language);
+  const nextConfig = parseJsonObject(raw);
+  const nextLanguage = normalizeAppLanguage(nextConfig.language);
   if (nextLanguage && nextLanguage !== previousLanguage) {
     emitAppEvent(LANGUAGE_CHANGED_EVENT, { language: nextLanguage });
     broadcastWsMessage({
@@ -1035,6 +1043,17 @@ async function saveConfigString(raw) {
     });
     updateTrayMenu().catch((error) => {
       console.error(">>> [Electron] Failed to refresh tray language:", error);
+    });
+  }
+
+  const nextExtensionInjectionDebugEnabled =
+    resolveExtensionInjectionDebugEnabledFromConfigObject(nextConfig);
+  if (nextExtensionInjectionDebugEnabled !== previousExtensionInjectionDebugEnabled) {
+    broadcastWsMessage({
+      action: "extension_debug_config_changed",
+      data: {
+        enabled: nextExtensionInjectionDebugEnabled,
+      },
     });
   }
 }
@@ -4131,6 +4150,15 @@ async function handleWsMessage(rawMessage) {
         data: {
           action: "language_info",
           language: await readCurrentLanguage(),
+        },
+      };
+    case "get_extension_debug_config":
+      return {
+        success: true,
+        message: null,
+        data: {
+          action: "extension_debug_config_info",
+          enabled: resolveExtensionInjectionDebugEnabledFromConfigObject(await readConfigObject()),
         },
       };
     case "sync_download_preferences": {

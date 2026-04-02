@@ -26,8 +26,14 @@ export function NeonToggle({ checked, onChange, disabled = false }: NeonTogglePr
       onBlur={() => setIsFocused(false)}
       style={{
         position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        verticalAlign: "middle",
+        flexShrink: 0,
         width: 46,
         height: 26,
+        padding: 0,
         borderRadius: 999,
         border: `1px solid ${checked ? colors.accentBorder : highlighted ? colors.borderStart : colors.fieldBorder}`,
         cursor: disabled ? "not-allowed" : "pointer",
@@ -45,14 +51,14 @@ export function NeonToggle({ checked, onChange, disabled = false }: NeonTogglePr
       <span
         style={{
           position: "absolute",
-          top: 3,
+          top: "50%",
           left: 3,
           width: 18,
           height: 18,
           borderRadius: "50%",
           backgroundColor: colors.knobBg,
           boxShadow: "0 1px 2px rgba(0,0,0,0.18)",
-          transform: checked ? "translateX(20px)" : "translateX(0)",
+          transform: checked ? "translate(20px, -50%)" : "translate(0, -50%)",
           transition: "transform 0.18s cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       />

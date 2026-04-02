@@ -195,6 +195,38 @@ Current extension request/response envelope:
 }
 ```
 
+Extension injection-debug config WS actions:
+
+```json
+{
+  "action": "get_extension_debug_config",
+  "data": {
+    "requestId": "req-123"
+  }
+}
+```
+
+```json
+{
+  "success": true,
+  "message": null,
+  "data": {
+    "action": "extension_debug_config_info",
+    "enabled": true,
+    "requestId": "req-123"
+  }
+}
+```
+
+```json
+{
+  "action": "extension_debug_config_changed",
+  "data": {
+    "enabled": true
+  }
+}
+```
+
 ### 3. Contracts
 
 #### Replacement Matrix
@@ -325,6 +357,21 @@ Current extension request/response envelope:
 - Renderer bootstrap must treat Electron detection (`file:` URL or Electron user agent) as a hard contract:
   - if `window.flowselect` exists, continue with desktop bootstrap
   - if `window.flowselect` is missing, render an explicit bridge-failure state and stop booting the normal app shell
+
+#### Extension Injection Debug Config Contract
+
+- Canonical persisted config key: `extensionInjectionDebugEnabled`.
+- The desktop Settings window is the source of truth for that flag; browser-extension local storage is a mirrored cache only.
+- Renderer keeps the existing raw-JSON config flow:
+  - `get_config` returns the raw string
+  - renderer toggles `config.extensionInjectionDebugEnabled`
+  - `save_config` persists the raw string
+- Electron main must compare previous and next effective values when `save_config` writes settings:
+  - when the effective value changes, broadcast `extension_debug_config_changed`
+  - when the value does not change, do not broadcast redundant WS churn
+- Browser extension background must request the current value on WS connect with `get_extension_debug_config` so already-open tabs resynchronize after extension reloads or desktop reconnects.
+- Content scripts must observe the mirrored extension storage key instead of polling the desktop app directly.
+- Dev-only page tooling such as injection-debug overlays or draggable diagnostics panels must remain hidden until this flag is `true`.
 
 #### Renderer Event Delivery Contract
 

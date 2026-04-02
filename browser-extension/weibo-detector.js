@@ -8,7 +8,23 @@
   const FLOATING_BUTTON_VALUE = "floating";
   const POSITION_PATCH_ATTR = "data-flowselect-weibo-position-patched";
   const DETECT_DELAY_MS = 160;
+  const VJS_BASE_HEIGHT_PX = 14;
+  const VJS_BASE_BUTTON_WIDTH_PX = 18;
+  const VJS_BASE_GAP_PX = 5;
+  const VJS_LARGE_BUTTON_ICON_OFFSET_Y_PX = -1;
   const controlStyleUtils = window.FlowSelectControlStyleUtils || null;
+  const injectionDebugConfig = window.FlowSelectInjectionDebugConfig || null;
+  const injectionDebugPanel = window.FlowSelectInjectionDebugPanel || null;
+  const DEBUG_MARK_ATTR = "data-flowselect-weibo-debug-mark";
+  const DEBUG_OVERRIDE_DEFAULTS = Object.freeze({
+    buttonWidthOffset: 0,
+    buttonHeightOffset: 0,
+    gapOffset: 0,
+    topOffset: 0,
+    iconSizeOffset: 0,
+    previewIconOffsetY: 0,
+    detailIconOffsetY: -5,
+  });
   const CONTROL_SELECTORS = [
     '.vjs-control-bar',
     '[class*="control"][class*="bar"]',
@@ -40,6 +56,9 @@
   </svg>`;
   let detectTimer = null;
   let lastUrl = window.location.href;
+  let injectionDebugEnabled = false;
+  let debugOverrides = { ...DEBUG_OVERRIDE_DEFAULTS };
+  let debugSnapshot = null;
 
   function normalizeUrl(raw) {
     if (typeof raw !== "string") {
@@ -96,6 +115,155 @@
 
   function normalizePageUrl() {
     return normalizeUrl(window.location.href) || window.location.href;
+  }
+
+  function normalizeDebugOverrides(value) {
+    const next = { ...DEBUG_OVERRIDE_DEFAULTS };
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return next;
+    }
+
+    const hasPreviewIconOffsetY = Object.prototype.hasOwnProperty.call(value, "previewIconOffsetY");
+    const hasDetailIconOffsetY = Object.prototype.hasOwnProperty.call(value, "detailIconOffsetY");
+    const legacyIconOffsetY = typeof value.iconOffsetY === "number" ? value.iconOffsetY : Number(value.iconOffsetY);
+    if (!hasPreviewIconOffsetY && !hasDetailIconOffsetY && Number.isFinite(legacyIconOffsetY)) {
+      next.detailIconOffsetY = legacyIconOffsetY;
+    }
+
+    for (const key of Object.keys(next)) {
+      const raw = value[key];
+      const num = typeof raw === "number" ? raw : Number(raw);
+      next[key] = Number.isFinite(num) ? num : next[key];
+    }
+
+    return next;
+  }
+
+  function getDebugOverrides() {
+    return { ...debugOverrides };
+  }
+
+  function setDebugOverrides(nextOverrides) {
+    debugOverrides = normalizeDebugOverrides({
+      ...debugOverrides,
+      ...nextOverrides,
+    });
+    scheduleEnsureButton();
+    injectionDebugPanel?.refresh?.();
+  }
+
+  function resetDebugOverrides() {
+    debugOverrides = { ...DEBUG_OVERRIDE_DEFAULTS };
+    scheduleEnsureButton();
+    injectionDebugPanel?.refresh?.();
+  }
+
+  function buildDebugText(snapshot) {
+    const payload = {
+      site: "weibo",
+      pageUrl: normalizePageUrl(),
+      pageMode: snapshot?.pageMode ?? "unknown",
+      mountStrategy: snapshot?.mountStrategy ?? "unknown",
+      anchorSelector: snapshot?.anchorSelector ?? null,
+      overrides: getDebugOverrides(),
+      metrics: snapshot?.metrics ?? null,
+      anchorRect: snapshot?.anchorRect ?? null,
+      buttonRect: snapshot?.buttonRect ?? null,
+      controlBarRect: snapshot?.controlBarRect ?? null,
+    };
+    return JSON.stringify(payload, null, 2);
+  }
+
+  const debugAdapter = {
+    id: "weibo",
+    title: "Weibo Injection Debug",
+    getControls() {
+      return [
+        { key: "buttonWidthOffset", label: "Width Offset", step: 1, min: -24, max: 24, defaultValue: 0 },
+        { key: "buttonHeightOffset", label: "Height Offset", step: 1, min: -24, max: 24, defaultValue: 0 },
+        { key: "gapOffset", label: "Gap Offset", step: 1, min: -24, max: 24, defaultValue: 0 },
+        { key: "topOffset", label: "Top Offset", step: 1, min: -24, max: 24, defaultValue: 0 },
+        { key: "iconSizeOffset", label: "Icon Size Offset", step: 1, min: -24, max: 24, defaultValue: 0 },
+        { key: "previewIconOffsetY", label: "Preview Icon Y", step: 1, min: -24, max: 24, defaultValue: 0 },
+        { key: "detailIconOffsetY", label: "Detail Icon Y", step: 1, min: -24, max: 24, defaultValue: 0 },
+      ];
+    },
+    getOverrides: getDebugOverrides,
+    setOverrides: setDebugOverrides,
+    resetOverrides: resetDebugOverrides,
+    getSnapshot() {
+      return debugSnapshot ?? {
+        site: "weibo",
+        pageUrl: normalizePageUrl(),
+        pageMode: "unresolved",
+        mountStrategy: "waiting",
+        overrides: getDebugOverrides(),
+      };
+    },
+    formatDebugText: buildDebugText,
+  };
+
+  function clearDebugDecorations() {
+    document.querySelectorAll(`[${DEBUG_MARK_ATTR}]`).forEach((element) => {
+      if (!(element instanceof HTMLElement)) {
+        return;
+      }
+
+      element.style.removeProperty("outline");
+      element.style.removeProperty("outline-offset");
+      element.style.removeProperty("box-shadow");
+      element.removeAttribute(DEBUG_MARK_ATTR);
+    });
+  }
+
+  function markDebugElement(element, styles) {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+
+    element.setAttribute(DEBUG_MARK_ATTR, "true");
+    if (typeof styles.outline === "string") {
+      element.style.outline = styles.outline;
+    }
+    if (typeof styles.outlineOffset === "string") {
+      element.style.outlineOffset = styles.outlineOffset;
+    }
+    if (typeof styles.boxShadow === "string") {
+      element.style.boxShadow = styles.boxShadow;
+    }
+  }
+
+  function applyDebugDecorations(button, anchor, controlBar) {
+    clearDebugDecorations();
+    if (!injectionDebugEnabled) {
+      return;
+    }
+
+    markDebugElement(button, {
+      outline: "1px solid rgb(255 138 0 / 95%)",
+      outlineOffset: "0px",
+      boxShadow: "0 0 0 1px rgb(255 138 0 / 28%) inset",
+    });
+    markDebugElement(anchor, {
+      outline: "1px solid rgb(0 196 140 / 90%)",
+      outlineOffset: "0px",
+    });
+    markDebugElement(controlBar, {
+      outline: "1px dashed rgb(91 165 255 / 70%)",
+      outlineOffset: "0px",
+    });
+  }
+
+  function syncInjectionDebugState(enabled) {
+    injectionDebugEnabled = enabled === true;
+    if (!injectionDebugEnabled) {
+      clearDebugDecorations();
+      injectionDebugPanel?.unmountAdapter?.(debugAdapter.id);
+      return;
+    }
+
+    void injectionDebugPanel?.mountAdapter?.(debugAdapter);
+    scheduleEnsureButton();
   }
 
   function sendDownloadMessage() {
@@ -324,6 +492,103 @@
     return button;
   }
 
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function rectToDebugData(rect) {
+    if (!rect) {
+      return null;
+    }
+
+    return {
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    };
+  }
+
+  function elementToDebugRect(element) {
+    if (!(element instanceof HTMLElement)) {
+      return null;
+    }
+
+    return rectToDebugData(element.getBoundingClientRect());
+  }
+
+  function syncVideoJsButtonMetrics(button, anchor) {
+    if (!(button instanceof HTMLElement) || !(anchor instanceof HTMLElement)) {
+      return;
+    }
+
+    const anchorRect = anchor.getBoundingClientRect();
+    if (anchorRect.height < 8) {
+      return;
+    }
+
+    const baseButtonHeight = Math.round(anchorRect.height);
+    const scale = clamp(anchorRect.height / VJS_BASE_HEIGHT_PX, 0.85, 2.4);
+    const baseButtonWidth = Math.round(baseButtonHeight + (VJS_BASE_BUTTON_WIDTH_PX - VJS_BASE_HEIGHT_PX));
+    const baseGap = Math.round(VJS_BASE_GAP_PX * scale);
+    const baseIconSize = Math.round((baseButtonHeight * 0.5) + 10);
+    const baseIconOffsetY = baseButtonHeight >= 30 ? VJS_LARGE_BUTTON_ICON_OFFSET_Y_PX : 0;
+
+    const buttonWidth = Math.max(12, Math.round(baseButtonWidth + debugOverrides.buttonWidthOffset));
+    const buttonHeight = Math.max(12, Math.round(baseButtonHeight + debugOverrides.buttonHeightOffset));
+    const gap = Math.max(-24, Math.round(baseGap + debugOverrides.gapOffset));
+    const iconSize = Math.max(12, Math.round(baseIconSize + debugOverrides.iconSizeOffset));
+    const pageMode = buttonHeight >= 30 ? "detail-player" : "home-preview";
+    const modeIconOffsetY = pageMode === "detail-player"
+      ? debugOverrides.detailIconOffsetY
+      : debugOverrides.previewIconOffsetY;
+    const iconOffsetY = Math.round(baseIconOffsetY + modeIconOffsetY);
+
+    button.style.setProperty("--flowselect-weibo-vjs-button-width", `${buttonWidth}px`);
+    button.style.setProperty("--flowselect-weibo-vjs-button-height", `${buttonHeight}px`);
+    button.style.setProperty("--flowselect-weibo-vjs-button-gap", `${gap}px`);
+    button.style.setProperty("--flowselect-weibo-vjs-button-top", "0px");
+    button.style.setProperty("--flowselect-weibo-vjs-button-line-height", `${buttonHeight}px`);
+    button.style.setProperty("--flowselect-weibo-vjs-icon-size", `${iconSize}px`);
+
+    const buttonRect = button.getBoundingClientRect();
+    const baseTopOffset = Math.round(
+      (anchorRect.top + anchorRect.height / 2) - (buttonRect.top + buttonRect.height / 2),
+    );
+    const centerDelta = Math.round(baseTopOffset + debugOverrides.topOffset);
+    button.style.setProperty("--flowselect-weibo-vjs-button-top", `${centerDelta}px`);
+    button.style.setProperty("--flowselect-weibo-vjs-icon-offset-y", `${iconOffsetY}px`);
+
+    const finalButtonRect = button.getBoundingClientRect();
+    const controlBar = button.parentElement;
+    const controlBarRect = controlBar instanceof HTMLElement ? controlBar.getBoundingClientRect() : null;
+    debugSnapshot = {
+      site: "weibo",
+      pageUrl: normalizePageUrl(),
+      pageMode,
+      mountStrategy: "insert before .vjs-playback-rate",
+      anchorSelector: ".vjs-playback-rate",
+      overrides: getDebugOverrides(),
+      metrics: {
+        baseButtonWidth,
+        baseButtonHeight,
+        baseGap,
+        baseIconSize,
+        baseIconOffsetY,
+        buttonWidth,
+        buttonHeight,
+        gap,
+        topOffset: centerDelta,
+        iconSize,
+        iconOffsetY,
+        modeIconOffsetY,
+        },
+      anchorRect: rectToDebugData(anchorRect),
+      buttonRect: rectToDebugData(finalButtonRect),
+      controlBarRect: rectToDebugData(controlBarRect),
+    };
+  }
+
   function resolveControlAnchor(controlBar, nativeButtons) {
     if (controlBar.matches(".vjs-control-bar")) {
       const preferred = getDirectChildBySelectors(controlBar, [
@@ -365,6 +630,10 @@
       if (button.parentElement !== controlBar || button.nextElementSibling !== anchor) {
         controlBar.insertBefore(button, anchor);
       }
+      if (controlBar.matches(".vjs-control-bar")) {
+        syncVideoJsButtonMetrics(button, anchor);
+      }
+      applyDebugDecorations(button, anchor, controlBar);
     } else if (button.parentElement !== controlBar) {
       controlBar.appendChild(button);
     }
@@ -375,6 +644,21 @@
         minWidth: 12,
         minHeight: 12,
       });
+    }
+
+    if (!controlBar.matches(".vjs-control-bar")) {
+      debugSnapshot = {
+        site: "weibo",
+        pageUrl: normalizePageUrl(),
+        pageMode: "generic-control-bar",
+        mountStrategy: "generic control bar insertion",
+        anchorSelector: anchor ? "resolved from native control list" : null,
+        overrides: getDebugOverrides(),
+        metrics: null,
+        anchorRect: elementToDebugRect(anchor),
+        buttonRect: elementToDebugRect(button),
+        controlBarRect: elementToDebugRect(controlBar),
+      };
     }
 
     return true;
@@ -398,6 +682,19 @@
     if (button.parentElement !== playerRoot) {
       playerRoot.appendChild(button);
     }
+
+    debugSnapshot = {
+      site: "weibo",
+      pageUrl: normalizePageUrl(),
+      pageMode: "floating-fallback",
+      mountStrategy: "append to player root",
+      anchorSelector: null,
+      overrides: getDebugOverrides(),
+      metrics: null,
+      anchorRect: null,
+      buttonRect: elementToDebugRect(button),
+      controlBarRect: elementToDebugRect(playerRoot),
+    };
 
     return true;
   }
@@ -441,6 +738,7 @@
 
   function ensureButton() {
     if (!isWeiboHost()) {
+      debugSnapshot = null;
       cleanupStaleButtons(null);
       return;
     }
@@ -464,12 +762,26 @@
     }
 
     if (hasVideoJsContext()) {
+      debugSnapshot = {
+        site: "weibo",
+        pageUrl: normalizePageUrl(),
+        pageMode: "video-js-pending",
+        mountStrategy: "waiting for visible control bar",
+        overrides: getDebugOverrides(),
+      };
       cleanupStaleButtons(null);
       return;
     }
 
     const activeVideo = getActiveVideoElement();
     if (!(activeVideo instanceof HTMLVideoElement)) {
+      debugSnapshot = {
+        site: "weibo",
+        pageUrl: normalizePageUrl(),
+        pageMode: "no-active-video",
+        mountStrategy: "waiting for active video",
+        overrides: getDebugOverrides(),
+      };
       cleanupStaleButtons(null);
       return;
     }
@@ -502,6 +814,17 @@
   }
 
   function init() {
+    if (injectionDebugConfig?.getEnabled) {
+      void injectionDebugConfig.getEnabled().then((enabled) => {
+        syncInjectionDebugState(enabled);
+      });
+    }
+    if (injectionDebugConfig?.observe) {
+      injectionDebugConfig.observe((enabled) => {
+        syncInjectionDebugState(enabled);
+      });
+    }
+
     scheduleEnsureButton();
 
     const observer = new MutationObserver(() => scheduleEnsureButton());

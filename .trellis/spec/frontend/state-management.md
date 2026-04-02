@@ -119,6 +119,17 @@ await invoke("save_config", { json: JSON.stringify(config) });
 };
 ```
 
+### Config-backed toggle rule
+
+For small Settings toggles backed by the raw config blob, keep one clear ownership pattern:
+
+- read the current config string through `get_config`
+- mutate only the specific config key you own
+- write the full string back through `save_config`
+- if the UI applies the toggle optimistically before persistence completes, revert local state on save failure
+
+This is required for dev-only toggles such as `extensionInjectionDebugEnabled`, where the local Settings switch drives both desktop persistence and browser-extension synchronization.
+
 ---
 
 ## Compact Window Interaction State

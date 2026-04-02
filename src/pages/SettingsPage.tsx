@@ -190,6 +190,7 @@ function SettingsPage() {
   const [renameSuffix, setRenameSuffix] = useState("");
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
+  const [extensionInjectionDebugEnabled, setExtensionInjectionDebugEnabled] = useState(false);
   const [versionTapHint, setVersionTapHint] = useState("");
   const [ytdlpInfo, setYtdlpInfo] = useState<YtdlpVersionInfo | null>(null);
   const [galleryDlInfo, setGalleryDlInfo] = useState<GalleryDlInfo | null>(null);
@@ -487,6 +488,9 @@ function SettingsPage() {
         }
         if (typeof config.aeExePath === "string") {
           setAeExePath(config.aeExePath);
+        }
+        if (typeof config.extensionInjectionDebugEnabled === "boolean") {
+          setExtensionInjectionDebugEnabled(config.extensionInjectionDebugEnabled);
         }
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -900,6 +904,21 @@ function SettingsPage() {
     const config = JSON.parse(configStr);
     config.aePortalEnabled = newValue;
     await desktopCommands.invoke("save_config", { json: JSON.stringify(config) });
+  };
+
+  const toggleExtensionInjectionDebug = async () => {
+    const previousValue = extensionInjectionDebugEnabled;
+    const newValue = !previousValue;
+    try {
+      setExtensionInjectionDebugEnabled(newValue);
+      const configStr = await desktopCommands.invoke<string>("get_config");
+      const config = JSON.parse(configStr);
+      config.extensionInjectionDebugEnabled = newValue;
+      await desktopCommands.invoke("save_config", { json: JSON.stringify(config) });
+    } catch (err) {
+      setExtensionInjectionDebugEnabled(previousValue);
+      console.error("Failed to toggle extension injection debug mode:", err);
+    }
   };
 
   const selectAeExePath = async () => {
@@ -1409,9 +1428,34 @@ function SettingsPage() {
             title={t("desktop:settings.uiLab.developerSectionTitle")}
             hint={t("desktop:settings.uiLab.developerSectionHint")}
           >
-            <NeonButton onClick={() => void openUiLab()}>
-              {t("desktop:settings.uiLab.developerButton")}
-            </NeonButton>
+            <div style={{ display: "grid", gap: 12 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    lineHeight: 1.2,
+                    color: colors.textSecondary,
+                  }}
+                >
+                  {t("desktop:settings.uiLab.injectionDebug.title")}
+                </span>
+                <NeonToggle
+                  checked={extensionInjectionDebugEnabled}
+                  onChange={toggleExtensionInjectionDebug}
+                />
+              </div>
+
+              <NeonButton onClick={() => void openUiLab()}>
+                {t("desktop:settings.uiLab.developerButton")}
+              </NeonButton>
+            </div>
           </NeonSection>
         ) : null}
 

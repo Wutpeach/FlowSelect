@@ -80,7 +80,7 @@
         "https://video.weibo.com/*",
         "https://weibo.cn/*"
       ],
-      "js": ["control-style-utils.js", "weibo-detector.js"],
+      "js": ["injection-debug-config.js", "injection-debug-panel.js", "control-style-utils.js", "weibo-detector.js"],
       "css": ["flowselect-shared.css", "weibo-button.css"],
       "run_at": "document_idle"
     }

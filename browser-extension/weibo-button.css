@@ -54,23 +54,23 @@
 }
 
 .vjs-control-bar > .vjs-flowselect-download {
-  width: 1.8em;
-  min-width: 1.8em;
-  height: 14px;
+  width: var(--flowselect-weibo-vjs-button-width, 18px);
+  min-width: var(--flowselect-weibo-vjs-button-width, 18px);
+  height: var(--flowselect-weibo-vjs-button-height, 14px);
   color: inherit;
   display: flex;
-  flex: 0 0 1.8em;
+  flex: 0 0 var(--flowselect-weibo-vjs-button-width, 18px);
   align-items: center;
   justify-content: center;
   align-self: center;
   vertical-align: middle;
   box-sizing: border-box;
   margin: 0;
-  margin-right: -2px;
+  margin-right: var(--flowselect-weibo-vjs-button-gap, 5px);
   padding: 0;
   position: relative;
-  top: -3px;
-  line-height: 14px;
+  top: var(--flowselect-weibo-vjs-button-top, 0px);
+  line-height: var(--flowselect-weibo-vjs-button-line-height, 14px);
 }
 
 .vjs-control-bar > .vjs-flowselect-download > .vjs-flowselect-download-button {
@@ -98,8 +98,9 @@
 }
 
 .vjs-control-bar > .vjs-flowselect-download .vjs-icon-placeholder svg {
-  width: 17px;
-  height: 17px;
+  width: var(--flowselect-weibo-vjs-icon-size, 17px);
+  height: var(--flowselect-weibo-vjs-icon-size, 17px);
   display: block;
   pointer-events: none;
+  transform: translateY(var(--flowselect-weibo-vjs-icon-offset-y, 0px));
 }

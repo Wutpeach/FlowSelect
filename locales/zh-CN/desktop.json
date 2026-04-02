@@ -217,6 +217,10 @@
       "windowTitle": "UI 实验室",
       "developerSectionTitle": "开发调试",
       "developerSectionHint": "打开 UI 实验室，在不触发真实下载或转码的情况下预览运行时、下载和转码状态。",
+      "injectionDebug": {
+        "title": "扩展注入调试",
+        "hint": "在已支持的站点注入器中开启控制栏描边和布局诊断，方便对齐按钮位置。"
+      },
       "developerButton": "打开 UI 实验室",
       "title": "UI 实验室",
       "subtitle": "仅开发环境可用。用预设状态直接评审真实主窗口的界面表现，无需等待真实任务。",
