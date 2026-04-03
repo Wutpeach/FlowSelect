@@ -200,6 +200,7 @@ npm run package:portable
 macOS 开源 unsigned DMG + ZIP：
 
 ```bash
+brew install create-dmg
 npm run package:macos-open-source-dmg -- --arch x86_64
 # 或
 npm run package:macos-open-source-dmg -- --arch aarch64

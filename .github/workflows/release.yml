@@ -41,6 +41,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Install create-dmg
+        run: brew install create-dmg
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
