@@ -1,0 +1,39 @@
+/* FlowSelect Browser Extension - Zhihu Download Button */
+
+:root {
+  --flowselect-site-accent: #1772f6;
+  --flowselect-site-accent-soft: rgba(23, 114, 246, 0.18);
+}
+
+.flowselect-zhihu-control-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  margin-left: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  line-height: 0;
+  flex: 0 0 auto;
+  transition: color 0.16s ease, transform 0.16s ease, opacity 0.16s ease;
+}
+
+.flowselect-zhihu-control-btn:hover {
+  color: rgba(255, 255, 255, 1);
+}
+
+.flowselect-zhihu-control-btn:active {
+  opacity: 0.84;
+}
+
+.flowselect-zhihu-control-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  pointer-events: none;
+}

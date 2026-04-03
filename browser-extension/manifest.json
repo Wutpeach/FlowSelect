@@ -67,6 +67,12 @@
       "run_at": "document_idle"
     },
     {
+      "matches": ["https://www.zhihu.com/zvideo/*", "https://zhihu.com/zvideo/*"],
+      "js": ["zhihu-detector.js"],
+      "css": ["flowselect-shared.css", "zhihu-button.css"],
+      "run_at": "document_idle"
+    },
+    {
       "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
       "js": ["dom-injection-utils.js", "instagram-detector.js"],
       "run_at": "document_idle"
