@@ -1541,6 +1541,8 @@ function App({
     visualIsExpandingFromMinimized && visualWindowResized;
   const isNativeSizedMinimizedShell =
     visualIsMinimized && visualWindowResized && !isExpandMorphVisible;
+  const shouldUseStandaloneMacMinimizedPlate =
+    isMacOS && isNativeSizedMinimizedShell;
   const panelRenderSize = isExpandMorphVisible
     ? FULL_SIZE
     : visualIsMinimized
@@ -4084,7 +4086,7 @@ function App({
         alignItems: 'center',
         gap: 8,
         outline: 'none',
-        ...(visualIsExpandingFromMinimized || (visualIsMinimized && isMacOS)
+        ...(visualIsExpandingFromMinimized || shouldUseStandaloneMacMinimizedPlate
           ? {
               background: "transparent",
               boxShadow: "none",
@@ -4940,10 +4942,10 @@ function App({
                 alignItems: "center",
                 justifyContent: "center",
                 ...getContinuousCornerStyle("50%"),
-                background: isMacOS
+                background: shouldUseStandaloneMacMinimizedPlate
                   ? `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`
                   : "transparent",
-                boxShadow: isMacOS
+                boxShadow: shouldUseStandaloneMacMinimizedPlate
                   ? `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadowCompact}`
                   : "none",
                 overflow: "hidden",
