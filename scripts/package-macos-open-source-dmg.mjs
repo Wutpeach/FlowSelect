@@ -178,7 +178,10 @@ function main() {
   cleanDir(stagingDir);
 
   try {
-    cpSync(appBundlePath, join(stagingDir, `${productName}.app`), { recursive: true });
+    cpSync(appBundlePath, join(stagingDir, `${productName}.app`), {
+      recursive: true,
+      verbatimSymlinks: true,
+    });
     symlinkSync("/Applications", join(stagingDir, "Applications"), "dir");
     cpSync(readmeSourcePath, readmeOutputPath);
 

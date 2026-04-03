@@ -53,8 +53,10 @@ import {
 } from "./utils/folderDrop";
 import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImageDrag";
 import {
+  DEFERRED_STARTUP_IDLE_CALLBACK_TIMEOUT_MS,
   getDeferredStartupInitializationDelayMs,
   getStartupAutoMinimizeGraceMs,
+  STARTUP_AUTO_RUNTIME_BOOTSTRAP_DELAY_MS,
   shouldUseNativeCompactStartupWindow,
   shouldStartExpandedOnLaunch,
 } from "./utils/startupWindowState";
@@ -854,6 +856,7 @@ function App({
   const runtimeBootstrapAfterVisibleTimerRef = useRef<number | null>(null);
   const startupAutoMinimizeReleaseTimerRef = useRef<number | null>(null);
   const deferredStartupInitializationTimerRef = useRef<number | null>(null);
+  const deferredStartupInitializationIdleRef = useRef<number | null>(null);
   const foregroundTaskOutcomeTimerRef = useRef<number | null>(null);
   const panelTransitionModeResetFrameRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
@@ -998,6 +1001,21 @@ function App({
     setDownloadCancelled(false);
     setDownloadErrorMessage(null);
   }, [clearForegroundTaskOutcomeTimer]);
+
+  const clearDeferredStartupInitializationIdle = useCallback(() => {
+    if (
+      deferredStartupInitializationIdleRef.current !== null
+      && typeof window.cancelIdleCallback === "function"
+    ) {
+      window.cancelIdleCallback(deferredStartupInitializationIdleRef.current);
+    }
+    deferredStartupInitializationIdleRef.current = null;
+  }, []);
+
+  const markDeferredStartupInitializationReady = useCallback(() => {
+    clearDeferredStartupInitializationIdle();
+    setIsDeferredStartupInitializationReady(true);
+  }, [clearDeferredStartupInitializationIdle]);
 
   useEffect(() => {
     isMinimizedRef.current = isMinimized;
@@ -2043,6 +2061,7 @@ function App({
       if (deferredStartupInitializationTimerRef.current !== null) {
         clearTimeout(deferredStartupInitializationTimerRef.current);
       }
+      clearDeferredStartupInitializationIdle();
       if (pointerLeaveCollapseTimerRef.current !== null) {
         clearTimeout(pointerLeaveCollapseTimerRef.current);
       }
@@ -2050,20 +2069,30 @@ function App({
         cancelAnimationFrame(panelTransitionModeResetFrameRef.current);
       }
     };
-  }, []);
+  }, [clearDeferredStartupInitializationIdle]);
 
   useEffect(() => {
     if (isDeferredStartupInitializationReady || isInitialMount) {
       return;
     }
     if (deferredStartupInitializationDelayMs <= 0) {
-      setIsDeferredStartupInitializationReady(true);
+      markDeferredStartupInitializationReady();
       return;
     }
 
     deferredStartupInitializationTimerRef.current = window.setTimeout(() => {
       deferredStartupInitializationTimerRef.current = null;
-      setIsDeferredStartupInitializationReady(true);
+      if (typeof window.requestIdleCallback === "function") {
+        deferredStartupInitializationIdleRef.current = window.requestIdleCallback(() => {
+          deferredStartupInitializationIdleRef.current = null;
+          setIsDeferredStartupInitializationReady(true);
+        }, {
+          timeout: DEFERRED_STARTUP_IDLE_CALLBACK_TIMEOUT_MS,
+        });
+        return;
+      }
+
+      markDeferredStartupInitializationReady();
     }, deferredStartupInitializationDelayMs);
 
     return () => {
@@ -2071,8 +2100,11 @@ function App({
         clearTimeout(deferredStartupInitializationTimerRef.current);
         deferredStartupInitializationTimerRef.current = null;
       }
+      clearDeferredStartupInitializationIdle();
     };
   }, [
+    clearDeferredStartupInitializationIdle,
+    markDeferredStartupInitializationReady,
     deferredStartupInitializationDelayMs,
     isDeferredStartupInitializationReady,
     isInitialMount,
@@ -2108,7 +2140,7 @@ function App({
           hasTriggeredStartupRuntimeBootstrapRef.current = false;
         }
       });
-    }, 220);
+    }, STARTUP_AUTO_RUNTIME_BOOTSTRAP_DELAY_MS);
   }, [
     isDeferredStartupInitializationReady,
     isInitialMount,
