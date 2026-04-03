@@ -112,8 +112,11 @@ const LOG_DIR_NAME = "logs";
 const VIDEO_QUEUE_MAX_CONCURRENT = 3;
 const SETTINGS_WINDOW_WIDTH = 320;
 const SETTINGS_WINDOW_HEIGHT = 400;
+const SETTINGS_WINDOW_GAP = 16;
 const UI_LAB_WINDOW_WIDTH = 420;
 const UI_LAB_WINDOW_HEIGHT = 560;
+const UI_LAB_WINDOW_GAP = 16;
+const WINDOW_EDGE_PADDING = 8;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15_000;
 const YTDLP_PROGRESS_PREFIX = "__FLOWSELECT_PROGRESS__=";
 const YTDLP_FILE_PATH_PREFIX = "__FLOWSELECT_FILE_PATH__=";
@@ -154,6 +157,7 @@ const RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
 const WINDOW_STARTUP_CAPTURE_DELAY_MS = 180;
 const STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS = 1_500;
+const MACOS_TRAY_ICON_SIZE_PX = 18;
 const OFFICIAL_DOWNLOADER_RELEASES = {
   "yt-dlp": {
     latestCacheFileName: YTDLP_LATEST_CACHE_FILE_NAME,
@@ -2699,6 +2703,27 @@ function getIconPath() {
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
+function createTrayImage() {
+  const iconPath = getIconPath();
+  if (!iconPath) {
+    return nativeImage.createEmpty();
+  }
+
+  const image = nativeImage.createFromPath(iconPath);
+  if (image.isEmpty()) {
+    return nativeImage.createEmpty();
+  }
+
+  if (process.platform !== "darwin") {
+    return image;
+  }
+
+  return image.resize({
+    height: MACOS_TRAY_ICON_SIZE_PX,
+    width: MACOS_TRAY_ICON_SIZE_PX,
+  });
+}
+
 function emitAppEvent(event, payload) {
   for (const win of windows.values()) {
     if (!win.isDestroyed()) {
@@ -3598,8 +3623,7 @@ async function updateTrayMenu(startupConfigSnapshot = null) {
   ]);
 
   if (!tray) {
-    const iconPath = getIconPath();
-    tray = new Tray(iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty());
+    tray = new Tray(createTrayImage());
     tray.on("click", () => {
       showMainWindow();
     });
@@ -3804,9 +3828,10 @@ function showSecondaryWindow(label, win, options) {
 }
 
 async function openSecondaryWindow(label, options) {
+  const resolvedOptions = resolveSecondaryWindowOpenOptions(label, options);
   const existing = getWindow(label);
   if (existing && !existing.isDestroyed()) {
-    showSecondaryWindow(label, existing, options);
+    showSecondaryWindow(label, existing, resolvedOptions);
     return existing;
   }
 
@@ -3816,21 +3841,21 @@ async function openSecondaryWindow(label, options) {
     transparentWindow,
   } = await createFlowSelectBrowserWindow(label, {
     routePath,
-    width: options.width,
-    height: options.height,
-    x: options.x,
-    y: options.y,
-    center: options.center === true,
-    title: options.title,
-    allowTransparency: options.transparent !== false,
-    frame: options.decorations === true,
-    resizable: options.resizable === true,
-    alwaysOnTop: options.alwaysOnTop !== false,
-    skipTaskbar: options.skipTaskbar ?? process.platform === "win32",
-    parentLabel: options.parent === "main" ? WINDOW_LABELS.main : undefined,
+    width: resolvedOptions.width,
+    height: resolvedOptions.height,
+    x: resolvedOptions.x,
+    y: resolvedOptions.y,
+    center: resolvedOptions.center === true,
+    title: resolvedOptions.title,
+    allowTransparency: resolvedOptions.transparent !== false,
+    frame: resolvedOptions.decorations === true,
+    resizable: resolvedOptions.resizable === true,
+    alwaysOnTop: resolvedOptions.alwaysOnTop !== false,
+    skipTaskbar: resolvedOptions.skipTaskbar ?? process.platform === "win32",
+    parentLabel: resolvedOptions.parent === "main" ? WINDOW_LABELS.main : undefined,
     preferZeroAlphaTransparentBackground: (
       label === WINDOW_LABELS.settings || label === WINDOW_LABELS.uiLab
-    ) && options.transparent !== false,
+    ) && resolvedOptions.transparent !== false,
   });
 
   const initialRevealReady = waitForInitialWindowReveal(browserWindow);
@@ -3848,11 +3873,74 @@ async function openSecondaryWindow(label, options) {
   await delayTransparentPackagedWindowReveal(label, transparentWindow);
   if (!browserWindow.isVisible()) {
     if (loadUrlError === null) {
-      showSecondaryWindow(label, browserWindow, options);
+      showSecondaryWindow(label, browserWindow, resolvedOptions);
     }
   }
   await loadUrlPromise;
   return browserWindow;
+}
+
+function resolveSecondaryWindowAnchorLabel(label) {
+  if (label === WINDOW_LABELS.settings) {
+    return WINDOW_LABELS.main;
+  }
+  if (label === WINDOW_LABELS.uiLab) {
+    const settingsWindow = getWindow(WINDOW_LABELS.settings);
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      return WINDOW_LABELS.settings;
+    }
+    return WINDOW_LABELS.main;
+  }
+  return null;
+}
+
+function resolveSecondaryWindowGap(label) {
+  if (label === WINDOW_LABELS.uiLab) {
+    return UI_LAB_WINDOW_GAP;
+  }
+  return SETTINGS_WINDOW_GAP;
+}
+
+function resolveSecondaryWindowOpenOptions(label, options) {
+  if (
+    typeof options?.x === "number"
+    || typeof options?.y === "number"
+    || options?.center === true
+  ) {
+    return options;
+  }
+
+  const anchorLabel = resolveSecondaryWindowAnchorLabel(label);
+  if (!anchorLabel) {
+    return options;
+  }
+
+  const anchorWindow = getWindow(anchorLabel);
+  if (!anchorWindow || anchorWindow.isDestroyed()) {
+    return options;
+  }
+
+  const anchorBounds = anchorWindow.getBounds();
+  const workArea = screen.getDisplayMatching(anchorBounds).workArea;
+  const gap = resolveSecondaryWindowGap(label);
+  const minX = workArea.x + WINDOW_EDGE_PADDING;
+  const minY = workArea.y + WINDOW_EDGE_PADDING;
+  const maxX = workArea.x + workArea.width - options.width - WINDOW_EDGE_PADDING;
+  const maxY = workArea.y + workArea.height - options.height - WINDOW_EDGE_PADDING;
+
+  let x = anchorBounds.x + anchorBounds.width + gap;
+  let y = anchorBounds.y;
+
+  if (x > maxX) {
+    x = anchorBounds.x - options.width - gap;
+  }
+
+  return {
+    ...options,
+    center: false,
+    x: Math.min(Math.max(x, minX), Math.max(minX, maxX)),
+    y: Math.min(Math.max(y, minY), Math.max(minY, maxY)),
+  };
 }
 
 async function getAutostart() {
@@ -4611,8 +4699,8 @@ function registerIpcHandlers() {
     const display = screen.getDisplayMatching(win.getBounds());
     return {
       position: {
-        x: display.bounds.x,
-        y: display.bounds.y,
+        x: display.workArea.x,
+        y: display.workArea.y,
       },
       size: {
         width: display.workArea.width,

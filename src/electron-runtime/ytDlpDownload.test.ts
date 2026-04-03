@@ -1,3 +1,4 @@
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { readdirMock, readFileMock, unlinkMock, runStreamingCommandMock } = vi.hoisted(() => ({
@@ -36,12 +37,16 @@ describe("runYtDlpDownload", () => {
 
   it("uses title plus resolution and quality in the output template when rename is disabled", async () => {
     readdirMock.mockResolvedValue([]);
-    readFileMock.mockResolvedValue("D:\\downloads\\Sample Video[1920x1080][highest].mp4");
+    readFileMock.mockResolvedValue(
+      path.join("D:/downloads", "Sample Video[1920x1080][highest].mp4"),
+    );
     runStreamingCommandMock.mockImplementation(async (_command, args) => {
       const outputIndex = args.indexOf("-o");
       expect(outputIndex).toBeGreaterThanOrEqual(0);
-      expect(args[outputIndex + 1]).toBe(
-        "D:\\downloads\\Sample Video[%(width|unknown)sx%(height|unknown)s][highest].%(ext)s",
+      expect(args[outputIndex + 1]).toBe(path.join(
+        "D:/downloads",
+        "Sample Video[%(width|unknown)sx%(height|unknown)s][highest].%(ext)s",
+      ),
       );
       return 0;
     });
@@ -69,7 +74,7 @@ describe("runYtDlpDownload", () => {
 
     await expect(runYtDlpDownload(context)).resolves.toMatchObject({
       success: true,
-      file_path: "D:\\downloads\\Sample Video[1920x1080][highest].mp4",
+      file_path: path.join("D:/downloads", "Sample Video[1920x1080][highest].mp4"),
     });
   });
 
@@ -101,9 +106,9 @@ describe("runYtDlpDownload", () => {
     } as never;
 
     await expect(runYtDlpDownload(context)).rejects.toThrow();
-    expect(unlinkMock).toHaveBeenCalledWith("D:\\downloads\\video.mp4.part");
-    expect(unlinkMock).toHaveBeenCalledWith("D:\\downloads\\video.mp4.ytdl");
-    expect(unlinkMock).toHaveBeenCalledWith("D:\\downloads\\video.f137.mp4");
-    expect(unlinkMock).toHaveBeenCalledWith("D:\\downloads\\trace-yt-after-move.txt");
+    expect(unlinkMock).toHaveBeenCalledWith(path.join("D:/downloads", "video.mp4.part"));
+    expect(unlinkMock).toHaveBeenCalledWith(path.join("D:/downloads", "video.mp4.ytdl"));
+    expect(unlinkMock).toHaveBeenCalledWith(path.join("D:/downloads", "video.f137.mp4"));
+    expect(unlinkMock).toHaveBeenCalledWith(path.join("D:/downloads", "trace-yt-after-move.txt"));
   });
 });
