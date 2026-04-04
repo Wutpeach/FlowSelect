@@ -11,13 +11,27 @@ const { probeYtDlpMetadataTitleMock } = vi.hoisted(() => ({
   probeYtDlpMetadataTitleMock: vi.fn<() => Promise<string | undefined>>(async () => undefined),
 }));
 
+const {
+  prepareVideoTranscodeTaskFromDownloadMock,
+  runPreparedVideoTranscodeTaskMock,
+} = vi.hoisted(() => ({
+  prepareVideoTranscodeTaskFromDownloadMock: vi.fn(),
+  runPreparedVideoTranscodeTaskMock: vi.fn(),
+}));
+
 vi.mock("./ytDlpMetadata.js", () => ({
   probeYtDlpMetadataTitle: probeYtDlpMetadataTitleMock,
+}));
+
+vi.mock("./transcode.js", () => ({
+  prepareVideoTranscodeTaskFromDownload: prepareVideoTranscodeTaskFromDownloadMock,
+  runPreparedVideoTranscodeTask: runPreparedVideoTranscodeTaskMock,
 }));
 
 import { createElectronDownloadRuntime } from "./service";
 import type { RuntimeEmitterEvent } from "./contracts";
 import { resetRenameSequenceState } from "./renameRules";
+import { bilibiliProvider } from "../sites/bilibili";
 
 const waitFor = async (
   predicate: () => boolean,
@@ -85,6 +99,12 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     resetRenameSequenceState();
     probeYtDlpMetadataTitleMock.mockReset();
     probeYtDlpMetadataTitleMock.mockResolvedValue(undefined);
+    prepareVideoTranscodeTaskFromDownloadMock.mockReset();
+    prepareVideoTranscodeTaskFromDownloadMock.mockResolvedValue(null);
+    runPreparedVideoTranscodeTaskMock.mockReset();
+    runPreparedVideoTranscodeTaskMock.mockImplementation(async (task: { finalPath: string }) => ({
+      filePath: task.finalPath,
+    }));
   });
 
   it("emits queue state changes and enforces max concurrency", async () => {
@@ -593,5 +613,181 @@ describe("FlowSelectElectronDownloadRuntime", () => {
       sourceUrl: "https://www.youtube.com/watch?v=abc123",
     }));
     expect(outputStems).toEqual(["Recovered YouTube Title"]);
+  });
+
+  it("queues downstream transcode after a highest-quality YouTube download completes with MKV output", async () => {
+    const events: RuntimeEmitterEvent[] = [];
+    const transcodeCompletions: Array<() => void> = [];
+
+    prepareVideoTranscodeTaskFromDownloadMock.mockImplementation(async (...args: unknown[]) => {
+      const input = args[0] as { traceId: string; label: string; sourcePath: string };
+      return {
+        traceId: input.traceId,
+        label: input.label,
+        sourcePath: input.sourcePath,
+        sourceFormat: "mkv",
+        targetFormat: "mp4",
+        plan: "full_transcode",
+        durationSeconds: 120,
+        finalPath: "D:/downloads/Recovered YouTube Title.mp4",
+      };
+    });
+    runPreparedVideoTranscodeTaskMock.mockImplementation(async (task: { finalPath: string }) => {
+      await new Promise<void>((resolve) => {
+        transcodeCompletions.push(resolve);
+      });
+      return { filePath: task.finalPath };
+    });
+
+    const runtime = createRuntime({
+      providers: [youtubeProvider, genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => ({
+          traceId: context.traceId,
+          success: true,
+          file_path: "D:/downloads/Recovered YouTube Title.mkv",
+        })),
+      ],
+      onEmit(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      await runtime.queueVideoDownload({
+        url: "https://www.youtube.com/watch?v=abc123",
+        pageUrl: "https://www.youtube.com/watch?v=abc123",
+        title: "Recovered YouTube Title",
+        ytdlpQuality: "best",
+        siteHint: "youtube",
+      });
+
+      await waitFor(() => events.includes("video-transcode-queued"));
+      expect(events).toContain("video-download-complete");
+      expect(events).toContain("video-transcode-progress");
+      expect(events.indexOf("video-download-complete")).toBeLessThan(events.indexOf("video-transcode-queued"));
+      expect(prepareVideoTranscodeTaskFromDownloadMock).toHaveBeenCalledWith(expect.objectContaining({
+        sourcePath: "D:/downloads/Recovered YouTube Title.mkv",
+      }));
+    } finally {
+      transcodeCompletions.splice(0).forEach((complete) => complete());
+      await waitFor(() => runtime.getTranscodeQueueState().totalCount === 0);
+    }
+  });
+
+  it("applies the same transcode follow-up path to Bilibili yt-dlp downloads", async () => {
+    const events: RuntimeEmitterEvent[] = [];
+    const transcodeCompletions: Array<() => void> = [];
+
+    prepareVideoTranscodeTaskFromDownloadMock.mockImplementation(async (...args: unknown[]) => {
+      const input = args[0] as { traceId: string; label: string; sourcePath: string };
+      return {
+        traceId: input.traceId,
+        label: input.label,
+        sourcePath: input.sourcePath,
+        sourceFormat: "mkv",
+        targetFormat: "mp4",
+        plan: "full_transcode",
+        durationSeconds: 180,
+        finalPath: "D:/downloads/Bilibili Archive.mp4",
+      };
+    });
+    runPreparedVideoTranscodeTaskMock.mockImplementation(async (task: { finalPath: string }) => {
+      await new Promise<void>((resolve) => {
+        transcodeCompletions.push(resolve);
+      });
+      return { filePath: task.finalPath };
+    });
+
+    const runtime = createRuntime({
+      providers: [bilibiliProvider, genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => ({
+          traceId: context.traceId,
+          success: true,
+          file_path: "D:/downloads/Bilibili Archive.mkv",
+        })),
+      ],
+      onEmit(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      await runtime.queueVideoDownload({
+        url: "https://www.bilibili.com/video/BV1xx411c7mD",
+        pageUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+        title: "Bilibili Archive",
+        ytdlpQuality: "best",
+        siteHint: "bilibili",
+      });
+
+      await waitFor(() => events.includes("video-transcode-queued"));
+      expect(events).toContain("video-download-complete");
+      expect(events.indexOf("video-download-complete")).toBeLessThan(events.indexOf("video-transcode-queued"));
+      expect(prepareVideoTranscodeTaskFromDownloadMock).toHaveBeenCalledWith(expect.objectContaining({
+        sourcePath: "D:/downloads/Bilibili Archive.mkv",
+      }));
+    } finally {
+      transcodeCompletions.splice(0).forEach((complete) => complete());
+      await waitFor(() => runtime.getTranscodeQueueState().totalCount === 0);
+    }
+  });
+
+  it("supports retrying and removing failed transcode rows", async () => {
+    const events: RuntimeEmitterEvent[] = [];
+    const runAttempts: string[] = [];
+
+    prepareVideoTranscodeTaskFromDownloadMock.mockImplementation(async (...args: unknown[]) => {
+      const input = args[0] as { traceId: string; label: string; sourcePath: string };
+      return {
+        traceId: input.traceId,
+        label: input.label,
+        sourcePath: input.sourcePath,
+        sourceFormat: "mkv",
+        targetFormat: "mp4",
+        plan: "full_transcode",
+        durationSeconds: 60,
+        finalPath: "D:/downloads/Failure Case.mp4",
+      };
+    });
+    runPreparedVideoTranscodeTaskMock.mockImplementation(async (task: { traceId?: string; finalPath: string }) => {
+      runAttempts.push(task.traceId ?? "missing-trace");
+      throw new Error("ffmpeg failed");
+    });
+
+    const runtime = createRuntime({
+      providers: [youtubeProvider, genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => ({
+          traceId: context.traceId,
+          success: true,
+          file_path: "D:/downloads/Failure Case.mkv",
+        })),
+      ],
+      onEmit(event) {
+        events.push(event);
+      },
+    });
+
+    const ack = await runtime.queueVideoDownload({
+      url: "https://www.youtube.com/watch?v=fail123",
+      pageUrl: "https://www.youtube.com/watch?v=fail123",
+      title: "Failure Case",
+      siteHint: "youtube",
+    });
+
+    await waitFor(() => events.includes("video-transcode-failed"));
+    expect(runtime.getTranscodeQueueState().failedCount).toBe(1);
+
+    const retried = await runtime.retryTranscode(ack.traceId);
+    expect(retried).toBe(true);
+    await waitFor(() => events.includes("video-transcode-retried"));
+    await waitFor(() => runAttempts.length >= 2);
+
+    const removed = await runtime.removeTranscode(ack.traceId);
+    expect(removed).toBe(true);
+    await waitFor(() => runtime.getTranscodeQueueState().totalCount === 0);
+    expect(events).toContain("video-transcode-removed");
   });
 });

@@ -9,5 +9,6 @@ export * from "./runtimePaths.js";
 export * from "./runtimeDependencyGate.js";
 export * from "./runtimeUtils.js";
 export * from "./service.js";
+export * from "./transcode.js";
 export * from "./ytDlpProgress.js";
 export * from "./ytDlpDownload.js";

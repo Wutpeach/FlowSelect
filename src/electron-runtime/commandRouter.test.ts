@@ -36,6 +36,9 @@ const gateState: RuntimeDependencyGateStatePayload = {
 const createRuntimeStub = (): ElectronDownloadRuntime & {
   queueVideoDownload: ReturnType<typeof vi.fn>;
   cancelDownload: ReturnType<typeof vi.fn>;
+  cancelTranscode: ReturnType<typeof vi.fn>;
+  retryTranscode: ReturnType<typeof vi.fn>;
+  removeTranscode: ReturnType<typeof vi.fn>;
 } => ({
   maxConcurrent: 3,
   getRuntimeDependencyStatus: vi.fn(() => runtimeStatus),
@@ -50,6 +53,9 @@ const createRuntimeStub = (): ElectronDownloadRuntime & {
     traceId: request.videoUrl ?? request.url,
   })),
   cancelDownload: vi.fn(async (traceId: string) => traceId === "trace-1"),
+  cancelTranscode: vi.fn(async () => false),
+  retryTranscode: vi.fn(async () => false),
+  removeTranscode: vi.fn(async () => false),
   getQueueState: vi.fn(() => ({
     activeCount: 0,
     pendingCount: 0,
@@ -57,6 +63,14 @@ const createRuntimeStub = (): ElectronDownloadRuntime & {
     maxConcurrent: 3,
   })),
   getQueueDetail: vi.fn(() => ({ tasks: [] })),
+  getTranscodeQueueState: vi.fn(() => ({
+    activeCount: 0,
+    pendingCount: 0,
+    failedCount: 0,
+    totalCount: 0,
+    maxConcurrent: 1,
+  })),
+  getTranscodeQueueDetail: vi.fn(() => ({ tasks: [] })),
 });
 
 describe("createElectronRuntimeCommandRouter", () => {

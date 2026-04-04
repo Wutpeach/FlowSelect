@@ -12,6 +12,12 @@ type StreamingCommandOptions = {
   onStderrLine?(line: string): void | Promise<void>;
 };
 
+type CapturedCommandResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
 const attachLineStream = (
   childStream: StreamingChildProcess["stdout"],
   onLine?: (line: string) => void | Promise<void>,
@@ -124,4 +130,30 @@ export const runStreamingCommand = async (
     return code;
   }
   throw new Error(`Command exited without status: ${command} ${args.join(" ")}`);
+};
+
+export const runCapturedCommand = async (
+  command: string,
+  args: string[],
+  options: StreamingCommandOptions = {},
+): Promise<CapturedCommandResult> => {
+  const stdoutLines: string[] = [];
+  const stderrLines: string[] = [];
+  const exitCode = await runStreamingCommand(command, args, {
+    ...options,
+    onStdoutLine: async (line) => {
+      stdoutLines.push(line);
+      await options.onStdoutLine?.(line);
+    },
+    onStderrLine: async (line) => {
+      stderrLines.push(line);
+      await options.onStderrLine?.(line);
+    },
+  });
+
+  return {
+    exitCode,
+    stdout: stdoutLines.join("\n"),
+    stderr: stderrLines.join("\n"),
+  };
 };

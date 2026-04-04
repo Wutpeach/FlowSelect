@@ -7,6 +7,8 @@ import type {
 } from "../types/runtimeDependencies.js";
 import type {
   QueuedVideoDownloadAck,
+  VideoTranscodeQueueDetailPayload,
+  VideoTranscodeQueueStatePayload,
   VideoQueueDetailPayload,
   VideoQueueStatePayload,
 } from "../types/videoRuntime.js";
@@ -27,6 +29,14 @@ export type RuntimeEmitterEvent =
       | "video-download-progress"
       | "video-queue-count"
       | "video-queue-detail"
+      | "video-transcode-complete"
+      | "video-transcode-failed"
+      | "video-transcode-progress"
+      | "video-transcode-queue-count"
+      | "video-transcode-queue-detail"
+      | "video-transcode-queued"
+      | "video-transcode-removed"
+      | "video-transcode-retried"
     >;
 
 export interface RuntimeEventSink {
@@ -107,6 +117,11 @@ export interface ElectronDownloadRuntime {
     request: RawDownloadInput,
   ): Promise<QueuedVideoDownloadAck>;
   cancelDownload(traceId: string): Promise<boolean>;
+  cancelTranscode(traceId: string): Promise<boolean>;
+  retryTranscode(traceId: string): Promise<boolean>;
+  removeTranscode(traceId: string): Promise<boolean>;
   getQueueState(): VideoQueueStatePayload;
   getQueueDetail(): VideoQueueDetailPayload;
+  getTranscodeQueueState(): VideoTranscodeQueueStatePayload;
+  getTranscodeQueueDetail(): VideoTranscodeQueueDetailPayload;
 }

@@ -4541,9 +4541,11 @@ async function handleCommand(command, payload = {}) {
     case "cancel_download":
       return cancelVideoDownload(String(payload.traceId ?? ""));
     case "cancel_transcode":
+      return getElectronDownloadRuntime().cancelTranscode(String(payload.traceId ?? ""));
     case "retry_transcode":
+      return getElectronDownloadRuntime().retryTranscode(String(payload.traceId ?? ""));
     case "remove_transcode":
-      return false;
+      return getElectronDownloadRuntime().removeTranscode(String(payload.traceId ?? ""));
     case "update_ytdlp":
       return updateYtdlpBinary();
     case "update_gallery_dl":
@@ -4790,6 +4792,11 @@ async function bootstrap() {
     for (const task of getElectronDownloadRuntime().getQueueDetail().tasks) {
       if (task.status === "active") {
         void getElectronDownloadRuntime().cancelDownload(task.traceId);
+      }
+    }
+    for (const task of getElectronDownloadRuntime().getTranscodeQueueDetail().tasks) {
+      if (task.status === "active") {
+        void getElectronDownloadRuntime().cancelTranscode(task.traceId);
       }
     }
     for (const pending of pendingProtectedImageRequests.values()) {

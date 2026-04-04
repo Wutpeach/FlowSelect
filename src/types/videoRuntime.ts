@@ -38,6 +38,48 @@ export type VideoQueueDetailPayload = {
   tasks: VideoQueueTaskPayload[];
 };
 
+export type VideoTranscodeTaskStatus = "active" | "pending" | "failed";
+
+export type VideoTranscodeStage =
+  | "analyzing"
+  | "transcoding"
+  | "finalizing_mp4"
+  | "failed";
+
+export type VideoTranscodeQueueStatePayload = {
+  activeCount: number;
+  pendingCount: number;
+  failedCount: number;
+  totalCount: number;
+  maxConcurrent: number;
+};
+
+export type VideoTranscodeTaskPayload = {
+  traceId: string;
+  label: string;
+  status: VideoTranscodeTaskStatus;
+  stage?: VideoTranscodeStage | null;
+  progressPercent?: number | null;
+  etaSeconds?: number | null;
+  sourcePath?: string | null;
+  sourceFormat?: string | null;
+  targetFormat?: string | null;
+  error?: string | null;
+};
+
+export type VideoTranscodeQueueDetailPayload = {
+  tasks: VideoTranscodeTaskPayload[];
+};
+
+export type VideoTranscodeCompletePayload = {
+  traceId: string;
+  label: string;
+  sourcePath: string;
+  filePath: string;
+  sourceFormat?: string | null;
+  targetFormat: string;
+};
+
 export type VideoSelectionCandidate = {
   url: string;
   type?: string;
