@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
-import { X, FolderOpen, Keyboard } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { CloseIcon, FolderOpenIcon, KeyboardIcon } from "../components/icons/AppIcons";
 import { NeonButton } from "../components/ui/neon-button";
 import {
   NeonDropdownField,
@@ -1172,7 +1172,7 @@ function SettingsPage() {
             marginRight: -2,
           }}
         >
-          <X size={16} />
+          <CloseIcon size={16} />
         </NeonIconButton>
       </div>
 
@@ -1231,7 +1231,7 @@ function SettingsPage() {
         <NeonSection title={t("desktop:settings.outputFolder.title")}>
           <NeonFieldButton
             onClick={selectOutputPath}
-            leadingIcon={<FolderOpen size={14} />}
+            leadingIcon={<FolderOpenIcon size={14} />}
           >
             {outputPath ? truncatePath(outputPath) : t("desktop:settings.outputFolder.choose")}
           </NeonFieldButton>
@@ -1260,7 +1260,7 @@ function SettingsPage() {
                 boxSizing: 'border-box',
                 color: colors.textPrimary,
               }}>
-                <Keyboard size={14} style={{ color: colors.accentText, flexShrink: 0 }} />
+                <KeyboardIcon size={14} style={{ color: colors.accentText, flexShrink: 0 }} />
                 <span>
                   {formatShortcutForDisplay(recordedKeys, isMacOS) || t("desktop:settings.shortcut.press")}
                 </span>
@@ -1301,7 +1301,7 @@ function SettingsPage() {
           ) : (
             <NeonFieldButton
               onClick={startRecording}
-              leadingIcon={<Keyboard size={14} />}
+              leadingIcon={<KeyboardIcon size={14} />}
             >
               {formatShortcutForDisplay(shortcut, isMacOS) || t("desktop:settings.shortcut.clickToRecord")}
             </NeonFieldButton>
@@ -1369,7 +1369,7 @@ function SettingsPage() {
           {aePortalEnabled && (
             <NeonFieldButton
               onClick={selectAeExePath}
-              leadingIcon={<FolderOpen size={14} />}
+              leadingIcon={<FolderOpenIcon size={14} />}
               style={{ marginTop: 8 }}
             >
               {aeExePath ? truncatePath(aeExePath) : t("desktop:settings.aePortal.chooseExe")}

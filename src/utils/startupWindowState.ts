@@ -1,3 +1,5 @@
+import { MAIN_WINDOW_IDLE_MINIMIZE_MS } from "./mainWindowMode";
+
 export type StartupWindowMode = "compact" | "full";
 
 type StartupWindowEnvironment = {
@@ -11,7 +13,9 @@ type NativeCompactStartupWindowOptions = {
   isMacOS: boolean;
 };
 
-export const DEFERRED_STARTUP_INITIALIZATION_DELAY_MS = 260;
+export const DEFERRED_STARTUP_INITIALIZATION_DELAY_MS = MAIN_WINDOW_IDLE_MINIMIZE_MS;
+export const DEFERRED_STARTUP_IDLE_CALLBACK_TIMEOUT_MS = 1200;
+export const STARTUP_AUTO_RUNTIME_BOOTSTRAP_DELAY_MS = 1200;
 
 const isElectronDesktopLaunch = ({
   protocol,

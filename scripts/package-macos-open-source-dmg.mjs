@@ -153,6 +153,13 @@ function normalizeArchitectureLabel(arch) {
   return arch;
 }
 
+function defaultMacPackagingArch() {
+  if (process.arch === "arm64") {
+    return "aarch64";
+  }
+  return "x86_64";
+}
+
 function candidateAppBundleRoots(outputRoot, arch) {
   const normalized = normalizeArchitectureLabel(arch);
   const roots = [
@@ -219,7 +226,7 @@ function main() {
   const { productName, version: configVersion } = readProductMetadata();
   const skipBuild = args["skip-build"] === "true";
   const version = String(args.version || configVersion || "").trim();
-  const arch = String(args.arch || "").trim() || "x86_64";
+  const arch = String(args.arch || "").trim() || defaultMacPackagingArch();
 
   if (!version) {
     throw new Error("Missing version. Pass --version or ensure package.json has a version.");

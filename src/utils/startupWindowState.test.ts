@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFERRED_STARTUP_IDLE_CALLBACK_TIMEOUT_MS,
   DEFERRED_STARTUP_INITIALIZATION_DELAY_MS,
   getDeferredStartupInitializationDelayMs,
   getStartupAutoMinimizeGraceMs,
+  STARTUP_AUTO_RUNTIME_BOOTSTRAP_DELAY_MS,
   shouldStartExpandedOnLaunch,
   shouldUseNativeCompactStartupWindow,
 } from "./startupWindowState";
@@ -67,5 +69,12 @@ describe("startup window state", () => {
       startsExpandedOnLaunch: true,
       isMacOS: false,
     })).toBe(false);
+  });
+
+  it("keeps bootstrap work later than the initial deferred-start gate", () => {
+    expect(DEFERRED_STARTUP_INITIALIZATION_DELAY_MS).toBeGreaterThan(0);
+    expect(DEFERRED_STARTUP_IDLE_CALLBACK_TIMEOUT_MS).toBeGreaterThan(0);
+    expect(STARTUP_AUTO_RUNTIME_BOOTSTRAP_DELAY_MS)
+      .toBeGreaterThanOrEqual(DEFERRED_STARTUP_IDLE_CALLBACK_TIMEOUT_MS);
   });
 });
