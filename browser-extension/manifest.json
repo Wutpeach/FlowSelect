@@ -1,14 +1,27 @@
 {
   "manifest_version": 3,
   "name": "FlowSelect Video Picker",
-  "version": "0.3.0",
+  "version": "0.3.0.2",
   "description": "Pick video elements from web pages for FlowSelect",
-  "permissions": ["activeTab", "scripting", "cookies", "storage", "alarms"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "cookies",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "web_accessible_resources": [
     {
-      "resources": ["locales/*/*.json", "protected-image-page-bridge.js"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "locales/*/*.json",
+        "protected-image-page-bridge.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
   "action": {
@@ -21,32 +34,71 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["protected-image-detector.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "protected-image-detector.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://twitter.com/*", "https://x.com/*"],
-      "js": ["twitter-detector.js"],
-      "css": ["flowselect-shared.css", "twitter-button.css"],
+      "matches": [
+        "https://twitter.com/*",
+        "https://x.com/*"
+      ],
+      "js": [
+        "twitter-detector.js"
+      ],
+      "css": [
+        "flowselect-shared.css",
+        "twitter-button.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.douyin.com/*"],
-      "js": ["douyin-detector.js"],
-      "css": ["flowselect-shared.css", "douyin-button.css"],
+      "matches": [
+        "https://www.douyin.com/*"
+      ],
+      "js": [
+        "douyin-detector.js"
+      ],
+      "css": [
+        "flowselect-shared.css",
+        "douyin-button.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.youtube.com/*", "https://youtube.com/*"],
-      "js": ["locale-utils.js", "control-style-utils.js", "youtube-detector.js"],
-      "css": ["flowselect-shared.css", "youtube-button.css"],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*"
+      ],
+      "js": [
+        "locale-utils.js",
+        "control-style-utils.js",
+        "youtube-detector.js"
+      ],
+      "css": [
+        "flowselect-shared.css",
+        "youtube-button.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.bilibili.com/*", "https://bilibili.com/*"],
-      "js": ["locale-utils.js", "control-style-utils.js", "bilibili-detector.js"],
-      "css": ["flowselect-shared.css", "bilibili-button.css"],
+      "matches": [
+        "https://www.bilibili.com/*",
+        "https://bilibili.com/*"
+      ],
+      "js": [
+        "locale-utils.js",
+        "control-style-utils.js",
+        "bilibili-detector.js"
+      ],
+      "css": [
+        "flowselect-shared.css",
+        "bilibili-button.css"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -56,25 +108,52 @@
         "https://*.xhslink.com/*",
         "https://xhslink.com/*"
       ],
-      "js": ["xiaohongshu-detector.js"],
-      "css": ["flowselect-shared.css", "xiaohongshu-button.css"],
+      "js": [
+        "xiaohongshu-detector.js"
+      ],
+      "css": [
+        "flowselect-shared.css",
+        "xiaohongshu-button.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.pinterest.com/*", "https://pinterest.com/*"],
-      "js": ["pinterest-detector.js"],
-      "css": ["flowselect-shared.css", "pinterest-button.css"],
+      "matches": [
+        "https://www.pinterest.com/*",
+        "https://pinterest.com/*"
+      ],
+      "js": [
+        "pinterest-detector.js"
+      ],
+      "css": [
+        "flowselect-shared.css",
+        "pinterest-button.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.zhihu.com/zvideo/*", "https://zhihu.com/zvideo/*"],
-      "js": ["zhihu-detector.js"],
-      "css": ["flowselect-shared.css", "zhihu-button.css"],
+      "matches": [
+        "https://www.zhihu.com/zvideo/*",
+        "https://zhihu.com/zvideo/*"
+      ],
+      "js": [
+        "zhihu-detector.js"
+      ],
+      "css": [
+        "flowselect-shared.css",
+        "zhihu-button.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
-      "js": ["dom-injection-utils.js", "instagram-detector.js"],
+      "matches": [
+        "https://www.instagram.com/*",
+        "https://instagram.com/*"
+      ],
+      "js": [
+        "dom-injection-utils.js",
+        "instagram-detector.js"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -86,8 +165,16 @@
         "https://video.weibo.com/*",
         "https://weibo.cn/*"
       ],
-      "js": ["injection-debug-config.js", "injection-debug-panel.js", "control-style-utils.js", "weibo-detector.js"],
-      "css": ["flowselect-shared.css", "weibo-button.css"],
+      "js": [
+        "injection-debug-config.js",
+        "injection-debug-panel.js",
+        "control-style-utils.js",
+        "weibo-detector.js"
+      ],
+      "css": [
+        "flowselect-shared.css",
+        "weibo-button.css"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -98,5 +185,6 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "version_name": "0.3.0-rc2"
 }
