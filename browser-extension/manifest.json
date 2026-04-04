@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FlowSelect Video Picker",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "Pick video elements from web pages for FlowSelect",
   "permissions": ["activeTab", "scripting", "cookies", "storage", "alarms"],
   "host_permissions": ["<all_urls>"],
