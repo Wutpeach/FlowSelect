@@ -82,6 +82,7 @@ import {
   resolveMainWindowStartupMode,
 } from "./startupWindowMode.mjs";
 import { waitForInitialWindowReveal } from "./windowRevealWait.mjs";
+import { applyMacTrayAppMode } from "./macAppVisibility.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..", "..");
@@ -4811,6 +4812,7 @@ async function bootstrap() {
   });
 
   await app.whenReady();
+  applyMacTrayAppMode(app);
   registerIpcHandlers();
   registerWsServer();
   if (app.isPackaged || startupDiagnosticsEnabled) {
