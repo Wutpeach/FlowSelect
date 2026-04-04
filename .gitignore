@@ -36,7 +36,9 @@ gcm-diagnose.log
 *.sw?
 
 # Private maintainer workflow and AI tooling
+.trellis
 .trellis/
+.agents
 .agents/
 .claude/
 .cursor/
