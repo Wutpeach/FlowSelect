@@ -5,11 +5,16 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import {
+  applyAppVersionToExtensionManifest,
+  assertValidChromiumExtensionVersion,
+} from "./browser-extension-versioning.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
@@ -107,7 +112,8 @@ function main() {
     throw new Error(`Browser extension manifest not found: ${manifestPath}`);
   }
 
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const sourceManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const manifest = applyAppVersionToExtensionManifest(sourceManifest, version);
   ensureDir(outputDir);
 
   const artifactName = `FlowSelect_${version}_browser_extension.zip`;
@@ -117,6 +123,8 @@ function main() {
 
   try {
     cpSync(sourceDir, stagedSourceDir, { recursive: true });
+    writeFileSync(join(stagedSourceDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+    assertValidChromiumExtensionVersion(manifest.version, "Staged extension manifest version");
 
     if (existsSync(outputPath)) {
       rmSync(outputPath, { force: true });
@@ -135,6 +143,7 @@ function main() {
     {
       version,
       manifestVersion: String(manifest.version || "").trim(),
+      manifestVersionName: String(manifest.version_name || "").trim(),
       sourceDir,
       outputPath,
     },

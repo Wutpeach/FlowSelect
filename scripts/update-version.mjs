@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { execSync } from "node:child_process";
+import { applyAppVersionToExtensionManifest } from "./browser-extension-versioning.mjs";
 
 const nextVersion = process.argv[2]?.trim();
 
@@ -81,16 +82,12 @@ updateJsonFile("package-lock.json", (lockfile) => {
   }
 });
 
-updateTextFile("browser-extension/manifest.json", (manifestJson) => {
-  const versionFieldPattern = /^(\s*"version"\s*:\s*")[^"]+(")/m;
-  if (!versionFieldPattern.test(manifestJson)) {
-    throw new Error('Could not find "version" field in browser-extension/manifest.json');
-  }
-
-  return manifestJson.replace(
-    versionFieldPattern,
-    `$1${nextVersion}$2`,
-  );
+updateJsonFile("browser-extension/manifest.json", (manifest) => {
+  const nextManifest = applyAppVersionToExtensionManifest(manifest, nextVersion);
+  Object.keys(manifest).forEach((key) => {
+    delete manifest[key];
+  });
+  Object.assign(manifest, nextManifest);
 });
 
 updateTextFile("src/constants/appVersion.ts", () => {
