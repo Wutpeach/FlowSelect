@@ -734,6 +734,41 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     }
   });
 
+  it("skips downstream transcode when a highest-quality Bilibili download already lands as MP4", async () => {
+    const events: RuntimeEmitterEvent[] = [];
+
+    const runtime = createRuntime({
+      providers: [bilibiliProvider, genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => ({
+          traceId: context.traceId,
+          success: true,
+          file_path: "D:/downloads/Bilibili Preview[1920x1080][highest].mp4",
+        })),
+      ],
+      onEmit(event) {
+        events.push(event);
+      },
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.bilibili.com/video/BV1preview1080",
+      pageUrl: "https://www.bilibili.com/video/BV1preview1080?p=1",
+      title: "Bilibili Preview",
+      ytdlpQuality: "best",
+      siteHint: "bilibili",
+    });
+
+    await waitFor(() => events.includes("video-download-complete"));
+    await waitFor(() => prepareVideoTranscodeTaskFromDownloadMock.mock.calls.length === 1);
+
+    expect(prepareVideoTranscodeTaskFromDownloadMock).toHaveBeenCalledWith(expect.objectContaining({
+      sourcePath: "D:/downloads/Bilibili Preview[1920x1080][highest].mp4",
+    }));
+    expect(events).not.toContain("video-transcode-queued");
+    expect(runtime.getTranscodeQueueState().totalCount).toBe(0);
+  });
+
   it("supports retrying and removing failed transcode rows", async () => {
     const events: RuntimeEmitterEvent[] = [];
     const runAttempts: string[] = [];

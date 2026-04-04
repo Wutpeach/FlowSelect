@@ -42,12 +42,15 @@ describe("runYtDlpDownload", () => {
     );
     runStreamingCommandMock.mockImplementation(async (_command, args) => {
       const outputIndex = args.indexOf("-o");
+      const mergeOutputIndex = args.indexOf("--merge-output-format");
       expect(outputIndex).toBeGreaterThanOrEqual(0);
+      expect(mergeOutputIndex).toBeGreaterThanOrEqual(0);
       expect(args[outputIndex + 1]).toBe(path.join(
         "D:/downloads",
         "Sample Video[%(width|unknown)sx%(height|unknown)s][highest].%(ext)s",
       ),
       );
+      expect(args[mergeOutputIndex + 1]).toBe("mp4/mkv");
       return 0;
     });
 

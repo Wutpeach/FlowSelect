@@ -44,13 +44,15 @@ const YTDLP_FORMAT_SELECTOR_DATA_SAVER = [
   "worst",
 ].join("");
 
+type YtdlpMergeOutputFormat = "mp4" | "mp4/mkv" | null;
+
 const resolveYtdlpFormatProfile = (
   quality: YtdlpQualityPreference | undefined,
   hasFfmpeg: boolean,
 ): {
   selector: string;
   sort: string | null;
-  mergeOutputFormat: "mp4" | "mkv" | null;
+  mergeOutputFormat: YtdlpMergeOutputFormat;
 } => {
   const normalized = quality ?? "best";
   if (!hasFfmpeg) {
@@ -95,7 +97,9 @@ const resolveYtdlpFormatProfile = (
       return {
         selector: YTDLP_FORMAT_SELECTOR_BEST,
         sort: "res,codec:h264,acodec:aac,ext",
-        mergeOutputFormat: "mkv",
+        // Prefer a directly compatible MP4 when the selected streams allow it,
+        // but keep MKV as the fallback for genuinely higher-tier combinations.
+        mergeOutputFormat: "mp4/mkv",
       };
   }
 };
