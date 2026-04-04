@@ -114,4 +114,54 @@ describe("runYtDlpDownload", () => {
     expect(unlinkMock).toHaveBeenCalledWith(path.join("D:/downloads", "video.f137.mp4"));
     expect(unlinkMock).toHaveBeenCalledWith(path.join("D:/downloads", "trace-yt-after-move.txt"));
   });
+
+  it("emits an early downloading activity while yt-dlp is still resolving media", async () => {
+    readdirMock.mockResolvedValue([]);
+    readFileMock.mockResolvedValue(
+      path.join("D:/downloads", "Sample Video.mp4"),
+    );
+    const onProgress = vi.fn(async () => undefined);
+    runStreamingCommandMock.mockImplementation(async (_command, _args, options) => {
+      await options?.onStderrLine?.("[youtube] abc123: Downloading webpage");
+      return 0;
+    });
+
+    const context = {
+      traceId: "trace-activity",
+      outputDir: "D:/downloads",
+      outputStem: "Sample Video",
+      config: {},
+      binaries: {
+        ytDlp: "D:/yt-dlp.exe",
+        ffmpeg: "D:/ffmpeg/ffmpeg.exe",
+        deno: "D:/deno/deno.exe",
+      },
+      enginePlan: {
+        sourceUrl: "https://www.youtube.com/watch?v=abc123",
+      },
+      intent: {
+        originalUrl: "https://www.youtube.com/watch?v=abc123",
+        ytdlpQuality: "best",
+      },
+      abortSignal: new AbortController().signal,
+      onProgress,
+    } as never;
+
+    await expect(runYtDlpDownload(context)).resolves.toMatchObject({
+      success: true,
+      file_path: path.join("D:/downloads", "Sample Video.mp4"),
+    });
+
+    expect(onProgress).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      traceId: "trace-activity",
+      stage: "preparing",
+      speed: "Starting...",
+    }));
+    expect(onProgress).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      traceId: "trace-activity",
+      percent: -1,
+      stage: "downloading",
+      speed: "Resolving media...",
+    }));
+  });
 });

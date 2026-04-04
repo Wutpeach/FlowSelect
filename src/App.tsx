@@ -873,6 +873,7 @@ function App({
   const isWindowPointerDownRef = useRef(false);
   const windowDragFrameRef = useRef<number | null>(null);
   const lastKnownWindowPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const lastPanelOutputFolderShortcutAtRef = useRef(0);
   const isDropHoveringRef = useRef(false);
   const mainWindowBoundsTransitionRef = useRef<MainWindowBoundsTransitionState>({
     token: 0,
@@ -898,6 +899,7 @@ function App({
   const EDGE_GLOW_FALLOFF_EXPONENT = 0.58;
   const DRAG_GLOW_BORDER_WIDTH = 2.4;
   const WINDOW_EDGE_PADDING = 8;
+  const PANEL_OUTPUT_FOLDER_SHORTCUT_DEDUP_MS = 400;
   const CONTEXT_MENU_WIDTH = 176;
   const CONTEXT_MENU_HEIGHT = 80;
   const SETTINGS_WINDOW_WIDTH = 320;
@@ -2927,6 +2929,13 @@ function App({
   const triggerPanelOutputFolderShortcut = async (
     e: Pick<React.MouseEvent<HTMLDivElement>, "preventDefault" | "stopPropagation">,
   ) => {
+    const now = Date.now();
+    if (now - lastPanelOutputFolderShortcutAtRef.current < PANEL_OUTPUT_FOLDER_SHORTCUT_DEDUP_MS) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    lastPanelOutputFolderShortcutAtRef.current = now;
     resetWindowDragState();
     e.preventDefault();
     e.stopPropagation();
@@ -3042,10 +3051,6 @@ function App({
 
   const handlePanelDoubleClick = async (e: React.MouseEvent<HTMLDivElement>) => {
     resetWindowDragState();
-    if (isMacOS) {
-      return;
-    }
-
     if (e.button !== 0 || !canDoubleClickOpenOutputFolder) {
       return;
     }
@@ -3675,24 +3680,19 @@ function App({
       await closeContextMenuWindow();
 
       const currentWindow = desktopCurrentWindow;
-      const [outerPosition, scaleFactor, monitor] = await Promise.all([
+      const [outerPosition, monitor] = await Promise.all([
         currentWindow.outerPosition(),
-        currentWindow.scaleFactor(),
         desktopSystem.currentMonitor(),
       ]);
 
-      const logicalWindowPosition = {
-        x: outerPosition.x / scaleFactor,
-        y: outerPosition.y / scaleFactor,
-      };
-      let x = logicalWindowPosition.x + e.clientX;
-      let y = logicalWindowPosition.y + e.clientY;
+      let x = outerPosition.x + e.clientX;
+      let y = outerPosition.y + e.clientY;
 
       if (monitor) {
-        const monitorX = monitor.position.x / scaleFactor;
-        const monitorY = monitor.position.y / scaleFactor;
-        const monitorWidth = monitor.size.width / scaleFactor;
-        const monitorHeight = monitor.size.height / scaleFactor;
+        const monitorX = monitor.position.x;
+        const monitorY = monitor.position.y;
+        const monitorWidth = monitor.size.width;
+        const monitorHeight = monitor.size.height;
         const minX = monitorX + WINDOW_EDGE_PADDING;
         const minY = monitorY + WINDOW_EDGE_PADDING;
         const maxX = monitorX + monitorWidth - CONTEXT_MENU_WIDTH - WINDOW_EDGE_PADDING;

@@ -44,7 +44,41 @@ const YTDLP_FORMAT_SELECTOR_DATA_SAVER = [
   "worst",
 ].join("");
 
+const YTDLP_ACTIVITY_FALLBACK = "Resolving media...";
+
 type YtdlpMergeOutputFormat = "mp4" | "mp4/mkv" | null;
+
+const isYtDlpPostProcessingLine = (line: string): boolean => {
+  const normalized = line.toLowerCase();
+  return normalized.includes("post-process")
+    || normalized.includes("embedding metadata")
+    || normalized.includes("deleting original file");
+};
+
+const normalizeYtDlpActivity = (line: string): string | null => {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const normalized = trimmed.toLowerCase();
+  if (
+    normalized.includes("[download]")
+    || normalized.includes("merging")
+    || isYtDlpPostProcessingLine(normalized)
+  ) {
+    return null;
+  }
+
+  if (
+    /\b(extracting|downloading webpage|downloading player|downloading m3u8|downloading android player api json|downloading tv player api json|downloading web creator player api json|downloading ios player api json|downloading player api json|downloading video info webpage|requesting|retrieving)\b/i
+      .test(normalized)
+  ) {
+    return YTDLP_ACTIVITY_FALLBACK;
+  }
+
+  return null;
+};
 
 const resolveYtdlpFormatProfile = (
   quality: YtdlpQualityPreference | undefined,
@@ -282,6 +316,7 @@ export const runYtDlpDownload = async (
 
   const stderrLines: string[] = [];
   try {
+    let emittedActivity = false;
     const exitCode = await runStreamingCommand(context.binaries.ytDlp, args, {
       env: {
         ...process.env,
@@ -293,12 +328,36 @@ export const runYtDlpDownload = async (
       onStdoutLine: async (line: string) => {
         const progress = parseYtDlpProgressLine(context.traceId, line);
         if (progress) {
+          emittedActivity = true;
           await context.onProgress(progress);
+          return;
+        }
+        const activity = normalizeYtDlpActivity(line);
+        if (activity && !emittedActivity) {
+          emittedActivity = true;
+          await context.onProgress({
+            traceId: context.traceId,
+            percent: -1,
+            stage: "downloading",
+            speed: activity,
+            eta: "",
+          });
         }
       },
-      onStderrLine: (line: string) => {
+      onStderrLine: async (line: string) => {
         if (line.trim()) {
           stderrLines.push(line.trim());
+        }
+        const activity = normalizeYtDlpActivity(line);
+        if (activity && !emittedActivity) {
+          emittedActivity = true;
+          await context.onProgress({
+            traceId: context.traceId,
+            percent: -1,
+            stage: "downloading",
+            speed: activity,
+            eta: "",
+          });
         }
       },
     });

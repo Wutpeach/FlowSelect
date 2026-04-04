@@ -83,6 +83,7 @@ import {
 } from "./startupWindowMode.mjs";
 import { waitForInitialWindowReveal } from "./windowRevealWait.mjs";
 import { applyMacTrayAppMode } from "./macAppVisibility.mjs";
+import { openPathOrThrow } from "./openPath.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..", "..");
@@ -4048,7 +4049,10 @@ async function openDialogForEvent(event, options) {
 
 async function openCurrentOutputFolder() {
   const folderPath = await resolveCurrentOutputFolderPath();
-  await shell.openPath(folderPath);
+  await openPathOrThrow(folderPath, {
+    ensureDirectory: true,
+    shellLike: shell,
+  });
 }
 
 async function beginPickOutputFolderFromContextMenu() {
@@ -4491,7 +4495,9 @@ async function handleCommand(command, payload = {}) {
       return;
     }
     case "open_folder":
-      await shell.openPath(String(payload.path ?? ""));
+      await openPathOrThrow(String(payload.path ?? ""), {
+        shellLike: shell,
+      });
       return;
     case "reset_rename_counter":
       resetRenameSequenceState();

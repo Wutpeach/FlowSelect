@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 export const writeCookiesFile = async (
@@ -8,7 +9,7 @@ export const writeCookiesFile = async (
   if (!cookies?.trim()) {
     return null;
   }
-  const target = path.join(process.env.TEMP ?? process.cwd(), `${traceId}-cookies.txt`);
+  const target = path.join(tmpdir(), `${traceId}-cookies.txt`);
   await fs.writeFile(target, cookies, "utf8");
   return target;
 };
