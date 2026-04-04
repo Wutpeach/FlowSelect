@@ -279,6 +279,7 @@ FlowSelect/
 - Use `npm run version:set -- <version>` for version bumps.
 - If the versioned note is missing, that command scaffolds `release-notes/v<version>.md` from `release-notes/TEMPLATE.md`.
 - Fill in and commit `release-notes/v<version>.md` before pushing a release tag.
+- Write release notes in Chinese by default unless the current task explicitly requires another language.
 - GitHub Releases are created from tags and the Electron release pipeline publishes the Windows installer, Windows portable ZIP, macOS ZIP, macOS DMG, and the Windows `latest.json` update manifest.
 - The matching release-note file must exist in the tagged commit.
 - GitHub Releases also include `FlowSelect_<version>_browser_extension.zip` for browser-extension updates.

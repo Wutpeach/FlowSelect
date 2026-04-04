@@ -279,6 +279,7 @@ FlowSelect/
 - 更新版本号时，使用 `npm run version:set -- <version>`。
 - 该命令会在缺少版本说明时，基于 `release-notes/TEMPLATE.md` 自动生成 `release-notes/v<version>.md` 草稿。
 - 发布版本标签前，先补全并提交 `release-notes/v<version>.md`。
+- 版本说明默认使用中文撰写，除非当前任务明确要求其他语言。
 - GitHub Releases 由标签触发，Electron 发布链路会产出 Windows 安装包、Windows Portable ZIP、macOS ZIP、macOS DMG，以及 Windows `latest.json` 更新清单。
 - 对应版本的 release note 文件必须已经存在于被打标签的提交中。
 - GitHub Releases 还会附带 `FlowSelect_<version>_browser_extension.zip`，用于分发浏览器扩展更新。
