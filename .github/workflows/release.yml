@@ -41,9 +41,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Install create-dmg
-        run: brew install create-dmg
-
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -93,7 +90,7 @@ jobs:
           Copy-Item $ffmpegBinary.FullName "desktop-assets/binaries/ffmpeg.exe" -Force
 
       - name: Ensure gallery-dl binary
-        run: npm run runtime:ensure:gallery-dl -- --target x86_64-pc-windows-msvc
+        run: npm run runtime:ensure:downloaders -- --tool gallery-dl --target x86_64-pc-windows-msvc
 
       - name: Build Windows NSIS installer
         run: npm run package:win
@@ -169,6 +166,9 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install create-dmg
+        run: brew install create-dmg
+
       - name: Download yt-dlp
         run: |
           mkdir -p desktop-assets/binaries
@@ -201,7 +201,7 @@ jobs:
           chmod +x "desktop-assets/binaries/ffmpeg"
 
       - name: Ensure gallery-dl binary
-        run: npm run runtime:ensure:gallery-dl -- --target ${{ matrix.target }}
+        run: npm run runtime:ensure:downloaders -- --tool gallery-dl --target ${{ matrix.target }}
 
       - name: Package macOS ZIP and open-source DMG
         run: |
