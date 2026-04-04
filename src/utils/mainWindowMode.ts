@@ -34,6 +34,7 @@ type ShouldCollapseMainWindowOnPointerLeaveInput = {
   isDragging: boolean;
   isContextMenuOpen: boolean;
   isMainWindowModeLocked: boolean;
+  isForegroundTaskOutcomeVisible: boolean;
 };
 
 export const shouldCollapseMainWindowOnPointerLeave = ({
@@ -42,10 +43,12 @@ export const shouldCollapseMainWindowOnPointerLeave = ({
   isDragging,
   isContextMenuOpen,
   isMainWindowModeLocked,
+  isForegroundTaskOutcomeVisible,
 }: ShouldCollapseMainWindowOnPointerLeaveInput): boolean => (
   !isMinimized
   && startupAutoMinimizeUnlocked
   && !isDragging
   && !isContextMenuOpen
   && !isMainWindowModeLocked
+  && !isForegroundTaskOutcomeVisible
 );

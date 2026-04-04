@@ -858,6 +858,7 @@ function App({
   const deferredStartupInitializationTimerRef = useRef<number | null>(null);
   const deferredStartupInitializationIdleRef = useRef<number | null>(null);
   const foregroundTaskOutcomeTimerRef = useRef<number | null>(null);
+  const isForegroundTaskOutcomeVisibleRef = useRef(false);
   const panelTransitionModeResetFrameRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
   const isDraggingRef = useRef(false);
@@ -997,6 +998,7 @@ function App({
 
   const resetDownloadOutcome = useCallback(() => {
     clearForegroundTaskOutcomeTimer();
+    isForegroundTaskOutcomeVisibleRef.current = false;
     setIsProcessing(false);
     setDownloadCancelled(false);
     setDownloadErrorMessage(null);
@@ -1201,6 +1203,7 @@ function App({
     if (
       isUiLabPreviewActiveRef.current
       || isMainWindowModeLockedRef.current
+      || isForegroundTaskOutcomeVisibleRef.current
       || isDraggingRef.current
       || isDropHoveringRef.current
       || isPanelHoveredRef.current
@@ -1291,6 +1294,7 @@ function App({
       isDragging: isDraggingRef.current,
       isContextMenuOpen: isContextMenuOpenRef.current,
       isMainWindowModeLocked: isMainWindowModeLockedRef.current,
+      isForegroundTaskOutcomeVisible: isForegroundTaskOutcomeVisibleRef.current,
     })) {
       return false;
     }
@@ -1325,6 +1329,7 @@ function App({
         isDragging: isDraggingRef.current,
         isContextMenuOpen: isContextMenuOpenRef.current,
         isMainWindowModeLocked: isMainWindowModeLockedRef.current,
+        isForegroundTaskOutcomeVisible: isForegroundTaskOutcomeVisibleRef.current,
       });
 
     if (shouldCollapseAfterExpandMorph) {
@@ -1489,14 +1494,17 @@ function App({
     durationMs: number;
   }) => {
     clearForegroundTaskOutcomeTimer();
+    isForegroundTaskOutcomeVisibleRef.current = true;
+    void prepareMainWindowForForegroundTask();
     setDownloadCancelled(cancelled);
     setDownloadErrorMessage(cancelled ? error : null);
     setIsProcessing(true);
     foregroundTaskOutcomeTimerRef.current = window.setTimeout(() => {
       foregroundTaskOutcomeTimerRef.current = null;
+      isForegroundTaskOutcomeVisibleRef.current = false;
       setIsProcessing(false);
     }, durationMs);
-  }, [clearForegroundTaskOutcomeTimer]);
+  }, [clearForegroundTaskOutcomeTimer, prepareMainWindowForForegroundTask]);
 
   const startForegroundProcessing = useCallback(async () => {
     await prepareMainWindowForForegroundTask();
@@ -2273,9 +2281,7 @@ function App({
       setVideoTranscodeQueueState(EMPTY_VIDEO_TRANSCODE_QUEUE_STATE);
       setVideoTranscodeQueueDetail(EMPTY_VIDEO_TRANSCODE_QUEUE_DETAIL);
       setTranscodeProgressByTrace({});
-      setDownloadCancelled(false);
-      setDownloadErrorMessage(null);
-      setIsProcessing(false);
+      resetDownloadOutcome();
       setQueueNoticeMessage(null);
       setIsQueuePopoverOpen(false);
       setIsRuntimeRetryInFlight(false);
@@ -2287,7 +2293,7 @@ function App({
       }
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [clearCancellingTraceIds, ensureMainWindowFullMode, refreshRuntimeDependencyContext]);
+  }, [clearCancellingTraceIds, ensureMainWindowFullMode, refreshRuntimeDependencyContext, resetDownloadOutcome]);
 
   // Listen for rename toggle changes from settings window
   useEffect(() => {
@@ -2598,6 +2604,7 @@ function App({
     // 主窗口被前景状态锁定、拖拽中或鼠标仍停留在面板内时不启动 idle timer
     if (
       isMainWindowModeLockedRef.current
+      || isForegroundTaskOutcomeVisibleRef.current
       || isDraggingRef.current
       || isPanelHoveredRef.current
       || isContextMenuOpenRef.current
@@ -4088,6 +4095,7 @@ function App({
             isDragging: isDraggingRef.current,
             isContextMenuOpen,
             isMainWindowModeLocked,
+            isForegroundTaskOutcomeVisible: isForegroundTaskOutcomeVisibleRef.current,
           })) {
             const collapsed = collapseMainWindowToIcon();
             if (collapsed) {

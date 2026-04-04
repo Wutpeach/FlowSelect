@@ -92,6 +92,7 @@ describe("shouldCollapseMainWindowOnPointerLeave", () => {
       isDragging: false,
       isContextMenuOpen: false,
       isMainWindowModeLocked: false,
+      isForegroundTaskOutcomeVisible: false,
     })).toBe(true);
   });
 
@@ -102,6 +103,7 @@ describe("shouldCollapseMainWindowOnPointerLeave", () => {
       isDragging: false,
       isContextMenuOpen: false,
       isMainWindowModeLocked: true,
+      isForegroundTaskOutcomeVisible: false,
     })).toBe(false);
 
     expect(shouldCollapseMainWindowOnPointerLeave({
@@ -110,6 +112,7 @@ describe("shouldCollapseMainWindowOnPointerLeave", () => {
       isDragging: false,
       isContextMenuOpen: false,
       isMainWindowModeLocked: false,
+      isForegroundTaskOutcomeVisible: false,
     })).toBe(false);
 
     expect(shouldCollapseMainWindowOnPointerLeave({
@@ -118,6 +121,7 @@ describe("shouldCollapseMainWindowOnPointerLeave", () => {
       isDragging: true,
       isContextMenuOpen: false,
       isMainWindowModeLocked: false,
+      isForegroundTaskOutcomeVisible: false,
     })).toBe(false);
 
     expect(shouldCollapseMainWindowOnPointerLeave({
@@ -126,6 +130,16 @@ describe("shouldCollapseMainWindowOnPointerLeave", () => {
       isDragging: false,
       isContextMenuOpen: true,
       isMainWindowModeLocked: false,
+      isForegroundTaskOutcomeVisible: false,
+    })).toBe(false);
+
+    expect(shouldCollapseMainWindowOnPointerLeave({
+      isMinimized: false,
+      startupAutoMinimizeUnlocked: true,
+      isDragging: false,
+      isContextMenuOpen: false,
+      isMainWindowModeLocked: false,
+      isForegroundTaskOutcomeVisible: true,
     })).toBe(false);
   });
 
@@ -136,6 +150,7 @@ describe("shouldCollapseMainWindowOnPointerLeave", () => {
       isDragging: false,
       isContextMenuOpen: false,
       isMainWindowModeLocked: false,
+      isForegroundTaskOutcomeVisible: false,
     })).toBe(false);
   });
 });
