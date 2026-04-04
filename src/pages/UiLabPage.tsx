@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Eye, RotateCcw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { CloseIcon, EyeIcon, RotateCcwIcon } from "../components/icons/AppIcons";
 import { NeonButton, NeonIconButton, NeonSection } from "../components/ui";
 import {
   WINDOW_NO_DRAG_REGION_STYLE,
@@ -195,7 +195,7 @@ export default function UiLabPage() {
           aria-label={t("settings.uiLab.actions.closeWindow")}
           style={WINDOW_NO_DRAG_REGION_STYLE}
         >
-          <X size={16} />
+          <CloseIcon size={16} />
         </NeonIconButton>
       </div>
 
@@ -208,7 +208,7 @@ export default function UiLabPage() {
             onClick={() => void focusMainWindow()}
             style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
           >
-            <Eye size={14} />
+            <EyeIcon size={14} />
             {t("settings.uiLab.actions.revealMainWindow")}
           </NeonButton>
           <NeonButton
@@ -217,7 +217,7 @@ export default function UiLabPage() {
             variant="outline"
             style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
           >
-            <RotateCcw size={14} />
+            <RotateCcwIcon size={14} />
             {t("settings.uiLab.actions.resetToLiveState")}
           </NeonButton>
         </div>

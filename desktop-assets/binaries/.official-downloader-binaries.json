@@ -30,6 +30,36 @@
       "assetUrl": "https://github.com/gdl-org/builds/releases/download/2026.03.30/gallery-dl_windows.exe",
       "assetDigest": "sha256:e8ea5d324d073d9a844a4e5c57a6c203bb75137548081194888834e6a94b22ec",
       "downloadedAt": "2026-03-31T07:15:35.805Z"
+    },
+    "yt-dlp:aarch64-apple-darwin": {
+      "toolId": "yt-dlp",
+      "target": "aarch64-apple-darwin",
+      "path": "/Users/mabel/Documents/FlowSelect/desktop-assets/binaries/yt-dlp-aarch64-apple-darwin",
+      "outputName": "yt-dlp-aarch64-apple-darwin",
+      "source": "official-upstream",
+      "releaseRepo": "yt-dlp/yt-dlp",
+      "releaseTag": "2026.03.17",
+      "releaseName": "yt-dlp 2026.03.17",
+      "releaseUrl": "https://github.com/yt-dlp/yt-dlp/releases/tag/2026.03.17",
+      "assetName": "yt-dlp_macos",
+      "assetUrl": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.03.17/yt-dlp_macos",
+      "assetDigest": "sha256:e80c47b3ce712acee51d5e3d4eace2d181b44d38f1942c3a32e3c7ff53cd9ed5",
+      "downloadedAt": "2026-04-02T14:43:57.869Z"
+    },
+    "gallery-dl:aarch64-apple-darwin": {
+      "toolId": "gallery-dl",
+      "target": "aarch64-apple-darwin",
+      "path": "/Users/mabel/Documents/FlowSelect/desktop-assets/binaries/gallery-dl-aarch64-apple-darwin",
+      "outputName": "gallery-dl-aarch64-apple-darwin",
+      "source": "official-upstream",
+      "releaseRepo": "gdl-org/builds",
+      "releaseTag": "2026.04.01",
+      "releaseName": "2026.04.01",
+      "releaseUrl": "https://github.com/gdl-org/builds/releases/tag/2026.04.01",
+      "assetName": "gallery-dl_macos",
+      "assetUrl": "https://github.com/gdl-org/builds/releases/download/2026.04.01/gallery-dl_macos",
+      "assetDigest": "sha256:e0e1c68c64ad12b0ebd2d08f32de5eee14eaa8cc2c7bae13db4c4120f03ba116",
+      "downloadedAt": "2026-04-02T14:44:07.156Z"
     }
   }
 }

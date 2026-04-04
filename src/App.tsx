@@ -1,8 +1,8 @@
 import { startTransition, useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
-import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { CatIcon } from "./components/CatIcon";
+import { CheckIcon, CloseIcon } from "./components/icons/AppIcons";
 import { NeonIconButton } from "./components/ui";
 import {
   COMPACT_EASE,
@@ -4928,9 +4928,9 @@ function App({
             }}
           >
             {downloadCancelled ? (
-              <X size={48} style={{ color: colors.errorIcon }} strokeWidth={3} />
+              <CloseIcon size={48} style={{ color: colors.errorIcon }} strokeWidth={3} />
             ) : (
-              <Check size={48} style={{ color: colors.successIcon }} strokeWidth={3} />
+              <CheckIcon size={48} style={{ color: colors.successIcon }} strokeWidth={3} />
             )}
             {downloadCancelled && downloadErrorMessage ? (
               <span

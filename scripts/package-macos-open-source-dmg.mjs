@@ -6,9 +6,8 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  symlinkSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -19,7 +18,31 @@ import builderConfig, {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const readmeSourcePath = join(repoRoot, "distribution", "macos", "install-guide.txt");
+const installGuideSourcePath = join(repoRoot, "distribution", "macos", "install-guide.txt");
+const dmgBackgroundPath = join(repoRoot, "background.png");
+const dmgVolumeIconPngPath = join(repoRoot, "app-icon.png");
+const dmgLayout = {
+  volumeName: "FlowSelect Installer",
+  windowSize: { width: 638, height: 360 },
+  iconSize: 100,
+  textSize: 14,
+  appPosition: { x: 439, y: 157 },
+  applicationsPosition: { x: 97, y: 157 },
+  installGuidePosition: { x: 198, y: 22 },
+  browserExtensionPosition: { x: 340, y: 22 },
+};
+const iconsetEntries = [
+  { name: "icon_16x16.png", size: 16 },
+  { name: "icon_16x16@2x.png", size: 32 },
+  { name: "icon_32x32.png", size: 32 },
+  { name: "icon_32x32@2x.png", size: 64 },
+  { name: "icon_128x128.png", size: 128 },
+  { name: "icon_128x128@2x.png", size: 256 },
+  { name: "icon_256x256.png", size: 256 },
+  { name: "icon_256x256@2x.png", size: 512 },
+  { name: "icon_512x512.png", size: 512 },
+  { name: "icon_512x512@2x.png", size: 1024 },
+];
 
 function parseArgs(argv) {
   const parsed = {};
@@ -61,9 +84,26 @@ function ensureDir(path) {
   mkdirSync(path, { recursive: true });
 }
 
+function assertPathExists(path, label) {
+  if (!existsSync(path)) {
+    throw new Error(`Missing ${label}: ${path}`);
+  }
+}
+
 function cleanDir(path) {
   rmSync(path, { recursive: true, force: true });
   ensureDir(path);
+}
+
+function ensureCommandAvailable(command) {
+  const result = spawnSync("which", [command], {
+    cwd: repoRoot,
+    stdio: "ignore",
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`Required command not found on PATH: ${command}`);
+  }
 }
 
 function readProductMetadata() {
@@ -113,6 +153,13 @@ function normalizeArchitectureLabel(arch) {
   return arch;
 }
 
+function defaultMacPackagingArch() {
+  if (process.arch === "arm64") {
+    return "aarch64";
+  }
+  return "x86_64";
+}
+
 function candidateAppBundleRoots(outputRoot, arch) {
   const normalized = normalizeArchitectureLabel(arch);
   const roots = [
@@ -142,23 +189,52 @@ function findAppBundle(outputRoot, arch) {
   throw new Error(`No .app bundle found in Electron output root: ${outputRoot}`);
 }
 
+function generateVolumeIconIcns(pngPath, outputPath, scratchRoot) {
+  assertPathExists(pngPath, "DMG volume icon PNG");
+
+  const iconsetDir = join(scratchRoot, "volume-icon.iconset");
+  cleanDir(iconsetDir);
+
+  for (const entry of iconsetEntries) {
+    run("sips", [
+      "-s",
+      "format",
+      "png",
+      "-z",
+      String(entry.size),
+      String(entry.size),
+      pngPath,
+      "--out",
+      join(iconsetDir, entry.name),
+    ]);
+  }
+
+  run("iconutil", ["-c", "icns", iconsetDir, "-o", outputPath]);
+  assertPathExists(outputPath, "generated DMG volume icon");
+}
+
 function main() {
   if (process.platform !== "darwin") {
     throw new Error("package-macos-open-source-dmg.mjs must run on macOS.");
   }
 
+  ensureCommandAvailable("create-dmg");
+  ensureCommandAvailable("sips");
+  ensureCommandAvailable("iconutil");
+
   const args = parseArgs(process.argv.slice(2));
   const { productName, version: configVersion } = readProductMetadata();
   const skipBuild = args["skip-build"] === "true";
   const version = String(args.version || configVersion || "").trim();
-  const arch = String(args.arch || "").trim() || "x86_64";
+  const arch = String(args.arch || "").trim() || defaultMacPackagingArch();
 
   if (!version) {
     throw new Error("Missing version. Pass --version or ensure package.json has a version.");
   }
-  if (!existsSync(readmeSourcePath)) {
-    throw new Error(`Missing install guide asset: ${readmeSourcePath}`);
-  }
+
+  assertPathExists(installGuideSourcePath, "install guide asset");
+  assertPathExists(dmgBackgroundPath, "DMG background image");
+  assertPathExists(dmgVolumeIconPngPath, "DMG volume icon PNG");
 
   if (!skipBuild) {
     run("npm", ["run", "package:mac:zip", "--", expectedElectronBuilderArchFlag(arch)]);
@@ -171,45 +247,69 @@ function main() {
   const browserExtensionOutputPath = join(dmgDir, `FlowSelect_${version}_browser_extension.zip`);
   const stagingRoot = mkdtempSync(join(tmpdir(), "flowselect-macos-dmg-"));
   const stagingDir = join(stagingRoot, "staging");
-  const readmeOutputPath = join(stagingDir, "Install FlowSelect on macOS.txt");
+  const volumeIconOutputPath = join(stagingRoot, "FlowSelect-Installer.icns");
 
   ensureDir(dmgDir);
   removeExistingDmgs(dmgDir);
   cleanDir(stagingDir);
 
   try {
+    run(process.execPath, [
+      join(repoRoot, "scripts", "package-browser-extension.mjs"),
+      "--version",
+      version,
+      "--output-dir",
+      dmgDir,
+    ]);
+
+    assertPathExists(browserExtensionOutputPath, "packaged browser extension ZIP");
+    generateVolumeIconIcns(dmgVolumeIconPngPath, volumeIconOutputPath, stagingRoot);
+
     cpSync(appBundlePath, join(stagingDir, `${productName}.app`), {
       recursive: true,
       verbatimSymlinks: true,
     });
-    symlinkSync("/Applications", join(stagingDir, "Applications"), "dir");
-    cpSync(readmeSourcePath, readmeOutputPath);
 
-    run("hdiutil", [
-      "create",
-      "-volname",
-      productName,
-      "-srcfolder",
-      stagingDir,
-      "-ov",
-      "-format",
+    run("create-dmg", [
+      "--volname",
+      dmgLayout.volumeName,
+      "--volicon",
+      volumeIconOutputPath,
+      "--background",
+      dmgBackgroundPath,
+      "--window-size",
+      String(dmgLayout.windowSize.width),
+      String(dmgLayout.windowSize.height),
+      "--text-size",
+      String(dmgLayout.textSize),
+      "--icon-size",
+      String(dmgLayout.iconSize),
+      "--icon",
+      `${productName}.app`,
+      String(dmgLayout.appPosition.x),
+      String(dmgLayout.appPosition.y),
+      "--hide-extension",
+      `${productName}.app`,
+      "--app-drop-link",
+      String(dmgLayout.applicationsPosition.x),
+      String(dmgLayout.applicationsPosition.y),
+      "--add-file",
+      "Install FlowSelect on macOS.txt",
+      installGuideSourcePath,
+      String(dmgLayout.installGuidePosition.x),
+      String(dmgLayout.installGuidePosition.y),
+      "--add-file",
+      basename(browserExtensionOutputPath),
+      browserExtensionOutputPath,
+      String(dmgLayout.browserExtensionPosition.x),
+      String(dmgLayout.browserExtensionPosition.y),
+      "--format",
       "UDZO",
       outputPath,
+      stagingDir,
     ]);
   } finally {
     rmSync(stagingRoot, { recursive: true, force: true });
-  }
-
-  run(process.execPath, [
-    join(repoRoot, "scripts", "package-browser-extension.mjs"),
-    "--version",
-    version,
-    "--output-dir",
-    dmgDir,
-  ]);
-
-  if (!existsSync(browserExtensionOutputPath)) {
-    throw new Error(`Missing packaged browser extension ZIP: ${browserExtensionOutputPath}`);
   }
 
   console.log(JSON.stringify({
