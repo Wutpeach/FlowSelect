@@ -2,7 +2,7 @@
   "name": "flowselect",
   "private": true,
   "description": "FlowSelect desktop collector for files, images, and web video.",
-  "version": "0.3.0-rc3",
+  "version": "0.3.0-rc4",
   "author": "Wutpeach",
   "type": "module",
   "main": "dist-electron/electron/main.mjs",
