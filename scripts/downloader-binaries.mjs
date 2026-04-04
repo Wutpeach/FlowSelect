@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   rename,
+  rm,
   stat,
   unlink,
   writeFile,
@@ -97,6 +98,10 @@ export function resolveOutputBinaryName(toolId, target) {
 
 export function resolveBinaryPath(toolId, target) {
   return join(binariesDir, resolveOutputBinaryName(toolId, target));
+}
+
+function galleryDlFallbackEligible(toolId, target) {
+  return toolId === "gallery-dl" && target === "x86_64-apple-darwin";
 }
 
 function resolveAssetName(toolId, target) {
@@ -280,6 +285,117 @@ async function replaceFile(targetPath, temporaryPath) {
   }
 }
 
+function pythonExecutableForVenv(venvDir, target) {
+  return resolvePlatformForTarget(target) === "win32"
+    ? join(venvDir, "Scripts", "python.exe")
+    : join(venvDir, "bin", "python");
+}
+
+function spawnChecked(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      ...options.env,
+    },
+    ...options,
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`Command failed: ${command} ${args.join(" ")}`);
+  }
+}
+
+function spawnCaptured(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...options.env,
+    },
+    ...options,
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`Command failed: ${command} ${args.join(" ")}\n${result.stderr ?? ""}`.trim());
+  }
+
+  return result.stdout.trim();
+}
+
+function pipEnv() {
+  return {
+    ALL_PROXY: "",
+    all_proxy: "",
+    HTTP_PROXY: "",
+    http_proxy: "",
+    HTTPS_PROXY: "",
+    https_proxy: "",
+    PIP_DISABLE_PIP_VERSION_CHECK: "1",
+  };
+}
+
+async function buildGalleryDlFallbackBinary(target, binaryPath) {
+  const buildRoot = join(repoRoot, "build", "gallery-dl-fallback", target);
+  const distDir = join(buildRoot, "dist");
+  const workDir = join(buildRoot, "work");
+  const specDir = join(buildRoot, "spec");
+  const venvDir = join(buildRoot, "venv");
+  const binaryName = resolveOutputBinaryName("gallery-dl", target);
+
+  await mkdir(buildRoot, { recursive: true });
+  await rm(distDir, { recursive: true, force: true });
+  await rm(workDir, { recursive: true, force: true });
+  await rm(specDir, { recursive: true, force: true });
+  await mkdir(distDir, { recursive: true });
+  await mkdir(workDir, { recursive: true });
+  await mkdir(specDir, { recursive: true });
+
+  const venvPython = pythonExecutableForVenv(venvDir, target);
+  try {
+    await stat(venvPython);
+  } catch {
+    spawnChecked("python3", ["-m", "venv", venvDir]);
+  }
+
+  spawnChecked(venvPython, ["-m", "pip", "install", "gallery-dl", "pyinstaller"], {
+    env: pipEnv(),
+  });
+
+  const entryPoint = spawnCaptured(venvPython, [
+    "-c",
+    "import gallery_dl, os; print(os.path.join(os.path.dirname(gallery_dl.__file__), '__main__.py'))",
+  ]);
+
+  spawnChecked(venvPython, [
+    "-m",
+    "PyInstaller",
+    "--noconfirm",
+    "--clean",
+    "--onefile",
+    "--distpath",
+    distDir,
+    "--workpath",
+    workDir,
+    "--specpath",
+    specDir,
+    "--name",
+    binaryName,
+    "--collect-submodules",
+    "gallery_dl",
+    "--collect-data",
+    "gallery_dl",
+    entryPoint,
+  ]);
+
+  const builtPath = join(distDir, binaryName);
+  await stat(builtPath);
+  await copyFile(builtPath, binaryPath);
+  await chmod(binaryPath, 0o755);
+}
+
 export function smokeDownloaderBinary(entryPath) {
   const result = spawnSync(entryPath, ["--version"], {
     cwd: repoRoot,
@@ -288,7 +404,7 @@ export function smokeDownloaderBinary(entryPath) {
 
   if (result.status !== 0) {
     throw new Error(
-      `Binary smoke failed with code ${result.status}\n${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim(),
+      `Binary smoke failed with code ${result.status} signal ${result.signal ?? "null"}${result.error ? ` error ${result.error.message}` : ""}\n${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim(),
     );
   }
 
@@ -336,20 +452,45 @@ export async function ensureOfficialDownloaderBinary(toolId, target, options = {
   if (resolvePlatformForTarget(target) !== "win32") {
     await chmod(binaryPath, 0o755);
   }
-  const version = smokeDownloaderBinary(binaryPath);
+  let version;
+  let source = "official-upstream";
+  let releaseTag = release.tag_name ?? null;
+  let releaseName = release.name ?? null;
+  let releaseUrl = release.html_url ?? null;
+  let assetName = asset.name ?? null;
+  let assetUrl = asset.browser_download_url ?? null;
+  let assetDigest = asset.digest ?? null;
+
+  try {
+    version = smokeDownloaderBinary(binaryPath);
+  } catch (error) {
+    if (!galleryDlFallbackEligible(toolId, target)) {
+      throw error;
+    }
+
+    await buildGalleryDlFallbackBinary(target, binaryPath);
+    version = smokeDownloaderBinary(binaryPath);
+    source = "python-build-fallback";
+    releaseName = "gallery-dl PyInstaller fallback";
+    releaseUrl = null;
+    assetName = null;
+    assetUrl = null;
+    assetDigest = null;
+  }
+
   setManifestEntry(manifest, toolId, target, {
     toolId,
     target,
     path: binaryPath,
     outputName: resolveOutputBinaryName(toolId, target),
-    source: "official-upstream",
+    source,
     releaseRepo: OFFICIAL_DOWNLOADER_SOURCES[toolId].releaseRepo,
-    releaseTag: release.tag_name ?? null,
-    releaseName: release.name ?? null,
-    releaseUrl: release.html_url ?? null,
-    assetName: asset.name ?? null,
-    assetUrl: asset.browser_download_url ?? null,
-    assetDigest: asset.digest ?? null,
+    releaseTag,
+    releaseName,
+    releaseUrl,
+    assetName,
+    assetUrl,
+    assetDigest,
     downloadedAt: new Date().toISOString(),
   });
   await writeDownloaderManifest(manifest);
@@ -358,9 +499,11 @@ export async function ensureOfficialDownloaderBinary(toolId, target, options = {
     toolId,
     target,
     path: binaryPath,
-    state: force ? "refreshed" : "downloaded",
+    state: source === "official-upstream"
+      ? (force ? "refreshed" : "downloaded")
+      : "built_fallback",
     version,
-    releaseTag: release.tag_name ?? null,
-    assetName: asset.name ?? null,
+    releaseTag,
+    assetName,
   };
 }
