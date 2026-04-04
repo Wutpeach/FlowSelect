@@ -119,12 +119,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15-intel
-            arch: x86_64
-            target: x86_64-apple-darwin
-            artifact_arch: x64
-            deno_asset: deno-x86_64-apple-darwin.zip
-            ffmpeg_asset: ffmpeg-osx-x64.zip
           - runner: macos-15
             arch: aarch64
             target: aarch64-apple-darwin
@@ -248,23 +242,11 @@ jobs:
           name: windows-portable
           path: artifacts/windows-portable
 
-      - name: Download macOS x64 DMG
-        uses: actions/download-artifact@v5
-        with:
-          name: macos-dmg-x64
-          path: artifacts/macos-dmg-x64
-
       - name: Download macOS arm64 DMG
         uses: actions/download-artifact@v5
         with:
           name: macos-dmg-arm64
           path: artifacts/macos-dmg-arm64
-
-      - name: Download macOS x64 ZIP
-        uses: actions/download-artifact@v5
-        with:
-          name: macos-zip-x64
-          path: artifacts/macos-zip-x64
 
       - name: Download macOS arm64 ZIP
         uses: actions/download-artifact@v5
@@ -324,9 +306,7 @@ jobs:
           files: |
             artifacts/windows-installer/*.exe
             artifacts/windows-portable/*.zip
-            artifacts/macos-dmg-x64/*.dmg
             artifacts/macos-dmg-arm64/*.dmg
-            artifacts/macos-zip-x64/*.zip
             artifacts/macos-zip-arm64/*.zip
             artifacts/browser-extension/*.zip
             artifacts/updater/latest.json
