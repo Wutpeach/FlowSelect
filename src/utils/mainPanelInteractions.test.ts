@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolvePanelPointerCaptureId,
+  shouldPreventPanelNativeDragStart,
   shouldOpenOutputFolderFromPanelMouseDownDoubleClick,
 } from "./mainPanelInteractions";
 
@@ -78,5 +79,36 @@ describe("resolvePanelPointerCaptureId", () => {
 
   it("returns null when no pointer capture candidate exists", () => {
     expect(resolvePanelPointerCaptureId({})).toBeNull();
+  });
+});
+
+describe("shouldPreventPanelNativeDragStart", () => {
+  it("blocks native drags for ordinary panel content", () => {
+    const target = {
+      closest: () => null,
+    } as unknown as EventTarget & { closest(selector: string): null };
+
+    expect(shouldPreventPanelNativeDragStart(target)).toBe(true);
+    expect(shouldPreventPanelNativeDragStart(null)).toBe(true);
+  });
+
+  it("allows explicit opt-in drag targets", () => {
+    const target = {
+      closest: (selector: string) => (
+        selector === "[data-panel-native-drag='allow']" ? ({} as Element) : null
+      ),
+    } as unknown as EventTarget & { closest(selector: string): Element | null };
+
+    expect(shouldPreventPanelNativeDragStart(target)).toBe(false);
+  });
+
+  it("allows descendants of an explicit opt-in drag target", () => {
+    const child = {
+      closest: (selector: string) => (
+        selector === "[data-panel-native-drag='allow']" ? ({} as Element) : null
+      ),
+    } as unknown as EventTarget & { closest(selector: string): Element | null };
+
+    expect(shouldPreventPanelNativeDragStart(child)).toBe(false);
   });
 });

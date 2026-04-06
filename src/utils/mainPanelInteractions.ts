@@ -1,8 +1,20 @@
 export const PANEL_DOUBLE_CLICK_IGNORE_SELECTOR = "button, [data-panel-double-click='ignore']";
+export const PANEL_NATIVE_DRAG_ALLOW_SELECTOR = "[data-panel-native-drag='allow']";
 export const WINDOW_DRAG_START_THRESHOLD = 6;
 
+const supportsClosest = (
+  target: EventTarget | null,
+): target is EventTarget & { closest(selector: string): Element | null } => (
+  typeof (target as { closest?: unknown } | null)?.closest === "function"
+);
+
 export const shouldIgnorePanelDoubleClickTarget = (target: EventTarget | null): boolean =>
-  target instanceof Element && target.closest(PANEL_DOUBLE_CLICK_IGNORE_SELECTOR) !== null;
+  supportsClosest(target) && target.closest(PANEL_DOUBLE_CLICK_IGNORE_SELECTOR) !== null;
+
+export const shouldPreventPanelNativeDragStart = (target: EventTarget | null): boolean => !(
+  supportsClosest(target)
+  && target.closest(PANEL_NATIVE_DRAG_ALLOW_SELECTOR) !== null
+);
 
 type ResolvePanelPointerCaptureIdInput = {
   eventPointerId?: number | null;

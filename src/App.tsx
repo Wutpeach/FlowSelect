@@ -44,6 +44,7 @@ import { parseLocalFileUrl } from "./utils/localFileUrl";
 import {
   resolvePanelPointerCaptureId,
   shouldIgnorePanelDoubleClickTarget,
+  shouldPreventPanelNativeDragStart,
   shouldOpenOutputFolderFromPanelMouseDownDoubleClick,
   WINDOW_DRAG_START_THRESHOLD,
 } from "./utils/mainPanelInteractions";
@@ -1283,6 +1284,11 @@ function App({
 
     syncPanelHoverStateWithDom();
   }, [clearPointerLeaveCollapseTimer, syncPanelHoverStateWithDom]);
+
+  const clearPanelDropInteractionState = useCallback(() => {
+    setIsHovering(false);
+    updateDropHoverState(false);
+  }, [updateDropHoverState]);
 
   const collapseMainWindowIfPointerOutside = useCallback(() => {
     const isPanelActuallyHovered = syncPanelHoverStateWithDom();
@@ -2870,6 +2876,21 @@ function App({
   }, [resetWindowDragState]);
 
   useEffect(() => {
+    const handleGlobalDropSessionEnd = () => {
+      clearPanelDropInteractionState();
+    };
+
+    window.addEventListener("drop", handleGlobalDropSessionEnd, true);
+    window.addEventListener("dragend", handleGlobalDropSessionEnd, true);
+    window.addEventListener("blur", handleGlobalDropSessionEnd);
+    return () => {
+      window.removeEventListener("drop", handleGlobalDropSessionEnd, true);
+      window.removeEventListener("dragend", handleGlobalDropSessionEnd, true);
+      window.removeEventListener("blur", handleGlobalDropSessionEnd);
+    };
+  }, [clearPanelDropInteractionState]);
+
+  useEffect(() => {
     return () => {
       if (windowDragFrameRef.current !== null) {
         window.cancelAnimationFrame(windowDragFrameRef.current);
@@ -3604,7 +3625,7 @@ function App({
     // If not a URL and no files, let the desktop runtime handle it
     console.log("Not an image URL and no files, letting the desktop runtime handle it");
     } finally {
-      updateDropHoverState(false);
+      clearPanelDropInteractionState();
     }
   };
 
@@ -4054,10 +4075,14 @@ function App({
           setIsHovering(true);
         }
       }}
+      onDragStartCapture={(e) => {
+        if (shouldPreventPanelNativeDragStart(e.target)) {
+          e.preventDefault();
+        }
+      }}
       onDrop={handleDrop}
       onDragLeave={() => {
-        setIsHovering(false);
-        updateDropHoverState(false);
+        clearPanelDropInteractionState();
       }}
       onMouseEnter={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -4779,6 +4804,7 @@ function App({
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
+            draggable={false}
             style={{
               position: 'absolute',
               top: 0,
@@ -4790,6 +4816,8 @@ function App({
               alignItems: 'center',
               justifyContent: 'center',
               gap: 4,
+              pointerEvents: 'none',
+              userSelect: 'none',
             }}
           >
             <div style={{
@@ -4799,6 +4827,7 @@ function App({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              pointerEvents: 'none',
             }}>
               <svg
                 width="48"
@@ -4807,6 +4836,7 @@ function App({
                 style={{
                   transform: 'rotate(-90deg)',
                   display: 'block',
+                  pointerEvents: 'none',
                 }}
               >
                 <circle
@@ -4897,6 +4927,7 @@ function App({
                   cursor: isPrimaryTaskActionPending ? 'default' : 'pointer',
                   transition: 'background-color 0.2s',
                   opacity: isPrimaryTaskActionPending ? 0.6 : 1,
+                  pointerEvents: 'auto',
                 }}
                 title={primaryTask.kind === "transcode" ? t("app.actions.exitCurrentTranscode") : t("app.actions.cancelCurrentTask")}
               >
@@ -4907,6 +4938,7 @@ function App({
                   style={{
                     color: isProgressCancelHovered ? colors.progressCancelHoverIcon : colors.progressCancelIcon,
                     transition: 'color 0.2s',
+                    pointerEvents: 'none',
                   }}
                 >
                   <path
@@ -4926,6 +4958,7 @@ function App({
             animate={{ scale: [1, 1.05, 1], opacity: 1 }}
             exit={{ scale: 0.8, opacity: 0 }}
             transition={{ duration: 0.3 }}
+            draggable={false}
             style={{
               display: "flex",
               flexDirection: "column",
@@ -4933,12 +4966,14 @@ function App({
               justifyContent: "center",
               gap: 6,
               maxWidth: 170,
+              pointerEvents: "none",
+              userSelect: "none",
             }}
           >
             {downloadCancelled ? (
-              <CloseIcon size={48} style={{ color: colors.errorIcon }} strokeWidth={3} />
+              <CloseIcon size={48} style={{ color: colors.errorIcon, pointerEvents: "none" }} strokeWidth={3} />
             ) : (
-              <CheckIcon size={48} style={{ color: colors.successIcon }} strokeWidth={3} />
+              <CheckIcon size={48} style={{ color: colors.successIcon, pointerEvents: "none" }} strokeWidth={3} />
             )}
             {downloadCancelled && downloadErrorMessage ? (
               <span
@@ -4948,7 +4983,7 @@ function App({
                   lineHeight: 1.2,
                   color: colors.textSecondary,
                   textAlign: "center",
-                  userSelect: "text",
+                  userSelect: "none",
                   pointerEvents: "none",
                   padding: "0 8px",
                 }}
