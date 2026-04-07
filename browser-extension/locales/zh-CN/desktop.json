@@ -111,6 +111,16 @@
       "plugins": "插件",
       "advanced": "高级"
     },
+    "groups": {
+      "preferences": {
+        "title": "基础偏好",
+        "hint": "调整 FlowSelect 日常使用时的外观、唤起方式与基础行为。"
+      },
+      "downloadBehavior": {
+        "title": "下载行为",
+        "hint": "集中管理下载保存位置与重命名规则。"
+      }
+    },
     "theme": {
       "title": "主题",
       "black": "黑色",
@@ -161,6 +171,13 @@
       "chooseExe": "选择 AfterFX.exe...",
       "dialogTitle": "选择 AfterFX.exe",
       "executableFilter": "可执行文件"
+    },
+    "pluginsPage": {
+      "intro": "这里会管理扩展 FlowSelect 工作流的插件与集成功能。随着插件系统成长，新的入口也会收纳到这里。",
+      "installed": {
+        "title": "当前已接入",
+        "hint": "这个版本中已经可用的集成功能。"
+      }
     },
     "downloaders": {
       "title": "外部下载器",
@@ -241,6 +258,16 @@
         "upToDate": "当前已是最新版本。",
         "downloading": "正在准备更新安装包...",
         "installing": "正在重启以应用更新..."
+      }
+    },
+    "advancedGroups": {
+      "maintenance": {
+        "title": "应用维护",
+        "hint": "检查版本、安装更新，并在需要时导出诊断日志。"
+      },
+      "downloaders": {
+        "title": "下载基础设施",
+        "hint": "查看运行时就绪状态与内置下载器版本。"
       }
     },
     "uiLab": {

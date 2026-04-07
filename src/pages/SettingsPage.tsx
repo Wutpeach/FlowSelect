@@ -24,9 +24,9 @@ import {
 } from "../desktop/runtime";
 import {
   COMPACT_EASE,
-  getContinuousCornerStyle,
   getFieldSurfaceStyle,
   getCompactLabelStyle,
+  getNoticeStyle,
   WINDOW_NO_DRAG_REGION_STYLE,
   getWindowBodyStyle,
   getWindowHeaderStyle,
@@ -1198,54 +1198,78 @@ function SettingsPage() {
     </div>
   );
 
+  const renderSettingsGroup = (
+    title: string,
+    hint: string,
+    children: ReactNode,
+    separated = false,
+  ): ReactNode => (
+    <div
+      style={{
+        paddingTop: separated ? 16 : 0,
+        borderTop: separated ? `1px solid ${colors.borderStart}` : undefined,
+      }}
+    >
+      <div style={{ display: "grid", gap: 4, marginBottom: 14 }}>
+        <span style={getCompactLabelStyle(colors)}>
+          {title}
+        </span>
+        <div
+          style={{
+            fontSize: 10.5,
+            lineHeight: 1.45,
+            color: colors.textSecondary,
+            opacity: 0.82,
+          }}
+        >
+          {hint}
+        </div>
+      </div>
+      <div style={{ display: "grid" }}>
+        {children}
+      </div>
+    </div>
+  );
+
   const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
     { id: "general", label: t("desktop:settings.tabs.general") },
     { id: "plugins", label: t("desktop:settings.tabs.plugins") },
     { id: "advanced", label: t("desktop:settings.tabs.advanced") },
   ];
 
-  const settingsTabRailStyle: CSSProperties = {
+  const settingsTabChromeStyle: CSSProperties = {
     display: "flex",
-    gap: 2,
-    alignItems: "stretch",
-    padding: 3,
-    minHeight: 40,
-    ...getFieldSurfaceStyle(colors, {
-      padding: "3px",
-      height: 40,
-      radius: 12,
-    }),
+    alignItems: "center",
+    gap: 18,
+    padding: "0 18px",
+    borderBottom: `1px solid ${colors.borderStart}`,
+    ...WINDOW_NO_DRAG_REGION_STYLE,
   };
 
   const getSettingsTabStyle = (tab: SettingsTab): CSSProperties => ({
-    flex: "1 1 0",
+    flex: "0 0 auto",
     minWidth: 0,
-    minHeight: 30,
-    padding: "0 10px",
+    minHeight: 38,
+    padding: "11px 0 12px",
     fontSize: 11.5,
     lineHeight: 1,
     fontWeight: activeTab === tab ? 600 : 500,
     border: "none",
     cursor: "pointer",
+    background: "transparent",
+    borderBottom: `1.5px solid ${activeTab === tab ? colors.accentBorder : "transparent"}`,
+    marginBottom: -1,
     transition: [
-      `background 0.18s ${COMPACT_EASE}`,
-      `box-shadow 0.18s ${COMPACT_EASE}`,
       `color 0.18s ${COMPACT_EASE}`,
+      `border-color 0.18s ${COMPACT_EASE}`,
+      `opacity 0.18s ${COMPACT_EASE}`,
     ].join(", "),
-    ...getContinuousCornerStyle(9),
-    background: activeTab === tab
-      ? `linear-gradient(180deg, ${colors.accentSurfaceStrong} 0%, ${colors.accentSurface} 100%)`
-      : hoveredSettingsTab === tab
-        ? colors.fieldHoverBg
-        : "transparent",
     color: activeTab === tab
       ? colors.textPrimary
       : hoveredSettingsTab === tab
         ? colors.textPrimary
         : colors.textSecondary,
-    boxShadow: activeTab === tab
-      ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 1px 0 ${colors.fieldInset}`
-      : "none",
+    opacity: activeTab === tab ? 1 : 0.86,
   });
 
   const appVersionStatusText = (() => {
@@ -1278,288 +1302,348 @@ function SettingsPage() {
 
   const renderGeneralTab = (): ReactNode => (
     <>
-      <NeonSection title={t("desktop:settings.theme.title")}>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            type="button"
-            onClick={() => setTheme("black")}
-            onMouseEnter={() => setHoveredThemeOption("black")}
-            onMouseLeave={() => setHoveredThemeOption((current) => (current === "black" ? null : current))}
-            style={{
-              flex: 1,
-              ...getSelectableOptionStyle(colors, theme === "black", hoveredThemeOption === "black"),
-              minHeight: COMPACT_THEME_BUTTON_HEIGHT,
-              padding: COMPACT_THEME_BUTTON_PADDING,
-              fontSize: 11.5,
-              lineHeight: 1,
-            }}
-          >
-            {t("desktop:settings.theme.black")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setTheme("white")}
-            onMouseEnter={() => setHoveredThemeOption("white")}
-            onMouseLeave={() => setHoveredThemeOption((current) => (current === "white" ? null : current))}
-            style={{
-              flex: 1,
-              ...getSelectableOptionStyle(colors, theme === "white", hoveredThemeOption === "white"),
-              minHeight: COMPACT_THEME_BUTTON_HEIGHT,
-              padding: COMPACT_THEME_BUTTON_PADDING,
-              fontSize: 11.5,
-              lineHeight: 1,
-            }}
-          >
-            {t("desktop:settings.theme.white")}
-          </button>
-        </div>
-      </NeonSection>
-
-      <NeonSection
-        title={t("desktop:settings.language.title")}
-        hint={t("desktop:settings.language.hint")}
-      >
-        <NeonDropdownField
-          options={languageOptions}
-          value={currentLanguage}
-          onChange={handleLanguageChange}
-        />
-      </NeonSection>
-
-      <NeonSection title={t("desktop:settings.outputFolder.title")}>
-        <NeonFieldButton
-          onClick={selectOutputPath}
-          leadingIcon={<FolderOpenIcon size={14} />}
-        >
-          {outputPath ? truncatePath(outputPath) : t("desktop:settings.outputFolder.choose")}
-        </NeonFieldButton>
-      </NeonSection>
-
-      <NeonSection
-        title={t("desktop:settings.shortcut.title")}
-        hint={t("desktop:settings.shortcut.hint")}
-      >
-        {isRecording ? (
-          <div>
-            <div
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                ...getFieldSurfaceStyle(colors, {
-                  active: true,
-                  highlighted: true,
-                  padding: "10px 12px",
-                }),
-                textAlign: "left",
-                fontSize: 12,
-                cursor: "default",
-                boxSizing: "border-box",
-                color: colors.textPrimary,
-              }}
-            >
-              <KeyboardIcon size={14} style={{ color: colors.accentText, flexShrink: 0 }} />
-              <span>
-                {formatShortcutForDisplay(recordedKeys, isMacOS) || t("desktop:settings.shortcut.press")}
-              </span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                marginTop: 8,
-                boxSizing: "border-box",
-              }}
-            >
+      {renderSettingsGroup(
+        t("desktop:settings.groups.preferences.title"),
+        t("desktop:settings.groups.preferences.hint"),
+        <>
+          <NeonSection title={t("desktop:settings.theme.title")}>
+            <div style={{ display: "flex", gap: 8 }}>
               <button
                 type="button"
-                onClick={confirmShortcut}
-                disabled={!recordedKeys}
-                onMouseEnter={() => {
-                  if (recordedKeys) {
-                    setHoveredShortcutAction("confirm");
-                  }
+                onClick={() => setTheme("black")}
+                onMouseEnter={() => setHoveredThemeOption("black")}
+                onMouseLeave={() => setHoveredThemeOption((current) => (current === "black" ? null : current))}
+                style={{
+                  flex: 1,
+                  ...getSelectableOptionStyle(colors, theme === "black", hoveredThemeOption === "black"),
+                  minHeight: COMPACT_THEME_BUTTON_HEIGHT,
+                  padding: COMPACT_THEME_BUTTON_PADDING,
+                  fontSize: 11.5,
+                  lineHeight: 1,
                 }}
-                onMouseLeave={() => setHoveredShortcutAction((current) => (current === "confirm" ? null : current))}
-                style={getShortcutActionStyle("confirm", Boolean(recordedKeys))}
               >
-                {t("desktop:settings.shortcut.confirm")}
+                {t("desktop:settings.theme.black")}
               </button>
               <button
                 type="button"
-                onClick={cancelRecording}
-                onMouseEnter={() => setHoveredShortcutAction("cancel")}
-                onMouseLeave={() => setHoveredShortcutAction((current) => (current === "cancel" ? null : current))}
-                style={getShortcutActionStyle("cancel")}
+                onClick={() => setTheme("white")}
+                onMouseEnter={() => setHoveredThemeOption("white")}
+                onMouseLeave={() => setHoveredThemeOption((current) => (current === "white" ? null : current))}
+                style={{
+                  flex: 1,
+                  ...getSelectableOptionStyle(colors, theme === "white", hoveredThemeOption === "white"),
+                  minHeight: COMPACT_THEME_BUTTON_HEIGHT,
+                  padding: COMPACT_THEME_BUTTON_PADDING,
+                  fontSize: 11.5,
+                  lineHeight: 1,
+                }}
               >
-                {t("desktop:settings.shortcut.cancel")}
+                {t("desktop:settings.theme.white")}
               </button>
             </div>
-          </div>
-        ) : (
-          <NeonFieldButton
-            onClick={startRecording}
-            leadingIcon={<KeyboardIcon size={14} />}
-          >
-            {formatShortcutForDisplay(shortcut, isMacOS) || t("desktop:settings.shortcut.clickToRecord")}
-          </NeonFieldButton>
-        )}
-      </NeonSection>
+          </NeonSection>
 
-      <NeonSection title={t("desktop:settings.launchAtStartup.title")}>
-        <NeonToggle checked={autostart} onChange={toggleAutostart} />
-      </NeonSection>
+          <NeonSection
+            title={t("desktop:settings.language.title")}
+            hint={t("desktop:settings.language.hint")}
+          >
+            <NeonDropdownField
+              options={languageOptions}
+              value={currentLanguage}
+              onChange={handleLanguageChange}
+            />
+          </NeonSection>
+
+          <NeonSection
+            title={t("desktop:settings.shortcut.title")}
+            hint={t("desktop:settings.shortcut.hint")}
+          >
+            {isRecording ? (
+              <div>
+                <div
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    ...getFieldSurfaceStyle(colors, {
+                      active: true,
+                      highlighted: true,
+                      padding: "10px 12px",
+                    }),
+                    textAlign: "left",
+                    fontSize: 12,
+                    cursor: "default",
+                    boxSizing: "border-box",
+                    color: colors.textPrimary,
+                  }}
+                >
+                  <KeyboardIcon size={14} style={{ color: colors.accentText, flexShrink: 0 }} />
+                  <span>
+                    {formatShortcutForDisplay(recordedKeys, isMacOS) || t("desktop:settings.shortcut.press")}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    marginTop: 8,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={confirmShortcut}
+                    disabled={!recordedKeys}
+                    onMouseEnter={() => {
+                      if (recordedKeys) {
+                        setHoveredShortcutAction("confirm");
+                      }
+                    }}
+                    onMouseLeave={() => setHoveredShortcutAction((current) => (current === "confirm" ? null : current))}
+                    style={getShortcutActionStyle("confirm", Boolean(recordedKeys))}
+                  >
+                    {t("desktop:settings.shortcut.confirm")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelRecording}
+                    onMouseEnter={() => setHoveredShortcutAction("cancel")}
+                    onMouseLeave={() => setHoveredShortcutAction((current) => (current === "cancel" ? null : current))}
+                    style={getShortcutActionStyle("cancel")}
+                  >
+                    {t("desktop:settings.shortcut.cancel")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <NeonFieldButton
+                onClick={startRecording}
+                leadingIcon={<KeyboardIcon size={14} />}
+              >
+                {formatShortcutForDisplay(shortcut, isMacOS) || t("desktop:settings.shortcut.clickToRecord")}
+              </NeonFieldButton>
+            )}
+          </NeonSection>
+
+          <NeonSection title={t("desktop:settings.launchAtStartup.title")}>
+            <NeonToggle checked={autostart} onChange={toggleAutostart} />
+          </NeonSection>
+        </>,
+      )}
+
+      {renderSettingsGroup(
+        t("desktop:settings.groups.downloadBehavior.title"),
+        t("desktop:settings.groups.downloadBehavior.hint"),
+        <>
+          <NeonSection title={t("desktop:settings.outputFolder.title")}>
+            <NeonFieldButton
+              onClick={selectOutputPath}
+              leadingIcon={<FolderOpenIcon size={14} />}
+            >
+              {outputPath ? truncatePath(outputPath) : t("desktop:settings.outputFolder.choose")}
+            </NeonFieldButton>
+          </NeonSection>
+
+          <NeonSection
+            title={t("desktop:settings.rename.title")}
+            hint={t("desktop:settings.rename.hint")}
+          >
+            <NeonToggle checked={renameMediaOnDownload} onChange={toggleRenameMediaOnDownload} />
+            {renameMediaOnDownload ? (
+              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                {renameRulePreset === "prefix_number" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <label style={getCompactLabelStyle(colors)}>
+                        {t("desktop:settings.rename.prefix")}
+                      </label>
+                      <NeonInput
+                        value={renamePrefix}
+                        onChange={(event) => void handleRenamePrefixChange(event.target.value)}
+                        placeholder={t("desktop:settings.rename.prefixPlaceholder")}
+                      />
+                    </div>
+                    {renderRenamePresetField()}
+                  </div>
+                ) : (
+                  renderRenamePresetField()
+                )}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={getCompactLabelStyle(colors)}>
+                    {t("desktop:settings.rename.suffix")}
+                  </label>
+                  <NeonInput
+                    value={renameSuffix}
+                    onChange={(event) => void handleRenameSuffixChange(event.target.value)}
+                    placeholder={t("desktop:settings.rename.suffixPlaceholder")}
+                  />
+                </div>
+
+                <div style={{ padding: "2px 0" }}>
+                  <NeonHint style={{ marginBottom: 4 }}>{t("desktop:settings.rename.preview")}</NeonHint>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: colors.textSecondary,
+                      opacity: 0.82,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {renamePreview}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </NeonSection>
+        </>,
+        true,
+      )}
     </>
   );
 
   const renderPluginsTab = (): ReactNode => (
     <>
+      <div style={getNoticeStyle(colors)}>
+        {t("desktop:settings.pluginsPage.intro")}
+      </div>
+
       <NeonSection
-        title={t("desktop:settings.aePortal.title")}
-        hint={t("desktop:settings.aePortal.hint")}
+        title={t("desktop:settings.pluginsPage.installed.title")}
+        hint={t("desktop:settings.pluginsPage.installed.hint")}
       >
-        <NeonToggle checked={aePortalEnabled} onChange={toggleAePortal} />
-        {aePortalEnabled ? (
-          <NeonFieldButton
-            onClick={selectAeExePath}
-            leadingIcon={<FolderOpenIcon size={14} />}
-            style={{ marginTop: 8 }}
+        <NeonCard
+          style={{
+            padding: "12px",
+            display: "grid",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
           >
-            {aeExePath ? truncatePath(aeExePath) : t("desktop:settings.aePortal.chooseExe")}
-          </NeonFieldButton>
-        ) : null}
-      </NeonSection>
-
-      <NeonSection
-        title={t("desktop:settings.rename.title")}
-        hint={t("desktop:settings.rename.hint")}
-      >
-        <NeonToggle checked={renameMediaOnDownload} onChange={toggleRenameMediaOnDownload} />
-        {renameMediaOnDownload ? (
-          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {renameRulePreset === "prefix_number" ? (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={getCompactLabelStyle(colors)}>
-                    {t("desktop:settings.rename.prefix")}
-                  </label>
-                  <NeonInput
-                    value={renamePrefix}
-                    onChange={(event) => void handleRenamePrefixChange(event.target.value)}
-                    placeholder={t("desktop:settings.rename.prefixPlaceholder")}
-                  />
-                </div>
-                {renderRenamePresetField()}
-              </div>
-            ) : (
-              renderRenamePresetField()
-            )}
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={getCompactLabelStyle(colors)}>
-                {t("desktop:settings.rename.suffix")}
-              </label>
-              <NeonInput
-                value={renameSuffix}
-                onChange={(event) => void handleRenameSuffixChange(event.target.value)}
-                placeholder={t("desktop:settings.rename.suffixPlaceholder")}
-              />
-            </div>
-
-            <div style={{ padding: "2px 0" }}>
-              <NeonHint style={{ marginBottom: 4 }}>{t("desktop:settings.rename.preview")}</NeonHint>
+            <div style={{ minWidth: 0, display: "grid", gap: 4 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: colors.textPrimary }}>
+                {t("desktop:settings.aePortal.title")}
+              </span>
               <div
                 style={{
-                  fontSize: 12,
+                  fontSize: 10.5,
+                  lineHeight: 1.45,
                   color: colors.textSecondary,
                   opacity: 0.82,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
                 }}
               >
-                {renamePreview}
+                {t("desktop:settings.aePortal.hint")}
               </div>
             </div>
+            <NeonToggle checked={aePortalEnabled} onChange={toggleAePortal} />
           </div>
-        ) : null}
+
+          {aePortalEnabled ? (
+            <NeonFieldButton
+              onClick={selectAeExePath}
+              leadingIcon={<FolderOpenIcon size={14} />}
+            >
+              {aeExePath ? truncatePath(aeExePath) : t("desktop:settings.aePortal.chooseExe")}
+            </NeonFieldButton>
+          ) : null}
+        </NeonCard>
       </NeonSection>
     </>
   );
 
   const renderAdvancedTab = (): ReactNode => (
     <>
-      <NeonSection title={t("desktop:settings.versionCard.title")}>
-        <NeonCard
-          style={{
-            padding: "10px 12px",
-            display: "grid",
-            gap: 8,
-            borderRadius: 12,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: colors.textPrimary }}>
-              {t("desktop:settings.versionCard.appName")}
-            </span>
-            <span style={{ fontSize: 10, color: colors.textSecondary }}>
-              {t("desktop:settings.versionCard.currentLabel")}
-            </span>
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: colors.textPrimary }}>
-            {`v${APP_VERSION}`}
-          </div>
-          <div style={{ fontSize: 10.5, lineHeight: 1.35, color: appVersionStatusColor }}>
-            {appVersionStatusText}
-          </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <NeonButton
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void handleAppUpdateCheck()}
-              disabled={appUpdatePhase === "checking" || appUpdatePhase === "downloading" || appUpdatePhase === "installing"}
-              style={{ minWidth: 76, padding: "4px 10px", fontSize: 10.5 }}
+      {renderSettingsGroup(
+        t("desktop:settings.advancedGroups.maintenance.title"),
+        t("desktop:settings.advancedGroups.maintenance.hint"),
+        <>
+          <NeonSection title={t("desktop:settings.versionCard.title")}>
+            <NeonCard
+              style={{
+                padding: "10px 12px",
+                display: "grid",
+                gap: 8,
+                borderRadius: 12,
+              }}
             >
-              {appUpdatePhase === "checking"
-                ? t("desktop:settings.versionCard.checkingButton")
-                : t("desktop:settings.versionCard.checkButton")}
-            </NeonButton>
-            <NeonButton
-              type="button"
-              variant={appUpdateInfo ? "default" : "outline"}
-              size="sm"
-              onClick={() => void handleAppUpdateInstall()}
-              disabled={!appUpdateInfo || appUpdatePhase === "downloading" || appUpdatePhase === "installing"}
-              style={{ minWidth: 76, padding: "4px 10px", fontSize: 10.5 }}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: colors.textPrimary }}>
+                  {t("desktop:settings.versionCard.appName")}
+                </span>
+                <span style={{ fontSize: 10, color: colors.textSecondary }}>
+                  {t("desktop:settings.versionCard.currentLabel")}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: colors.textPrimary }}>
+                {`v${APP_VERSION}`}
+              </div>
+              <div style={{ fontSize: 10.5, lineHeight: 1.35, color: appVersionStatusColor }}>
+                {appVersionStatusText}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <NeonButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void handleAppUpdateCheck()}
+                  disabled={appUpdatePhase === "checking" || appUpdatePhase === "downloading" || appUpdatePhase === "installing"}
+                  style={{ minWidth: 76, padding: "4px 10px", fontSize: 10.5 }}
+                >
+                  {appUpdatePhase === "checking"
+                    ? t("desktop:settings.versionCard.checkingButton")
+                    : t("desktop:settings.versionCard.checkButton")}
+                </NeonButton>
+                <NeonButton
+                  type="button"
+                  variant={appUpdateInfo ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => void handleAppUpdateInstall()}
+                  disabled={!appUpdateInfo || appUpdatePhase === "downloading" || appUpdatePhase === "installing"}
+                  style={{ minWidth: 76, padding: "4px 10px", fontSize: 10.5 }}
+                >
+                  {appUpdatePhase === "downloading" || appUpdatePhase === "installing"
+                    ? t("desktop:settings.versionCard.updatingButton")
+                    : t("desktop:settings.versionCard.updateButton")}
+                </NeonButton>
+              </div>
+            </NeonCard>
+          </NeonSection>
+
+          <NeonSection
+            title={t("desktop:settings.supportLog.title")}
+            hint={supportLogHint || t("desktop:settings.supportLog.hint")}
+          >
+            <NeonFieldButton
+              onClick={() => void handleSupportLogExport()}
+              trailingContent={(
+                <span style={{ fontSize: 10.5, color: colors.accentText }}>
+                  {t("desktop:settings.supportLog.action")}
+                </span>
+              )}
             >
-              {appUpdatePhase === "downloading" || appUpdatePhase === "installing"
-                ? t("desktop:settings.versionCard.updatingButton")
-                : t("desktop:settings.versionCard.updateButton")}
-            </NeonButton>
-          </div>
-        </NeonCard>
-      </NeonSection>
+              {t("desktop:settings.supportLog.button")}
+            </NeonFieldButton>
+          </NeonSection>
+        </>,
+      )}
 
-      <NeonSection
-        title={t("desktop:settings.supportLog.title")}
-        hint={supportLogHint || t("desktop:settings.supportLog.hint")}
-      >
-        <NeonFieldButton
-          onClick={() => void handleSupportLogExport()}
-          trailingContent={(
-            <span style={{ fontSize: 10.5, color: colors.accentText }}>
-              {t("desktop:settings.supportLog.action")}
-            </span>
-          )}
-        >
-          {t("desktop:settings.supportLog.button")}
-        </NeonFieldButton>
-      </NeonSection>
-
-      <NeonSection title={t("desktop:settings.downloaders.title")}>
-        <DownloaderDeck cards={downloaderCards} />
-      </NeonSection>
+      {renderSettingsGroup(
+        t("desktop:settings.advancedGroups.downloaders.title"),
+        t("desktop:settings.advancedGroups.downloaders.hint"),
+        <NeonSection title={t("desktop:settings.downloaders.title")}>
+          <DownloaderDeck cards={downloaderCards} />
+        </NeonSection>,
+        true,
+      )}
 
       {isDevBuild ? (
         <NeonSection
@@ -1636,13 +1720,15 @@ function SettingsPage() {
         </NeonIconButton>
       </div>
 
-      <div style={getWindowBodyStyle({ gap: 0 })} className="hide-scrollbar">
-        <div style={{ marginBottom: 18 }}>
-          <div style={settingsTabRailStyle}>
+      <div style={settingsTabChromeStyle} role="tablist" aria-label={t("desktop:settings.title")}>
           {settingsTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
+              id={`settings-tab-${tab.id}`}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={`settings-panel-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               onMouseEnter={() => setHoveredSettingsTab(tab.id)}
               onMouseLeave={() => setHoveredSettingsTab((current) => (current === tab.id ? null : current))}
@@ -1651,10 +1737,16 @@ function SettingsPage() {
               {tab.label}
             </button>
           ))}
-          </div>
-        </div>
+      </div>
 
-        {renderActiveTab()}
+      <div style={getWindowBodyStyle({ padding: "16px 18px 18px", gap: 0 })} className="hide-scrollbar">
+        <div
+          id={`settings-panel-${activeTab}`}
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${activeTab}`}
+        >
+          {renderActiveTab()}
+        </div>
       </div>
     </div>
   );

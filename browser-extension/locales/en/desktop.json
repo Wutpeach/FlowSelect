@@ -111,6 +111,16 @@
       "plugins": "Plugins",
       "advanced": "Advanced"
     },
+    "groups": {
+      "preferences": {
+        "title": "Preferences",
+        "hint": "Adjust the way FlowSelect feels and opens day to day."
+      },
+      "downloadBehavior": {
+        "title": "Download Behavior",
+        "hint": "Choose where new files go and how they are named."
+      }
+    },
     "theme": {
       "title": "Theme",
       "black": "Black",
@@ -161,6 +171,13 @@
       "chooseExe": "Choose AfterFX.exe...",
       "dialogTitle": "Select AfterFX.exe",
       "executableFilter": "Executable"
+    },
+    "pluginsPage": {
+      "intro": "Manage the integrations that extend your FlowSelect workflow. New plugin entries will appear here as the system grows.",
+      "installed": {
+        "title": "Installed now",
+        "hint": "Current integrations available in this build."
+      }
     },
     "downloaders": {
       "title": "External downloaders",
@@ -241,6 +258,16 @@
         "upToDate": "You're already on the latest version.",
         "downloading": "Preparing the update installer...",
         "installing": "Restarting to apply the update..."
+      }
+    },
+    "advancedGroups": {
+      "maintenance": {
+        "title": "App Maintenance",
+        "hint": "Keep FlowSelect current and export logs when you need support."
+      },
+      "downloaders": {
+        "title": "Download Infrastructure",
+        "hint": "Check runtime readiness and bundled downloader versions."
       }
     },
     "uiLab": {
