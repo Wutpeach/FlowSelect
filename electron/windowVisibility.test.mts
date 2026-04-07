@@ -6,8 +6,10 @@ import {
   PACKAGED_WINDOWS_TRANSPARENT_REVEAL_DELAY_MS,
   WINDOWS_PACKAGED_ZERO_ALPHA_WINDOW_BACKGROUND,
   getPackagedWindowRevealDelayMs,
+  isPointInsideBounds,
   resolveMainWindowRevealBounds,
   resolvePackagedWindowsTransparentWindowBackground,
+  resolveWindowBoundsNearCursor,
   shouldEnablePackagedStartupDiagnostics,
   shouldUsePackagedWindowsOpaqueWindow,
 } from "./windowVisibility.mjs";
@@ -210,5 +212,69 @@ describe("resolveMainWindowRevealBounds", () => {
       width: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
       height: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
     });
+  });
+});
+
+describe("resolveWindowBoundsNearCursor", () => {
+  it("positions the full window to the lower-left of the cursor with a diagonal offset", () => {
+    expect(resolveWindowBoundsNearCursor({
+      cursor: {
+        x: 900,
+        y: 500,
+      },
+      display: {
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+      },
+      width: 200,
+      height: 200,
+      edgePadding: 8,
+      diagonalOffset: 50,
+    })).toEqual({
+      x: 665,
+      y: 465,
+      width: 200,
+      height: 200,
+    });
+  });
+
+  it("clamps the shortcut placement inside the visible work area", () => {
+    expect(resolveWindowBoundsNearCursor({
+      cursor: {
+        x: 120,
+        y: 70,
+      },
+      display: {
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 240,
+      },
+      width: 200,
+      height: 200,
+      edgePadding: 8,
+      diagonalOffset: 50,
+    })).toEqual({
+      x: 8,
+      y: 32,
+      width: 200,
+      height: 200,
+    });
+  });
+});
+
+describe("isPointInsideBounds", () => {
+  it("detects whether the shortcut cursor is inside the current window bounds", () => {
+    expect(isPointInsideBounds(
+      { x: 150, y: 150 },
+      { x: 100, y: 100, width: 200, height: 200 },
+    )).toBe(true);
+
+    expect(isPointInsideBounds(
+      { x: 320, y: 150 },
+      { x: 100, y: 100, width: 200, height: 200 },
+    )).toBe(false);
   });
 });

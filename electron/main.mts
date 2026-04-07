@@ -69,9 +69,11 @@ import {
 } from "./folderDrop.mjs";
 import {
   getPackagedWindowRevealDelayMs,
+  isPointInsideBounds,
   resolveMainWindowRevealBounds,
   resolvePackagedWindowsOpaqueWindowBackground,
   resolvePackagedWindowsTransparentWindowBackground,
+  resolveWindowBoundsNearCursor,
   shouldEnablePackagedStartupDiagnostics,
   shouldUsePackagedWindowsOpaqueWindow,
 } from "./windowVisibility.mjs";
@@ -104,6 +106,7 @@ const APP_UPDATE_ENDPOINT =
 const DEFAULT_OUTPUT_FOLDER_NAME = "FlowSelect_Received";
 const STARTUP_DIAGNOSTICS_FILE_NAME = "startup-diagnostics-latest.txt";
 const SHORTCUT_SHOW_EVENT = "shortcut-show";
+const SHORTCUT_TOGGLE_COOLDOWN_MS = 420;
 const CONTEXT_MENU_CLOSED_EVENT = "context-menu-closed";
 const LANGUAGE_CHANGED_EVENT = "language-changed";
 const UI_LAB_RESET_EVENT = "ui-lab-reset";
@@ -183,6 +186,7 @@ const OFFICIAL_DOWNLOADER_RELEASES = {
 };
 let tray = null;
 let registeredShortcut = "";
+let lastShortcutTriggerMs = 0;
 let pendingAppUpdate = null;
 let electronDownloadRuntime = null;
 let nextOpaqueSequence = 1;
@@ -3957,14 +3961,23 @@ async function createMainWindow(startupConfigSnapshot = null) {
 async function showMainWindow({
   preserveExistingBounds = false,
   startupConfigSnapshot = null,
+  preferredPosition = null,
 }: {
   preserveExistingBounds?: boolean;
   startupConfigSnapshot?: unknown;
+  preferredPosition?: { x: number; y: number } | null;
 } = {}) {
   const mainWindow = await createMainWindow(startupConfigSnapshot);
   const currentBounds = mainWindow.getBounds();
+  const baseBounds = preferredPosition
+    ? {
+      ...currentBounds,
+      x: Math.round(preferredPosition.x),
+      y: Math.round(preferredPosition.y),
+    }
+    : currentBounds;
   const revealBounds = resolveMainWindowRevealBounds({
-    bounds: currentBounds,
+    bounds: baseBounds,
     displays: screen.getAllDisplays().map((display) => display.workArea),
     fallbackDisplay: screen.getPrimaryDisplay().workArea,
     forceCenter: process.platform === "win32" && app.isPackaged && !hasShownMainWindowOnce,
@@ -4016,6 +4029,50 @@ async function showMainWindow({
   hasShownMainWindowOnce = true;
   void queueStartupDiagnostic("WindowDiag", "main:show-complete", getWindowSnapshot(mainWindow));
   void collectWindowStartupArtifacts(mainWindow, WINDOW_LABELS.main, "show");
+}
+
+function resolveShortcutMainWindowPlacement() {
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
+  const bounds = resolveWindowBoundsNearCursor({
+    cursor,
+    display: display.workArea,
+    width: MAIN_WINDOW_FULL_SIZE,
+    height: MAIN_WINDOW_FULL_SIZE,
+    edgePadding: WINDOW_EDGE_PADDING,
+  });
+
+  return {
+    cursor,
+    position: {
+      x: bounds.x,
+      y: bounds.y,
+    },
+  };
+}
+
+async function handleRegisteredShortcut() {
+  const nowMs = Date.now();
+  if (nowMs - lastShortcutTriggerMs < SHORTCUT_TOGGLE_COOLDOWN_MS) {
+    return;
+  }
+  lastShortcutTriggerMs = nowMs;
+
+  const mainWindow = await createMainWindow();
+  const { cursor, position } = resolveShortcutMainWindowPlacement();
+  const shouldHide = mainWindow.isVisible()
+    && mainWindow.isFocused()
+    && isPointInsideBounds(cursor, mainWindow.getBounds());
+
+  if (shouldHide) {
+    mainWindow.hide();
+    return;
+  }
+
+  await showMainWindow({
+    preferredPosition: position,
+  });
+  emitAppEvent(SHORTCUT_SHOW_EVENT, undefined);
 }
 
 function showSecondaryWindow(label, win, options) {
@@ -4189,8 +4246,9 @@ async function registerShortcut(shortcut) {
     return;
   }
   const success = globalShortcut.register(shortcut, () => {
-    void showMainWindow();
-    emitAppEvent(SHORTCUT_SHOW_EVENT, undefined);
+    void handleRegisteredShortcut().catch((error) => {
+      console.error(">>> [Electron] Failed to handle registered shortcut:", error);
+    });
   });
   if (!success) {
     throw new Error(`Failed to register shortcut: ${shortcut}`);

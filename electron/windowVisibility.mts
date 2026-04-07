@@ -1,6 +1,8 @@
 const MIN_STARTUP_WIDTH = 200;
 const MIN_STARTUP_HEIGHT = 200;
 const MIN_VISIBLE_EDGE_PX = 40;
+const DEFAULT_WINDOW_EDGE_PADDING = 8;
+const DEFAULT_SHORTCUT_CURSOR_DIAGONAL_OFFSET = 50;
 
 export const STARTUP_DIAGNOSTICS_ARGUMENT = "--flowselect-startup-diagnostics";
 export const STARTUP_DIAGNOSTICS_ENV = "FLOWSELECT_STARTUP_DIAGNOSTICS";
@@ -37,6 +39,11 @@ export type VisibilityBounds = {
   height: number;
 };
 
+export type VisibilityPoint = {
+  x: number;
+  y: number;
+};
+
 type WindowVisibilityOptions = {
   platform: NodeJS.Platform;
   isPackaged: boolean;
@@ -58,6 +65,15 @@ type ResolveMainWindowRevealBoundsOptions = {
   forceCenter?: boolean;
   minimumWidth?: number;
   minimumHeight?: number;
+};
+
+type ResolveWindowBoundsNearCursorOptions = {
+  cursor: VisibilityPoint;
+  display: VisibilityBounds;
+  width: number;
+  height: number;
+  edgePadding?: number;
+  diagonalOffset?: number;
 };
 
 const normalizeFlag = (value: string | undefined): boolean => (
@@ -140,6 +156,16 @@ export const isWindowSufficientlyVisible = (
   });
 };
 
+export const isPointInsideBounds = (
+  point: VisibilityPoint,
+  bounds: VisibilityBounds,
+): boolean => (
+  point.x >= bounds.x
+  && point.x <= bounds.x + bounds.width
+  && point.y >= bounds.y
+  && point.y <= bounds.y + bounds.height
+);
+
 export const resolveCenteredWindowBounds = (
   bounds: VisibilityBounds,
   display: VisibilityBounds,
@@ -186,4 +212,28 @@ export const resolveMainWindowRevealBounds = ({
   }
 
   return normalized;
+};
+
+export const resolveWindowBoundsNearCursor = ({
+  cursor,
+  display,
+  width,
+  height,
+  edgePadding = DEFAULT_WINDOW_EDGE_PADDING,
+  diagonalOffset = DEFAULT_SHORTCUT_CURSOR_DIAGONAL_OFFSET,
+}: ResolveWindowBoundsNearCursorOptions): VisibilityBounds => {
+  const normalizedWidth = Math.max(1, Math.round(width));
+  const normalizedHeight = Math.max(1, Math.round(height));
+  const axisOffset = diagonalOffset / Math.SQRT2;
+  const minX = display.x + edgePadding;
+  const minY = display.y + edgePadding;
+  const maxX = display.x + display.width - normalizedWidth - edgePadding;
+  const maxY = display.y + display.height - normalizedHeight - edgePadding;
+
+  return {
+    x: clamp(Math.round(cursor.x - normalizedWidth - axisOffset), minX, maxX),
+    y: clamp(Math.round(cursor.y - axisOffset), minY, maxY),
+    width: normalizedWidth,
+    height: normalizedHeight,
+  };
 };
