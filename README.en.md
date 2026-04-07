@@ -7,281 +7,80 @@
     <a href="./README.md">中文</a> |
     <a href="./README.en.md">English</a> |
     <a href="https://github.com/Wutpeach/FlowSelect/releases">Download Releases</a> |
-    <a href="./browser-extension/">Browser Extension</a> |
+    <a href="./docs/getting-started.en.md">Getting Started</a> |
+    <a href="./docs/browser-extension.en.md">Browser Extension</a> |
+    <a href="./docs/faq.en.md">FAQ</a> |
     <a href="./release-notes/">Release Notes</a>
   </p>
   <p>
     <img alt="Latest release" src="https://img.shields.io/github/v/release/Wutpeach/FlowSelect?display_name=tag" />
     <img alt="Release workflow" src="https://img.shields.io/github/actions/workflow/status/Wutpeach/FlowSelect/release.yml?label=release" />
     <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-111827" />
-    <img alt="Electron 41" src="https://img.shields.io/badge/Electron-41-47848F" />
-    <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB" />
-    <img alt="TypeScript 5.8" src="https://img.shields.io/badge/TypeScript-5.8-3178C6" />
   </p>
 </div>
 
-FlowSelect is a compact Electron desktop collector for files, images, and web video. It gives you a small always-on-top window that can accept drag and drop, paste actions, and optional browser-extension picks, then save everything into a controlled output folder.
+FlowSelect is a lightweight Electron desktop collector with a small always-on-top window for gathering files, images, and web video into a controlled output folder. It supports drag and drop, paste flows, and browser-extension assisted capture so desktop and browser assets can flow into the same workspace.
 
-## Screenshots / Preview
+## Good Fit For
 
-The repository does not currently include recorded GIF assets, so this section uses lightweight visual previews based on the current product structure. They can be replaced later with real screenshots or motion captures.
+- People who want files, images, and web video to land in one controlled folder.
+- People who need a low-friction collector window that stays available on the desktop.
+- People who trigger downloads from the browser and want them to continue on the desktop side.
 
-<p align="center">
-  <img src="./docs/readme/preview-desktop.svg" width="48%" alt="FlowSelect desktop floating window preview" />
-  <img src="./docs/readme/preview-settings.svg" width="48%" alt="FlowSelect settings preview" />
-</p>
+## Core Capabilities
 
-<p align="center">
-  <img src="./docs/readme/preview-browser.svg" width="98%" alt="FlowSelect browser extension preview" />
-</p>
+- A floating desktop collector that supports file drag and drop, folder drag and drop, pasted links, and Windows clipboard files.
+- A video download queue with live progress, cancellation, up to 3 concurrent tasks, and extractor fallback when direct media is unavailable.
+- Browser-extension assisted capture that can pass selected video URLs, cookies, and preferences into the desktop app.
+- Settings for output folder management, rename rules, shortcuts, launch at startup, and After Effects integration.
 
-## At a glance
+## Downloads
 
-| Area | Current capabilities |
-| --- | --- |
-| Capture inputs | Drag files, drag folders, paste links, Windows clipboard files, browser-extension picks |
-| Video workflow | Download queue, live progress, cancellation, up to 3 concurrent tasks, direct-route first, `yt-dlp` fallback |
-| Browser sync | Cookie handoff, quality preference sync, AE preference sync, YouTube clip download, screenshot save |
-| Desktop UX | Global shortcut, tray menu, launch at startup, theme switching, context-menu output folder actions |
-
-## Good fit for
-
-- Pulling files, images, and web video into one controlled desktop folder.
-- Keeping a low-friction collector window available without disrupting the main workspace.
-- Triggering downloads from the browser while preserving cookies and download preferences.
-- Sending finished media into an After Effects workflow.
-
-## Downloads by platform
-
-All buttons below open the GitHub Releases page. Pick the matching artifact for your system.
-
-### Windows
+FlowSelect ships through GitHub Releases, including desktop builds and the browser-extension package.
 
 <p>
   <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="Windows Installer EXE" src="https://img.shields.io/badge/Windows-Installer_EXE-2563EB?logo=windows&logoColor=white" /></a>
   <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="Windows Portable ZIP" src="https://img.shields.io/badge/Windows-Portable_ZIP-0F6CBD?logo=windows&logoColor=white" /></a>
-</p>
-
-- `Installer EXE`: the Electron Builder Windows installer for normal distribution.
-- `Portable ZIP`: unzip and run without installing.
-
-### macOS
-
-<p>
   <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="macOS Apple Silicon DMG" src="https://img.shields.io/badge/macOS-Apple_Silicon_DMG-111827?logo=apple&logoColor=white" /></a>
   <a href="https://github.com/Wutpeach/FlowSelect/releases/latest"><img alt="macOS Intel DMG" src="https://img.shields.io/badge/macOS-Intel_DMG-374151?logo=apple&logoColor=white" /></a>
 </p>
 
-- `Apple Silicon DMG`: for M-series Macs.
-- `Intel DMG`: for Intel-based Macs.
-- The current macOS release is distributed as an unsigned open-source DMG and does not depend on Apple Developer Program signing.
-- Install flow:
-  1. Open the DMG and drag `FlowSelect.app` into `Applications`.
-  2. Launch FlowSelect from `Applications`.
-  3. If macOS blocks the app on first launch, first try right-click `Open` or allow it from `System Settings > Privacy & Security`.
-- The DMG includes an install guide with a copyable manual repair command for an already installed `FlowSelect.app`.
-- Advanced manual repair command:
-  `xattr -dr com.apple.quarantine "/Applications/FlowSelect.app"`
+For installation, first launch, and platform-specific help, see [Getting Started](./docs/getting-started.en.md).
 
-## What FlowSelect does
+## Docs
 
-- Floating desktop collector
-  - Transparent 200x200 main window
-  - Always-on-top behavior
-  - Idle auto-minimize into a small cat icon
-- Fast capture flows
-  - Drag local files into the window to copy them into the output folder
-  - Drag a folder onto the window to set the output folder
-  - Paste video URLs, image URLs, and data URLs
-  - Paste clipboard file lists on Windows
-- Video download workflow
-  - Queue-based downloads with progress and cancellation
-  - Up to 3 concurrent video tasks
-  - Direct download pipelines for Douyin and Xiaohongshu when direct media URLs are available
-  - `yt-dlp` for generic video pages and fallback routing
-- Output control
-  - Default save path: `Desktop/FlowSelect_Received`
-  - Change output folder from settings or the right-click context menu
-  - Optional rename rules for downloaded media:
-    - descending sequence
-    - ascending sequence
-    - prefix + sequence
-- Desktop integrations
-  - Global shortcut to show or hide the app near the cursor
-  - Launch at startup
-  - System tray menu
-  - Black and white themes
-  - Built-in `yt-dlp` version check and updater
-- After Effects workflow
-  - Optional auto-import into After Effects after download
-  - Optional AE-friendly conversion preference for extension-triggered video downloads
+- [Getting Started](./docs/getting-started.en.md): install, first launch, basic collection flows, and settings entry points.
+- [Browser Extension](./docs/browser-extension.en.md): extension install flow, desktop connection, supported sites, and handoff behavior.
+- [FAQ](./docs/faq.en.md): macOS gatekeeper notes, download failures, output-folder issues, and connection troubleshooting.
 
-## Companion browser extension
-
-This repository also contains a Manifest V3 browser extension in [`browser-extension/`](./browser-extension). It is designed for Chromium-based browsers such as Chrome and Edge.
-
-Current site integrations include:
-
-- YouTube
-- Bilibili
-- X / Twitter
-- Douyin
-- Xiaohongshu
-
-Extension capabilities include:
-
-- Local WebSocket connection to the desktop app at `127.0.0.1:39527`
-- Sending selected video URLs and browser cookies to FlowSelect
-- Syncing download quality preference:
-  - `Highest`
-  - `Balanced`
-  - `Saver`
-- Syncing AE-friendly conversion preference
-- Site-specific helpers such as:
-  - player-side download actions
-  - YouTube clip IN/OUT points
-  - YouTube and Bilibili screenshot capture and save
-
-GitHub Releases also ship a versioned browser-extension archive:
-
-- `FlowSelect_<version>_browser_extension.zip`
-- Extract it, then use the included `browser-extension/` directory with "Load unpacked"
-
-## Architecture at a glance
-
-- [`src/`](./src): React frontend for the floating window, settings window, and context menu window
-- [`electron/`](./electron): Electron main-process code and preload bridge
-- [`desktop-assets/`](./desktop-assets): icons, sidecar sources, and runtime binaries used by the Electron packaging/runtime path
-- [`browser-extension/`](./browser-extension): Companion browser extension sources
-- [`scripts/`](./scripts): repo automation such as version bumps, dev startup helpers, and portable packaging
-- [`release-notes/`](./release-notes): versioned release notes used by the release workflow
-- [`docs/electron-parity-verification.md`](./docs/electron-parity-verification.md): Electron parity verification and release acceptance matrix
-
-## Quick start
+## Development
 
 ### Requirements
 
 - Node.js 20+
 - npm
-- Python is not required for the standard desktop and browser-extension development workflow
 
-### Install dependencies
+### Common Commands
 
 ```bash
 npm install
-```
-
-### Run in development
-
-```bash
 npm run dev
-```
-
-### Build the desktop app code
-
-```bash
 npm run build
-```
-
-### Package desktop artifacts
-
-Windows installer:
-
-```bash
-npm run package:win
-```
-
-Windows portable ZIP:
-
-```bash
-npm run package:portable
-```
-
-macOS unsigned open-source DMG plus ZIP:
-
-```bash
-brew install create-dmg
-npm run package:macos-open-source-dmg -- --arch x86_64
-# or
-npm run package:macos-open-source-dmg -- --arch aarch64
-```
-
-Typical output paths:
-- Windows installer: `dist-release/FlowSelect_<version>_windows_x64_installer.exe`
-- Windows portable ZIP: `dist-release/portable/FlowSelect_<version>_windows_x64_portable.zip`
-- macOS ZIP: `dist-release/FlowSelect_<version>_macos_<arch>.zip`
-- macOS DMG: `dist-release/dmg/FlowSelect_<version>_macos_<arch>_installer.dmg`
-
-To package the browser extension by itself:
-
-```bash
-npm run package:browser-extension
-```
-
-- Default output path: `dist/browser-extension/FlowSelect_<version>_browser_extension.zip`
-- `npm run package:portable` also emits the same browser-extension ZIP into `dist-release/portable/` so local release packaging includes it
-
-### Useful checks
-
-```bash
 npm run lint
 npm run type-check
 npm run test
 ```
 
-## Using FlowSelect
+### Main Directories
 
-1. Start the desktop app.
-2. Drag files, image URLs, or video URLs into the floating window.
-3. Paste with `Ctrl+V` or `Cmd+V` to submit a URL.
-4. On Windows, copied files in the clipboard can also be pasted into FlowSelect.
-5. Double-click the empty area of the window to quickly open the current output folder; right-click still lets you open the current output folder or choose a new one.
-6. Open Settings to manage theme, shortcut, startup behavior, rename rules, After Effects integration, and `yt-dlp` updates.
+- [`src/`](./src): React frontend for the floating window, settings, and context menu windows.
+- [`electron/`](./electron): Electron main-process code and preload bridge.
+- [`browser-extension/`](./browser-extension): companion browser extension source.
+- [`scripts/`](./scripts): development, packaging, and version-management helpers.
+- [`release-notes/`](./release-notes): versioned release notes.
 
-## Typical workflow
+## Acknowledgements
 
-1. Launch FlowSelect and keep the floating window on the edge of your desktop.
-2. Copy links, drag assets in, or pick a video directly from the browser extension.
-3. FlowSelect saves the result into the output folder and queues video work automatically.
-4. If rename rules or After Effects integration are enabled, the app continues with those steps after download.
+Some of FlowSelect's core capabilities are built on top of excellent open-source projects. Special thanks to `yt-dlp`, `gallery-dl`, and `FFmpeg` for providing the foundation for web media extraction, resource downloading, and downstream media processing.
 
-## Load the browser extension
-
-### Browser extension install diagram
-
-<p align="center">
-  <img src="./docs/readme/extension-install.svg" width="100%" alt="FlowSelect browser extension install diagram" />
-</p>
-
-1. Open your browser's extensions page.
-2. Enable Developer Mode.
-3. Choose "Load unpacked".
-4. Select the [`browser-extension/`](./browser-extension) folder, or download `FlowSelect_<version>_browser_extension.zip` from GitHub Releases and select the extracted `browser-extension/` folder.
-5. Start the FlowSelect desktop app.
-6. Open the extension popup and confirm it shows `Connected`.
-
-## Repo layout
-
-```text
-FlowSelect/
-|-- src/                React UI
-|-- electron/           Electron main/preload runtime
-|-- desktop-assets/     Electron runtime assets and sidecar sources
-|-- browser-extension/  Chromium extension
-|-- scripts/            Dev and packaging helpers
-|-- release-notes/      Versioned release notes
-|-- README.md
-`-- README.en.md
-```
-
-## Maintainer notes
-
-- Use `npm run version:set -- <version>` for version bumps.
-- If the versioned note is missing, that command scaffolds `release-notes/v<version>.md` from `release-notes/TEMPLATE.md`.
-- Fill in and commit `release-notes/v<version>.md` before pushing a release tag.
-- Write release notes in Chinese by default unless the current task explicitly requires another language.
-- GitHub Releases are created from tags and the Electron release pipeline publishes the Windows installer, Windows portable ZIP, macOS ZIP, macOS DMG, and the Windows `latest.json` update manifest.
-- The matching release-note file must exist in the tagged commit.
-- GitHub Releases also include `FlowSelect_<version>_browser_extension.zip` for browser-extension updates.
-- The parity gate and cleanup verification matrix lives in [`docs/electron-parity-verification.md`](./docs/electron-parity-verification.md).
-- This public repository contains product source and release assets only; private AI and Trellis workflow files are intentionally excluded.
+We also appreciate the maintainers of the many other open-source projects used throughout this repository.
