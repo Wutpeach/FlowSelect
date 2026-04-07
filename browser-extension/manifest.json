@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FlowSelect Video Picker",
-  "version": "0.3.0.6",
+  "version": "0.3.0.7",
   "description": "Pick video elements from web pages for FlowSelect",
   "permissions": [
     "activeTab",
@@ -186,5 +186,5 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "version_name": "0.3.0-rc6"
+  "version_name": "0.3.0-rc7"
 }
