@@ -1150,6 +1150,12 @@ function App({
     return nextPosition;
   }, []);
 
+  const syncCurrentWindowPositionCache = useCallback(async () => {
+    const nextPosition = await desktopCurrentWindow.outerPosition();
+    lastKnownWindowPositionRef.current = nextPosition;
+    return nextPosition;
+  }, []);
+
   const beginMainWindowBoundsTransition = useCallback((
     target: "compact" | "full",
   ) => {
@@ -2314,10 +2320,14 @@ function App({
   // Listen for shortcut show event
   useEffect(() => {
     const unlisten = desktopEvents.on<void>("shortcut-show", () => {
-      void ensureMainWindowFullMode();
+      void syncCurrentWindowPositionCache()
+        .catch((err) => {
+          console.error("Failed to sync window position after shortcut show:", err);
+        })
+        .then(() => ensureMainWindowFullMode());
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [ensureMainWindowFullMode]);
+  }, [ensureMainWindowFullMode, syncCurrentWindowPositionCache]);
 
   // Check app update availability on startup
   useEffect(() => {
