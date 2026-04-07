@@ -111,6 +111,9 @@ const YTDLP_LATEST_CACHE_FILE_NAME = "ytdlp-latest.json";
 const GALLERY_DL_LATEST_CACHE_FILE_NAME = "gallery-dl-latest.json";
 const YTDLP_LATEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const LOG_DIR_NAME = "logs";
+const RUNTIME_LOG_FILE_NAME = "runtime-latest.log";
+const RUNTIME_LOG_BUFFER_LIMIT = 1500;
+const EXPORTED_RUNTIME_LOG_LINE_LIMIT = 800;
 const VIDEO_QUEUE_MAX_CONCURRENT = 3;
 const SETTINGS_WINDOW_WIDTH = 320;
 const SETTINGS_WINDOW_HEIGHT = 400;
@@ -218,8 +221,17 @@ let uiLabRuntimeStatusOverride = null;
 let uiLabRuntimeGateOverride = null;
 let uiLabScenarioActive = false;
 let startupDiagnosticsWriteChain = Promise.resolve();
+let runtimeLogWriteChain = Promise.resolve();
+let runtimeLogCaptureInitialized = false;
 const pendingRendererReadySignals = new Map();
 const activeWindowBoundsAnimations = new Map();
+const runtimeLogBuffer = [];
+const originalConsole = {
+  log: console.log.bind(console),
+  info: console.info.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+};
 
 const startupDiagnosticsEnabled = shouldEnablePackagedStartupDiagnostics({
   platform: process.platform,
@@ -246,6 +258,10 @@ function getStartupDiagnosticsPath() {
   return join(getLogsDir(), STARTUP_DIAGNOSTICS_FILE_NAME);
 }
 
+function getRuntimeLogPath() {
+  return join(getLogsDir(), RUNTIME_LOG_FILE_NAME);
+}
+
 function getStartupCapturePath(label, phase) {
   return join(getLogsDir(), `startup-capture-${label}-${phase}.png`);
 }
@@ -258,6 +274,119 @@ function serializeDiagnosticPayload(payload) {
     return JSON.stringify(payload);
   } catch {
     return String(payload);
+  }
+}
+
+function serializeRuntimeLogArgument(argument) {
+  if (argument instanceof Error) {
+    return argument.stack || argument.message;
+  }
+  if (typeof argument === "string") {
+    return argument;
+  }
+  return serializeDiagnosticPayload(argument);
+}
+
+function formatRuntimeLogLine(level, message) {
+  return `[${new Date().toISOString()}] [${level}] ${message}`;
+}
+
+function appendRuntimeLogLine(level, message) {
+  const trimmedMessage = String(message ?? "").trim();
+  if (!trimmedMessage) {
+    return Promise.resolve();
+  }
+
+  const line = formatRuntimeLogLine(level, trimmedMessage);
+  runtimeLogBuffer.push(line);
+  if (runtimeLogBuffer.length > RUNTIME_LOG_BUFFER_LIMIT) {
+    runtimeLogBuffer.splice(0, runtimeLogBuffer.length - RUNTIME_LOG_BUFFER_LIMIT);
+  }
+
+  runtimeLogWriteChain = runtimeLogWriteChain
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        await appendFile(getRuntimeLogPath(), `${line}\n`, "utf8");
+      } catch (error) {
+        originalConsole.error(">>> [RuntimeLog] Failed to append log:", error);
+      }
+    });
+  return runtimeLogWriteChain;
+}
+
+function captureConsoleRuntimeLog(level, args) {
+  const message = args
+    .map((argument) => serializeRuntimeLogArgument(argument))
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (!message) {
+    return;
+  }
+  void appendRuntimeLogLine(level, message);
+}
+
+async function initializeRuntimeLogCapture() {
+  if (runtimeLogCaptureInitialized) {
+    return;
+  }
+
+  runtimeLogCaptureInitialized = true;
+  runtimeLogBuffer.length = 0;
+  const sessionHeader = formatRuntimeLogLine(
+    "session",
+    [
+      "FlowSelect runtime log started",
+      `version=${app.getVersion()}`,
+      `platform=${process.platform}`,
+      `arch=${process.arch}`,
+      `packaged=${app.isPackaged}`,
+    ].join(" "),
+  );
+
+  try {
+    await writeFile(getRuntimeLogPath(), `${sessionHeader}\n`, "utf8");
+    runtimeLogBuffer.push(sessionHeader);
+  } catch (error) {
+    originalConsole.error(">>> [RuntimeLog] Failed to initialize runtime log:", error);
+  }
+
+  console.log = (...args) => {
+    originalConsole.log(...args);
+    captureConsoleRuntimeLog("log", args);
+  };
+  console.info = (...args) => {
+    originalConsole.info(...args);
+    captureConsoleRuntimeLog("info", args);
+  };
+  console.warn = (...args) => {
+    originalConsole.warn(...args);
+    captureConsoleRuntimeLog("warn", args);
+  };
+  console.error = (...args) => {
+    originalConsole.error(...args);
+    captureConsoleRuntimeLog("error", args);
+  };
+}
+
+async function readRecentRuntimeLogLines(limit = EXPORTED_RUNTIME_LOG_LINE_LIMIT) {
+  const fallbackLines = runtimeLogBuffer.slice(-limit);
+
+  try {
+    await runtimeLogWriteChain.catch(() => undefined);
+    if (!existsSync(getRuntimeLogPath())) {
+      return fallbackLines;
+    }
+    const raw = await readFile(getRuntimeLogPath(), "utf8");
+    const lines = raw
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter(Boolean);
+    return lines.slice(-limit);
+  } catch (error) {
+    originalConsole.error(">>> [RuntimeLog] Failed to read runtime log:", error);
+    return fallbackLines;
   }
 }
 
@@ -412,18 +541,30 @@ async function collectWindowStartupArtifacts(win, label, phase) {
 }
 
 function attachWindowStartupDiagnostics(win, label) {
-  if (!startupDiagnosticsEnabled) {
-    return;
-  }
-
-  win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+  win.webContents.on("console-message", (details) => {
+    const {
+      level,
+      message,
+      lineNumber,
+      sourceId,
+    } = details;
+    void appendRuntimeLogLine(
+      "renderer",
+      `[${label}] level=${level} ${message} (${sourceId}:${lineNumber})`,
+    );
+    if (!startupDiagnosticsEnabled) {
+      return;
+    }
     void queueStartupDiagnostic("RendererConsole", `${label}:console-message`, {
       level,
       message,
-      line,
+      line: lineNumber,
       sourceId,
     });
   });
+  if (!startupDiagnosticsEnabled) {
+    return;
+  }
   win.webContents.once("dom-ready", () => {
     void queueStartupDiagnostic("WindowDiag", `${label}:dom-ready`, getWindowSnapshot(win));
   });
@@ -1595,6 +1736,7 @@ async function exportSupportLog() {
   const logFileName = `support-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
   const outputPath = join(getLogsDir(), logFileName);
   const runtimeStatus = await getRuntimeDependencyStatus();
+  const recentRuntimeLogLines = await readRecentRuntimeLogLines();
   const lines = [
     "[environment]",
     `appVersion=${app.getVersion()}`,
@@ -1602,12 +1744,16 @@ async function exportSupportLog() {
     `arch=${process.arch}`,
     `configPath=${getConfigPath()}`,
     `logDir=${getLogsDir()}`,
+    `runtimeLogPath=${getRuntimeLogPath()}`,
     "",
     "[settings]",
     JSON.stringify(config, null, 2),
     "",
     "[runtime]",
     JSON.stringify(runtimeStatus, null, 2),
+    "",
+    "[recent-runtime-log]",
+    ...(recentRuntimeLogLines.length > 0 ? recentRuntimeLogLines : ["<no runtime log lines captured>"]),
     "",
   ];
   await writeFile(outputPath, `${lines.join("\n")}\n`, "utf8");
@@ -3315,6 +3461,8 @@ function trackYtdlpOutputLine(task, line) {
     return;
   }
 
+  void appendRuntimeLogLine("yt-dlp", `[${task.traceId}] ${trimmedLine}`);
+
   const lowerLine = trimmedLine.toLowerCase();
   if (trimmedLine.includes("[download] Destination:")) {
     const destination = trimmedLine.split("[download] Destination:").slice(1).join("").trim();
@@ -4884,9 +5032,8 @@ async function bootstrap() {
   applyMacTrayAppMode(app);
   registerIpcHandlers();
   registerWsServer();
-  if (app.isPackaged || startupDiagnosticsEnabled) {
-    await ensureUserDataDirs();
-  }
+  await ensureUserDataDirs();
+  await initializeRuntimeLogCapture();
   if (startupDiagnosticsEnabled) {
     await writeFile(getStartupDiagnosticsPath(), "", "utf8");
     await queueStartupDiagnostic("StartupDiag", "bootstrap-environment", {

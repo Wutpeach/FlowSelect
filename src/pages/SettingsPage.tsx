@@ -62,8 +62,6 @@ type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
 
 const DEFAULT_RENAME_RULE_PRESET: RenameRulePreset = "desc_number";
 const ILLEGAL_FILENAME_CHARS = /[/\\:*?"<>|]/g;
-const VERSION_TAP_THRESHOLD = 5;
-const VERSION_TAP_RESET_MS = 1500;
 const VERSION_TAP_HINT_DURATION_MS = 2200;
 const COMPACT_THEME_BUTTON_HEIGHT = 34;
 const COMPACT_THEME_BUTTON_PADDING = "6px 10px";
@@ -202,8 +200,6 @@ function SettingsPage() {
   const [runtimeHint, setRuntimeHint] = useState("");
   const [hoveredThemeOption, setHoveredThemeOption] = useState<"black" | "white" | null>(null);
   const [hoveredShortcutAction, setHoveredShortcutAction] = useState<"confirm" | "cancel" | null>(null);
-  const versionTapCountRef = useRef(0);
-  const versionTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const versionTapHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ytdlpHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const galleryDlHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -613,10 +609,6 @@ function SettingsPage() {
 
   useEffect(() => {
     return () => {
-      if (versionTapTimerRef.current) {
-        clearTimeout(versionTapTimerRef.current);
-        versionTapTimerRef.current = null;
-      }
       if (versionTapHintTimerRef.current) {
         clearTimeout(versionTapHintTimerRef.current);
         versionTapHintTimerRef.current = null;
@@ -843,21 +835,15 @@ function SettingsPage() {
     supportLogExportInFlightRef.current = true;
     try {
       const logPath = await desktopCommands.invoke<string>("export_support_log");
-      const fileName = logPath.split(/[/\\]/).pop() ?? logPath;
       const logDir = getParentDirectory(logPath);
+      setVersionTapHint("");
 
       if (logDir) {
         try {
           await desktopCommands.invoke<void>("open_folder", { path: logDir });
-          showVersionTapHint(
-            t("desktop:settings.supportLog.exportedAndOpened", { fileName }),
-          );
         } catch (openErr) {
-          showVersionTapHint(t("desktop:settings.supportLog.exported", { fileName }));
           console.error("Failed to open support log folder:", openErr);
         }
-      } else {
-        showVersionTapHint(t("desktop:settings.supportLog.exported", { fileName }));
       }
     } catch (err) {
       showVersionTapHint(t("desktop:settings.supportLog.failed"));
@@ -867,31 +853,8 @@ function SettingsPage() {
     }
   };
 
-  const handleVersionClick = () => {
-    versionTapCountRef.current += 1;
-    const remaining = VERSION_TAP_THRESHOLD - versionTapCountRef.current;
-
-    if (versionTapTimerRef.current) {
-      clearTimeout(versionTapTimerRef.current);
-    }
-    versionTapTimerRef.current = setTimeout(() => {
-      versionTapCountRef.current = 0;
-      versionTapTimerRef.current = null;
-      setVersionTapHint("");
-    }, VERSION_TAP_RESET_MS);
-
-    if (remaining === 1) {
-      showVersionTapHint(t("desktop:settings.supportLog.exportReady"));
-    }
-
-    if (versionTapCountRef.current >= VERSION_TAP_THRESHOLD) {
-      versionTapCountRef.current = 0;
-      if (versionTapTimerRef.current) {
-        clearTimeout(versionTapTimerRef.current);
-        versionTapTimerRef.current = null;
-      }
-      void exportSupportLogByVersionTap();
-    }
+  const handleVersionDoubleClick = () => {
+    void exportSupportLogByVersionTap();
   };
 
   const toggleAePortal = async () => {
@@ -1423,7 +1386,7 @@ function SettingsPage() {
       <div style={getWindowFooterStyle(colors)}>
         <span
           onMouseDown={(e) => e.preventDefault()}
-          onClick={handleVersionClick}
+          onDoubleClick={handleVersionDoubleClick}
           style={{
             fontSize: 10,
             color: colors.textSecondary,
