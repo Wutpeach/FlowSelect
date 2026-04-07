@@ -108,18 +108,9 @@
     "title": "Settings",
     "tabs": {
       "general": "General",
+      "downloads": "Downloads",
       "plugins": "Plugins",
       "advanced": "Advanced"
-    },
-    "groups": {
-      "preferences": {
-        "title": "Preferences",
-        "hint": "Adjust the way FlowSelect feels and opens day to day."
-      },
-      "downloadBehavior": {
-        "title": "Download Behavior",
-        "hint": "Choose where new files go and how they are named."
-      }
     },
     "theme": {
       "title": "Theme",
@@ -148,7 +139,8 @@
       "cancel": "Cancel"
     },
     "launchAtStartup": {
-      "title": "Launch at startup"
+      "title": "Launch at startup",
+      "hint": "Open FlowSelect automatically when you sign in."
     },
     "rename": {
       "title": "Rename downloaded media",
@@ -177,6 +169,16 @@
       "installed": {
         "title": "Installed now",
         "hint": "Current integrations available in this build."
+      },
+      "status": {
+        "enabled": "Enabled",
+        "available": "Available",
+        "comingSoon": "Coming soon"
+      },
+      "future": {
+        "title": "More integrations",
+        "hint": "This list is ready for the next plugin entries.",
+        "body": "Future download, workflow, or export integrations will appear in the same list structure once they are available."
       }
     },
     "downloaders": {
@@ -258,16 +260,6 @@
         "upToDate": "You're already on the latest version.",
         "downloading": "Preparing the update installer...",
         "installing": "Restarting to apply the update..."
-      }
-    },
-    "advancedGroups": {
-      "maintenance": {
-        "title": "App Maintenance",
-        "hint": "Keep FlowSelect current and export logs when you need support."
-      },
-      "downloaders": {
-        "title": "Download Infrastructure",
-        "hint": "Check runtime readiness and bundled downloader versions."
       }
     },
     "uiLab": {

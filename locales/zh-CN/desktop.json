@@ -108,18 +108,9 @@
     "title": "设置",
     "tabs": {
       "general": "通用",
+      "downloads": "下载",
       "plugins": "插件",
       "advanced": "高级"
-    },
-    "groups": {
-      "preferences": {
-        "title": "基础偏好",
-        "hint": "调整 FlowSelect 日常使用时的外观、唤起方式与基础行为。"
-      },
-      "downloadBehavior": {
-        "title": "下载行为",
-        "hint": "集中管理下载保存位置与重命名规则。"
-      }
     },
     "theme": {
       "title": "主题",
@@ -148,7 +139,8 @@
       "cancel": "取消"
     },
     "launchAtStartup": {
-      "title": "开机启动"
+      "title": "开机启动",
+      "hint": "登录系统后自动打开 FlowSelect。"
     },
     "rename": {
       "title": "重命名下载媒体",
@@ -177,6 +169,16 @@
       "installed": {
         "title": "当前已接入",
         "hint": "这个版本中已经可用的集成功能。"
+      },
+      "status": {
+        "enabled": "已启用",
+        "available": "可用",
+        "comingSoon": "即将支持"
+      },
+      "future": {
+        "title": "更多集成",
+        "hint": "这个列表已经为后续插件入口预留好了结构。",
+        "body": "未来的下载、工作流或导出集成功能上线后，也会按照同样的列表结构继续收纳在这里。"
       }
     },
     "downloaders": {
@@ -258,16 +260,6 @@
         "upToDate": "当前已是最新版本。",
         "downloading": "正在准备更新安装包...",
         "installing": "正在重启以应用更新..."
-      }
-    },
-    "advancedGroups": {
-      "maintenance": {
-        "title": "应用维护",
-        "hint": "检查版本、安装更新，并在需要时导出诊断日志。"
-      },
-      "downloaders": {
-        "title": "下载基础设施",
-        "hint": "查看运行时就绪状态与内置下载器版本。"
       }
     },
     "uiLab": {
