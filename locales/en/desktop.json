@@ -115,6 +115,10 @@
       "title": "Language",
       "hint": "Apply to the main window, settings, and context menu immediately."
     },
+    "appUpdates": {
+      "title": "Receive test builds",
+      "hint": "Enable beta / rc prerelease updates. Leave off to stay on stable releases only."
+    },
     "outputFolder": {
       "title": "Output Folder",
       "choose": "Choose a folder...",

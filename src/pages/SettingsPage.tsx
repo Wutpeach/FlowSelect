@@ -49,6 +49,11 @@ import {
 } from "../i18n/contract";
 import { normalizeAppLanguage } from "../i18n/language";
 import {
+  APP_UPDATE_PRERELEASE_CONFIG_KEY,
+  parseDesktopAppConfig,
+  resolveReceivePrereleaseUpdates,
+} from "../updates/appUpdatePreferences";
+import {
   getMissingRuntimeComponentsFromStatus,
   getRuntimeGateHeadline,
   getRuntimeGateNextLabel,
@@ -186,6 +191,7 @@ function SettingsPage() {
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
   const [extensionInjectionDebugEnabled, setExtensionInjectionDebugEnabled] = useState(false);
+  const [receivePrereleaseUpdates, setReceivePrereleaseUpdates] = useState(false);
   const [versionTapHint, setVersionTapHint] = useState("");
   const [ytdlpInfo, setYtdlpInfo] = useState<YtdlpVersionInfo | null>(null);
   const [galleryDlInfo, setGalleryDlInfo] = useState<GalleryDlInfo | null>(null);
@@ -455,7 +461,7 @@ function SettingsPage() {
     const loadConfig = async () => {
       try {
         const configStr = await desktopCommands.invoke<string>("get_config");
-        const config = JSON.parse(configStr) as Record<string, unknown>;
+        const config = parseDesktopAppConfig(configStr);
         if (typeof config.outputPath === "string") {
           setOutputPath(config.outputPath);
         }
@@ -485,6 +491,7 @@ function SettingsPage() {
         if (typeof config.extensionInjectionDebugEnabled === "boolean") {
           setExtensionInjectionDebugEnabled(config.extensionInjectionDebugEnabled);
         }
+        setReceivePrereleaseUpdates(resolveReceivePrereleaseUpdates(config));
       } catch (err) {
         console.error("Failed to load config:", err);
       }
@@ -769,7 +776,7 @@ function SettingsPage() {
       const newValue = !renameMediaOnDownload;
       setRenameMediaOnDownload(newValue);
       const configStr = await desktopCommands.invoke<string>("get_config");
-      const config = JSON.parse(configStr);
+      const config = parseDesktopAppConfig(configStr);
       config.renameMediaOnDownload = newValue;
       config.videoKeepOriginalName = !newValue;
       await desktopCommands.invoke<void>("save_config", { json: JSON.stringify(config) });
@@ -788,7 +795,7 @@ function SettingsPage() {
   ) => {
     try {
       const configStr = await desktopCommands.invoke<string>("get_config");
-      const config = JSON.parse(configStr);
+      const config = parseDesktopAppConfig(configStr);
       if (updates.renameRulePreset !== undefined) {
         config.renameRulePreset = updates.renameRulePreset;
       }
@@ -861,7 +868,7 @@ function SettingsPage() {
     const newValue = !aePortalEnabled;
     setAePortalEnabled(newValue);
     const configStr = await desktopCommands.invoke<string>("get_config");
-    const config = JSON.parse(configStr);
+    const config = parseDesktopAppConfig(configStr);
     config.aePortalEnabled = newValue;
     await desktopCommands.invoke("save_config", { json: JSON.stringify(config) });
   };
@@ -872,7 +879,7 @@ function SettingsPage() {
     try {
       setExtensionInjectionDebugEnabled(newValue);
       const configStr = await desktopCommands.invoke<string>("get_config");
-      const config = JSON.parse(configStr);
+      const config = parseDesktopAppConfig(configStr);
       config.extensionInjectionDebugEnabled = newValue;
       await desktopCommands.invoke("save_config", { json: JSON.stringify(config) });
     } catch (err) {
@@ -889,9 +896,28 @@ function SettingsPage() {
     if (selected) {
       setAeExePath(selected as string);
       const configStr = await desktopCommands.invoke<string>("get_config");
-      const config = JSON.parse(configStr);
+      const config = parseDesktopAppConfig(configStr);
       config.aeExePath = selected;
       await desktopCommands.invoke("save_config", { json: JSON.stringify(config) });
+    }
+  };
+
+  const toggleReceivePrereleaseUpdates = async () => {
+    const previousValue = receivePrereleaseUpdates;
+    const nextValue = !previousValue;
+
+    try {
+      setReceivePrereleaseUpdates(nextValue);
+      const configStr = await desktopCommands.invoke<string>("get_config");
+      const config = parseDesktopAppConfig(configStr);
+      config[APP_UPDATE_PRERELEASE_CONFIG_KEY] = nextValue;
+      await desktopCommands.invoke<void>("save_config", { json: JSON.stringify(config) });
+      await desktopEvents.emit("app-update-preference-changed", {
+        receivePrereleaseUpdates: nextValue,
+      });
+    } catch (err) {
+      setReceivePrereleaseUpdates(previousValue);
+      console.error("Failed to toggle prerelease app updates:", err);
     }
   };
 
@@ -1187,6 +1213,16 @@ function SettingsPage() {
             options={languageOptions}
             value={currentLanguage}
             onChange={handleLanguageChange}
+          />
+        </NeonSection>
+
+        <NeonSection
+          title={t("desktop:settings.appUpdates.title")}
+          hint={t("desktop:settings.appUpdates.hint")}
+        >
+          <NeonToggle
+            checked={receivePrereleaseUpdates}
+            onChange={toggleReceivePrereleaseUpdates}
           />
         </NeonSection>
 

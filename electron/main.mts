@@ -56,6 +56,13 @@ import {
   resolveRuntimeBinaryPaths,
   resolveRenameEnabled,
 } from "../src/electron-runtime/index.js";
+import { compareAppVersions } from "../src/updates/versioning.js";
+import {
+  APP_RELEASES_API,
+  APP_STABLE_UPDATE_ENDPOINT,
+  resolveLatestPrereleaseUpdateManifestUrlFromReleases,
+  shouldReceivePrereleaseAppUpdates,
+} from "./appUpdate.mjs";
 import {
   normalizeVideoCandidates,
   normalizeRequiredVideoRouteUrl,
@@ -100,9 +107,6 @@ const WINDOW_LABELS = {
 const FALLBACK_LANGUAGE = "en";
 const FALLBACK_THEME = "black";
 const WS_PORT = 39527;
-const APP_RELEASES_URL = "https://github.com/Wutpeach/FlowSelect/releases";
-const APP_UPDATE_ENDPOINT =
-  "https://github.com/Wutpeach/FlowSelect/releases/latest/download/latest.json";
 const DEFAULT_OUTPUT_FOLDER_NAME = "FlowSelect_Received";
 const STARTUP_DIAGNOSTICS_FILE_NAME = "startup-diagnostics-latest.txt";
 const SHORTCUT_SHOW_EVENT = "shortcut-show";
@@ -4384,7 +4388,8 @@ async function checkForAppUpdate() {
   }
 
   try {
-    const response = await fetchWithDesktopSession(APP_UPDATE_ENDPOINT);
+    const manifestUrl = await resolveAppUpdateManifestUrl();
+    const response = await fetchWithDesktopSession(manifestUrl);
     if (!response.ok) {
       throw new Error(`Update manifest lookup failed: ${response.status}`);
     }
@@ -4394,7 +4399,7 @@ async function checkForAppUpdate() {
     if (
       !nextVersion
       || !currentVersion
-      || compareLooseVersions(nextVersion, currentVersion) <= 0
+      || compareAppVersions(nextVersion, currentVersion) <= 0
     ) {
       pendingAppUpdate = null;
       return null;
@@ -4411,6 +4416,33 @@ async function checkForAppUpdate() {
     pendingAppUpdate = null;
     return null;
   }
+}
+
+async function resolveAppUpdateManifestUrl() {
+  const config = await readConfigObject();
+  if (!shouldReceivePrereleaseAppUpdates(config)) {
+    return APP_STABLE_UPDATE_ENDPOINT;
+  }
+
+  const prereleaseManifestUrl = await fetchLatestPrereleaseUpdateManifestUrl();
+  if (prereleaseManifestUrl) {
+    return prereleaseManifestUrl;
+  }
+
+  console.warn(">>> [Electron] No prerelease updater manifest found; falling back to stable updates");
+  return APP_STABLE_UPDATE_ENDPOINT;
+}
+
+async function fetchLatestPrereleaseUpdateManifestUrl() {
+  const response = await fetchWithDesktopSession(APP_RELEASES_API, {
+    headers: buildGitHubHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub prerelease lookup failed: ${response.status}`);
+  }
+
+  const releases = await response.json();
+  return resolveLatestPrereleaseUpdateManifestUrlFromReleases(releases);
 }
 
 async function downloadAndInstallAppUpdate() {

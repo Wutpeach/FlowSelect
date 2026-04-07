@@ -71,6 +71,7 @@ import {
   isMainWindowBoundsTransitionCurrent,
   type MainWindowBoundsTransitionState,
 } from "./utils/mainWindowTransitionToken";
+import { parseDesktopAppConfig } from "./updates/appUpdatePreferences";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
@@ -2002,7 +2003,7 @@ function App({
       try {
         const configStr = await desktopCommands.invoke<string>("get_config");
         console.log("Loaded config:", configStr);
-        const config = JSON.parse(configStr) as Record<string, unknown>;
+        const config = parseDesktopAppConfig(configStr);
         applyRuntimeConfig(config);
       } catch (err) {
         console.error("Failed to load config:", err);
@@ -2316,6 +2317,16 @@ function App({
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
+
+  useEffect(() => {
+    const unlisten = desktopEvents.on<{ receivePrereleaseUpdates: boolean }>(
+      "app-update-preference-changed",
+      () => {
+        void refreshAppUpdate();
+      },
+    );
+    return () => { unlisten.then(fn => fn()); };
+  }, [refreshAppUpdate]);
 
   // Listen for shortcut show event
   useEffect(() => {

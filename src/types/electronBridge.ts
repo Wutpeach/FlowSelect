@@ -44,6 +44,7 @@ export type FlowSelectRendererCommand =
   | "update_ytdlp";
 
 export type FlowSelectAppEvent =
+  | "app-update-preference-changed"
   | "context-menu-closed"
   | "devmode-changed"
   | "language-changed"
@@ -68,6 +69,7 @@ export type FlowSelectAppEvent =
   | "ytdlp-version-refresh";
 
 export type FlowSelectRendererEvent =
+  | "app-update-preference-changed"
   | "context-menu-closed"
   | "output-path-changed"
   | "rename-setting-changed"
