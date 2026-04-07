@@ -68,3 +68,4 @@ __pycache__/
 # Test files
 test_video.mp4
 .ace-tool/
+codedb.snapshot
