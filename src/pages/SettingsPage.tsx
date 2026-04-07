@@ -53,7 +53,9 @@ import {
 } from "../i18n/contract";
 import { normalizeAppLanguage } from "../i18n/language";
 import {
+  APP_UPDATE_PRERELEASE_CONFIG_KEY,
   parseDesktopAppConfig,
+  resolveReceivePrereleaseUpdates,
 } from "../updates/appUpdatePreferences";
 import {
   getMissingRuntimeComponentsFromStatus,
@@ -223,6 +225,7 @@ function SettingsPage() {
   const [aePortalEnabled, setAePortalEnabled] = useState(false);
   const [aeExePath, setAeExePath] = useState("");
   const [extensionInjectionDebugEnabled, setExtensionInjectionDebugEnabled] = useState(false);
+  const [receivePrereleaseUpdates, setReceivePrereleaseUpdates] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [hoveredSettingsTab, setHoveredSettingsTab] = useState<SettingsTab | null>(null);
   const [supportLogHint, setSupportLogHint] = useState("");
@@ -528,6 +531,7 @@ function SettingsPage() {
         if (typeof config.extensionInjectionDebugEnabled === "boolean") {
           setExtensionInjectionDebugEnabled(config.extensionInjectionDebugEnabled);
         }
+        setReceivePrereleaseUpdates(resolveReceivePrereleaseUpdates(config));
       } catch (err) {
         console.error("Failed to load config:", err);
       }
@@ -898,6 +902,25 @@ function SettingsPage() {
       console.error("Failed to export support log:", err);
     } finally {
       supportLogExportInFlightRef.current = false;
+    }
+  };
+
+  const toggleReceivePrereleaseUpdates = async () => {
+    const previousValue = receivePrereleaseUpdates;
+    const nextValue = !previousValue;
+
+    try {
+      setReceivePrereleaseUpdates(nextValue);
+      const configStr = await desktopCommands.invoke<string>("get_config");
+      const config = parseDesktopAppConfig(configStr);
+      config[APP_UPDATE_PRERELEASE_CONFIG_KEY] = nextValue;
+      await desktopCommands.invoke<void>("save_config", { json: JSON.stringify(config) });
+      await desktopEvents.emit("app-update-preference-changed", {
+        receivePrereleaseUpdates: nextValue,
+      });
+    } catch (err) {
+      setReceivePrereleaseUpdates(previousValue);
+      console.error("Failed to toggle prerelease app updates:", err);
     }
   };
 
@@ -1704,6 +1727,44 @@ function SettingsPage() {
             </NeonButton>
           </div>
         </NeonCard>
+      </NeonSection>
+
+      <NeonSection
+        title={t("desktop:settings.appUpdates.title")}
+        hint={t("desktop:settings.appUpdates.hint")}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            ...getFieldSurfaceStyle(colors, {
+              padding: "10px 12px",
+              height: 0,
+            }),
+          }}
+        >
+          <div style={{ minWidth: 0, display: "grid", gap: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: colors.textPrimary }}>
+              {t("desktop:settings.appUpdates.title")}
+            </span>
+            <span
+              style={{
+                fontSize: 10.5,
+                lineHeight: 1.4,
+                color: colors.textSecondary,
+                opacity: 0.82,
+              }}
+            >
+              {t("desktop:settings.appUpdates.hint")}
+            </span>
+          </div>
+          <NeonToggle
+            checked={receivePrereleaseUpdates}
+            onChange={toggleReceivePrereleaseUpdates}
+          />
+        </div>
       </NeonSection>
 
       <NeonSection
