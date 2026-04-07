@@ -474,6 +474,35 @@ function deriveSiteHint(values) {
   return null;
 }
 
+function summarizeVideoSelectionForDebug(payload) {
+  const normalizedTitle = typeof payload?.title === 'string' ? payload.title.trim() : '';
+  const normalizedCandidates = Array.isArray(payload?.videoCandidates) ? payload.videoCandidates : [];
+
+  return {
+    url: normalizeHttpUrl(payload?.url) || null,
+    pageUrl: normalizeHttpUrl(payload?.pageUrl) || null,
+    videoUrl: normalizeHttpUrl(payload?.videoUrl) || null,
+    selectionScope: typeof payload?.selectionScope === 'string' ? payload.selectionScope : null,
+    siteHint: typeof payload?.siteHint === 'string' ? payload.siteHint : null,
+    titlePresent: normalizedTitle.length > 0,
+    cookiesPresent: typeof payload?.cookies === 'string' && payload.cookies.trim().length > 0,
+    videoCandidateCount: normalizedCandidates.length,
+    clipStartSec: Number.isFinite(payload?.clipStartSec) ? payload.clipStartSec : null,
+    clipEndSec: Number.isFinite(payload?.clipEndSec) ? payload.clipEndSec : null,
+    ytdlpQualityPreference:
+      typeof payload?.ytdlpQualityPreference === 'string' ? payload.ytdlpQualityPreference : null,
+  };
+}
+
+function logInjectedVideoSelectionDebug(message, payload) {
+  if (typeof payload === 'undefined') {
+    console.info(`[FlowSelect] ${message}`);
+    return;
+  }
+
+  console.info(`[FlowSelect] ${message}`, payload);
+}
+
 function cleanupProtectedImageDragRegistry() {
   const now = Date.now();
   for (const [token, entry] of protectedImageDragRegistry.entries()) {
@@ -1327,11 +1356,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     Promise.all([
       getCookiesForUrl(pageUrl || requestedUrl || ''),
       directDownloadQuality.getQualityPreference(),
-    ]).then(([cookies, qualityPreference]) => {
+      injectionDebugConfig?.getEnabled ? injectionDebugConfig.getEnabled() : Promise.resolve(false),
+    ]).then(([cookies, qualityPreference, injectionDebugEnabled]) => {
       console.info('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
       const routeUrl = pageUrl || requestedUrl || message.url;
       const rawVideoUrl = normalizeHttpUrl(message.videoUrl);
-      return queueVideoSelectionToApp({
+      const forwardedPayload = {
         url: routeUrl || requestedUrl || message.url,
         pageUrl: pageUrl || requestedUrl || message.pageUrl || sender.tab?.url || message.url,
         siteHint,
@@ -1343,7 +1373,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         clipEndSec: clipEndSec,
         ytdlpQualityPreference: qualityPreference,
         cookies: cookies
-      });
+      };
+
+      if (injectionDebugEnabled) {
+        logInjectedVideoSelectionDebug(
+          'Injected video_selection request received',
+          {
+            ...summarizeVideoSelectionForDebug({
+              ...message,
+              pageUrl,
+              selectionScope,
+              siteHint,
+              clipStartSec,
+              clipEndSec,
+            }),
+            senderTabUrl: normalizeHttpUrl(sender.tab?.url) || null,
+          },
+        );
+        logInjectedVideoSelectionDebug(
+          'Forwarding video_selected_v2 payload',
+          summarizeVideoSelectionForDebug(forwardedPayload),
+        );
+      }
+
+      return queueVideoSelectionToApp(forwardedPayload);
     }).then((result) => {
       if (!result?.success) {
         console.warn(

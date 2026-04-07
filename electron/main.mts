@@ -1010,6 +1010,51 @@ function resolveExtensionInjectionDebugEnabledFromConfigObject(config) {
   return config.extensionInjectionDebugEnabled === true;
 }
 
+function summarizeInjectedVideoSelectionPayload(payload) {
+  const normalizedTitle = normalizeOptionalString(payload?.title);
+  const normalizedCookies = normalizeOptionalString(payload?.cookies);
+  const normalizedSiteHint = resolveVideoSelectionSiteHint(
+    payload?.siteHint,
+    payload?.pageUrl,
+    payload?.url,
+    payload?.videoUrl,
+  );
+  const normalizedVideoCandidates = normalizeVideoCandidates(
+    payload?.videoCandidates,
+    normalizedSiteHint,
+  );
+
+  return {
+    requestId: normalizeOptionalString(payload?.requestId) ?? null,
+    url: normalizeRequiredVideoRouteUrl(payload?.url),
+    pageUrl: normalizeVideoPageUrl(payload?.pageUrl),
+    videoUrl: normalizeVideoHintUrl(payload?.videoUrl, normalizedSiteHint),
+    selectionScope:
+      payload?.selectionScope === "current_item" || payload?.selectionScope === "playlist"
+        ? payload.selectionScope
+        : null,
+    siteHint: normalizedSiteHint ?? null,
+    titlePresent: Boolean(normalizedTitle),
+    cookiesPresent: Boolean(normalizedCookies),
+    videoCandidateCount: normalizedVideoCandidates.length,
+    clipStartSec: normalizeOptionalNumber(payload?.clipStartSec ?? payload?.clip_start_sec) ?? null,
+    clipEndSec: normalizeOptionalNumber(payload?.clipEndSec ?? payload?.clip_end_sec) ?? null,
+    ytdlpQualityPreference:
+      normalizeYtdlpQualityPreference(payload?.ytdlpQualityPreference)
+      ?? normalizeYtdlpQualityPreference(payload?.ytdlpQuality)
+      ?? normalizeYtdlpQualityPreference(payload?.defaultVideoDownloadQuality)
+      ?? null,
+  };
+}
+
+function logInjectedVideoSelectionDebug(config, message, payload) {
+  if (!resolveExtensionInjectionDebugEnabledFromConfigObject(config)) {
+    return;
+  }
+
+  logInfo("InjectedVideoSelection", message, serializeDiagnosticPayload(payload));
+}
+
 async function readCurrentTheme() {
   return resolveThemeFromConfigObject(await readConfigObject());
 }
@@ -3555,7 +3600,7 @@ async function enqueueElectronVideoDownload(payload) {
     payload?.url,
     payload?.videoUrl,
   );
-  return getElectronDownloadRuntime().queueVideoDownload({
+  const normalizedRequest = {
     url: rawUrl,
     pageUrl: normalizeVideoPageUrl(payload?.pageUrl),
     videoUrl: normalizeVideoHintUrl(payload?.videoUrl, siteHint),
@@ -3574,7 +3619,19 @@ async function enqueueElectronVideoDownload(payload) {
       ?? normalizeYtdlpQualityPreference(payload?.defaultVideoDownloadQuality)
       ?? mergedPreferences.ytdlpQuality,
     siteHint,
+  };
+  logInjectedVideoSelectionDebug(
+    config,
+    "Normalized injected download request",
+    summarizeInjectedVideoSelectionPayload(normalizedRequest),
+  );
+  const ack = await getElectronDownloadRuntime().queueVideoDownload(normalizedRequest);
+  logInjectedVideoSelectionDebug(config, "Queued injected download request", {
+    traceId: ack.traceId,
+    accepted: ack.accepted,
+    ...summarizeInjectedVideoSelectionPayload(normalizedRequest),
   });
+  return ack;
 }
 
 async function cancelVideoDownload(traceId) {
@@ -4408,6 +4465,12 @@ async function handleWsMessage(rawMessage) {
       }
 
       try {
+        const config = await readConfigObject();
+        logInjectedVideoSelectionDebug(
+          config,
+          "Received websocket video_selected_v2 payload",
+          summarizeInjectedVideoSelectionPayload(data),
+        );
         const syncedPreferences = await syncIncomingDownloadPreferences(data);
         const ack = await enqueueElectronVideoDownload({
           url,

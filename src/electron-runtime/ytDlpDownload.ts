@@ -48,6 +48,20 @@ const YTDLP_ACTIVITY_FALLBACK = "Resolving media...";
 
 type YtdlpMergeOutputFormat = "mp4" | "mp4/mkv" | null;
 
+const isInjectionDebugEnabled = (config: Record<string, unknown>): boolean =>
+  config.extensionInjectionDebugEnabled === true;
+
+const logInjectedDownloadDebug = (message: string, payload: unknown): void => {
+  const details = (() => {
+    try {
+      return JSON.stringify(payload);
+    } catch {
+      return String(payload);
+    }
+  })();
+  console.log(`>>> [InjectedDownloadDebug] ${message}: ${details}`);
+};
+
 const isYtDlpPostProcessingLine = (line: string): boolean => {
   const normalized = line.toLowerCase();
   return normalized.includes("post-process")
@@ -306,6 +320,28 @@ export const runYtDlpDownload = async (
   }
   args.push(sourceUrl);
 
+  if (isInjectionDebugEnabled(context.config)) {
+    logInjectedDownloadDebug("yt-dlp invocation", {
+      traceId: context.traceId,
+      ytDlpBinaryPath: context.binaries.ytDlp,
+      ffmpegBinaryPath: context.binaries.ffmpeg,
+      denoBinaryPath: context.binaries.deno,
+      sourceUrl,
+      originalUrl: context.intent.originalUrl,
+      pageUrl: context.intent.pageUrl ?? null,
+      selectionScope: context.intent.selectionScope ?? null,
+      siteId: context.intent.siteId,
+      titlePresent: Boolean(context.intent.title),
+      cookiesPresent: Boolean(context.intent.cookies?.trim()),
+      cookiesPath,
+      ytdlpQuality: context.intent.ytdlpQuality ?? null,
+      formatSelector: formatProfile.selector,
+      formatSort: formatProfile.sort,
+      mergeOutputFormat: formatProfile.mergeOutputFormat,
+      args,
+    });
+  }
+
   await context.onProgress({
     traceId: context.traceId,
     percent: 0,
@@ -376,6 +412,14 @@ export const runYtDlpDownload = async (
       file_path: reportedPath,
     };
   } catch (error) {
+    if (isInjectionDebugEnabled(context.config)) {
+      logInjectedDownloadDebug("yt-dlp failed", {
+        traceId: context.traceId,
+        sourceUrl,
+        error: summarizeError(error),
+        stderrTail: stderrLines.slice(-5),
+      });
+    }
     await cleanupTaskArtifacts(context.outputDir, beforeFiles, artifactPrefixes);
     throw new Error(summarizeError(error));
   } finally {
