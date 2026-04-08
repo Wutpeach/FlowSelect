@@ -1319,7 +1319,7 @@
       return;
     }
 
-    console.log('[FlowSelect XHS] Drag payload prepared', {
+    console.info('[FlowSelect XHS] Drag payload prepared', {
       pageUrl,
       noteId: payload.noteId,
       mediaType: payload.mediaType,
@@ -1389,7 +1389,7 @@
     const imageUrl = !videoUrl && videoCandidates.length === 0 ? extractPrimaryImageUrl() : null;
     const title = extractTitle();
 
-    console.log('[FlowSelect XHS] Download clicked', {
+    console.info('[FlowSelect XHS] Download clicked', {
       pageUrl,
       noteId,
       videoUrl,
@@ -1555,7 +1555,7 @@
     let button = controls.querySelector(`.${CONTROL_BUTTON_CLASS}`);
     if (!button) {
       button = createControlBarButton();
-      console.log('[FlowSelect XHS] Control button injected');
+      console.info('[FlowSelect XHS] Control button injected');
     }
 
     const { anchor, playback } = resolveControlAnchor(controls);
@@ -1602,12 +1602,12 @@
       handleDownload();
     });
     document.body.appendChild(button);
-    console.log('[FlowSelect XHS] Floating button injected');
+    console.info('[FlowSelect XHS] Floating button injected');
   }
 
   function init() {
     window.__flowselectXhsLoaded = true;
-    console.log('[FlowSelect XHS] Detector loaded at', window.location.href);
+    console.info('[FlowSelect XHS] Detector loaded at', window.location.href);
     ensureButton();
     document.addEventListener('dragstart', handleDragStart, true);
     document.addEventListener('contextmenu', rememberContextPayload, true);
@@ -1647,7 +1647,7 @@
           return true;
         }
 
-        console.log('[FlowSelect XHS] Resolving context media in content script', {
+        console.info('[FlowSelect XHS] Resolving context media in content script', {
           pageUrl,
           noteId,
           preferredImageUrl,
@@ -1687,7 +1687,7 @@
         return true;
       }
 
-      console.log('[FlowSelect XHS] Resolving drag media in content script', {
+      console.info('[FlowSelect XHS] Resolving drag media in content script', {
         token: typeof message.token === 'string' ? message.token : null,
         pageUrl: typeof message.pageUrl === 'string' ? message.pageUrl : window.location.href,
         noteId: typeof message.noteId === 'string' ? message.noteId : null,
@@ -1703,7 +1703,7 @@
             ? message.mediaType
             : null,
       }).then((result) => {
-        console.log('[FlowSelect XHS] Resolved drag media in content script', {
+        console.info('[FlowSelect XHS] Resolved drag media in content script', {
           kind: result?.kind ?? 'unknown',
           pageUrl: result?.pageUrl ?? null,
           imageUrl: result?.imageUrl ?? null,
