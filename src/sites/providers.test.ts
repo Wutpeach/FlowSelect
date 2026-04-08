@@ -39,8 +39,29 @@ describe("builtin site providers", () => {
     });
 
     expect(plan?.providerId).toBe("xiaohongshu");
-    expect(plan?.engines.map((engine) => engine.engine)).toEqual(["direct", "yt-dlp"]);
+    expect(plan?.engines.map((engine) => engine.engine)).toEqual(["direct"]);
     expect(plan?.engines[0]?.sourceUrl).toBe(directUrl);
+  });
+
+  it("does not treat Xiaohongshu image-tagged candidates as direct video hints", () => {
+    const pageUrl = "https://www.xiaohongshu.com/explore/66112233445566778899";
+    const plan = resolvePlan({
+      url: pageUrl,
+      pageUrl,
+      siteHint: "xiaohongshu",
+      videoCandidates: [
+        {
+          url: "https://sns-video-bd.xhscdn.com/stream/example.mp4",
+          type: "direct_mp4",
+          source: "image_element",
+          confidence: "high",
+          mediaType: "image",
+        },
+      ],
+    });
+
+    expect(plan?.providerId).toBe("xiaohongshu");
+    expect(plan?.engines.map((engine) => engine.engine)).toEqual(["yt-dlp"]);
   });
 
   it("preserves Bilibili clip metadata on the resolved provider intent", () => {

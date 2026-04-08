@@ -14,6 +14,46 @@ const isTextishContentType = (value: string | null): boolean => {
     || normalized.startsWith("text/");
 };
 
+const buildDirectDownloadHeaders = (context: EngineExecutionContext): Headers => {
+  const headers = new Headers();
+  headers.set(
+    "User-Agent",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  );
+
+  if (context.intent.siteId === "xiaohongshu") {
+    headers.set("Origin", "https://www.xiaohongshu.com");
+    return headers;
+  }
+
+  if (context.intent.pageUrl) {
+    headers.set("Referer", context.intent.pageUrl);
+  }
+
+  return headers;
+};
+
+const buildDirectDownloadRequestInit = (
+  context: EngineExecutionContext,
+  signal: AbortSignal,
+): RequestInit => {
+  const headers = buildDirectDownloadHeaders(context);
+
+  if (context.intent.siteId === "xiaohongshu") {
+    return {
+      headers,
+      signal,
+      referrer: "",
+      referrerPolicy: "no-referrer",
+    };
+  }
+
+  return {
+    headers,
+    signal,
+  };
+};
+
 export const runDirectVideoDownload = async (
   context: EngineExecutionContext,
 ): Promise<DownloadResultPayload> => {
@@ -31,15 +71,6 @@ export const runDirectVideoDownload = async (
     eta: "N/A",
   });
 
-  const headers = new Headers();
-  headers.set(
-    "User-Agent",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-  );
-  if (context.intent.pageUrl) {
-    headers.set("Referer", context.intent.pageUrl);
-  }
-
   const sourceUrl = context.enginePlan.sourceUrl
     || (context.intent.type === "direct" ? context.intent.directUrl : undefined)
     || context.intent.originalUrl;
@@ -47,10 +78,10 @@ export const runDirectVideoDownload = async (
     throw new Error("Direct download source URL is missing");
   }
 
-  const response = await fetchImpl(sourceUrl, {
-    headers,
-    signal: context.abortSignal,
-  });
+  const response = await fetchImpl(
+    sourceUrl,
+    buildDirectDownloadRequestInit(context, context.abortSignal),
+  );
   if (!response.ok) {
     throw new Error(`Direct download failed with HTTP ${response.status}`);
   }

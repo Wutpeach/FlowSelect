@@ -40,6 +40,10 @@ import {
   type PinterestVideoCandidate,
 } from "./utils/pinterest";
 import { extractImageUrlFromHtml } from "./utils/imageDrag";
+import {
+  extractEmbeddedXiaohongshuDragPayload,
+  isXiaohongshuPageUrl,
+} from "./utils/xiaohongshu";
 import { parseLocalFileUrl } from "./utils/localFileUrl";
 import {
   resolvePanelPointerCaptureId,
@@ -3296,6 +3300,8 @@ function App({
       /i\.imgur\.com/i,
       /pbs\.twimg\.com/i,
       /cdn\.discordapp\.com/i,
+      /xhscdn\.com\/.*(?:imageView2|format\/(?:jpe?g|png|webp|gif))/i,
+      /sns-webpic[^/]*\.xhscdn\.com/i,
     ];
     return imagePatterns.some(pattern => pattern.test(url));
   };
@@ -3347,10 +3353,16 @@ function App({
     const rawUriList = e.dataTransfer.getData("text/uri-list");
     const rawPlain = e.dataTransfer.getData("text/plain");
     const rawProtectedImageDrag = e.dataTransfer.getData("application/x-flowselect-protected-image-drag");
+    const rawXiaohongshuDrag = e.dataTransfer.getData("application/x-flowselect-xiaohongshu-drag");
     const embeddedPinterestDragPayload =
       extractEmbeddedPinterestDragPayload(html) ??
       extractEmbeddedPinterestDragPayload(rawPlain) ??
       extractEmbeddedPinterestDragPayload(rawUriList);
+    const embeddedXiaohongshuDragPayload =
+      extractEmbeddedXiaohongshuDragPayload(rawXiaohongshuDrag) ??
+      extractEmbeddedXiaohongshuDragPayload(rawPlain) ??
+      extractEmbeddedXiaohongshuDragPayload(rawUriList) ??
+      extractEmbeddedXiaohongshuDragPayload(html);
     const protectedImageDragPayload =
       extractEmbeddedProtectedImageDragPayload(rawProtectedImageDrag) ??
       extractEmbeddedProtectedImageDragPayload(rawPlain) ??
@@ -3365,6 +3377,9 @@ function App({
     }
     if ((!url || url === "about:blank#blocked" || url.startsWith("about:")) && embeddedPinterestDragPayload?.pageUrl) {
       url = embeddedPinterestDragPayload.pageUrl;
+    }
+    if ((!url || url === "about:blank#blocked" || url.startsWith("about:")) && embeddedXiaohongshuDragPayload?.pageUrl) {
+      url = embeddedXiaohongshuDragPayload.pageUrl;
     }
 
     const droppedVideoFiles = filterDroppedFilesByMimePrefix(e.dataTransfer, "video/");
@@ -3458,6 +3473,152 @@ function App({
         videoUrl: mergedVideoUrl,
         videoCandidates: mergedVideoCandidates,
         dragDiagnostic: pinterestDragDiagnostic,
+      });
+      return;
+    }
+
+    if (
+      embeddedXiaohongshuDragPayload?.pageUrl
+      && (
+        Boolean(embeddedXiaohongshuDragPayload.videoUrl)
+        || embeddedXiaohongshuDragPayload.videoCandidates.length > 0
+      )
+    ) {
+      console.log("[Xiaohongshu drag debug] queued video payload:", {
+        pageUrl: embeddedXiaohongshuDragPayload.pageUrl,
+        mediaType: embeddedXiaohongshuDragPayload.mediaType,
+        hasVideoUrl: Boolean(embeddedXiaohongshuDragPayload.videoUrl),
+        videoCandidatesCount: embeddedXiaohongshuDragPayload.videoCandidates.length,
+      });
+      resetDownloadOutcome();
+      await enqueueVideoDownload({
+        url: embeddedXiaohongshuDragPayload.pageUrl,
+        pageUrl: embeddedXiaohongshuDragPayload.pageUrl,
+        videoUrl: embeddedXiaohongshuDragPayload.videoUrl ?? undefined,
+        videoCandidates: embeddedXiaohongshuDragPayload.videoCandidates,
+      });
+      return;
+    }
+
+    const xiaohongshuPageUrl =
+      embeddedXiaohongshuDragPayload?.pageUrl
+      ?? (url && isXiaohongshuPageUrl(url) ? url : null);
+    if (xiaohongshuPageUrl) {
+      let resolvedXiaohongshuMedia: {
+        kind: "video" | "image" | "unknown";
+        pageUrl: string;
+        imageUrl: string | null;
+        videoUrl: string | null;
+        videoCandidates: PinterestVideoCandidate[];
+      } | null = null;
+
+      try {
+        resolvedXiaohongshuMedia = await desktopCommands.invoke<{
+          kind: "video" | "image" | "unknown";
+          pageUrl: string;
+          imageUrl: string | null;
+          videoUrl: string | null;
+          videoCandidates: PinterestVideoCandidate[];
+        } | null>("resolve_xiaohongshu_drag_media", {
+          url: xiaohongshuPageUrl,
+          pageUrl: xiaohongshuPageUrl,
+          token: embeddedXiaohongshuDragPayload?.token ?? undefined,
+          noteId: embeddedXiaohongshuDragPayload?.noteId ?? undefined,
+          imageUrl:
+            embeddedXiaohongshuDragPayload?.exactImageUrl
+            ?? embeddedXiaohongshuDragPayload?.imageUrl
+            ?? undefined,
+          mediaType: embeddedXiaohongshuDragPayload?.mediaType ?? undefined,
+        });
+      } catch (error) {
+        console.error("[Xiaohongshu drag debug] resolve_xiaohongshu_drag_media failed:", error);
+      }
+
+      console.log("[Xiaohongshu drag debug] resolved drag media payload:", {
+        pageUrl: xiaohongshuPageUrl,
+        token: embeddedXiaohongshuDragPayload?.token ?? null,
+        noteId: embeddedXiaohongshuDragPayload?.noteId ?? null,
+        requestedImageUrl:
+          embeddedXiaohongshuDragPayload?.exactImageUrl
+          ?? embeddedXiaohongshuDragPayload?.imageUrl
+          ?? null,
+        resultKind: resolvedXiaohongshuMedia?.kind ?? "null",
+        resultVideoUrl: resolvedXiaohongshuMedia?.videoUrl ?? null,
+        resultVideoCandidatesCount: resolvedXiaohongshuMedia?.videoCandidates.length ?? 0,
+        resultImageUrl: resolvedXiaohongshuMedia?.imageUrl ?? null,
+      });
+
+      if (
+        resolvedXiaohongshuMedia?.kind === "video"
+        && resolvedXiaohongshuMedia.videoUrl
+      ) {
+        console.log("[Xiaohongshu drag debug] resolved page video media:", {
+          pageUrl: resolvedXiaohongshuMedia.pageUrl,
+          videoUrl: resolvedXiaohongshuMedia.videoUrl,
+          videoCandidatesCount: resolvedXiaohongshuMedia.videoCandidates.length,
+        });
+        resetDownloadOutcome();
+        await enqueueVideoDownload({
+          url: resolvedXiaohongshuMedia.pageUrl,
+          pageUrl: resolvedXiaohongshuMedia.pageUrl,
+          videoUrl: resolvedXiaohongshuMedia.videoUrl,
+          videoCandidates: resolvedXiaohongshuMedia.videoCandidates,
+        });
+        return;
+      }
+
+      const resolvedXiaohongshuImageUrl =
+        resolvedXiaohongshuMedia?.kind === "video"
+          ? null
+          : (
+            embeddedXiaohongshuDragPayload?.exactImageUrl
+            ?? (resolvedXiaohongshuMedia?.kind === "image"
+              ? resolvedXiaohongshuMedia.imageUrl
+              : resolvedXiaohongshuMedia?.kind === "unknown"
+                ? (embeddedXiaohongshuDragPayload?.mediaType === "image"
+                  ? embeddedXiaohongshuDragPayload.imageUrl
+                  : null)
+                : null)
+          );
+      if (resolvedXiaohongshuImageUrl) {
+        console.log("[Xiaohongshu drag debug] resolved page image media:", {
+          pageUrl: xiaohongshuPageUrl,
+          imageUrl: resolvedXiaohongshuImageUrl,
+        });
+        resetDownloadOutcome();
+        await startForegroundProcessing();
+
+        try {
+          const result = await desktopCommands.invoke<string>("download_image", {
+            url: resolvedXiaohongshuImageUrl,
+            targetDir: outputPath || null,
+            pageUrl: xiaohongshuPageUrl,
+            requestHeaders: {
+              Referer: xiaohongshuPageUrl,
+              Origin: "https://www.xiaohongshu.com",
+            },
+          });
+          console.log("Download result:", result);
+        } catch (err) {
+          console.error("Failed to process Xiaohongshu resolved page image:", err);
+          checkSequenceOverflow(err);
+        }
+
+        setTimeout(() => setIsProcessing(false), 1000);
+        return;
+      }
+
+      if (resolvedXiaohongshuMedia?.kind === "video") {
+        console.warn("[Xiaohongshu drag debug] classified as video note but no downloadable video URL was resolved", {
+          pageUrl: xiaohongshuPageUrl,
+          videoCandidatesCount: resolvedXiaohongshuMedia.videoCandidates.length,
+          suppressedImageFallback: true,
+        });
+        return;
+      }
+
+      console.warn("[Xiaohongshu drag debug] no media resolved; skipping generic fallback for Xiaohongshu page", {
+        pageUrl: xiaohongshuPageUrl,
       });
       return;
     }

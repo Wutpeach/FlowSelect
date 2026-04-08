@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DownloadEngine, RawDownloadInput, SiteProvider } from "../core";
 import { genericProvider } from "../sites/generic";
 import { pinterestProvider } from "../sites/pinterest";
+import { xiaohongshuProvider } from "../sites/xiaohongshu";
 import { youtubeProvider } from "../sites/youtube";
 
 const { probeYtDlpMetadataTitleMock } = vi.hoisted(() => ({
@@ -335,6 +336,158 @@ describe("FlowSelectElectronDownloadRuntime", () => {
 
     await waitFor(() => receivedFetch != null);
     expect(receivedFetch).toBe(sessionFetch);
+  });
+
+  it("hydrates Xiaohongshu page requests and prefers the direct engine when page html exposes a direct asset", async () => {
+    const routes: string[] = [];
+    const runtime = createRuntime({
+      providers: [xiaohongshuProvider, genericProvider],
+      environment: {
+        fetch: async () => new Response(
+          `
+            <html>
+              <script>
+                window.__INITIAL_STATE__ = {
+                  note: {
+                    video: {
+                      url: "https:\\/\\/sns-video-bd.xhscdn.com\\/stream\\/example-1080p.mp4"
+                    }
+                  }
+                };
+              </script>
+            </html>
+          `,
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+            },
+          },
+        ),
+      },
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
+          routes.push(`yt:${context.traceId}`);
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "yt.mp4",
+          };
+        }),
+        createEngineStub("direct", async (context) => {
+          routes.push(`direct:${context.traceId}`);
+          expect(context.enginePlan.sourceUrl).toBe(
+            "https://sns-video-bd.xhscdn.com/stream/example-1080p.mp4",
+          );
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "direct.mp4",
+          };
+        }),
+      ],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.xiaohongshu.com/explore/69d4720e000000001d01a7d7",
+      pageUrl: "https://www.xiaohongshu.com/explore/69d4720e000000001d01a7d7",
+      siteHint: "xiaohongshu",
+    });
+
+    await waitFor(() => routes.length > 0);
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.startsWith("direct:")).toBe(true);
+  });
+
+  it("does not fall back to yt-dlp when Xiaohongshu already has a verified direct asset", async () => {
+    const routes: string[] = [];
+    const completions: Array<{ traceId: string; success: boolean; error?: string }> = [];
+    const runtime = createRuntime({
+      providers: [xiaohongshuProvider, genericProvider],
+      engines: [
+        createEngineStub("direct", async (context) => {
+          routes.push(`direct:${context.traceId}`);
+          return {
+            traceId: context.traceId,
+            success: false,
+            error: "direct failed",
+          };
+        }),
+        createEngineStub("yt-dlp", async (context) => {
+          routes.push(`yt:${context.traceId}`);
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "yt.mp4",
+          };
+        }),
+      ],
+      onEmit(event, payload) {
+        if (event === "video-download-complete") {
+          completions.push(payload as { traceId: string; success: boolean; error?: string });
+        }
+      },
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.xiaohongshu.com/explore/69d0a92600000000230110ab",
+      pageUrl: "https://www.xiaohongshu.com/explore/69d0a92600000000230110ab",
+      siteHint: "xiaohongshu",
+      videoUrl: "https://sns-video-v4.xhscdn.com/stream/example.mp4?sign=test",
+      videoCandidates: [
+        {
+          url: "https://sns-video-v4.xhscdn.com/stream/example.mp4?sign=test",
+          type: "direct_mp4",
+          source: "extension_resolution",
+          confidence: "high",
+          mediaType: "video",
+        },
+      ],
+    });
+
+    await waitFor(() => completions.length > 0);
+    expect(routes).toEqual([expect.stringMatching(/^direct:/)]);
+    expect(completions[0]).toMatchObject({
+      success: false,
+      error: "direct failed",
+    });
+  });
+
+  it("skips downstream transcode for Xiaohongshu direct downloads", async () => {
+    const events: RuntimeEmitterEvent[] = [];
+    const runtime = createRuntime({
+      providers: [xiaohongshuProvider, genericProvider],
+      engines: [
+        createEngineStub("direct", async (context) => ({
+          traceId: context.traceId,
+          success: true,
+          file_path: `${context.outputDir}/${context.outputStem}.mp4`,
+        })),
+      ],
+      onEmit(event) {
+        events.push(event);
+      },
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.xiaohongshu.com/explore/69d0a92600000000230110ab",
+      pageUrl: "https://www.xiaohongshu.com/explore/69d0a92600000000230110ab",
+      siteHint: "xiaohongshu",
+      videoUrl: "https://sns-video-v4.xhscdn.com/stream/example.mp4?sign=test",
+      videoCandidates: [
+        {
+          url: "https://sns-video-v4.xhscdn.com/stream/example.mp4?sign=test",
+          type: "direct_mp4",
+          source: "extension_resolution",
+          confidence: "high",
+          mediaType: "video",
+        },
+      ],
+    });
+
+    await waitFor(() => events.includes("video-download-complete"));
+    expect(prepareVideoTranscodeTaskFromDownloadMock).not.toHaveBeenCalled();
+    expect(events).not.toContain("video-transcode-queued");
   });
 
   it("surfaces a Pinterest gallery-dl failure without falling back to yt-dlp", async () => {

@@ -17,8 +17,15 @@ const isDirectXiaohongshuAsset = (value: string | undefined): boolean => (
 );
 
 const isXiaohongshuHintCandidate = (candidate: MediaCandidate): boolean => (
-  XIAOHONGSHU_HOST_PATTERN.test(candidate.url)
+  candidate.mediaType !== "image"
+  && XIAOHONGSHU_HOST_PATTERN.test(candidate.url)
   && /\.(mp4|mov|m4v|m3u8)(?:$|\?)/i.test(candidate.url)
+);
+
+const isDirectVideoCandidate = (candidate: MediaCandidate): boolean => (
+  candidate.mediaType !== "image"
+  && XIAOHONGSHU_HOST_PATTERN.test(candidate.url)
+  && isDirectXiaohongshuAsset(candidate.url)
 );
 
 const pickDirectSource = (input: RawDownloadInput): string | undefined => {
@@ -26,7 +33,7 @@ const pickDirectSource = (input: RawDownloadInput): string | undefined => {
     return input.videoUrl;
   }
   const candidateSource = input.videoCandidates?.find(
-    (candidate) => isDirectXiaohongshuAsset(candidate.url),
+    isDirectVideoCandidate,
   )?.url;
   if (candidateSource) {
     return candidateSource;
@@ -76,15 +83,6 @@ export const xiaohongshuProvider: SiteProvider = {
               when: "primary",
               reason: "Verified Xiaohongshu direct media asset is already available",
               sourceUrl: directSource,
-              fallbackOn: "any",
-            },
-            {
-              engine: "yt-dlp",
-              priority: 60,
-              when: "fallback",
-              reason: "Use yt-dlp page extraction when the direct media asset fails",
-              sourceUrl: input.pageUrl ?? input.url,
-              fallbackOn: "any",
             },
           ]
         : [

@@ -30,6 +30,7 @@ export type FlowSelectRendererCommand =
   | "process_files"
   | "queue_video_download"
   | "refresh_runtime_dependency_gate_state"
+  | "resolve_xiaohongshu_drag_media"
   | "register_shortcut"
   | "remove_transcode"
   | "reset_rename_counter"

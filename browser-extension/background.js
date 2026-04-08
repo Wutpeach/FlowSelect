@@ -15,6 +15,8 @@ const VIDEO_SELECTION_RETRY_CONNECT_TIMEOUT_MS = 5000;
 const PROTECTED_IMAGE_DRAG_TTL_MS = 2 * 60 * 1000;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15000;
 const PROTECTED_IMAGE_BACKGROUND_FETCH_TIMEOUT_MS = 12000;
+const XIAOHONGSHU_DRAG_TTL_MS = 2 * 60 * 1000;
+const XIAOHONGSHU_DRAG_RESOLUTION_TIMEOUT_MS = 15000;
 const CONNECTING_STATUS_TEXT = 'Connecting';
 const OFFLINE_STATUS_TEXT = 'Offline';
 const FALLBACK_LANGUAGE = 'en';
@@ -24,9 +26,12 @@ const WS_ACTION_GET_LANGUAGE = 'get_language';
 const WS_ACTION_LANGUAGE_INFO = 'language_info';
 const WS_ACTION_LANGUAGE_CHANGED = 'language_changed';
 const INTERNAL_VIDEO_SELECTION_MESSAGE = 'video_selection';
+const INTERNAL_PAGE_IMAGE_SELECTION_MESSAGE = 'save_image_from_page';
+const INTERNAL_REGISTER_XIAOHONGSHU_DRAG_MESSAGE = 'register_xiaohongshu_drag';
 const APP_VIDEO_SELECTION_ACTION = 'video_selected_v2';
 const pendingRequests = new Map();
 const protectedImageDragRegistry = new Map();
+const xiaohongshuDragRegistry = new Map();
 let requestCounter = 0;
 let lastConnectionIssue = OFFLINE_STATUS_TEXT;
 
@@ -512,6 +517,15 @@ function cleanupProtectedImageDragRegistry() {
   }
 }
 
+function cleanupXiaohongshuDragRegistry() {
+  const now = Date.now();
+  for (const [token, entry] of xiaohongshuDragRegistry.entries()) {
+    if (!entry || typeof entry.createdAt !== 'number' || now - entry.createdAt > XIAOHONGSHU_DRAG_TTL_MS) {
+      xiaohongshuDragRegistry.delete(token);
+    }
+  }
+}
+
 function deriveFilenameFromUrl(rawUrl) {
   const normalized = normalizeHttpUrl(rawUrl);
   if (!normalized) {
@@ -717,6 +731,35 @@ async function reportProtectedImageResolutionResult(requestId, result) {
   }
 }
 
+async function reportXiaohongshuDragResolutionResult(requestId, result) {
+  if (!requestId) {
+    return;
+  }
+
+  const response = await sendRequestToApp(
+    'xiaohongshu_drag_resolution_result',
+    {
+      correlationRequestId: requestId,
+      success: result?.success === true,
+      kind: typeof result?.kind === 'string' ? result.kind : 'unknown',
+      pageUrl: normalizeHttpUrl(result?.pageUrl),
+      imageUrl: normalizeHttpUrl(result?.imageUrl),
+      videoUrl: normalizeHttpUrl(result?.videoUrl),
+      videoCandidates: normalizeVideoCandidates(result?.videoCandidates),
+      code: typeof result?.code === 'string' ? result.code : undefined,
+      error: typeof result?.error === 'string' ? result.error : undefined,
+    },
+    XIAOHONGSHU_DRAG_RESOLUTION_TIMEOUT_MS,
+  );
+
+  if (!response?.success) {
+    console.warn(
+      '[FlowSelect] xiaohongshu_drag_resolution_result was not acknowledged:',
+      response?.data?.code || response?.message || 'unknown'
+    );
+  }
+}
+
 async function handleProtectedImageResolveRequest(data) {
   cleanupProtectedImageDragRegistry();
 
@@ -868,6 +911,104 @@ async function handleProtectedImageResolveRequest(data) {
     await reportProtectedImageResolutionResult(requestId, {
       success: false,
       code: 'protected_image_resolution_failed',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function handleXiaohongshuDragResolveRequest(data) {
+  cleanupXiaohongshuDragRegistry();
+
+  const requestId = typeof data?.requestId === 'string' ? data.requestId.trim() : '';
+  const token = typeof data?.token === 'string' ? data.token.trim() : '';
+  console.info('[FlowSelect] Resolving Xiaohongshu drag in extension background:', {
+    requestId,
+    token,
+    pageUrl: normalizeHttpUrl(data?.pageUrl) || null,
+    noteId: typeof data?.noteId === 'string' ? data.noteId : null,
+    imageUrl: normalizeHttpUrl(data?.imageUrl) || null,
+    mediaType: typeof data?.mediaType === 'string' ? data.mediaType : null,
+  });
+  if (!requestId || !token) {
+    await reportXiaohongshuDragResolutionResult(requestId, {
+      success: false,
+      kind: 'unknown',
+      code: 'xiaohongshu_drag_missing_request',
+      error: 'Missing Xiaohongshu drag request metadata',
+    });
+    return;
+  }
+
+  const entry = xiaohongshuDragRegistry.get(token);
+  if (!entry) {
+    console.warn('[FlowSelect] Xiaohongshu drag token was missing in registry:', {
+      requestId,
+      token,
+    });
+    await reportXiaohongshuDragResolutionResult(requestId, {
+      success: false,
+      kind: 'unknown',
+      code: 'xiaohongshu_drag_token_missing',
+      error: 'Xiaohongshu drag token was missing or expired',
+    });
+    return;
+  }
+
+  try {
+    const resolution = await sendMessageToTab(
+      entry.tabId,
+      {
+        type: 'resolve_xiaohongshu_drag',
+        token,
+        pageUrl: normalizeHttpUrl(data?.pageUrl) || entry.pageUrl,
+        noteId: typeof data?.noteId === 'string' && data.noteId.trim() ? data.noteId.trim() : entry.noteId,
+        imageUrl: normalizeHttpUrl(data?.imageUrl) || entry.imageUrl,
+        mediaType:
+          typeof data?.mediaType === 'string' && data.mediaType.trim()
+            ? data.mediaType.trim()
+            : entry.mediaType,
+      },
+      { frameId: entry.frameId },
+    );
+
+    console.info('[FlowSelect] Xiaohongshu drag tab resolution completed:', {
+      requestId,
+      token,
+      tabId: entry.tabId,
+      frameId: entry.frameId,
+      success: resolution?.success === true,
+      kind: typeof resolution?.kind === 'string' ? resolution.kind : 'unknown',
+      imageUrl: normalizeHttpUrl(resolution?.imageUrl) || null,
+      videoUrl: normalizeHttpUrl(resolution?.videoUrl) || null,
+      videoCandidatesCount: Array.isArray(resolution?.videoCandidates)
+        ? resolution.videoCandidates.length
+        : 0,
+      code: typeof resolution?.code === 'string' ? resolution.code : null,
+      error: typeof resolution?.error === 'string' ? resolution.error : null,
+    });
+
+    await reportXiaohongshuDragResolutionResult(requestId, {
+      success: resolution?.success === true,
+      kind: typeof resolution?.kind === 'string' ? resolution.kind : 'unknown',
+      pageUrl: normalizeHttpUrl(resolution?.pageUrl) || entry.pageUrl,
+      imageUrl: normalizeHttpUrl(resolution?.imageUrl) || entry.imageUrl,
+      videoUrl: normalizeHttpUrl(resolution?.videoUrl),
+      videoCandidates: normalizeVideoCandidates(resolution?.videoCandidates),
+      code: typeof resolution?.code === 'string' ? resolution.code : undefined,
+      error: typeof resolution?.error === 'string' ? resolution.error : undefined,
+    });
+  } catch (error) {
+    console.warn('[FlowSelect] Xiaohongshu drag resolution failed in extension background:', {
+      requestId,
+      token,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    await reportXiaohongshuDragResolutionResult(requestId, {
+      success: false,
+      kind: 'unknown',
+      pageUrl: entry.pageUrl,
+      imageUrl: entry.imageUrl,
+      code: 'xiaohongshu_drag_resolution_failed',
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -1075,6 +1216,9 @@ function handleMessage(message) {
     case 'resolve_protected_image':
       void handleProtectedImageResolveRequest(message.data || {});
       break;
+    case 'resolve_xiaohongshu_drag':
+      void handleXiaohongshuDragResolveRequest(message.data || {});
+      break;
   }
 }
 
@@ -1256,6 +1400,13 @@ function queueVideoSelectionToApp(data) {
 function normalizeVideoCandidates(rawCandidates) {
   if (!Array.isArray(rawCandidates)) return [];
 
+  const normalizeMediaType = (value) => {
+    if (value === 'video' || value === 'image') {
+      return value;
+    }
+    return undefined;
+  };
+
   const normalized = [];
   for (const candidate of rawCandidates) {
     if (!candidate || typeof candidate !== 'object') continue;
@@ -1266,6 +1417,7 @@ function normalizeVideoCandidates(rawCandidates) {
       type: typeof candidate.type === 'string' ? candidate.type : 'unknown',
       confidence: typeof candidate.confidence === 'string' ? candidate.confidence : 'low',
       source: typeof candidate.source === 'string' ? candidate.source : 'unknown',
+      mediaType: normalizeMediaType(candidate.mediaType ?? candidate.media_type),
     });
   }
 
@@ -1418,6 +1570,49 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         reason: 'prepare_failed',
       });
     });
+  } else if (message.type === INTERNAL_PAGE_IMAGE_SELECTION_MESSAGE) {
+    const imageUrl = normalizeHttpUrl(message.url);
+    const pageUrl = selectFirstHttpUrl(message.pageUrl, sender.tab?.url, message.url);
+    const originalFilename = typeof message.originalFilename === 'string' && message.originalFilename.trim()
+      ? message.originalFilename.trim()
+      : null;
+
+    if (!imageUrl) {
+      sendResponse({
+        success: false,
+        connected: isConnected(),
+        reason: 'invalid_image_url',
+      });
+      return true;
+    }
+
+    downloadProtectedImageViaDesktopApp(
+      imageUrl,
+      pageUrl || sender.tab?.url || imageUrl,
+      null,
+      originalFilename,
+    ).then((result) => {
+      if (!result?.success) {
+        console.warn(
+          '[FlowSelect] save_image_from_page request was not completed:',
+          result?.data?.code || result?.message || 'unknown',
+        );
+      }
+
+      sendResponse({
+        success: Boolean(result?.success),
+        connected: isConnected(),
+        reason: result?.data?.code || null,
+      });
+    }).catch((error) => {
+      console.error('[FlowSelect] Failed to prepare page image save request:', error);
+      sendResponse({
+        success: false,
+        connected: isConnected(),
+        reason: 'prepare_failed',
+      });
+    });
+    return true;
   } else if (message.type === 'connect') {
     connect({ force: true });
     sendResponse({
@@ -1452,6 +1647,49 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       frameId: sender.frameId,
       imageUrl,
       pageUrl,
+    });
+    sendResponse({
+      success: true,
+    });
+    return true;
+  } else if (message.type === INTERNAL_REGISTER_XIAOHONGSHU_DRAG_MESSAGE) {
+    const token = typeof message.token === 'string' ? message.token.trim() : '';
+    const pageUrl = normalizeHttpUrl(message.pageUrl || sender.tab?.url);
+    const noteId = typeof message.noteId === 'string' && message.noteId.trim()
+      ? message.noteId.trim()
+      : null;
+    const imageUrl = normalizeHttpUrl(message.imageUrl);
+    const mediaType = typeof message.mediaType === 'string' && message.mediaType.trim()
+      ? message.mediaType.trim()
+      : null;
+    const tabId = sender.tab?.id;
+
+    if (!token || !pageUrl || typeof tabId !== 'number') {
+      sendResponse({
+        success: false,
+        reason: 'invalid_xiaohongshu_drag',
+      });
+      return true;
+    }
+
+    cleanupXiaohongshuDragRegistry();
+    xiaohongshuDragRegistry.set(token, {
+      tabId,
+      frameId: typeof sender.frameId === 'number' ? sender.frameId : undefined,
+      pageUrl,
+      noteId,
+      imageUrl,
+      mediaType,
+      createdAt: Date.now(),
+    });
+    console.info('[FlowSelect] Registered Xiaohongshu drag token:', {
+      token,
+      tabId,
+      frameId: sender.frameId,
+      pageUrl,
+      noteId,
+      imageUrl,
+      mediaType,
     });
     sendResponse({
       success: true,

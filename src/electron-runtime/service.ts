@@ -48,6 +48,7 @@ import {
   runPreparedVideoTranscodeTask,
   type PreparedVideoTranscodeTask,
 } from "./transcode.js";
+import { resolveXiaohongshuPageHints } from "./xiaohongshuPageHints.js";
 
 type PendingTask = {
   traceId: string;
@@ -403,9 +404,18 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
     traceId: string,
     label: string,
     sourcePath: string,
+    providerId: string,
+    engineId: EnginePlan["engine"],
     binaries: ReturnType<typeof resolveRuntimeBinaryPaths>,
   ): Promise<void> {
     try {
+      if (providerId === "xiaohongshu" && engineId === "direct") {
+        this.logger.log(
+          `>>> [ElectronRuntime] skipping transcode follow-up for ${traceId}: xiaohongshu direct asset`,
+        );
+        return;
+      }
+
       const prepared = await prepareVideoTranscodeTaskFromDownload({
         traceId,
         label,
@@ -552,6 +562,10 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       const resolvedOutputDir = resolveOutputDir(this.options.environment, config);
       outputDir = resolvedOutputDir;
       const binaries = resolveRuntimeBinaryPaths(this.options.environment);
+      activeTask.request = await resolveXiaohongshuPageHints(
+        activeTask.request,
+        this.options.environment.fetch ?? globalThis.fetch,
+      );
       const resolvedSiteHint = resolveSiteHint(
         activeTask.request.siteHint,
         activeTask.request.pageUrl,
@@ -585,9 +599,13 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
         preferredOutputStem,
         config,
       );
+      let executedProviderId: string | null = null;
+      let executedEngineId: EnginePlan["engine"] | null = null;
       const result = await this.orchestrator.execute(
         activeTask.request,
         (plan: ResolvedDownloadPlan, enginePlan: EnginePlan) => {
+          executedProviderId = plan.providerId;
+          executedEngineId = enginePlan.engine;
           const context: EngineExecutionContext = {
             traceId,
             plan,
@@ -610,7 +628,14 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       );
       await this.options.eventSink.emit("video-download-complete", result);
       if (result.success && result.file_path) {
-        void this.handleCompletedVideoSource(traceId, activeTask.label, result.file_path, binaries);
+        void this.handleCompletedVideoSource(
+          traceId,
+          activeTask.label,
+          result.file_path,
+          executedProviderId ?? "generic",
+          executedEngineId ?? "yt-dlp",
+          binaries,
+        );
       }
     } catch (error) {
       this.logger.log(`>>> [ElectronRuntime] task ${traceId} failed: ${String(error)}`);

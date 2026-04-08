@@ -53,6 +53,7 @@ import {
   inspectRuntimeDependencyStatus,
   releaseRenameStem,
   resetRenameSequenceState,
+  resolveXiaohongshuPageMedia,
   resolveRuntimeBinaryPaths,
   resolveRenameEnabled,
 } from "../src/electron-runtime/index.js";
@@ -130,6 +131,7 @@ const UI_LAB_WINDOW_HEIGHT = 560;
 const UI_LAB_WINDOW_GAP = 16;
 const WINDOW_EDGE_PADDING = 8;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15_000;
+const XIAOHONGSHU_DRAG_RESOLUTION_TIMEOUT_MS = 15_000;
 const YTDLP_PROGRESS_PREFIX = "__FLOWSELECT_PROGRESS__=";
 const YTDLP_FILE_PATH_PREFIX = "__FLOWSELECT_FILE_PATH__=";
 const YTDLP_FORMAT_SELECTOR_BEST = "bestvideo+bestaudio/best";
@@ -203,6 +205,7 @@ const wsClients = new Set();
 const pendingVideoDownloads = [];
 const activeVideoDownloads = new Map();
 const pendingProtectedImageRequests = new Map();
+const pendingXiaohongshuDragRequests = new Map();
 const ALLOWED_IMAGE_DOWNLOAD_REQUEST_HEADERS = new Set([
   "accept",
   "cookie",
@@ -3309,6 +3312,16 @@ function takePendingProtectedImageRequest(requestId) {
   return pending;
 }
 
+function takePendingXiaohongshuDragRequest(requestId) {
+  const pending = pendingXiaohongshuDragRequests.get(requestId);
+  if (!pending) {
+    return null;
+  }
+  pendingXiaohongshuDragRequests.delete(requestId);
+  clearTimeout(pending.timeoutId);
+  return pending;
+}
+
 async function requestProtectedImageResolution(payload) {
   if (wsClients.size === 0) {
     throw new Error("Browser extension is not connected");
@@ -3335,6 +3348,50 @@ async function requestProtectedImageResolution(payload) {
         pageUrl: payload.pageUrl ?? null,
         imageUrl: payload.imageUrl ?? null,
         targetDir: payload.targetDir ?? null,
+      },
+    });
+  });
+}
+
+async function requestXiaohongshuDragResolution(payload) {
+  if (wsClients.size === 0) {
+    throw new Error("Browser extension is not connected");
+  }
+
+  const requestId = nextOpaqueId("xiaohongshu-drag");
+  console.log(
+    ">>> [Xiaohongshu] Requesting extension-side drag resolution:",
+    JSON.stringify({
+      requestId,
+      pageUrl: payload.pageUrl ?? null,
+        noteId: payload.noteId ?? null,
+        imageUrl: payload.imageUrl ?? null,
+        mediaType: payload.mediaType ?? null,
+        hasToken: Boolean(payload.token),
+        wsClientCount: wsClients.size,
+      }),
+  );
+  return new Promise((resolveResolution, rejectResolution) => {
+    const timeoutId = setTimeout(() => {
+      pendingXiaohongshuDragRequests.delete(requestId);
+      rejectResolution(new Error("Xiaohongshu drag resolution timed out"));
+    }, XIAOHONGSHU_DRAG_RESOLUTION_TIMEOUT_MS);
+
+    pendingXiaohongshuDragRequests.set(requestId, {
+      resolveResolution,
+      rejectResolution,
+      timeoutId,
+    });
+
+    broadcastWsMessage({
+      action: "resolve_xiaohongshu_drag",
+      data: {
+        requestId,
+        token: payload.token,
+        pageUrl: payload.pageUrl ?? null,
+        noteId: payload.noteId ?? null,
+        imageUrl: payload.imageUrl ?? null,
+        mediaType: payload.mediaType ?? null,
       },
     });
   });
@@ -4684,6 +4741,61 @@ async function handleWsMessage(rawMessage) {
         data: withRequest(null),
       };
     }
+    case "xiaohongshu_drag_resolution_result": {
+      const correlationRequestId = normalizeOptionalString(
+        data?.correlationRequestId ?? data?.correlation_request_id,
+      );
+      if (!correlationRequestId) {
+        return {
+          success: false,
+          message: "Missing correlationRequestId",
+          data: withRequest("missing_correlation_request_id"),
+        };
+      }
+
+      const pending = takePendingXiaohongshuDragRequest(correlationRequestId);
+      if (!pending) {
+        return {
+          success: false,
+          message: "Unknown Xiaohongshu drag correlation request",
+          data: withRequest("unknown_correlation_request"),
+        };
+      }
+
+      pending.resolveResolution({
+        success: data?.success === true,
+        kind: normalizeOptionalString(data?.kind) ?? "unknown",
+        pageUrl: normalizeOptionalString(data?.pageUrl ?? data?.page_url),
+        imageUrl: normalizeOptionalString(data?.imageUrl ?? data?.image_url),
+        videoUrl: normalizeOptionalString(data?.videoUrl ?? data?.video_url),
+        videoCandidates: Array.isArray(data?.videoCandidates ?? data?.video_candidates)
+          ? normalizeVideoCandidates(data?.videoCandidates ?? data?.video_candidates, "xiaohongshu")
+          : [],
+        code: normalizeOptionalString(data?.code),
+        error: normalizeOptionalString(data?.error),
+      });
+      console.log(
+        ">>> [Xiaohongshu] Received extension-side drag resolution:",
+        JSON.stringify({
+          correlationRequestId,
+          success: data?.success === true,
+          kind: normalizeOptionalString(data?.kind) ?? "unknown",
+          pageUrl: normalizeOptionalString(data?.pageUrl ?? data?.page_url),
+          imageUrl: normalizeOptionalString(data?.imageUrl ?? data?.image_url),
+          videoUrl: normalizeOptionalString(data?.videoUrl ?? data?.video_url),
+          videoCandidatesCount: Array.isArray(data?.videoCandidates ?? data?.video_candidates)
+            ? (data?.videoCandidates ?? data?.video_candidates).length
+            : 0,
+          code: normalizeOptionalString(data?.code),
+          error: normalizeOptionalString(data?.error),
+        }),
+      );
+      return {
+        success: true,
+        message: "xiaohongshu_drag_resolution_received",
+        data: withRequest(null),
+      };
+    }
     case "video_selected_v2": {
       if (!data || typeof data !== "object") {
         return {
@@ -4838,6 +4950,89 @@ async function handleCommand(command, payload = {}) {
       return getRuntimeDependencyGateState();
     case "refresh_runtime_dependency_gate_state":
       return refreshRuntimeDependencyGateState();
+    case "resolve_xiaohongshu_drag_media": {
+      const pageUrl = typeof payload.pageUrl === "string"
+        ? payload.pageUrl
+        : typeof payload.page_url === "string"
+          ? payload.page_url
+          : undefined;
+      const noteId = typeof payload.noteId === "string"
+        ? payload.noteId
+        : typeof payload.note_id === "string"
+          ? payload.note_id
+          : undefined;
+      const imageUrl = typeof payload.imageUrl === "string"
+        ? payload.imageUrl
+        : typeof payload.image_url === "string"
+          ? payload.image_url
+          : undefined;
+      const token = typeof payload.token === "string" ? payload.token : undefined;
+      const mediaType = typeof payload.mediaType === "string"
+        ? payload.mediaType
+        : typeof payload.media_type === "string"
+          ? payload.media_type
+          : undefined;
+
+      if (token) {
+        try {
+          const resolvedViaExtension = await requestXiaohongshuDragResolution({
+            token,
+            pageUrl,
+            noteId,
+            imageUrl,
+            mediaType,
+          });
+          console.log(
+            ">>> [Xiaohongshu] Electron command resolved extension result:",
+            JSON.stringify({
+              pageUrl: pageUrl ?? String(payload.url ?? ""),
+              success: resolvedViaExtension?.success === true,
+              kind: resolvedViaExtension?.kind ?? "unknown",
+              imageUrl: resolvedViaExtension?.imageUrl ?? null,
+              videoUrl: resolvedViaExtension?.videoUrl ?? null,
+              videoCandidatesCount: resolvedViaExtension?.videoCandidates?.length ?? 0,
+            }),
+          );
+          if (resolvedViaExtension?.success) {
+            return {
+              kind: resolvedViaExtension.kind === "video" || resolvedViaExtension.kind === "image"
+                ? resolvedViaExtension.kind
+                : "unknown",
+              pageUrl: resolvedViaExtension.pageUrl ?? pageUrl ?? String(payload.url ?? ""),
+              imageUrl: resolvedViaExtension.imageUrl ?? imageUrl ?? null,
+              videoUrl: resolvedViaExtension.videoUrl ?? null,
+              videoCandidates: resolvedViaExtension.videoCandidates ?? [],
+            };
+          }
+        } catch (error) {
+          console.warn(
+            ">>> [Xiaohongshu] Extension drag resolution failed, falling back to desktop fetch:",
+            error,
+          );
+        }
+      }
+
+      console.log(
+        ">>> [Xiaohongshu] Falling back to desktop-side page resolution:",
+        JSON.stringify({
+              pageUrl: pageUrl ?? String(payload.url ?? ""),
+              noteId: noteId ?? null,
+              imageUrl: imageUrl ?? null,
+              mediaType: mediaType ?? null,
+              hasToken: Boolean(token),
+            }),
+          );
+
+      return resolveXiaohongshuPageMedia(
+        {
+          url: String(payload.url ?? ""),
+          pageUrl,
+          cookies: typeof payload.cookies === "string" ? payload.cookies : undefined,
+          siteHint: "xiaohongshu",
+        },
+        fetchWithDesktopSession as typeof fetch,
+      );
+    }
     case "start_runtime_dependency_bootstrap":
       return startRuntimeDependencyBootstrap(normalizeOptionalString(payload.reason) ?? undefined);
     case "check_ytdlp_version":
@@ -5112,6 +5307,11 @@ async function bootstrap() {
       pending.rejectResolution(new Error("FlowSelect is shutting down"));
     }
     pendingProtectedImageRequests.clear();
+    for (const pending of pendingXiaohongshuDragRequests.values()) {
+      clearTimeout(pending.timeoutId);
+      pending.rejectResolution(new Error("FlowSelect is shutting down"));
+    }
+    pendingXiaohongshuDragRequests.clear();
     if (wsServer) {
       wsServer.close();
       wsServer = null;
