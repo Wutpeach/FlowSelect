@@ -57,6 +57,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const statusText = document.getElementById("statusText");
   const statusCard = document.getElementById("statusCard");
   const statusHint = document.getElementById("statusHint");
+  const actionsSectionTitle = document.getElementById("actionsSectionTitle");
+  const downloadCurrentVideoButton = document.getElementById("downloadCurrentVideoButton");
+  const downloadCurrentVideoHint = document.getElementById("downloadCurrentVideoHint");
   const qualityGrid = document.getElementById("qualityGrid");
   const highestQualityHint = document.getElementById("highestQualityHint");
   const highestQualityHintText = document.getElementById("highestQualityHintText");
@@ -79,8 +82,17 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderStaticCopy() {
     popupTitle.textContent = t("app.name", "FlowSelect");
     popupSubtitle.textContent = t("popup.subtitle", "Extension");
+    actionsSectionTitle.textContent = t("popup.sections.actions", "Quick Action");
+    downloadCurrentVideoButton.textContent = t(
+      "popup.actions.downloadCurrent.label",
+      "Download Current Video",
+    );
     qualitySectionTitle.textContent = t("popup.sections.quality", "Quality");
     document.title = t("app.name", "FlowSelect");
+  }
+
+  function updateDownloadCurrentVideoHint(nextText) {
+    downloadCurrentVideoHint.textContent = nextText;
   }
 
   function getStatusCopy(state) {
@@ -198,6 +210,49 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  downloadCurrentVideoButton.addEventListener("click", async () => {
+    downloadCurrentVideoButton.disabled = true;
+    updateDownloadCurrentVideoHint(
+      t("popup.actions.downloadCurrent.working", "Finding the current video..."),
+    );
+
+    try {
+      const response = await sendRuntimeMessage({ type: "download_current_video" });
+      if (response?.success) {
+        updateDownloadCurrentVideoHint(
+          t("popup.actions.downloadCurrent.success", "Queued the current video in FlowSelect."),
+        );
+        return;
+      }
+
+      const reason = response?.reason;
+      if (reason === "no_video_found") {
+        updateDownloadCurrentVideoHint(
+          t("popup.actions.downloadCurrent.noVideo", "No active video was found on this page."),
+        );
+        return;
+      }
+
+      if (reason === "not_connected") {
+        updateDownloadCurrentVideoHint(
+          t("popup.actions.downloadCurrent.offline", "Open the desktop app before sending downloads."),
+        );
+        return;
+      }
+
+      updateDownloadCurrentVideoHint(
+        t("popup.actions.downloadCurrent.failed", "Couldn't queue the current video from this tab."),
+      );
+    } catch (error) {
+      console.error("[FlowSelect] Failed to trigger current video download:", error);
+      updateDownloadCurrentVideoHint(
+        t("popup.actions.downloadCurrent.failed", "Couldn't queue the current video from this tab."),
+      );
+    } finally {
+      downloadCurrentVideoButton.disabled = false;
+    }
+  });
+
   window.addEventListener("beforeunload", () => {
     if (statusTimer !== null) {
       clearInterval(statusTimer);
@@ -207,6 +262,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   void (async () => {
     await applyLanguage(await resolveInitialLanguage());
+    updateDownloadCurrentVideoHint(
+      t(
+        "popup.actions.downloadCurrent.hint",
+        "Use this when a page blocks the native video context menu.",
+      ),
+    );
 
     try {
       currentQualityPreference = await directDownloadQuality.getQualityPreference();

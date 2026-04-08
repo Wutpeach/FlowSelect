@@ -19,7 +19,19 @@
       }
     },
     "sections": {
+      "actions": "快捷操作",
       "quality": "画质"
+    },
+    "actions": {
+      "downloadCurrent": {
+        "label": "下载当前视频",
+        "hint": "当页面阻止原生视频右键菜单时，可用这里直接发送当前视频。",
+        "working": "正在定位当前视频...",
+        "success": "已将当前视频加入 FlowSelect 队列。",
+        "noVideo": "当前页面没有找到可用的视频。",
+        "offline": "请先打开桌面应用，再发送下载任务。",
+        "failed": "无法从当前标签页发送当前视频。"
+      }
     },
     "preferences": {
       "highest": {

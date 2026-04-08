@@ -1,7 +1,12 @@
 // FlowSelect Browser Extension - Background Service Worker
 // WebSocket client for communication with FlowSelect desktop app
 
-importScripts("direct-download-quality.js", "injection-debug-config.js", "video-selection-routing.js");
+importScripts(
+  "direct-download-quality.js",
+  "generic-video-selection-utils.js",
+  "injection-debug-config.js",
+  "video-selection-routing.js",
+);
 
 let ws = null;
 let reconnectAttempts = 0;
@@ -26,9 +31,12 @@ const WS_ACTION_GET_LANGUAGE = 'get_language';
 const WS_ACTION_LANGUAGE_INFO = 'language_info';
 const WS_ACTION_LANGUAGE_CHANGED = 'language_changed';
 const INTERNAL_VIDEO_SELECTION_MESSAGE = 'video_selection';
+const INTERNAL_RESOLVE_VIDEO_SELECTION_MESSAGE = 'flowselect_resolve_video_selection';
+const INTERNAL_RESOLVE_XIAOHONGSHU_CONTEXT_MEDIA_MESSAGE = 'resolve_xiaohongshu_context_media';
 const INTERNAL_PAGE_IMAGE_SELECTION_MESSAGE = 'save_image_from_page';
 const INTERNAL_REGISTER_XIAOHONGSHU_DRAG_MESSAGE = 'register_xiaohongshu_drag';
 const APP_VIDEO_SELECTION_ACTION = 'video_selected_v2';
+const CONTEXT_MENU_DOWNLOAD_VIDEO_ID = 'flowselect_download_video';
 const pendingRequests = new Map();
 const protectedImageDragRegistry = new Map();
 const xiaohongshuDragRegistry = new Map();
@@ -39,6 +47,7 @@ let lastConnectionIssue = OFFLINE_STATUS_TEXT;
 let currentTheme = 'black';
 let currentLanguage = resolvePreferredLanguage(undefined, self.navigator?.language);
 const directDownloadQuality = self.FlowSelectDirectDownloadQuality;
+const genericVideoSelectionUtils = self.FlowSelectGenericVideoSelectionUtils;
 const injectionDebugConfig = self.FlowSelectInjectionDebugConfig;
 const videoSelectionRouting = self.FlowSelectVideoSelectionRouting;
 const languageInitializationPromise = initializeLanguageState();
@@ -168,7 +177,42 @@ function setCurrentLanguage(nextLanguage, options = {}) {
     notifyLanguageUpdate();
   }
 
+  void ensureContextMenus();
+
   return currentLanguage;
+}
+
+function getContextMenuTitle() {
+  return currentLanguage === 'zh-CN'
+    ? '使用 FlowSelect 下载当前媒体'
+    : 'Download Current Media with FlowSelect';
+}
+
+function ensureContextMenus() {
+  if (!chrome?.contextMenus?.removeAll || !chrome?.contextMenus?.create) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create(
+        {
+          id: CONTEXT_MENU_DOWNLOAD_VIDEO_ID,
+          title: getContextMenuTitle(),
+          contexts: ['video', 'page', 'frame', 'link', 'image'],
+        },
+        () => {
+          if (chrome.runtime?.lastError) {
+            console.warn('[FlowSelect] Failed to create context menu:', chrome.runtime.lastError.message);
+            resolve(false);
+            return;
+          }
+
+          resolve(true);
+        },
+      );
+    });
+  });
 }
 
 async function initializeLanguageState() {
@@ -262,6 +306,180 @@ function notifyConnectionStatus() {
     state: connectionState(),
     statusText: connectionStatusText(),
   }).catch(() => {});
+}
+
+function normalizeMediaSelectionPayload(message) {
+  const requestedUrl = normalizeHttpUrl(message?.url);
+  const pageUrl = normalizeHttpUrl(message?.pageUrl);
+  const selectionScope = normalizeSelectionScope(message?.selectionScope) || 'current_item';
+  const videoCandidates = normalizeVideoCandidates(message?.videoCandidates);
+  const videoUrl = normalizeHttpUrl(message?.videoUrl);
+  const siteHint = deriveSiteHint([
+    message?.siteHint,
+    pageUrl,
+    requestedUrl,
+    videoUrl,
+  ]);
+  const clipStartSec = normalizeClipTimeSeconds(message?.clipStartSec);
+  const clipEndSec = normalizeClipTimeSeconds(message?.clipEndSec);
+
+  return {
+    requestedUrl,
+    pageUrl,
+    selectionScope,
+    videoCandidates,
+    videoUrl,
+    siteHint,
+    clipStartSec,
+    clipEndSec,
+    title: typeof message?.title === 'string' ? message.title : undefined,
+  };
+}
+
+function buildSelectionCandidateFromUrl(rawUrl, source = 'context_menu_src') {
+  const url = normalizeHttpUrl(rawUrl);
+  if (!url) {
+    return [];
+  }
+
+  const type = genericVideoSelectionUtils?.classifyVideoCandidateType
+    ? genericVideoSelectionUtils.classifyVideoCandidateType(url)
+    : 'indirect_media';
+
+  return [{
+    url,
+    type,
+    confidence: type === 'direct_mp4' ? 'high' : 'medium',
+    source,
+    mediaType: 'video',
+  }];
+}
+
+function isLikelyContentPageUrl(rawUrl) {
+  const normalized = normalizeHttpUrl(rawUrl);
+  if (!normalized) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.pathname === '/' || parsed.pathname === '') {
+      return false;
+    }
+
+    if (
+      /(?:^|\.)xiaohongshu\.com$/i.test(parsed.hostname)
+      && /^\/user\/profile\//i.test(parsed.pathname)
+    ) {
+      return false;
+    }
+
+    return !/\.(?:mp4|m4v|mov|webm|m3u8|mpd|jpg|jpeg|png|webp|gif|svg)(?:[?#]|$)/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isLikelyImageUrl(rawUrl) {
+  const normalized = normalizeHttpUrl(rawUrl);
+  if (!normalized) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    return (
+      /\.(?:jpg|jpeg|png|webp|gif|bmp|svg|avif)(?:[?#]|$)/i.test(parsed.pathname)
+      || /(?:imageView2|format\/(?:jpe?g|png|webp|gif)|notes_pre_post|!nc_)/i.test(normalized)
+      || (/xhscdn\.com/i.test(parsed.hostname) && !/\.(?:mp4|m4v|mov|m3u8|mpd)(?:[?#]|$)/i.test(normalized))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function buildContextMenuFallbackSelection(info, tab) {
+  const pageUrl = selectFirstHttpUrl(info?.linkUrl, info?.pageUrl, info?.frameUrl, tab?.url);
+  const directVideoUrl = normalizeHttpUrl(info?.srcUrl);
+  const routeUrl = isLikelyContentPageUrl(pageUrl) ? pageUrl : (directVideoUrl || pageUrl);
+  if (!routeUrl) {
+    return null;
+  }
+
+  return {
+    url: routeUrl,
+    pageUrl: pageUrl || routeUrl,
+    videoUrl: directVideoUrl || undefined,
+    videoCandidates: buildSelectionCandidateFromUrl(directVideoUrl, 'context_menu_src'),
+    title: typeof tab?.title === 'string' ? tab.title : undefined,
+    selectionScope: 'current_item',
+  };
+}
+
+function normalizeOriginalFilename(value) {
+  return typeof value === 'string' && value.trim()
+    ? value.trim()
+    : null;
+}
+
+function buildContextMenuImageSelection(info, tab) {
+  const imageUrl = normalizeHttpUrl(info?.srcUrl);
+  if (!imageUrl) {
+    return null;
+  }
+
+  const pageUrl = selectFirstHttpUrl(info?.linkUrl, info?.pageUrl, info?.frameUrl, tab?.url, imageUrl);
+  return {
+    url: imageUrl,
+    pageUrl: pageUrl || imageUrl,
+    originalFilename: normalizeOriginalFilename(info?.selectionText) || deriveFilenameFromUrl(imageUrl) || undefined,
+  };
+}
+
+function handlePageImageSelectionRequest(message, senderContext = {}) {
+  const imageUrl = normalizeHttpUrl(message?.url || message?.imageUrl);
+  const pageUrl = selectFirstHttpUrl(
+    message?.pageUrl,
+    message?.linkUrl,
+    senderContext.tabUrl,
+    imageUrl,
+  );
+  const originalFilename = normalizeOriginalFilename(message?.originalFilename);
+
+  if (!imageUrl) {
+    return Promise.resolve({
+      success: false,
+      connected: isConnected(),
+      reason: 'invalid_image_url',
+    });
+  }
+
+  return downloadProtectedImageViaDesktopApp(
+    imageUrl,
+    pageUrl || senderContext.tabUrl || imageUrl,
+    null,
+    originalFilename || undefined,
+  ).then((result) => {
+    if (!result?.success) {
+      console.warn(
+        '[FlowSelect] Image selection request was not completed:',
+        result?.data?.code || result?.message || 'unknown',
+      );
+    }
+
+    return {
+      success: Boolean(result?.success),
+      connected: isConnected(),
+      reason: result?.data?.code || null,
+    };
+  }).catch((error) => {
+    console.error('[FlowSelect] Failed to prepare image selection request:', error);
+    return {
+      success: false,
+      connected: isConnected(),
+      reason: 'prepare_failed',
+    };
+  });
 }
 
 function buildRequestFailure(code, requestId = null) {
@@ -1487,142 +1705,151 @@ async function getCookiesForUrl(url) {
   return '';
 }
 
+function handleVideoSelectionRequest(message, senderContext = {}) {
+  const normalized = normalizeMediaSelectionPayload(message);
+  const requestedUrl = normalized.requestedUrl;
+  const pageUrl = selectFirstHttpUrl(normalized.pageUrl, senderContext.tabUrl, requestedUrl);
+  const selectionScope = normalized.selectionScope;
+  const videoCandidates = normalized.videoCandidates;
+  const siteHint = deriveSiteHint([
+    normalized.siteHint,
+    pageUrl,
+    requestedUrl,
+    normalized.videoUrl,
+    senderContext.tabUrl,
+  ]);
+
+  return Promise.all([
+    getCookiesForUrl(pageUrl || requestedUrl || ''),
+    directDownloadQuality.getQualityPreference(),
+    injectionDebugConfig?.getEnabled ? injectionDebugConfig.getEnabled() : Promise.resolve(false),
+  ]).then(([cookies, qualityPreference, injectionDebugEnabled]) => {
+    console.info('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
+    const resolvedRouting = videoSelectionRouting?.resolveVideoSelectionRouting
+      ? videoSelectionRouting.resolveVideoSelectionRouting({
+          requestedUrl,
+          pageUrl,
+          senderTabUrl: senderContext.tabUrl,
+          fallbackUrl: message.url,
+        })
+      : {
+          routeUrl: requestedUrl || pageUrl || normalizeHttpUrl(senderContext.tabUrl) || normalizeHttpUrl(message.url),
+          pageUrl: pageUrl || normalizeHttpUrl(senderContext.tabUrl) || requestedUrl || normalizeHttpUrl(message.url),
+        };
+
+    const forwardedPayload = {
+      url: resolvedRouting.routeUrl || requestedUrl || message.url,
+      pageUrl: resolvedRouting.pageUrl || pageUrl || requestedUrl || message.pageUrl || senderContext.tabUrl || message.url,
+      siteHint,
+      title: normalized.title,
+      videoUrl: normalized.videoUrl,
+      videoCandidates,
+      selectionScope,
+      clipStartSec: normalized.clipStartSec,
+      clipEndSec: normalized.clipEndSec,
+      ytdlpQualityPreference: qualityPreference,
+      cookies,
+    };
+
+    if (injectionDebugEnabled) {
+      logInjectedVideoSelectionDebug(
+        'Injected video_selection request received',
+        {
+          ...summarizeVideoSelectionForDebug({
+            ...message,
+            pageUrl,
+            selectionScope,
+            siteHint,
+            clipStartSec: normalized.clipStartSec,
+            clipEndSec: normalized.clipEndSec,
+          }),
+          senderTabUrl: normalizeHttpUrl(senderContext.tabUrl) || null,
+        },
+      );
+      logInjectedVideoSelectionDebug(
+        'Forwarding video_selected_v2 payload',
+        summarizeVideoSelectionForDebug(forwardedPayload),
+      );
+    }
+
+    return queueVideoSelectionToApp(forwardedPayload);
+  }).then((result) => ({
+    success: Boolean(result?.success),
+    connected: isConnected(),
+    reason: result?.data?.code || null,
+  })).catch((error) => {
+    console.error('[FlowSelect] Failed to prepare video selection request:', error);
+    return {
+      success: false,
+      connected: isConnected(),
+      reason: 'prepare_failed',
+    };
+  });
+}
+
+async function getActiveTab() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tabs[0] || null;
+}
+
+async function requestResolvedVideoSelection(tabId, options = {}) {
+  try {
+    const response = await sendMessageToTab(
+      tabId,
+      {
+        type: INTERNAL_RESOLVE_VIDEO_SELECTION_MESSAGE,
+        source: options.source || 'popup',
+        requestedSrcUrl: options.requestedSrcUrl || undefined,
+      },
+      typeof options.frameId === 'number' ? { frameId: options.frameId } : {},
+    );
+
+    if (response?.success && response.payload && typeof response.payload === 'object') {
+      return response.payload;
+    }
+  } catch (error) {
+    console.warn('[FlowSelect] Failed to resolve in-tab video selection:', error);
+  }
+
+  return null;
+}
+
+async function requestResolvedXiaohongshuContextMedia(tabId, options = {}) {
+  try {
+    const response = await sendMessageToTab(
+      tabId,
+      {
+        type: INTERNAL_RESOLVE_XIAOHONGSHU_CONTEXT_MEDIA_MESSAGE,
+        source: options.source || 'context_menu',
+        linkUrl: options.linkUrl || undefined,
+        imageUrl: options.imageUrl || undefined,
+        frameUrl: options.frameUrl || undefined,
+        pageUrl: options.pageUrl || undefined,
+        mediaType: options.mediaType || undefined,
+      },
+      typeof options.frameId === 'number' ? { frameId: options.frameId } : {},
+    );
+
+    if (response?.success && response.payload && typeof response.payload === 'object') {
+      return response.payload;
+    }
+  } catch (error) {
+    console.warn('[FlowSelect] Failed to resolve Xiaohongshu context media:', error);
+  }
+
+  return null;
+}
+
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === INTERNAL_VIDEO_SELECTION_MESSAGE) {
-    // Get cookies and send to app
-    const requestedUrl = normalizeHttpUrl(message.url);
-    const pageUrl = selectFirstHttpUrl(message.pageUrl, sender.tab?.url, requestedUrl);
-    const selectionScope = normalizeSelectionScope(message.selectionScope);
-    const videoCandidates = normalizeVideoCandidates(message.videoCandidates);
-    const siteHint = deriveSiteHint([
-      message.siteHint,
-      pageUrl,
-      requestedUrl,
-      message.pageUrl,
-      message.videoUrl,
-      message.url,
-      sender.tab?.url,
-    ]);
-    const clipStartSec = normalizeClipTimeSeconds(message.clipStartSec);
-    const clipEndSec = normalizeClipTimeSeconds(message.clipEndSec);
-    Promise.all([
-      getCookiesForUrl(pageUrl || requestedUrl || ''),
-      directDownloadQuality.getQualityPreference(),
-      injectionDebugConfig?.getEnabled ? injectionDebugConfig.getEnabled() : Promise.resolve(false),
-    ]).then(([cookies, qualityPreference, injectionDebugEnabled]) => {
-      console.info('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
-      const resolvedRouting = videoSelectionRouting?.resolveVideoSelectionRouting
-        ? videoSelectionRouting.resolveVideoSelectionRouting({
-            requestedUrl,
-            pageUrl,
-            senderTabUrl: sender.tab?.url,
-            fallbackUrl: message.url,
-          })
-        : {
-            routeUrl: requestedUrl || pageUrl || normalizeHttpUrl(sender.tab?.url) || normalizeHttpUrl(message.url),
-            pageUrl: pageUrl || normalizeHttpUrl(sender.tab?.url) || requestedUrl || normalizeHttpUrl(message.url),
-          };
-      const rawVideoUrl = normalizeHttpUrl(message.videoUrl);
-      const forwardedPayload = {
-        url: resolvedRouting.routeUrl || requestedUrl || message.url,
-        pageUrl: resolvedRouting.pageUrl || pageUrl || requestedUrl || message.pageUrl || sender.tab?.url || message.url,
-        siteHint,
-        title: message.title,
-        videoUrl: rawVideoUrl,
-        videoCandidates,
-        selectionScope,
-        clipStartSec: clipStartSec,
-        clipEndSec: clipEndSec,
-        ytdlpQualityPreference: qualityPreference,
-        cookies: cookies
-      };
-
-      if (injectionDebugEnabled) {
-        logInjectedVideoSelectionDebug(
-          'Injected video_selection request received',
-          {
-            ...summarizeVideoSelectionForDebug({
-              ...message,
-              pageUrl,
-              selectionScope,
-              siteHint,
-              clipStartSec,
-              clipEndSec,
-            }),
-            senderTabUrl: normalizeHttpUrl(sender.tab?.url) || null,
-          },
-        );
-        logInjectedVideoSelectionDebug(
-          'Forwarding video_selected_v2 payload',
-          summarizeVideoSelectionForDebug(forwardedPayload),
-        );
-      }
-
-      return queueVideoSelectionToApp(forwardedPayload);
-    }).then((result) => {
-      if (!result?.success) {
-        console.warn(
-          '[FlowSelect] Video selection request was not queued:',
-          result?.data?.code || result?.message || 'unknown'
-        );
-      }
-
-      sendResponse({
-        success: Boolean(result?.success),
-        connected: isConnected(),
-        reason: result?.data?.code || null,
-      });
-    }).catch((error) => {
-      console.error('[FlowSelect] Failed to prepare video selection request:', error);
-      sendResponse({
-        success: false,
-        connected: isConnected(),
-        reason: 'prepare_failed',
-      });
-    });
+    handleVideoSelectionRequest(message, {
+      tabUrl: sender.tab?.url,
+    }).then(sendResponse);
   } else if (message.type === INTERNAL_PAGE_IMAGE_SELECTION_MESSAGE) {
-    const imageUrl = normalizeHttpUrl(message.url);
-    const pageUrl = selectFirstHttpUrl(message.pageUrl, sender.tab?.url, message.url);
-    const originalFilename = typeof message.originalFilename === 'string' && message.originalFilename.trim()
-      ? message.originalFilename.trim()
-      : null;
-
-    if (!imageUrl) {
-      sendResponse({
-        success: false,
-        connected: isConnected(),
-        reason: 'invalid_image_url',
-      });
-      return true;
-    }
-
-    downloadProtectedImageViaDesktopApp(
-      imageUrl,
-      pageUrl || sender.tab?.url || imageUrl,
-      null,
-      originalFilename,
-    ).then((result) => {
-      if (!result?.success) {
-        console.warn(
-          '[FlowSelect] save_image_from_page request was not completed:',
-          result?.data?.code || result?.message || 'unknown',
-        );
-      }
-
-      sendResponse({
-        success: Boolean(result?.success),
-        connected: isConnected(),
-        reason: result?.data?.code || null,
-      });
-    }).catch((error) => {
-      console.error('[FlowSelect] Failed to prepare page image save request:', error);
-      sendResponse({
-        success: false,
-        connected: isConnected(),
-        reason: 'prepare_failed',
-      });
-    });
+    handlePageImageSelectionRequest(message, {
+      tabUrl: sender.tab?.url,
+    }).then(sendResponse);
     return true;
   } else if (message.type === 'connect') {
     connect({ force: true });
@@ -1750,9 +1977,146 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ language: currentLanguage });
       });
     return true;
+  } else if (message.type === 'download_current_video') {
+    getActiveTab().then(async (tab) => {
+      if (!tab?.id) {
+        sendResponse({
+          success: false,
+          connected: isConnected(),
+          reason: 'no_active_tab',
+        });
+        return;
+      }
+
+      const resolvedSelection = await requestResolvedVideoSelection(tab.id, {
+        source: 'popup',
+      });
+
+      if (!resolvedSelection) {
+        sendResponse({
+          success: false,
+          connected: isConnected(),
+          reason: 'no_video_found',
+        });
+        return;
+      }
+
+      const result = await handleVideoSelectionRequest(resolvedSelection, {
+        tabUrl: tab.url,
+      });
+      sendResponse(result);
+    }).catch((error) => {
+      console.error('[FlowSelect] Failed to trigger current video download:', error);
+      sendResponse({
+        success: false,
+        connected: isConnected(),
+        reason: 'prepare_failed',
+      });
+    });
+    return true;
   }
   return true;
 });
+
+if (chrome?.contextMenus?.onClicked) {
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId !== CONTEXT_MENU_DOWNLOAD_VIDEO_ID || !tab?.id) {
+      return;
+    }
+
+    const siteHint = deriveSiteHint([
+      info?.linkUrl,
+      info?.srcUrl,
+      info?.pageUrl,
+      info?.frameUrl,
+      tab?.url,
+    ]);
+    const frameId = typeof info.frameId === 'number' ? info.frameId : undefined;
+    const normalizedMediaType = info?.mediaType === 'image' || info?.mediaType === 'video'
+      ? info.mediaType
+      : undefined;
+
+    void Promise.resolve().then(async () => {
+      if (siteHint === 'xiaohongshu') {
+        const resolvedMedia = await requestResolvedXiaohongshuContextMedia(tab.id, {
+          source: 'context_menu',
+          frameId,
+          linkUrl: info?.linkUrl,
+          imageUrl: info?.srcUrl,
+          frameUrl: info?.frameUrl,
+          pageUrl: info?.pageUrl,
+          mediaType: normalizedMediaType,
+        });
+
+        if (resolvedMedia?.kind === 'image' && resolvedMedia.imageUrl) {
+          return handlePageImageSelectionRequest({
+            url: resolvedMedia.imageUrl,
+            pageUrl: resolvedMedia.pageUrl || info?.linkUrl || info?.pageUrl,
+          }, {
+            tabUrl: tab.url,
+          });
+        }
+
+        if (resolvedMedia?.pageUrl) {
+          return handleVideoSelectionRequest({
+            url: resolvedMedia.videoUrl || resolvedMedia.pageUrl,
+            pageUrl: resolvedMedia.pageUrl,
+            videoUrl: resolvedMedia.videoUrl || null,
+            videoCandidates: resolvedMedia.videoCandidates || [],
+            title: resolvedMedia.title,
+            selectionScope: 'current_item',
+          }, {
+            tabUrl: tab.url,
+          });
+        }
+
+        if (isLikelyImageUrl(info?.srcUrl)) {
+          return handlePageImageSelectionRequest({
+            url: info.srcUrl,
+            pageUrl: info?.linkUrl || info?.pageUrl || info?.frameUrl || tab?.url,
+          }, {
+            tabUrl: tab.url,
+          });
+        }
+      }
+
+      if (normalizedMediaType === 'image' || isLikelyImageUrl(info?.srcUrl)) {
+        const imageSelection = buildContextMenuImageSelection(info, tab);
+        if (imageSelection) {
+          return handlePageImageSelectionRequest(imageSelection, {
+            tabUrl: tab.url,
+          });
+        }
+      }
+
+      const resolvedSelection = await requestResolvedVideoSelection(tab.id, {
+        source: 'context_menu',
+        requestedSrcUrl: info.srcUrl,
+        frameId,
+      });
+      const payload = resolvedSelection || buildContextMenuFallbackSelection(info, tab);
+      if (!payload) {
+        console.warn('[FlowSelect] Context menu selection could not be resolved');
+        return null;
+      }
+
+      return handleVideoSelectionRequest(payload, {
+        tabUrl: tab.url,
+      });
+    }).then((result) => {
+      if (!result || result.success) {
+        return;
+      }
+
+      console.warn(
+        '[FlowSelect] Context menu media request was not queued:',
+        result.reason || 'unknown',
+      );
+    }).catch((error) => {
+      console.error('[FlowSelect] Failed to queue context-menu media selection:', error);
+    });
+  });
+}
 
 if (chrome?.alarms?.onAlarm) {
   chrome.alarms.onAlarm.addListener((alarm) => {
@@ -1768,6 +2132,7 @@ if (chrome?.alarms?.onAlarm) {
 
 if (chrome?.runtime?.onStartup) {
   chrome.runtime.onStartup.addListener(() => {
+    void ensureContextMenus();
     connect({ force: true });
     void bootstrapDownloadPreferencesSync();
   });
@@ -1775,6 +2140,7 @@ if (chrome?.runtime?.onStartup) {
 
 if (chrome?.runtime?.onInstalled) {
   chrome.runtime.onInstalled.addListener(() => {
+    void ensureContextMenus();
     connect({ force: true });
     void bootstrapDownloadPreferencesSync();
   });
@@ -1799,5 +2165,6 @@ if (chrome?.storage?.onChanged) {
 
 // Auto-connect on startup
 clearExtensionInjectionDebugConfigOnDisconnect();
+void ensureContextMenus();
 connect();
 void bootstrapDownloadPreferencesSync();

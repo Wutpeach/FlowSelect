@@ -8,7 +8,8 @@
     "scripting",
     "cookies",
     "storage",
-    "alarms"
+    "alarms",
+    "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -38,35 +39,12 @@
         "<all_urls>"
       ],
       "js": [
+        "dom-injection-utils.js",
+        "generic-video-selection-utils.js",
+        "generic-video-detector.js",
         "protected-image-detector.js"
       ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://twitter.com/*",
-        "https://x.com/*"
-      ],
-      "js": [
-        "twitter-detector.js"
-      ],
-      "css": [
-        "flowselect-shared.css",
-        "twitter-button.css"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.douyin.com/*"
-      ],
-      "js": [
-        "douyin-detector.js"
-      ],
-      "css": [
-        "flowselect-shared.css",
-        "douyin-button.css"
-      ],
+      "all_frames": true,
       "run_at": "document_idle"
     },
     {
@@ -109,6 +87,18 @@
         "https://xhslink.com/*"
       ],
       "js": [
+        "xiaohongshu-contextmenu-guard.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://*.xiaohongshu.com/*",
+        "https://xiaohongshu.com/*",
+        "https://*.xhslink.com/*",
+        "https://xhslink.com/*"
+      ],
+      "js": [
         "xiaohongshu-detector.js"
       ],
       "css": [
@@ -128,52 +118,6 @@
       "css": [
         "flowselect-shared.css",
         "pinterest-button.css"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.zhihu.com/zvideo/*",
-        "https://zhihu.com/zvideo/*"
-      ],
-      "js": [
-        "zhihu-detector.js"
-      ],
-      "css": [
-        "flowselect-shared.css",
-        "zhihu-button.css"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.instagram.com/*",
-        "https://instagram.com/*"
-      ],
-      "js": [
-        "dom-injection-utils.js",
-        "instagram-detector.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://weibo.com/*",
-        "https://www.weibo.com/*",
-        "https://m.weibo.com/*",
-        "https://m.weibo.cn/*",
-        "https://video.weibo.com/*",
-        "https://weibo.cn/*"
-      ],
-      "js": [
-        "injection-debug-config.js",
-        "injection-debug-panel.js",
-        "control-style-utils.js",
-        "weibo-detector.js"
-      ],
-      "css": [
-        "flowselect-shared.css",
-        "weibo-button.css"
       ],
       "run_at": "document_idle"
     }

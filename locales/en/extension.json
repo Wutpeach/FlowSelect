@@ -19,7 +19,19 @@
       }
     },
     "sections": {
+      "actions": "Quick Action",
       "quality": "Quality"
+    },
+    "actions": {
+      "downloadCurrent": {
+        "label": "Download Current Video",
+        "hint": "Use this when a page blocks the native video context menu.",
+        "working": "Finding the current video...",
+        "success": "Queued the current video in FlowSelect.",
+        "noVideo": "No active video was found on this page.",
+        "offline": "Open the desktop app before sending downloads.",
+        "failed": "Couldn't queue the current video from this tab."
+      }
     },
     "preferences": {
       "highest": {

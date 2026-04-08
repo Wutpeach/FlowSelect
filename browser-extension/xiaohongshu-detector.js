@@ -10,16 +10,19 @@
   const DRAG_PAYLOAD_MIME = 'application/x-flowselect-xiaohongshu-drag';
   const INTERNAL_REGISTER_XIAOHONGSHU_DRAG_MESSAGE = 'register_xiaohongshu_drag';
   const RESOLVE_XIAOHONGSHU_DRAG_MESSAGE = 'resolve_xiaohongshu_drag';
+  const RESOLVE_XIAOHONGSHU_CONTEXT_MEDIA_MESSAGE = 'resolve_xiaohongshu_context_media';
+  const CONTEXT_SELECTION_TTL_MS = 10_000;
   const XIAOHONGSHU_FEED_API_PATH = '/api/sns/web/v1/feed';
   const XIAOHONGSHU_NOTE_DETAIL_PATH = '/api/sns/web/v1/note';
   const XIAOHONGSHU_IMAGE_SCENES = ['CRD_PRV_WEBP', 'CRD_WM_WEBP', 'CRD_WM_JPG'];
   const CAT_ICON_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" fill-rule="evenodd" d="M11.75 6.406c-1.48 0-1.628.157-2.394.157C8.718 6.563 6.802 5 5.845 5S3.77 5.563 3.77 7.188v1.875c.002.492.18 2 .88 1.597c-.827.978-.91 2.119-.899 3.223c-.223.064-.45.137-.671.212c-.684.234-1.41.532-1.737.744a.75.75 0 0 0 .814 1.26c.156-.101.721-.35 1.408-.585l.228-.075c.046.433.161.83.332 1.19l-.024.013c-.41.216-.79.465-1.032.623l-.113.074a.75.75 0 1 0 .814 1.26l.131-.086c.245-.16.559-.365.901-.545q.12-.064.231-.116C6.763 19.475 9.87 20 11.75 20s4.987-.525 6.717-2.148q.11.052.231.116c.342.18.656.385.901.545l.131.086a.75.75 0 0 0 .814-1.26l-.113-.074a13 13 0 0 0-1.032-.623l-.024-.013c.171-.36.286-.757.332-1.19l.228.075c.687.235 1.252.484 1.409.585a.75.75 0 0 0 .813-1.26c-.327-.212-1.053-.51-1.736-.744a16 16 0 0 0-.672-.213c.012-1.104-.072-2.244-.9-3.222c.7.403.88-1.105.881-1.598V7.188C19.73 5.563 18.613 5 17.655 5c-.957 0-2.873 1.563-3.51 1.563c-.767 0-.915-.157-2.395-.157m-.675 9.194c.202-.069.441-.1.675-.1s.473.031.676.1c.1.034.22.088.328.174a.62.62 0 0 1 .246.476c0 .23-.139.39-.246.476s-.229.14-.328.174c-.203.069-.442.1-.676.1s-.473-.031-.675-.1a1.1 1.1 0 0 1-.329-.174a.62.62 0 0 1-.246-.476c0-.23.139-.39.246-.476s.23-.14.329-.174m2.845-3.1c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812m-5.96 0c.137-.228.406-.5.81-.5s.674.272.81.5c.142.239.21.527.21.813s-.068.573-.21.811c-.136.229-.406.501-.81.501s-.673-.272-.81-.5a1.6 1.6 0 0 1-.21-.812c0-.286.068-.574.21-.812" clip-rule="evenodd"/>
   </svg>`;
+  let lastContextPayload = null;
+  const NOTE_LINK_SELECTOR = 'a[href*="/explore/"], a[href*="/discovery/item/"], a[href*="/user/profile/"]';
 
   function isVideoPage() {
-    return window.location.pathname.includes('/explore/') ||
-      window.location.pathname.includes('/discovery/item/');
+    return Boolean(normalizeNoteUrl(window.location.href));
   }
 
   function normalizeNoteUrl(url) {
@@ -28,10 +31,14 @@
 
     try {
       const parsed = new URL(normalized);
-      if (
-        !/\.?(xiaohongshu\.com|xhslink\.com)$/i.test(parsed.hostname)
-        || (!parsed.pathname.includes('/explore/') && !parsed.pathname.includes('/discovery/item/'))
-      ) {
+      if (!/\.?(xiaohongshu\.com|xhslink\.com)$/i.test(parsed.hostname)) {
+        return null;
+      }
+
+      const isLegacyNotePath =
+        parsed.pathname.includes('/explore/') || parsed.pathname.includes('/discovery/item/');
+      const profileNoteMatch = parsed.pathname.match(/^\/user\/profile\/[^/?#]+\/([a-zA-Z0-9]+)(?:[/?#]|$)/i);
+      if (!isLegacyNotePath && !profileNoteMatch) {
         return null;
       }
       parsed.search = '';
@@ -85,8 +92,10 @@
 
     try {
       const parsed = new URL(normalized);
-      const match = parsed.pathname.match(/\/(?:explore|discovery\/item)\/([a-zA-Z0-9]+)/i);
-      return normalizeNoteId(match?.[1] || null);
+      const match = parsed.pathname.match(
+        /\/(?:explore|discovery\/item)\/([a-zA-Z0-9]+)|^\/user\/profile\/[^/?#]+\/([a-zA-Z0-9]+)(?:[/?#]|$)/i,
+      );
+      return normalizeNoteId(match?.[1] || match?.[2] || null);
     } catch (_) {
       return null;
     }
@@ -467,7 +476,7 @@
       return isVideoPage() ? normalizeNoteUrl(window.location.href) : null;
     }
 
-    const anchor = target.closest('a[href*="/explore/"], a[href*="/discovery/item/"]');
+    const anchor = target.closest(NOTE_LINK_SELECTOR);
     if (anchor instanceof HTMLAnchorElement) {
       const pageUrl = normalizeNoteUrl(anchor.href);
       if (pageUrl) {
@@ -478,28 +487,85 @@
     return isVideoPage() ? normalizeNoteUrl(window.location.href) : null;
   }
 
+  function collectScopedNoteUrls(scope) {
+    if (!(scope instanceof Element)) {
+      return [];
+    }
+
+    const noteUrls = new Set();
+    if (scope instanceof HTMLAnchorElement) {
+      const normalized = normalizeNoteUrl(scope.href);
+      if (normalized) {
+        noteUrls.add(normalized);
+      }
+    }
+
+    for (const anchor of scope.querySelectorAll(NOTE_LINK_SELECTOR)) {
+      if (!(anchor instanceof HTMLAnchorElement)) {
+        continue;
+      }
+
+      const normalized = normalizeNoteUrl(anchor.href);
+      if (normalized) {
+        noteUrls.add(normalized);
+      }
+    }
+
+    return Array.from(noteUrls);
+  }
+
+  function isSingleNoteScope(scope, anchorPageUrl = null) {
+    const noteUrls = collectScopedNoteUrls(scope);
+    if (noteUrls.length === 0) {
+      return false;
+    }
+
+    if (noteUrls.length === 1) {
+      return !anchorPageUrl || noteUrls[0] === anchorPageUrl;
+    }
+
+    return false;
+  }
+
   function resolveDragScope(target) {
     if (!(target instanceof Element)) {
       return document.body;
     }
 
-    const anchor = target.closest('a[href*="/explore/"], a[href*="/discovery/item/"]');
+    const anchor = target.closest(NOTE_LINK_SELECTOR);
     if (!(anchor instanceof Element)) {
       return document.body;
     }
 
-    let current = anchor;
+    const anchorPageUrl = anchor instanceof HTMLAnchorElement
+      ? normalizeNoteUrl(anchor.href)
+      : null;
     let best = anchor;
-    for (let depth = 0; depth < 4 && current.parentElement; depth += 1) {
+    let current = anchor.parentElement;
+    const anchorRect = anchor.getBoundingClientRect();
+    const anchorArea = Math.max(anchorRect.width * anchorRect.height, 1);
+
+    for (let depth = 0; current && depth < 4; depth += 1) {
       const parent = current.parentElement;
-      if (!(parent instanceof HTMLElement)) {
+      if (!(current instanceof HTMLElement)) {
         break;
       }
-      const rect = parent.getBoundingClientRect();
+
+      const rect = current.getBoundingClientRect();
       if (rect.width < 120 || rect.height < 120) {
         break;
       }
-      best = parent;
+
+      const area = Math.max(rect.width * rect.height, 1);
+      if (area > anchorArea * 6) {
+        break;
+      }
+
+      if (!isSingleNoteScope(current, anchorPageUrl)) {
+        break;
+      }
+
+      best = current;
       current = parent;
     }
 
@@ -513,6 +579,7 @@
     if (noteId) {
       noteSelectors.push(`a[href*="/explore/${noteId}"]`);
       noteSelectors.push(`a[href*="/discovery/item/${noteId}"]`);
+      noteSelectors.push(`a[href*="/user/profile/"][href*="/${noteId}"]`);
     }
     if (pageUrl) {
       noteSelectors.push(`a[href="${pageUrl}"]`);
@@ -527,6 +594,14 @@
         const scope = resolveDragScope(anchor);
         const rect = scope.getBoundingClientRect();
         const area = Math.max(rect.width, 1) * Math.max(rect.height, 1);
+        const noteUrlCount = collectScopedNoteUrls(scope).length;
+        const visibleArea = Math.max(
+          0,
+          Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0),
+        ) * Math.max(
+          0,
+          Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0),
+        );
         const exactImageMatch = preferredImageUrl
           && normalizeXiaohongshuImageIdentity(resolveDraggedImageUrl(anchor, scope))
             === normalizeXiaohongshuImageIdentity(preferredImageUrl)
@@ -534,7 +609,11 @@
           : 0;
         candidates.push({
           scope,
-          score: area + (exactImageMatch ? 1_000_000 : 0),
+          score:
+            (exactImageMatch ? 1_000_000 : 0)
+            + Math.min(visibleArea, 200_000)
+            - Math.floor(area / 20)
+            - Math.max(0, noteUrlCount - 1) * 250_000,
         });
       }
     }
@@ -739,7 +818,7 @@
         }
       }
 
-      const anchor = target.closest('a[href*="/explore/"], a[href*="/discovery/item/"]');
+      const anchor = target.closest(NOTE_LINK_SELECTOR);
       if (anchor instanceof HTMLAnchorElement) {
         const anchorId = extractNoteIdFromUrl(anchor.href);
         if (anchorId) {
@@ -751,12 +830,32 @@
     return extractNoteIdFromUrl(pageUrl || window.location.href);
   }
 
-  function extractTitleFromScope(scope) {
+  function extractTitleFromScope(scope, options = {}) {
     if (scope instanceof Element) {
+      const headingSelectors = [
+        'h1',
+        'h2',
+        'h3',
+        '[data-note-title]',
+        '[class*="title"]',
+        '[class*="desc"]',
+      ];
+      for (const selector of headingSelectors) {
+        const element = scope.querySelector(selector);
+        const text = element?.textContent?.trim();
+        if (text) {
+          return text;
+        }
+      }
+
       const scopedTitle = scope.querySelector('img[alt]')?.getAttribute('alt');
       if (scopedTitle && scopedTitle.trim()) {
         return scopedTitle.trim();
       }
+    }
+
+    if (options.allowDocumentFallback === false) {
+      return null;
     }
 
     return extractTitle();
@@ -788,7 +887,7 @@
       videoCandidates,
       hasScopedVideoElement,
       mediaType,
-      title: extractTitleFromScope(scope),
+      title: extractTitleFromScope(scope, { allowDocumentFallback: false }),
     };
   }
 
@@ -1234,6 +1333,39 @@
     enrichDragDataTransfer(event, payload);
   }
 
+  function rememberContextPayload(event) {
+    const pageUrl = resolveDragPageUrl(event.target);
+    if (!pageUrl) {
+      lastContextPayload = null;
+      return;
+    }
+
+    const scope = resolveDragScope(event.target);
+    const payload = buildDragPayload(scope, pageUrl, event.target);
+    if (!payload?.pageUrl) {
+      lastContextPayload = null;
+      return;
+    }
+
+    lastContextPayload = {
+      ...payload,
+      createdAt: Date.now(),
+    };
+  }
+
+  function getFreshContextPayload() {
+    if (!lastContextPayload) {
+      return null;
+    }
+
+    if (Date.now() - lastContextPayload.createdAt > CONTEXT_SELECTION_TTL_MS) {
+      lastContextPayload = null;
+      return null;
+    }
+
+    return lastContextPayload;
+  }
+
   function extractVideoUrl(candidates = extractVideoCandidates()) {
     const bestDirect = candidates.find(
       (candidate) => candidate.type === 'direct_cdn' || candidate.type === 'direct_mp4'
@@ -1478,6 +1610,7 @@
     console.log('[FlowSelect XHS] Detector loaded at', window.location.href);
     ensureButton();
     document.addEventListener('dragstart', handleDragStart, true);
+    document.addEventListener('contextmenu', rememberContextPayload, true);
 
     const observer = new MutationObserver(() => ensureButton());
     observer.observe(document.documentElement, { childList: true, subtree: true });
@@ -1491,6 +1624,65 @@
     }, 800);
 
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type === RESOLVE_XIAOHONGSHU_CONTEXT_MEDIA_MESSAGE) {
+        const cached = getFreshContextPayload();
+        const pageUrl = normalizeNoteUrl(message.pageUrl)
+          || normalizeNoteUrl(message.linkUrl)
+          || cached?.pageUrl
+          || (isVideoPage() ? normalizeNoteUrl(window.location.href) : null);
+        const noteId = typeof message.noteId === 'string' && message.noteId
+          ? message.noteId
+          : cached?.noteId || extractNoteIdFromUrl(pageUrl);
+        const preferredImageUrl = resolveImageUrlCandidate(message.imageUrl)
+          || cached?.exactImageUrl
+          || cached?.imageUrl
+          || null;
+        const title = cached?.title || null;
+
+        if (!pageUrl) {
+          sendResponse({
+            success: false,
+            code: 'xiaohongshu_context_note_missing',
+          });
+          return true;
+        }
+
+        console.log('[FlowSelect XHS] Resolving context media in content script', {
+          pageUrl,
+          noteId,
+          preferredImageUrl,
+          mediaType: message.mediaType || cached?.mediaType || null,
+        });
+
+        void resolveXiaohongshuMedia({
+          pageUrl,
+          noteId,
+          preferredImageUrl,
+          expectedMediaType:
+            message.mediaType === 'image' || message.mediaType === 'video'
+              ? message.mediaType
+              : cached?.mediaType || null,
+        }).then((result) => {
+          sendResponse({
+            success: true,
+            payload: {
+              ...result,
+              pageUrl: result?.pageUrl || pageUrl,
+              title,
+            },
+          });
+        }).catch((error) => {
+          console.warn('[FlowSelect XHS] Failed to resolve context media in content script', error);
+          sendResponse({
+            success: false,
+            code: 'xiaohongshu_context_resolution_failed',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+
+        return true;
+      }
+
       if (message?.type !== RESOLVE_XIAOHONGSHU_DRAG_MESSAGE) {
         return true;
       }
