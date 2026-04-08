@@ -49,6 +49,20 @@
     },
     {
       "matches": [
+        "https://twitter.com/*",
+        "https://x.com/*"
+      ],
+      "js": [
+        "twitter-detector.js"
+      ],
+      "css": [
+        "flowselect-shared.css",
+        "twitter-button.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
         "https://www.youtube.com/*",
         "https://youtube.com/*"
       ],

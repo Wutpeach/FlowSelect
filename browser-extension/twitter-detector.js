@@ -67,6 +67,7 @@
     chrome.runtime.sendMessage({
       type: 'video_selection',
       url: tweetUrl,
+      pageUrl: tweetUrl,
       title: document.title
     });
   }

@@ -228,39 +228,113 @@
     const videoId = getVideoId();
     if (!videoId) return;
 
-    const controlsSelectors = [
-      '.bpx-player-control-bottom-right',
-      '.bilibili-player-video-control-bottom-right',
-      '.squirtle-controller-wrap-right',
-    ];
-
-    let controls = null;
-    for (const selector of controlsSelectors) {
-      controls = document.querySelector(selector);
-      if (controls) break;
-    }
+    const controls = findControlContainer();
 
     if (!controls) return;
-    if (controls.hasAttribute(PROCESSED_ATTR)) return;
+
+    if (controls.hasAttribute(PROCESSED_ATTR)) {
+      if (hasInjectedButtons(controls)) {
+        return;
+      }
+      controls.removeAttribute(PROCESSED_ATTR);
+    }
 
     const nativeBaseClass = getNativeControlButtonBaseClass(controls);
-    if (!isControlBarReady(controls, nativeBaseClass)) return;
+    if (!isControlBarReady(controls, nativeBaseClass)) {
+      console.info('[FlowSelect Bilibili] Control bar container found before native controls settle');
+    }
 
     console.log('[FlowSelect Bilibili] Video detected:', videoId);
     injectControlButtons(controls, nativeBaseClass);
     controls.setAttribute(PROCESSED_ATTR, 'true');
+    verifyInjectedButtonsPersist(controls);
+  }
+
+  function findControlContainer() {
+    const controlsSelectors = [
+      '.bpx-player-control-bottom-right',
+      '.bpx-player-control-wrap .bpx-player-control-bottom-right',
+      '.bpx-player-control-wrap-right',
+      '.bilibili-player-video-control-bottom-right',
+      '.squirtle-controller-wrap-right',
+      '[class*="player-control-bottom-right"]',
+      '[class*="controller-wrap-right"]',
+    ];
+
+    for (const selector of controlsSelectors) {
+      const match = document.querySelector(selector);
+      if (match instanceof HTMLElement) {
+        return match;
+      }
+    }
+
+    const nativeButton = findNativeControlButtonCandidate();
+    if (nativeButton) {
+      return resolveControlContainerFromNativeButton(nativeButton);
+    }
+
+    return null;
+  }
+
+  function findNativeControlButtonCandidate() {
+    const nativeButtonSelectors = [
+      '.bpx-player-ctrl-btn',
+      '.bilibili-player-video-btn',
+      '[class*="player-ctrl-btn"]',
+      '[class*="video-btn"]',
+    ];
+
+    for (const selector of nativeButtonSelectors) {
+      const match = document.querySelector(selector);
+      if (match instanceof HTMLElement) {
+        return match;
+      }
+    }
+
+    return null;
+  }
+
+  function resolveControlContainerFromNativeButton(button) {
+    if (!(button instanceof HTMLElement)) {
+      return null;
+    }
+
+    let current = button.parentElement;
+    let depth = 0;
+    while (current instanceof HTMLElement && depth < 6) {
+      const className = typeof current.className === 'string' ? current.className.toLowerCase() : '';
+      const looksLikeControlContainer =
+        className.includes('control') ||
+        className.includes('controller') ||
+        className.includes('bottom-right') ||
+        className.includes('wrap-right');
+
+      if (looksLikeControlContainer && isRenderableControlBarFallback(current)) {
+        return current;
+      }
+
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return button.parentElement instanceof HTMLElement ? button.parentElement : null;
   }
 
   function isControlBarReady(container, nativeBaseClass) {
     if (controlStyleUtils?.isControlBarReady) {
-      return controlStyleUtils.isControlBarReady(container, {
+      if (controlStyleUtils.isControlBarReady(container, {
         excludeClasses: BUTTON_CLASSES,
         requiredClass: nativeBaseClass || null,
-      });
+      })) {
+        return true;
+      }
     }
 
     return isRenderableControlBarFallback(container) &&
-      hasRenderableNativeControlChildFallback(container, nativeBaseClass);
+      (
+        hasRenderableNativeControlChildFallback(container, nativeBaseClass) ||
+        hasRenderableNativeControlDescendantFallback(container, nativeBaseClass)
+      );
   }
 
   function isRenderableControlBarFallback(controls) {
@@ -310,10 +384,70 @@
     });
   }
 
+  function hasRenderableNativeControlDescendantFallback(container, nativeBaseClass) {
+    if (!(container instanceof HTMLElement) || typeof container.querySelectorAll !== 'function') {
+      return false;
+    }
+
+    const descendants = Array.from(container.querySelectorAll('*')).filter((node) => (
+      node instanceof HTMLElement && node !== container
+    ));
+    if (descendants.length === 0) {
+      return false;
+    }
+
+    return descendants.some((node) => {
+      const isInjectedButton = BUTTON_CLASSES.some((className) => node.classList.contains(className));
+      if (isInjectedButton) {
+        return false;
+      }
+
+      const matchesNativeClass = nativeBaseClass
+        ? node.classList.contains(nativeBaseClass)
+        : false;
+      const looksInteractive = node.tagName === 'BUTTON' || node.getAttribute('role') === 'button';
+      if (!matchesNativeClass && !looksInteractive) {
+        return false;
+      }
+
+      const style = window.getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return false;
+      }
+
+      const rect = node.getBoundingClientRect();
+      return rect.width >= 8 && rect.height >= 8;
+    });
+  }
+
   function removeInjectedButtons() {
     for (const className of BUTTON_CLASSES) {
       document.querySelectorAll(`.${className}`).forEach((el) => el.remove());
     }
+  }
+
+  function hasInjectedButtons(container) {
+    if (!(container instanceof HTMLElement) || typeof container.querySelector !== 'function') {
+      return false;
+    }
+
+    return BUTTON_CLASSES.some((className) => container.querySelector(`.${className}`));
+  }
+
+  function verifyInjectedButtonsPersist(container) {
+    window.setTimeout(() => {
+      if (!(container instanceof HTMLElement) || !container.isConnected) {
+        return;
+      }
+
+      if (hasInjectedButtons(container)) {
+        return;
+      }
+
+      console.info('[FlowSelect Bilibili] Native rerender removed injected buttons, retrying');
+      container.removeAttribute(PROCESSED_ATTR);
+      detectVideoPlayer();
+    }, 300);
   }
 
   function getClipPointButtonTitle(pointLabel, seconds) {
@@ -643,8 +777,12 @@
       /^squirtle.*btn$/,
     ];
 
-    const children = Array.from(container.children);
-    for (const child of children) {
+    const candidates = [
+      ...Array.from(container.children),
+      ...(typeof container.querySelectorAll === 'function' ? Array.from(container.querySelectorAll('*')) : []),
+    ];
+
+    for (const child of candidates) {
       if (!(child instanceof HTMLElement)) continue;
       for (const className of child.classList) {
         if (baseClassPatterns.some((pattern) => pattern.test(className))) {
@@ -1089,5 +1227,18 @@
     });
   } else {
     void init();
+  }
+
+  if (typeof window !== 'undefined') {
+    window.FlowSelectBilibiliDetectorTestHooks = {
+      findControlContainer,
+      findNativeControlButtonCandidate,
+      resolveControlContainerFromNativeButton,
+      hasInjectedButtons,
+      isControlBarReady,
+      hasRenderableNativeControlChildFallback,
+      hasRenderableNativeControlDescendantFallback,
+      isRenderableControlBarFallback,
+    };
   }
 })();
