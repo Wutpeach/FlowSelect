@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { existsSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +10,38 @@ import { youtubeProvider } from "../sites/youtube";
 
 const { probeYtDlpMetadataTitleMock } = vi.hoisted(() => ({
   probeYtDlpMetadataTitleMock: vi.fn<() => Promise<string | undefined>>(async () => undefined),
+}));
+
+const { probeGalleryDlMetadataTitleMock } = vi.hoisted(() => ({
+  probeGalleryDlMetadataTitleMock: vi.fn<() => Promise<string | undefined>>(async () => undefined),
+}));
+
+const {
+  resolveGalleryDlMetadataTitleFromSidecarsMock,
+  cleanupGalleryDlMetadataSidecarsMock,
+} = vi.hoisted(() => ({
+  resolveGalleryDlMetadataTitleFromSidecarsMock: vi.fn<() => Promise<string | undefined>>(async () => undefined),
+  cleanupGalleryDlMetadataSidecarsMock: vi.fn(async (
+    outputDir: string,
+    outputStem: string,
+    filePath?: string,
+  ) => {
+    const candidates = [
+      `${outputStem}.info.json`,
+      `${outputStem}.json`,
+      filePath ? `${path.parse(filePath).name}.info.json` : null,
+      filePath ? `${path.parse(filePath).name}.json` : null,
+      "info.json",
+    ].filter((entry): entry is string => Boolean(entry));
+
+    for (const entry of candidates) {
+      try {
+        unlinkSync(path.join(outputDir, entry));
+      } catch {
+        // Ignore missing sidecars in tests.
+      }
+    }
+  }),
 }));
 
 const {
@@ -24,6 +56,12 @@ vi.mock("./ytDlpMetadata.js", () => ({
   probeYtDlpMetadataTitle: probeYtDlpMetadataTitleMock,
 }));
 
+vi.mock("./galleryDlMetadata.js", () => ({
+  probeGalleryDlMetadataTitle: probeGalleryDlMetadataTitleMock,
+  resolveGalleryDlMetadataTitleFromSidecars: resolveGalleryDlMetadataTitleFromSidecarsMock,
+  cleanupGalleryDlMetadataSidecars: cleanupGalleryDlMetadataSidecarsMock,
+}));
+
 vi.mock("./transcode.js", () => ({
   prepareVideoTranscodeTaskFromDownload: prepareVideoTranscodeTaskFromDownloadMock,
   runPreparedVideoTranscodeTask: runPreparedVideoTranscodeTaskMock,
@@ -33,6 +71,7 @@ import { createElectronDownloadRuntime } from "./service";
 import type { RuntimeEmitterEvent } from "./contracts";
 import { resetRenameSequenceState } from "./renameRules";
 import { bilibiliProvider } from "../sites/bilibili";
+import { galleryDlSupportedProvider } from "../sites/gallery-dl-supported";
 
 const waitFor = async (
   predicate: () => boolean,
@@ -98,6 +137,11 @@ const createRuntime = (options: {
 describe("FlowSelectElectronDownloadRuntime", () => {
   afterEach(() => {
     resetRenameSequenceState();
+    probeGalleryDlMetadataTitleMock.mockReset();
+    probeGalleryDlMetadataTitleMock.mockResolvedValue(undefined);
+    resolveGalleryDlMetadataTitleFromSidecarsMock.mockReset();
+    resolveGalleryDlMetadataTitleFromSidecarsMock.mockResolvedValue(undefined);
+    cleanupGalleryDlMetadataSidecarsMock.mockClear();
     probeYtDlpMetadataTitleMock.mockReset();
     probeYtDlpMetadataTitleMock.mockResolvedValue(undefined);
     prepareVideoTranscodeTaskFromDownloadMock.mockReset();
@@ -268,6 +312,144 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     await waitFor(() => routes.length > 0);
     expect(routes).toHaveLength(1);
     expect(routes[0]?.startsWith("gallery:")).toBe(true);
+  });
+
+  it("does not block gallery-dl downloads on a pre-download metadata probe", async () => {
+    const outputStems: string[] = [];
+
+    const runtime = createRuntime({
+      providers: [galleryDlSupportedProvider, genericProvider],
+      engines: [
+        createEngineStub("gallery-dl", async (context) => {
+          outputStems.push(context.outputStem);
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: `${context.outputDir}/${context.outputStem}.mp4`,
+          };
+        }),
+      ],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.instagram.com/p/C7example/",
+      pageUrl: "https://www.instagram.com/p/C7example/",
+      title: "Instagram",
+    });
+
+    await waitFor(() => outputStems.length === 1);
+    expect(probeGalleryDlMetadataTitleMock).not.toHaveBeenCalled();
+    expect(outputStems).toEqual(["Instagram"]);
+  });
+
+  it("renames gallery-dl downloads from info-json metadata after completion", async () => {
+    const tempDir = path.join(
+      os.tmpdir(),
+      `flowselect-gallerydl-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    );
+    const completions: Array<{ file_path?: string; success: boolean }> = [];
+    resolveGalleryDlMetadataTitleFromSidecarsMock.mockResolvedValue("alice - Sunset over the lake");
+
+    const runtime = createRuntime({
+      configString: JSON.stringify({ outputPath: tempDir }),
+      providers: [galleryDlSupportedProvider, genericProvider],
+      engines: [
+        createEngineStub("gallery-dl", async (context) => {
+          const filePath = path.join(context.outputDir, `${context.outputStem}.mp4`);
+          writeFileSync(filePath, "video");
+          writeFileSync(
+            path.join(context.outputDir, `${context.outputStem}.info.json`),
+            JSON.stringify({
+              title: "Instagram",
+              user: { username: "alice" },
+              content: "Sunset over the lake",
+            }),
+          );
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: filePath,
+          };
+        }),
+      ],
+      onEmit(event, payload) {
+        if (event === "video-download-complete") {
+          completions.push(payload as { file_path?: string; success: boolean });
+        }
+      },
+    });
+
+    try {
+      await runtime.queueVideoDownload({
+        url: "https://www.instagram.com/p/C7example/",
+        pageUrl: "https://www.instagram.com/p/C7example/",
+        title: "Instagram",
+      });
+
+      await waitFor(() => completions.length === 1);
+      expect(completions[0]).toMatchObject({
+        success: true,
+        file_path: expect.stringMatching(/alice - Sunset over the lake\.mp4$/),
+      });
+      expect(existsSync(path.join(tempDir, "Instagram.info.json"))).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("removes generic gallery-dl info.json sidecars after completion", async () => {
+    const tempDir = path.join(
+      os.tmpdir(),
+      `flowselect-gallerydl-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    );
+    const completions: Array<{ file_path?: string; success: boolean }> = [];
+    resolveGalleryDlMetadataTitleFromSidecarsMock.mockResolvedValue("karl_shakur - DW1rwBtlnR9");
+
+    const runtime = createRuntime({
+      configString: JSON.stringify({ outputPath: tempDir }),
+      providers: [galleryDlSupportedProvider, genericProvider],
+      engines: [
+        createEngineStub("gallery-dl", async (context) => {
+          const filePath = path.join(context.outputDir, `${context.outputStem}.mp4`);
+          writeFileSync(filePath, "video");
+          writeFileSync(
+            path.join(context.outputDir, "info.json"),
+            JSON.stringify({
+              post_shortcode: "DW1rwBtlnR9",
+              username: "karl_shakur",
+              description: "Long caption that should not become the final filename.",
+            }),
+          );
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: filePath,
+          };
+        }),
+      ],
+      onEmit(event, payload) {
+        if (event === "video-download-complete") {
+          completions.push(payload as { file_path?: string; success: boolean });
+        }
+      },
+    });
+
+    try {
+      await runtime.queueVideoDownload({
+        url: "https://www.instagram.com/reel/DW1rwBtlnR9/",
+        pageUrl: "https://www.instagram.com/reel/DW1rwBtlnR9/",
+        title: "Instagram",
+      });
+
+      await waitFor(() => completions.length === 1);
+      expect(completions[0]).toMatchObject({
+        success: true,
+        file_path: expect.stringMatching(/karl_shakur - DW1rwBtlnR9\.mp4$/),
+      });
+      expect(existsSync(path.join(tempDir, "info.json"))).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("prefers direct for a Pinterest page with a verified direct asset", async () => {

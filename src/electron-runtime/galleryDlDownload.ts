@@ -121,6 +121,7 @@ export const runGalleryDlDownload = async (
   const beforeFiles = new Set(await collectTaskArtifacts(context.outputDir, context.outputStem));
   const args = [
     "--config-ignore",
+    "--write-info-json",
     "--directory",
     context.outputDir,
     "--filename",

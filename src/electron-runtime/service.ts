@@ -1,3 +1,6 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
 import type {
   ElectronDownloadRuntime,
   ElectronDownloadRuntimeOptions,
@@ -18,6 +21,10 @@ import {
   releaseRenameStem,
   resolveRenameEnabled,
 } from "./renameRules.js";
+import {
+  cleanupGalleryDlMetadataSidecars,
+  resolveGalleryDlMetadataTitleFromSidecars,
+} from "./galleryDlMetadata.js";
 import { probeYtDlpMetadataTitle } from "./ytDlpMetadata.js";
 import type {
   DownloadResultPayload,
@@ -601,7 +608,7 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       );
       let executedProviderId: string | null = null;
       let executedEngineId: EnginePlan["engine"] | null = null;
-      const result = await this.orchestrator.execute(
+      let result = await this.orchestrator.execute(
         activeTask.request,
         (plan: ResolvedDownloadPlan, enginePlan: EnginePlan) => {
           executedProviderId = plan.providerId;
@@ -626,6 +633,50 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
             : context;
         },
       );
+      if (result.success && result.file_path && executedEngineId === "gallery-dl") {
+        const originalFilePath = result.file_path;
+        const metadataTitle = await resolveGalleryDlMetadataTitleFromSidecars(
+          resolvedOutputDir,
+          outputStem,
+          originalFilePath,
+        );
+        if (metadataTitle) {
+          const preferredMetadataStem = buildOutputStem(
+            traceId,
+            activeTask.request.pageUrl ?? activeTask.request.url,
+            config,
+            metadataTitle,
+            activeTask.request.siteHint,
+          );
+          if (preferredMetadataStem !== outputStem) {
+            const renamedOutputStem = await resolveAvailableOutputStem(
+              resolvedOutputDir,
+              preferredMetadataStem,
+              Array.from(this.reservedOutputStems.values()).filter((stem) => stem !== outputStem),
+            );
+            const renamedFilePath = path.join(
+              path.dirname(result.file_path),
+              `${renamedOutputStem}${path.extname(result.file_path)}`,
+            );
+            if (renamedFilePath !== result.file_path) {
+              await fs.rename(result.file_path, renamedFilePath);
+              this.reservedOutputStems.set(traceId, renamedOutputStem);
+              activeTask.request.title = metadataTitle;
+              activeTask.label = queueTaskLabel(activeTask.request);
+              await this.emitQueueState();
+              result = {
+                ...result,
+                file_path: renamedFilePath,
+              };
+            }
+          }
+        }
+        await cleanupGalleryDlMetadataSidecars(
+          resolvedOutputDir,
+          outputStem,
+          originalFilePath,
+        );
+      }
       await this.options.eventSink.emit("video-download-complete", result);
       if (result.success && result.file_path) {
         void this.handleCompletedVideoSource(
