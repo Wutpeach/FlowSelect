@@ -1,7 +1,7 @@
 // FlowSelect Browser Extension - Background Service Worker
 // WebSocket client for communication with FlowSelect desktop app
 
-importScripts("direct-download-quality.js", "injection-debug-config.js");
+importScripts("direct-download-quality.js", "injection-debug-config.js", "video-selection-routing.js");
 
 let ws = null;
 let reconnectAttempts = 0;
@@ -40,6 +40,7 @@ let currentTheme = 'black';
 let currentLanguage = resolvePreferredLanguage(undefined, self.navigator?.language);
 const directDownloadQuality = self.FlowSelectDirectDownloadQuality;
 const injectionDebugConfig = self.FlowSelectInjectionDebugConfig;
+const videoSelectionRouting = self.FlowSelectVideoSelectionRouting;
 const languageInitializationPromise = initializeLanguageState();
 
 function isEnglishVariant(normalized) {
@@ -1490,8 +1491,8 @@ async function getCookiesForUrl(url) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === INTERNAL_VIDEO_SELECTION_MESSAGE) {
     // Get cookies and send to app
-    const pageUrl = selectFirstHttpUrl(message.pageUrl, sender.tab?.url, message.url);
-    const requestedUrl = selectFirstHttpUrl(message.url, pageUrl);
+    const requestedUrl = normalizeHttpUrl(message.url);
+    const pageUrl = selectFirstHttpUrl(message.pageUrl, sender.tab?.url, requestedUrl);
     const selectionScope = normalizeSelectionScope(message.selectionScope);
     const videoCandidates = normalizeVideoCandidates(message.videoCandidates);
     const siteHint = deriveSiteHint([
@@ -1511,11 +1512,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       injectionDebugConfig?.getEnabled ? injectionDebugConfig.getEnabled() : Promise.resolve(false),
     ]).then(([cookies, qualityPreference, injectionDebugEnabled]) => {
       console.info('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
-      const routeUrl = pageUrl || requestedUrl || message.url;
+      const resolvedRouting = videoSelectionRouting?.resolveVideoSelectionRouting
+        ? videoSelectionRouting.resolveVideoSelectionRouting({
+            requestedUrl,
+            pageUrl,
+            senderTabUrl: sender.tab?.url,
+            fallbackUrl: message.url,
+          })
+        : {
+            routeUrl: requestedUrl || pageUrl || normalizeHttpUrl(sender.tab?.url) || normalizeHttpUrl(message.url),
+            pageUrl: pageUrl || normalizeHttpUrl(sender.tab?.url) || requestedUrl || normalizeHttpUrl(message.url),
+          };
       const rawVideoUrl = normalizeHttpUrl(message.videoUrl);
       const forwardedPayload = {
-        url: routeUrl || requestedUrl || message.url,
-        pageUrl: pageUrl || requestedUrl || message.pageUrl || sender.tab?.url || message.url,
+        url: resolvedRouting.routeUrl || requestedUrl || message.url,
+        pageUrl: resolvedRouting.pageUrl || pageUrl || requestedUrl || message.pageUrl || sender.tab?.url || message.url,
         siteHint,
         title: message.title,
         videoUrl: rawVideoUrl,
