@@ -5,6 +5,7 @@ export type KnownSiteHint =
   | "douyin"
   | "xiaohongshu"
   | "pinterest"
+  | "weibo"
   | "generic";
 
 export const normalizeSiteHint = (
@@ -40,6 +41,9 @@ export const normalizeSiteHint = (
       return "xiaohongshu";
     case "pinterest":
       return "pinterest";
+    case "weibo":
+    case "weibo.cn":
+      return "weibo";
     case "generic":
       return "generic";
     default:
@@ -90,6 +94,15 @@ export const detectSiteHintFromUrl = (
     || lower.includes("pinimg.com/")
   ) {
     return "pinterest";
+  }
+  if (
+    lower.includes("weibo.com/")
+    || lower.includes("weibo.cn/")
+    || lower.includes("m.weibo.com/")
+    || lower.includes("m.weibo.cn/")
+    || lower.includes("video.weibo.com/")
+  ) {
+    return "weibo";
   }
 
   return undefined;

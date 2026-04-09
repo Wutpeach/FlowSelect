@@ -83,6 +83,7 @@ import { parseDesktopAppConfig } from "./updates/appUpdatePreferences";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
+import { isLikelyShortLinkUrl } from "./core/short-links";
 import i18n from "./i18n";
 import {
   getMissingRuntimeComponentsFromStatus,
@@ -96,6 +97,10 @@ import {
   shouldAutoStartManagedRuntimeBootstrapOnStartup,
   summarizeRuntimeGateError,
 } from "./utils/runtimeDependencyGate";
+
+const isResolvableVideoInputUrl = (value: string): boolean => (
+  isVideoUrl(value) || isLikelyShortLinkUrl(value)
+);
 
 // Helper function to check and show sequence overflow error
 const checkSequenceOverflow = (error: unknown): boolean => {
@@ -3118,7 +3123,7 @@ function App({
     const text = clipboardData?.getData("text/plain") ?? "";
 
     // 1. Check if clipboard text is a video URL (highest priority)
-    if (text && isVideoUrl(text)) {
+    if (text && isResolvableVideoInputUrl(text)) {
       console.log("Pasted video URL:", text);
       resetDownloadOutcome();
       await enqueueVideoDownload(text);
@@ -3303,6 +3308,7 @@ function App({
       /img\./i,
       /i\.imgur\.com/i,
       /pbs\.twimg\.com/i,
+      /(?:^|\.)sinaimg\.cn\//i,
       /cdn\.discordapp\.com/i,
       /xhscdn\.com\/.*(?:imageView2|format\/(?:jpe?g|png|webp|gif))/i,
       /sns-webpic[^/]*\.xhscdn\.com/i,
@@ -3653,10 +3659,24 @@ function App({
       baseUrl: /^https?:\/\//i.test(url) ? url : null,
     });
     const resolvedImageUrl =
-      url && isImageUrl(url) ? url : (!url || !isVideoUrl(url) ? htmlImageUrl : null);
+      url && isImageUrl(url) ? url : (!url || !isResolvableVideoInputUrl(url) ? htmlImageUrl : null);
+    const resolvedImagePageUrl = (() => {
+      if (protectedImageDragPayload?.pageUrl) {
+        return protectedImageDragPayload.pageUrl;
+      }
+      if (
+        url
+        && resolvedImageUrl
+        && url !== resolvedImageUrl
+        && /^https?:\/\//i.test(url)
+      ) {
+        return url;
+      }
+      return null;
+    })();
 
     // Check if it's a video URL (highest priority)
-    if (url && isVideoUrl(url)) {
+    if (url && isResolvableVideoInputUrl(url)) {
       console.log("Detected video URL:", url);
       resetDownloadOutcome();
       await enqueueVideoDownload(url);
@@ -3744,6 +3764,7 @@ function App({
               url: resolvedImageUrl,
               targetDir: outputPath || null,
               protectedImageFallback,
+              pageUrl: resolvedImagePageUrl,
             });
             console.log("Download result:", result);
           } catch (downloadErr) {

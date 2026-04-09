@@ -225,8 +225,25 @@ describe("builtin site providers", () => {
 
     expect(plan.providerId).toBe("weibo");
     expect(plan.engines[0]).toMatchObject({
+      engine: "yt-dlp",
       sourceUrl: url,
     });
+  });
+
+  it("unwraps Weibo visitor wrappers and keeps tv/show pages on yt-dlp", () => {
+    const wrapperUrl = "https://passport.weibo.com/visitor/visitor?entry=krvideo&a=enter&url=https%3A%2F%2Fweibo.com%2Ftv%2Fshow%2F1034%3A5284550214090773%3Ffrom%3Dold_pc_videoshow&domain=.weibo.com";
+    const plan = resolvePlan({
+      url: wrapperUrl,
+      siteHint: "weibo",
+    });
+
+    expect(plan.providerId).toBe("weibo");
+    expect(plan.engines).toEqual([
+      expect.objectContaining({
+        engine: "yt-dlp",
+        sourceUrl: "https://weibo.com/tv/show/1034:5284550214090773?from=old_pc_videoshow",
+      }),
+    ]);
   });
 
   it("falls back to the generic provider for unknown sites while preserving normalized metadata", () => {

@@ -5,6 +5,7 @@ importScripts(
   "direct-download-quality.js",
   "generic-video-selection-utils.js",
   "injection-debug-config.js",
+  "short-link-resolution.js",
   "video-selection-routing.js",
   "xiaohongshu-drag-resolution-utils.js",
 );
@@ -52,6 +53,7 @@ let currentLanguage = resolvePreferredLanguage(undefined, self.navigator?.langua
 const directDownloadQuality = self.FlowSelectDirectDownloadQuality;
 const genericVideoSelectionUtils = self.FlowSelectGenericVideoSelectionUtils;
 const injectionDebugConfig = self.FlowSelectInjectionDebugConfig;
+const shortLinkResolution = self.FlowSelectShortLinkResolution;
 const videoSelectionRouting = self.FlowSelectVideoSelectionRouting;
 const xiaohongshuDragResolutionUtils = self.FlowSelectXiaohongshuDragResolutionUtils;
 const languageInitializationPromise = initializeLanguageState();
@@ -1842,25 +1844,137 @@ async function getCookiesForUrl(url) {
   return '';
 }
 
-function handleVideoSelectionRequest(message, senderContext = {}) {
-  const normalized = normalizeMediaSelectionPayload(message);
-  const requestedUrl = normalized.requestedUrl;
-  const pageUrl = selectFirstHttpUrl(normalized.pageUrl, senderContext.tabUrl, requestedUrl);
-  const selectionScope = normalized.selectionScope;
-  const videoCandidates = normalized.videoCandidates;
-  const siteHint = deriveSiteHint([
-    normalized.siteHint,
+async function resolveVideoSelectionShortLinks(options = {}) {
+  const requestedUrl = normalizeHttpUrl(options.requestedUrl);
+  const pageUrl = normalizeHttpUrl(options.pageUrl);
+  const senderTabUrl = normalizeHttpUrl(options.senderTabUrl);
+  const videoUrl = normalizeHttpUrl(options.videoUrl);
+  const fallbackSiteHint = deriveSiteHint([
+    options.siteHint,
     pageUrl,
     requestedUrl,
+    videoUrl,
+    senderTabUrl,
+  ]);
+
+  if (
+    !shortLinkResolution?.resolveShortLinkUrl
+    || !shortLinkResolution?.isLikelyShortLinkUrl
+  ) {
+    return {
+      requestedUrl,
+      pageUrl,
+      siteHint: fallbackSiteHint,
+      shortLinkExpansions: [],
+    };
+  }
+
+  const urlsToExpand = Array.from(
+    new Set(
+      [requestedUrl, pageUrl].filter((value) => (
+        typeof value === 'string' && shortLinkResolution.isLikelyShortLinkUrl(value)
+      )),
+    ),
+  );
+
+  if (urlsToExpand.length === 0) {
+    return {
+      requestedUrl,
+      pageUrl,
+      siteHint: fallbackSiteHint,
+      shortLinkExpansions: [],
+    };
+  }
+
+  const fetchImpl = typeof self.fetch === 'function' ? self.fetch.bind(self) : null;
+  const settledResolutions = await Promise.all(
+    urlsToExpand.map(async (url) => {
+      try {
+        const resolution = await shortLinkResolution.resolveShortLinkUrl(url, {
+          fetchImpl,
+          createTab,
+          getTab,
+          removeTabQuietly,
+          waitForTabComplete,
+          sleep,
+        });
+        return resolution?.resolvedUrl
+          ? { url, resolution }
+          : null;
+      } catch (error) {
+        console.warn('[FlowSelect] Failed to expand short link before forwarding video selection:', {
+          url,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }
+    }),
+  );
+
+  const resolutionByUrl = new Map(
+    settledResolutions
+      .filter((entry) => entry?.resolution?.resolvedUrl)
+      .map((entry) => [entry.url, entry.resolution]),
+  );
+
+  const resolvedRequestedUrl = requestedUrl
+    ? resolutionByUrl.get(requestedUrl)?.resolvedUrl || requestedUrl
+    : null;
+  let resolvedPageUrl = pageUrl
+    ? resolutionByUrl.get(pageUrl)?.resolvedUrl || pageUrl
+    : null;
+
+  if (!resolvedPageUrl && resolvedRequestedUrl && resolvedRequestedUrl !== requestedUrl) {
+    resolvedPageUrl = resolvedRequestedUrl;
+  }
+
+  return {
+    requestedUrl: resolvedRequestedUrl,
+    pageUrl: resolvedPageUrl,
+    siteHint: deriveSiteHint([
+      options.siteHint,
+      resolvedPageUrl,
+      resolvedRequestedUrl,
+      videoUrl,
+      senderTabUrl,
+    ]),
+    shortLinkExpansions: settledResolutions
+      .filter((entry) => entry?.resolution)
+      .map((entry) => entry.resolution),
+  };
+}
+
+async function handleVideoSelectionRequest(message, senderContext = {}) {
+  const normalized = normalizeMediaSelectionPayload(message);
+  const originalRequestedUrl = normalized.requestedUrl;
+  const originalPageUrl = selectFirstHttpUrl(normalized.pageUrl, senderContext.tabUrl, originalRequestedUrl);
+  const selectionScope = normalized.selectionScope;
+  const videoCandidates = normalized.videoCandidates;
+  const originalSiteHint = deriveSiteHint([
+    normalized.siteHint,
+    originalPageUrl,
+    originalRequestedUrl,
     normalized.videoUrl,
     senderContext.tabUrl,
   ]);
 
-  return Promise.all([
-    getCookiesForUrl(pageUrl || requestedUrl || ''),
-    directDownloadQuality.getQualityPreference(),
-    injectionDebugConfig?.getEnabled ? injectionDebugConfig.getEnabled() : Promise.resolve(false),
-  ]).then(([cookies, qualityPreference, injectionDebugEnabled]) => {
+  try {
+    const resolvedSelectionUrls = await resolveVideoSelectionShortLinks({
+      requestedUrl: originalRequestedUrl,
+      pageUrl: originalPageUrl,
+      videoUrl: normalized.videoUrl,
+      siteHint: originalSiteHint,
+      senderTabUrl: senderContext.tabUrl,
+    });
+    const requestedUrl = resolvedSelectionUrls.requestedUrl || originalRequestedUrl;
+    const pageUrl = resolvedSelectionUrls.pageUrl || originalPageUrl;
+    const siteHint = resolvedSelectionUrls.siteHint || originalSiteHint;
+    const [cookies, qualityPreference, injectionDebugEnabled] = await Promise.all([
+      getCookiesForUrl(pageUrl || requestedUrl || ''),
+      directDownloadQuality.getQualityPreference(),
+      injectionDebugConfig?.getEnabled ? injectionDebugConfig.getEnabled() : Promise.resolve(false),
+    ]);
+
     console.info('[FlowSelect] Using yt-dlp quality preference:', qualityPreference);
     const resolvedRouting = videoSelectionRouting?.resolveVideoSelectionRouting
       ? videoSelectionRouting.resolveVideoSelectionRouting({
@@ -1894,13 +2008,15 @@ function handleVideoSelectionRequest(message, senderContext = {}) {
         {
           ...summarizeVideoSelectionForDebug({
             ...message,
-            pageUrl,
+            url: originalRequestedUrl,
+            pageUrl: originalPageUrl,
             selectionScope,
-            siteHint,
+            siteHint: originalSiteHint,
             clipStartSec: normalized.clipStartSec,
             clipEndSec: normalized.clipEndSec,
           }),
           senderTabUrl: normalizeHttpUrl(senderContext.tabUrl) || null,
+          shortLinkExpansions: resolvedSelectionUrls.shortLinkExpansions,
         },
       );
       logInjectedVideoSelectionDebug(
@@ -1909,19 +2025,20 @@ function handleVideoSelectionRequest(message, senderContext = {}) {
       );
     }
 
-    return queueVideoSelectionToApp(forwardedPayload);
-  }).then((result) => ({
-    success: Boolean(result?.success),
-    connected: isConnected(),
-    reason: result?.data?.code || null,
-  })).catch((error) => {
+    const result = await queueVideoSelectionToApp(forwardedPayload);
+    return {
+      success: Boolean(result?.success),
+      connected: isConnected(),
+      reason: result?.data?.code || null,
+    };
+  } catch (error) {
     console.error('[FlowSelect] Failed to prepare video selection request:', error);
     return {
       success: false,
       connected: isConnected(),
       reason: 'prepare_failed',
     };
-  });
+  }
 }
 
 function createTab(createProperties) {

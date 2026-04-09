@@ -72,6 +72,7 @@ import type { RuntimeEmitterEvent } from "./contracts";
 import { resetRenameSequenceState } from "./renameRules";
 import { bilibiliProvider } from "../sites/bilibili";
 import { galleryDlSupportedProvider } from "../sites/gallery-dl-supported";
+import { weiboProvider } from "../sites/weibo";
 
 const waitFor = async (
   predicate: () => boolean,
@@ -108,6 +109,7 @@ const createRuntime = (options: {
     arch?: "x64" | "arm64";
     desktopDir?: string;
     fetch?: typeof fetch;
+    resolveUrlViaNavigation?: (url: string) => Promise<string | undefined>;
   };
   onEmit?(event: RuntimeEmitterEvent, payload: unknown): void;
 }) => createElectronDownloadRuntime({
@@ -118,6 +120,7 @@ const createRuntime = (options: {
     arch: options.environment?.arch ?? "x64",
     desktopDir: options.environment?.desktopDir,
     fetch: options.environment?.fetch,
+    resolveUrlViaNavigation: options.environment?.resolveUrlViaNavigation,
   },
   configStore: {
     async readConfigString() {
@@ -579,6 +582,114 @@ describe("FlowSelectElectronDownloadRuntime", () => {
     await waitFor(() => routes.length > 0);
     expect(routes).toHaveLength(1);
     expect(routes[0]?.startsWith("direct:")).toBe(true);
+  });
+
+  it("expands short-link queue requests before resolving the provider plan", async () => {
+    const routes: string[] = [];
+    const runtime = createRuntime({
+      providers: [weiboProvider, genericProvider],
+      environment: {
+        fetch: vi.fn(async () => {
+          const response = new Response(null, { status: 200 });
+          Object.defineProperty(response, "url", {
+            configurable: true,
+            value: "https://weibo.com/tv/show/1034:5284278758473738",
+          });
+          return response;
+        }) as unknown as typeof fetch,
+      },
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
+          routes.push(`yt:${context.traceId}`);
+          expect(context.plan.providerId).toBe("weibo");
+          expect(context.enginePlan.sourceUrl).toBe("https://weibo.com/tv/show/1034:5284278758473738");
+          expect(context.intent.siteId).toBe("weibo");
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "yt.mp4",
+          };
+        }),
+      ],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://t.cn/AXIDyEZb",
+    });
+
+    await waitFor(() => routes.length > 0);
+    expect(routes).toHaveLength(1);
+  });
+
+  it("unwraps Weibo visitor wrappers before resolving the provider plan", async () => {
+    const routes: string[] = [];
+    const runtime = createRuntime({
+      providers: [weiboProvider, genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
+          routes.push(`yt:${context.traceId}`);
+          expect(context.plan.providerId).toBe("weibo");
+          expect(context.enginePlan.sourceUrl).toBe(
+            "https://weibo.com/tv/show/1034:5283985857904677?from=old_pc_videoshow",
+          );
+          expect(context.intent.siteId).toBe("weibo");
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "yt.mp4",
+          };
+        }),
+      ],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://passport.weibo.com/visitor/visitor?entry=krvideo&a=enter&url=https%3A%2F%2Fweibo.com%2Ftv%2Fshow%2F1034%3A5283985857904677%3Ffrom%3Dold_pc_videoshow&domain=.weibo.com",
+      siteHint: "weibo",
+    });
+
+    await waitFor(() => routes.length > 0);
+    expect(routes).toHaveLength(1);
+  });
+
+  it("falls back to navigation-based short-link expansion when session fetch stalls on the short host", async () => {
+    const routes: string[] = [];
+    const runtime = createRuntime({
+      providers: [weiboProvider, genericProvider],
+      environment: {
+        fetch: vi.fn(async () => {
+          const response = new Response(null, { status: 200 });
+          Object.defineProperty(response, "url", {
+            configurable: true,
+            value: "https://t.cn/AXIDyEZb",
+          });
+          return response;
+        }) as unknown as typeof fetch,
+        resolveUrlViaNavigation: vi.fn(async () => (
+          "https://passport.weibo.com/visitor/visitor?entry=krvideo&url=https%3A%2F%2Fweibo.com%2Ftv%2Fshow%2F1034%3A5284550214090773%3Ffrom%3Dold_pc_videoshow"
+        )),
+      },
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
+          routes.push(`yt:${context.traceId}`);
+          expect(context.plan.providerId).toBe("weibo");
+          expect(context.enginePlan.sourceUrl).toBe(
+            "https://weibo.com/tv/show/1034:5284550214090773?from=old_pc_videoshow",
+          );
+          return {
+            traceId: context.traceId,
+            success: true,
+            file_path: "yt.mp4",
+          };
+        }),
+      ],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://t.cn/AXIDyEZb",
+    });
+
+    await waitFor(() => routes.length > 0);
+    expect(routes).toHaveLength(1);
   });
 
   it("does not fall back to yt-dlp when Xiaohongshu already has a verified direct asset", async () => {

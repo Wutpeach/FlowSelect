@@ -1,18 +1,41 @@
 import type { RawDownloadInput, ResolvedDownloadPlan, SiteProvider } from "../core/index.js";
 import {
   buildGalleryDlVideoIntent,
-  isWeiboUrl,
+  isWeiboTvShowUrl,
+  resolveWeiboSourceUrl,
   resolveWeiboGalleryDlSourceUrl,
 } from "./gallery-dl-support.js";
 
 export const weiboProvider: SiteProvider = {
   id: "weibo",
   matches(input: RawDownloadInput): boolean {
-    return input.siteHint === "weibo" || isWeiboUrl(input.pageUrl) || isWeiboUrl(input.url);
+    return input.siteHint === "weibo"
+      || Boolean(resolveWeiboSourceUrl(input.pageUrl))
+      || Boolean(resolveWeiboSourceUrl(input.url));
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const originalSourceUrl = input.pageUrl ?? input.url;
-    const galleryDlSourceUrl = resolveWeiboGalleryDlSourceUrl(originalSourceUrl) ?? originalSourceUrl;
+    const resolvedSourceUrl = resolveWeiboSourceUrl(originalSourceUrl) ?? originalSourceUrl;
+
+    if (isWeiboTvShowUrl(resolvedSourceUrl)) {
+      return {
+        providerId: "weibo",
+        label: input.title?.trim() || input.pageUrl || input.url,
+        intent: buildGalleryDlVideoIntent(input, "weibo"),
+        engines: [
+          {
+            engine: "yt-dlp",
+            priority: 96,
+            when: "primary",
+            reason: "Weibo tv/show pages are supported by yt-dlp but not by gallery-dl",
+            sourceUrl: resolvedSourceUrl,
+            fallbackOn: "any",
+          },
+        ],
+      };
+    }
+
+    const galleryDlSourceUrl = resolveWeiboGalleryDlSourceUrl(resolvedSourceUrl) ?? resolvedSourceUrl;
 
     return {
       providerId: "weibo",
@@ -34,7 +57,7 @@ export const weiboProvider: SiteProvider = {
           priority: 54,
           when: "fallback",
           reason: "Use yt-dlp as a safe fallback when gallery-dl cannot resolve the Weibo page",
-          sourceUrl: originalSourceUrl,
+          sourceUrl: resolvedSourceUrl,
           fallbackOn: "any",
         },
       ],

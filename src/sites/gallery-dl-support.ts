@@ -1,4 +1,8 @@
-import type { RawDownloadInput, VideoDownloadIntent } from "../core/index.js";
+import {
+  unwrapRedirectTargetUrl,
+  type RawDownloadInput,
+  type VideoDownloadIntent,
+} from "../core/index.js";
 
 const GALLERY_DL_SUPPORTED_EXAMPLE_HOSTS = `
 2ch.org
@@ -379,6 +383,23 @@ export const isWeiboUrl = (value: string | undefined): boolean => {
   return host ? WEIBO_HOSTS.has(host) : false;
 };
 
+export const resolveWeiboSourceUrl = (value: string | undefined): string | undefined => {
+  const unwrappedUrl = unwrapRedirectTargetUrl(value);
+  if (isWeiboUrl(unwrappedUrl)) {
+    return unwrappedUrl;
+  }
+  return isWeiboUrl(value) ? value?.trim() : undefined;
+};
+
+export const isWeiboTvShowUrl = (value: string | undefined): boolean => {
+  const sourceUrl = resolveWeiboSourceUrl(value);
+  const parsed = parseUrl(sourceUrl);
+  if (!parsed) {
+    return false;
+  }
+  return /^\/tv\/show\/[^/]+$/i.test(parsed.pathname);
+};
+
 export const isGalleryDlSupportedUrl = (value: string | undefined): boolean => {
   const host = resolveComparableUrlHost(value);
   return host ? GALLERY_DL_SUPPORTED_HOSTS.has(host) : false;
@@ -404,14 +425,15 @@ export const resolveGalleryDlSiteId = (
 };
 
 export const resolveWeiboGalleryDlSourceUrl = (value: string | undefined): string | undefined => {
-  const parsed = parseUrl(value);
-  if (!parsed || !isWeiboUrl(value)) {
+  const sourceUrl = resolveWeiboSourceUrl(value);
+  const parsed = parseUrl(sourceUrl);
+  if (!parsed || !sourceUrl || !isWeiboUrl(sourceUrl)) {
     return undefined;
   }
 
   const statusId = readWeiboStatusIdFromParams(parsed) ?? extractWeiboStatusIdFromPath(parsed.pathname);
   if (!statusId) {
-    return value?.trim();
+    return sourceUrl.trim();
   }
 
   return `https://weibo.com/detail/${statusId}`;

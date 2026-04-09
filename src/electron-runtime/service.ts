@@ -55,6 +55,7 @@ import {
   runPreparedVideoTranscodeTask,
   type PreparedVideoTranscodeTask,
 } from "./transcode.js";
+import { resolveShortLinkDownloadInput } from "./shortLinkResolution.js";
 import { resolveXiaohongshuPageHints } from "./xiaohongshuPageHints.js";
 
 type PendingTask = {
@@ -569,6 +570,20 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       const resolvedOutputDir = resolveOutputDir(this.options.environment, config);
       outputDir = resolvedOutputDir;
       const binaries = resolveRuntimeBinaryPaths(this.options.environment);
+      const preShortLinkRequest = activeTask.request;
+      activeTask.request = await resolveShortLinkDownloadInput(
+        activeTask.request,
+        this.options.environment.fetch ?? globalThis.fetch,
+        this.options.environment.resolveUrlViaNavigation,
+      );
+      if (
+        activeTask.request.url !== preShortLinkRequest.url
+        || activeTask.request.pageUrl !== preShortLinkRequest.pageUrl
+      ) {
+        this.logger.log(
+          `>>> [ElectronRuntime] expanded short link for ${traceId}: ${preShortLinkRequest.url} -> ${activeTask.request.url}`,
+        );
+      }
       activeTask.request = await resolveXiaohongshuPageHints(
         activeTask.request,
         this.options.environment.fetch ?? globalThis.fetch,

@@ -61,6 +61,7 @@ export interface ElectronRuntimeEnvironment {
   platform: NodeJS.Platform;
   arch: NodeJS.Architecture;
   fetch?: typeof fetch;
+  resolveUrlViaNavigation?(url: string): Promise<string | undefined>;
 }
 
 export interface RuntimeBinaryPaths {
