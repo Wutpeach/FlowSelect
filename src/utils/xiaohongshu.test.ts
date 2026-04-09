@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   extractEmbeddedXiaohongshuDragPayload,
+  hasXiaohongshuVideoSignals,
   isXiaohongshuPageUrl,
   looksLikeXiaohongshuVideoHtml,
+  pickXiaohongshuImageForDownload,
 } from "./xiaohongshu";
 
 function encodePayload(payload: object): string {
@@ -56,12 +58,16 @@ describe("extractEmbeddedXiaohongshuDragPayload", () => {
     ).toEqual({
       token: null,
       pageUrl: "https://www.xiaohongshu.com/explore/69d3d28a00000000210040a4",
+      detailUrl: null,
+      sourcePageUrl: null,
       noteId: null,
       exactImageUrl: null,
       imageUrl: "https://sns-webpic-qc.xhscdn.com/example-note-cover?imageView2/2/w/540/format/jpg",
       videoUrl: null,
       videoCandidates: [],
       mediaType: "image",
+      videoIntentConfidence: null,
+      videoIntentSources: [],
       title: "Image note",
     });
   });
@@ -90,6 +96,8 @@ describe("extractEmbeddedXiaohongshuDragPayload", () => {
     ).toEqual({
       token: "flowselect-xhs-token",
       pageUrl: "https://www.xiaohongshu.com/explore/69d4d5170000000022024263",
+      detailUrl: null,
+      sourcePageUrl: null,
       noteId: "69d4d5170000000022024263",
       exactImageUrl: "https://sns-webpic-qc.xhscdn.com/example-note-cover",
       imageUrl: null,
@@ -104,6 +112,35 @@ describe("extractEmbeddedXiaohongshuDragPayload", () => {
         },
       ],
       mediaType: "video",
+      videoIntentConfidence: null,
+      videoIntentSources: [],
+      title: null,
+    });
+  });
+
+  it("preserves explicit video intent confidence metadata", () => {
+    expect(
+      extractEmbeddedXiaohongshuDragPayload(
+        encodePayload({
+          pageUrl: "https://www.xiaohongshu.com/explore/69d4d5170000000022024263",
+          mediaType: "image",
+          videoIntentConfidence: 1,
+          videoIntentSources: ["__INITIAL_STATE__.user.notes[0][3].noteCard.type", "play-icon-dom"],
+        }),
+      ),
+    ).toEqual({
+      token: null,
+      pageUrl: "https://www.xiaohongshu.com/explore/69d4d5170000000022024263",
+      detailUrl: null,
+      sourcePageUrl: null,
+      noteId: null,
+      exactImageUrl: null,
+      imageUrl: null,
+      videoUrl: null,
+      videoCandidates: [],
+      mediaType: "image",
+      videoIntentConfidence: 1,
+      videoIntentSources: ["__INITIAL_STATE__.user.notes[0][3].noteCard.type", "play-icon-dom"],
       title: null,
     });
   });
@@ -120,13 +157,122 @@ describe("extractEmbeddedXiaohongshuDragPayload", () => {
     ).toEqual({
       token: null,
       pageUrl: null,
+      detailUrl: null,
+      sourcePageUrl: null,
       noteId: null,
       exactImageUrl: null,
       imageUrl: null,
       videoUrl: null,
       videoCandidates: [],
       mediaType: "image",
+      videoIntentConfidence: null,
+      videoIntentSources: [],
       title: null,
     });
+  });
+});
+
+describe("hasXiaohongshuVideoSignals", () => {
+  it("treats kind=video as a video signal even without direct candidates", () => {
+    expect(
+      hasXiaohongshuVideoSignals({
+        kind: "video",
+        videoUrl: null,
+        videoCandidates: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("detects direct or candidate-based video hints", () => {
+    expect(
+      hasXiaohongshuVideoSignals({
+        kind: "unknown",
+        videoUrl: "https://sns-video-bd.xhscdn.com/stream/example.mp4",
+        videoCandidates: [],
+      }),
+    ).toBe(true);
+
+    expect(
+      hasXiaohongshuVideoSignals({
+        kind: "unknown",
+        videoUrl: null,
+        videoCandidates: [
+          {
+            url: "https://sns-video-bd.xhscdn.com/stream/example.mp4",
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("treats high-confidence video intent as a video signal", () => {
+    expect(
+      hasXiaohongshuVideoSignals({
+        kind: "image",
+        videoUrl: null,
+        videoCandidates: [],
+        videoIntentConfidence: 1,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("pickXiaohongshuImageForDownload", () => {
+  it("prefers resolved note-level image results over drag hints", () => {
+    expect(
+      pickXiaohongshuImageForDownload({
+        embeddedPayload: {
+          token: null,
+          pageUrl: "https://www.xiaohongshu.com/explore/123",
+          detailUrl: null,
+          sourcePageUrl: null,
+          noteId: "123",
+          exactImageUrl: "https://sns-webpic-qc.xhscdn.com/hint.jpg",
+          imageUrl: "https://sns-webpic-qc.xhscdn.com/hint.jpg",
+          videoUrl: null,
+          videoCandidates: [],
+          mediaType: "image",
+          videoIntentConfidence: null,
+          videoIntentSources: [],
+          title: null,
+        },
+        resolvedMedia: {
+          kind: "image",
+          pageUrl: "https://www.xiaohongshu.com/explore/123",
+          imageUrl: "https://sns-webpic-qc.xhscdn.com/resolved.jpg",
+          videoUrl: null,
+          videoCandidates: [],
+        },
+      }),
+    ).toBe("https://sns-webpic-qc.xhscdn.com/resolved.jpg");
+  });
+
+  it("does not return image fallbacks for resolved video notes", () => {
+    expect(
+      pickXiaohongshuImageForDownload({
+        embeddedPayload: {
+          token: null,
+          pageUrl: "https://www.xiaohongshu.com/explore/123",
+          detailUrl: null,
+          sourcePageUrl: null,
+          noteId: "123",
+          exactImageUrl: "https://sns-webpic-qc.xhscdn.com/hint.jpg",
+          imageUrl: "https://sns-webpic-qc.xhscdn.com/hint.jpg",
+          videoUrl: null,
+          videoCandidates: [],
+          mediaType: "image",
+          videoIntentConfidence: null,
+          videoIntentSources: [],
+          title: null,
+        },
+        resolvedMedia: {
+          kind: "video",
+          pageUrl: "https://www.xiaohongshu.com/explore/123",
+          imageUrl: "https://sns-webpic-qc.xhscdn.com/resolved.jpg",
+          videoUrl: null,
+          videoCandidates: [],
+        },
+      }),
+    ).toBeNull();
   });
 });

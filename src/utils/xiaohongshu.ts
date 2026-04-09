@@ -13,13 +13,27 @@ export type XiaohongshuDragCandidate = {
 export type EmbeddedXiaohongshuDragPayload = {
   token: string | null;
   pageUrl: string | null;
+  detailUrl: string | null;
+  sourcePageUrl: string | null;
   noteId: string | null;
   exactImageUrl: string | null;
   imageUrl: string | null;
   videoUrl: string | null;
   videoCandidates: XiaohongshuDragCandidate[];
   mediaType: "video" | "image" | null;
+  videoIntentConfidence: number | null;
+  videoIntentSources: string[];
   title: string | null;
+};
+
+export type XiaohongshuResolvedDragMedia = {
+  kind: "video" | "image" | "unknown";
+  pageUrl: string;
+  imageUrl: string | null;
+  videoUrl: string | null;
+  videoCandidates: XiaohongshuDragCandidate[];
+  videoIntentConfidence?: number | null;
+  videoIntentSources?: string[];
 };
 
 export function isXiaohongshuPageUrl(url: string | null | undefined): boolean {
@@ -86,6 +100,46 @@ function normalizeMediaType(raw: unknown): "video" | "image" | null {
   return raw === "video" || raw === "image" ? raw : null;
 }
 
+function normalizeVideoIntentConfidence(raw: unknown): number | null {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return null;
+  }
+
+  if (raw <= 0) {
+    return 0;
+  }
+
+  if (raw >= 1) {
+    return 1;
+  }
+
+  return Math.round(raw * 1000) / 1000;
+}
+
+function normalizeStringArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const values: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string") {
+      continue;
+    }
+
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+
+    seen.add(trimmed);
+    values.push(trimmed);
+  }
+
+  return values;
+}
+
 function normalizeDragCandidates(raw: unknown): XiaohongshuDragCandidate[] {
   if (!Array.isArray(raw)) {
     return [];
@@ -142,12 +196,16 @@ export function extractEmbeddedXiaohongshuDragPayload(
         ? parsed.token.trim()
         : null,
       pageUrl: isXiaohongshuPageUrl(pageUrl) ? pageUrl : null,
+      detailUrl: normalizeHttpUrl(parsed.detailUrl),
+      sourcePageUrl: normalizeHttpUrl(parsed.sourcePageUrl),
       noteId: normalizeNoteId(parsed.noteId ?? parsed.note_id),
       exactImageUrl: normalizeHttpUrl(parsed.exactImageUrl ?? parsed.exact_image_url),
       imageUrl: normalizeHttpUrl(parsed.imageUrl),
       videoUrl: normalizeHttpUrl(parsed.videoUrl),
       videoCandidates: normalizeDragCandidates(parsed.videoCandidates),
       mediaType: normalizeMediaType(parsed.mediaType),
+      videoIntentConfidence: normalizeVideoIntentConfidence(parsed.videoIntentConfidence ?? parsed.video_intent_confidence),
+      videoIntentSources: normalizeStringArray(parsed.videoIntentSources ?? parsed.video_intent_sources),
       title: typeof parsed.title === "string" && parsed.title.trim()
         ? parsed.title.trim()
         : null,
@@ -155,4 +213,42 @@ export function extractEmbeddedXiaohongshuDragPayload(
   } catch {
     return null;
   }
+}
+
+export function hasXiaohongshuVideoSignals(
+  media: Pick<XiaohongshuResolvedDragMedia, "kind" | "videoUrl" | "videoCandidates" | "videoIntentConfidence"> | null | undefined,
+): boolean {
+  if (!media) {
+    return false;
+  }
+
+  return media.kind === "video"
+    || Boolean(media.videoUrl)
+    || (Array.isArray(media.videoCandidates) && media.videoCandidates.length > 0)
+    || (typeof media.videoIntentConfidence === "number" && media.videoIntentConfidence >= 0.7);
+}
+
+export function pickXiaohongshuImageForDownload(options: {
+  embeddedPayload?: EmbeddedXiaohongshuDragPayload | null;
+  resolvedMedia?: XiaohongshuResolvedDragMedia | null;
+}): string | null {
+  const { embeddedPayload, resolvedMedia } = options;
+
+  if (resolvedMedia?.kind === "video") {
+    return null;
+  }
+
+  if (resolvedMedia?.kind === "image" && resolvedMedia.imageUrl) {
+    return resolvedMedia.imageUrl;
+  }
+
+  if (resolvedMedia?.kind === "unknown" && resolvedMedia.imageUrl) {
+    return resolvedMedia.imageUrl;
+  }
+
+  if (embeddedPayload?.mediaType === "image") {
+    return embeddedPayload.imageUrl ?? embeddedPayload.exactImageUrl ?? null;
+  }
+
+  return null;
 }

@@ -11,6 +11,9 @@
   const INTERNAL_REGISTER_XIAOHONGSHU_DRAG_MESSAGE = 'register_xiaohongshu_drag';
   const RESOLVE_XIAOHONGSHU_DRAG_MESSAGE = 'resolve_xiaohongshu_drag';
   const RESOLVE_XIAOHONGSHU_CONTEXT_MEDIA_MESSAGE = 'resolve_xiaohongshu_context_media';
+  const NAVIGATE_XIAOHONGSHU_NOTE_MESSAGE = 'navigate_xiaohongshu_note';
+  const NOTE_LINK_CACHE_KEY = '__FLOWSELECT_XHS_NOTE_LINK_CACHE';
+  const NOTE_LINK_CACHE_NODE_ID = 'flowselect-xhs-note-link-cache';
   const CONTEXT_SELECTION_TTL_MS = 10_000;
   const XIAOHONGSHU_FEED_API_PATH = '/api/sns/web/v1/feed';
   const XIAOHONGSHU_NOTE_DETAIL_PATH = '/api/sns/web/v1/note';
@@ -20,6 +23,30 @@
   </svg>`;
   let lastContextPayload = null;
   const NOTE_LINK_SELECTOR = 'a[href*="/explore/"], a[href*="/discovery/item/"], a[href*="/user/profile/"]';
+
+  function redactToken(token) {
+    if (typeof token !== 'string' || !token) {
+      return null;
+    }
+    return token.length <= 12
+      ? token
+      : `${token.slice(0, 8)}...${token.slice(-4)}`;
+  }
+
+  function previewCandidates(candidates) {
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      return [];
+    }
+    return candidates.slice(0, 3).map((candidate) => ({
+      type: candidate?.type || null,
+      source: candidate?.source || null,
+      url: typeof candidate?.url === 'string' ? candidate.url.slice(0, 140) : null,
+    }));
+  }
+
+  function logXhsDragResolution(stage, details = {}) {
+    console.info(`[FlowSelect XHS] ${stage}`, details);
+  }
 
   function isVideoPage() {
     return Boolean(normalizeNoteUrl(window.location.href));
@@ -86,6 +113,64 @@
     return /^[a-zA-Z0-9]+$/.test(trimmed) ? trimmed : null;
   }
 
+  function getXiaohongshuNoteLinkCache() {
+    const directCache = window[NOTE_LINK_CACHE_KEY];
+    if (directCache && typeof directCache === 'object') {
+      return directCache;
+    }
+
+    const cacheNode = document.getElementById(NOTE_LINK_CACHE_NODE_ID);
+    if (!cacheNode?.textContent) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(cacheNode.textContent);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function getCachedXiaohongshuNoteLink(noteId) {
+    const normalizedNoteId = normalizeNoteId(noteId);
+    if (!normalizedNoteId) {
+      return null;
+    }
+
+    const cache = getXiaohongshuNoteLinkCache();
+    if (!cache || typeof cache !== 'object') {
+      return null;
+    }
+
+    const record = cache[normalizedNoteId];
+    if (!record || typeof record !== 'object') {
+      return null;
+    }
+
+    const detailUrl = normalizeUrl(record.detailUrl);
+    if (!detailUrl || !/[?&]xsec_token=/i.test(detailUrl)) {
+      return null;
+    }
+
+    return {
+      noteId: normalizedNoteId,
+      detailUrl,
+      xsecToken:
+        typeof record.xsecToken === 'string' && record.xsecToken.trim()
+          ? record.xsecToken.trim()
+          : null,
+      xsecSource:
+        typeof record.xsecSource === 'string' && record.xsecSource.trim()
+          ? record.xsecSource.trim()
+          : null,
+      updatedAtMs:
+        typeof record.updatedAtMs === 'number' && Number.isFinite(record.updatedAtMs)
+          ? record.updatedAtMs
+          : null,
+    };
+  }
+
   function extractNoteIdFromUrl(url) {
     const normalized = normalizeNoteUrl(url);
     if (!normalized) return null;
@@ -115,17 +200,24 @@
 
   function normalizeImageUrl(url) {
     const normalized = normalizeUrl(url);
-    if (!normalized || isLikelyVideoUrl(normalized)) {
+    if (
+      !normalized
+      || isLikelyVideoUrl(normalized)
+      || /\.(?:css|js|json|txt|map|woff2?|ttf)(?:[?#]|$)/i.test(normalized)
+    ) {
       return null;
     }
     return normalized;
   }
 
   function looksLikeImageUrl(url) {
+    if (/\.(?:css|js|json|txt|map|woff2?|ttf)(?:[?#]|$)/i.test(url)) {
+      return false;
+    }
     return (
-      /xhscdn\.com/i.test(url)
+      /sns-webpic[^/]*\.xhscdn\.com/i.test(url)
       || /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#]|$)/i.test(url)
-      || /(?:imageView2|notes_pre_post|!nc_)/i.test(url)
+      || /(?:imageView2|format\/(?:jpe?g|png|webp|gif)|notes_pre_post|!nc_)/i.test(url)
     );
   }
 
@@ -462,6 +554,11 @@
 
     try {
       const parsed = new URL(normalized);
+      const segments = parsed.pathname.split('/').filter(Boolean);
+      const tail = segments[segments.length - 1] || '';
+      if (tail) {
+        return tail.replace(/!nc_[^/]+$/i, '');
+      }
       parsed.search = '';
       parsed.hash = '';
       parsed.pathname = parsed.pathname.replace(/!nc_[^/]+$/i, '');
@@ -572,6 +669,548 @@
     return best;
   }
 
+  function clampVideoIntentConfidence(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return 0;
+    }
+    if (value <= 0) {
+      return 0;
+    }
+    if (value >= 1) {
+      return 1;
+    }
+    return Math.round(value * 1000) / 1000;
+  }
+
+  function mergeVideoCandidateLists(...candidateLists) {
+    const merged = [];
+    const seen = new Set();
+
+    for (const candidateList of candidateLists) {
+      if (!Array.isArray(candidateList)) {
+        continue;
+      }
+
+      for (const candidate of candidateList) {
+        const candidateUrl = normalizeUrl(candidate?.url);
+        if (!candidateUrl || seen.has(candidateUrl)) {
+          continue;
+        }
+
+        seen.add(candidateUrl);
+        merged.push({
+          ...candidate,
+          url: candidateUrl,
+        });
+      }
+    }
+
+    return merged;
+  }
+
+  function unwrapInitialStateValue(value) {
+    if (value && typeof value === 'object' && '_rawValue' in value) {
+      return value._rawValue;
+    }
+    return value;
+  }
+
+  function getXiaohongshuInitialState() {
+    const state = window.__INITIAL_STATE__;
+    return state && typeof state === 'object' ? state : null;
+  }
+
+  function isStateNoteLike(entry) {
+    return Boolean(
+      entry
+      && typeof entry === 'object'
+      && (
+        entry.noteCard
+        || entry.note
+        || entry.cover
+        || entry.displayTitle
+        || entry.title
+        || entry.type
+      )
+    );
+  }
+
+  function extractStateNoteId(entry) {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+
+    const candidates = [
+      entry.noteCard?.note?.noteId,
+      entry.noteCard?.note?.id,
+      entry.noteCard?.noteId,
+      entry.noteCard?.id,
+      entry.note?.noteId,
+      entry.note?.id,
+      entry.noteId,
+      entry.id,
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = normalizeNoteId(candidate);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return null;
+  }
+
+  function extractStateNoteType(entry) {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+
+    const candidates = [
+      entry.noteCard?.note?.type,
+      entry.noteCard?.type,
+      entry.note?.type,
+      entry.type,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim().toLowerCase();
+      }
+    }
+
+    return null;
+  }
+
+  function extractStateNoteCoverImage(entry) {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+
+    const cover = entry.noteCard?.cover || entry.note?.cover || entry.cover || null;
+    if (!cover || typeof cover !== 'object') {
+      return null;
+    }
+
+    const directCandidates = [
+      cover.urlDefault,
+      cover.urlPre,
+      cover.url,
+    ];
+    for (const candidate of directCandidates) {
+      const resolved = resolveImageUrlCandidate(candidate);
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    const infoList = Array.isArray(cover.infoList) ? cover.infoList : [];
+    for (const item of infoList) {
+      const resolved = resolveImageUrlCandidate(item?.url);
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    return null;
+  }
+
+  function extractXsecSourceFromUrl(url) {
+    const normalized = normalizeUrl(url);
+    if (!normalized) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(normalized);
+      const querySource = parsed.searchParams.get('xsec_source');
+      if (typeof querySource === 'string' && querySource.trim()) {
+        return querySource.trim();
+      }
+
+      if (/^\/user\/profile\//i.test(parsed.pathname)) {
+        return 'pc_user';
+      }
+      if (/^\/explore\//i.test(parsed.pathname)) {
+        return 'pc_user';
+      }
+    } catch (_) {
+      return null;
+    }
+
+    return null;
+  }
+
+  function resolveStateNoteDetailUrlCandidates(entry) {
+    if (!entry || typeof entry !== 'object') {
+      return [];
+    }
+
+    const candidates = [
+      entry.detailUrl,
+      entry.detail_url,
+      entry.noteLink,
+      entry.note_link,
+      entry.shareLink,
+      entry.share_link,
+      entry.jumpUrl,
+      entry.jump_url,
+      entry.url,
+      entry.href,
+      entry.note?.detailUrl,
+      entry.note?.detail_url,
+      entry.note?.shareLink,
+      entry.note?.share_link,
+      entry.noteCard?.detailUrl,
+      entry.noteCard?.detail_url,
+      entry.noteCard?.note?.detailUrl,
+      entry.noteCard?.note?.detail_url,
+    ];
+
+    return candidates
+      .map((candidate) => normalizeUrl(candidate))
+      .filter(Boolean);
+  }
+
+  function extractStateNoteXsecToken(entry) {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+
+    const candidates = [
+      entry.noteCard?.note?.xsecToken,
+      entry.noteCard?.xsecToken,
+      entry.note?.xsecToken,
+      entry.xsecToken,
+      entry.noteCard?.note?.xsec_token,
+      entry.noteCard?.xsec_token,
+      entry.note?.xsec_token,
+      entry.xsec_token,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+
+    return null;
+  }
+
+  function extractStateNoteDetailUrl(entry, noteId, fallbackPageUrl) {
+    const directDetailUrl = resolveStateNoteDetailUrlCandidates(entry).find(
+      (candidate) => /[?&]xsec_token=/i.test(candidate),
+    ) || null;
+    if (directDetailUrl) {
+      return directDetailUrl;
+    }
+
+    const normalizedNoteId = normalizeNoteId(noteId) || extractStateNoteId(entry);
+    const xsecToken = extractStateNoteXsecToken(entry);
+    if (!normalizedNoteId || !xsecToken) {
+      return null;
+    }
+
+    const xsecSource = extractXsecSourceFromUrl(fallbackPageUrl) || 'pc_user';
+    try {
+      const detailUrl = new URL(`https://www.xiaohongshu.com/explore/${normalizedNoteId}`);
+      detailUrl.searchParams.set('xsec_token', xsecToken);
+      detailUrl.searchParams.set('xsec_source', xsecSource);
+      return detailUrl.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function extractStateNoteVideoCandidates(entry) {
+    const candidates = [];
+    const seen = new Set();
+
+    const addVideoCandidate = (rawUrl, source) => {
+      if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+        return;
+      }
+
+      const normalizedSourceUrl = rawUrl.startsWith('http')
+        ? rawUrl
+        : `https://sns-video-bd.xhscdn.com/${rawUrl.replace(/^\/+/, '')}`;
+      const candidateUrl = normalizeUrl(normalizedSourceUrl);
+      if (!candidateUrl || seen.has(candidateUrl) || !isLikelyVideoUrl(candidateUrl)) {
+        return;
+      }
+
+      seen.add(candidateUrl);
+      const type = classifyCandidateType(candidateUrl);
+      const score = candidateTypeScore(type) + sourceScore('script_scan') + 14;
+      candidates.push({
+        url: candidateUrl,
+        type,
+        confidence: confidenceForScore(score),
+        source,
+        mediaType: 'video',
+      });
+    };
+
+    const videoObjects = [
+      entry?.noteCard?.video,
+      entry?.noteCard?.note?.video,
+      entry?.note?.video,
+      entry?.video,
+    ].filter((value) => value && typeof value === 'object');
+
+    for (const video of videoObjects) {
+      addVideoCandidate(video?.consumer?.originVideoKey, 'initial_state_origin_video_key');
+      addVideoCandidate(video?.media?.stream?.h265?.[0]?.masterUrl, 'initial_state_h265_master');
+      addVideoCandidate(video?.media?.stream?.h265?.[0]?.master_url, 'initial_state_h265_master');
+      addVideoCandidate(video?.media?.stream?.h264?.[0]?.masterUrl, 'initial_state_h264_master');
+      addVideoCandidate(video?.media?.stream?.h264?.[0]?.master_url, 'initial_state_h264_master');
+      addVideoCandidate(video?.masterUrl, 'initial_state_master');
+      addVideoCandidate(video?.master_url, 'initial_state_master');
+    }
+
+    return candidates;
+  }
+
+  function collectStateNoteGroups(state) {
+    const groups = [];
+
+    const pushGroups = (value, source) => {
+      const unwrapped = unwrapInitialStateValue(value);
+      if (!Array.isArray(unwrapped)) {
+        return;
+      }
+
+      if (unwrapped.some((entry) => isStateNoteLike(entry))) {
+        groups.push({ items: unwrapped, source });
+      }
+
+      unwrapped.forEach((entry, index) => {
+        const nested = unwrapInitialStateValue(entry);
+        if (Array.isArray(nested) && nested.some((item) => isStateNoteLike(item))) {
+          groups.push({
+            items: nested,
+            source: `${source}[${index}]`,
+          });
+        }
+      });
+    };
+
+    pushGroups(state?.user?.notes, '__INITIAL_STATE__.user.notes');
+    pushGroups(state?.feed?.feeds, '__INITIAL_STATE__.feed.feeds');
+    pushGroups(state?.search?.feeds, '__INITIAL_STATE__.search.feeds');
+
+    return groups;
+  }
+
+  function resolveScopeStateNote({ scope, noteId, preferredImageUrl }) {
+    const state = getXiaohongshuInitialState();
+    if (!state) {
+      return null;
+    }
+
+    const normalizedNoteId = normalizeNoteId(noteId);
+    if (normalizedNoteId) {
+      const detailNote = state?.note?.noteDetailMap?.[normalizedNoteId]?.note;
+      if (detailNote && typeof detailNote === 'object') {
+        return {
+          raw: detailNote,
+          source: `__INITIAL_STATE__.note.noteDetailMap[${normalizedNoteId}].note`,
+        };
+      }
+    }
+
+    const groups = collectStateNoteGroups(state);
+    if (normalizedNoteId) {
+      for (const group of groups) {
+        const matchedIndex = group.items.findIndex((entry) => extractStateNoteId(entry) === normalizedNoteId);
+        if (matchedIndex >= 0) {
+          return {
+            raw: group.items[matchedIndex],
+            source: `${group.source}[${matchedIndex}]`,
+          };
+        }
+      }
+    }
+
+    const noteItem = scope instanceof Element ? scope.closest('.note-item[data-index]') : null;
+    const scopeIndex = Number.parseInt(noteItem?.getAttribute('data-index') || '', 10);
+    if (Number.isInteger(scopeIndex) && scopeIndex >= 0) {
+      for (const group of groups) {
+        const entry = group.items[scopeIndex];
+        if (isStateNoteLike(entry)) {
+          return {
+            raw: entry,
+            source: `${group.source}[${scopeIndex}]`,
+          };
+        }
+      }
+    }
+
+    const normalizedPreferredImage = normalizeXiaohongshuImageIdentity(preferredImageUrl);
+    if (normalizedPreferredImage) {
+      for (const group of groups) {
+        const matchedIndex = group.items.findIndex((entry) => (
+          normalizeXiaohongshuImageIdentity(extractStateNoteCoverImage(entry)) === normalizedPreferredImage
+        ));
+        if (matchedIndex >= 0) {
+          return {
+            raw: group.items[matchedIndex],
+            source: `${group.source}[${matchedIndex}]`,
+          };
+        }
+      }
+    }
+
+    const visit = (value, path, seen = new WeakSet(), depth = 0) => {
+      if (!value || depth > 12) {
+        return null;
+      }
+
+      if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index += 1) {
+          const match = visit(value[index], `${path}[${index}]`, seen, depth + 1);
+          if (match) {
+            return match;
+          }
+        }
+        return null;
+      }
+
+      if (typeof value !== 'object') {
+        return null;
+      }
+
+      if (seen.has(value)) {
+        return null;
+      }
+      seen.add(value);
+
+      if (isStateNoteLike(value)) {
+        if (normalizedNoteId && extractStateNoteId(value) === normalizedNoteId) {
+          return {
+            raw: value,
+            source: path,
+          };
+        }
+        if (
+          normalizedPreferredImage
+          && normalizeXiaohongshuImageIdentity(extractStateNoteCoverImage(value)) === normalizedPreferredImage
+        ) {
+          return {
+            raw: value,
+            source: path,
+          };
+        }
+      }
+
+      for (const [key, entry] of Object.entries(value)) {
+        const match = visit(entry, `${path}.${key}`, seen, depth + 1);
+        if (match) {
+          return match;
+        }
+      }
+
+      return null;
+    };
+
+    return visit(state, '__INITIAL_STATE__');
+
+  }
+
+  function detectXiaohongshuVideoIntent({ scope, noteId, preferredImageUrl }) {
+    const sources = [];
+    let confidence = 0;
+    const hasScopedVideoElement = scope instanceof Element && Boolean(scope.querySelector('video'));
+    const hasScopedPlayIcon = scope instanceof Element && Boolean(
+      scope.querySelector('.play-icon, [class*="play-icon"], [class*="video-play"], [class*="video-mask"]'),
+    );
+    const stateNote = resolveScopeStateNote({ scope, noteId, preferredImageUrl });
+    const stateVideoCandidates = [];
+    const stateImageCandidates = [];
+    const seenVideoUrls = new Set();
+    const seenImageUrls = new Set();
+
+    const addStateVideoCandidate = (rawUrl, source) => {
+      const candidateUrl = normalizeUrl(rawUrl);
+      if (!candidateUrl || seenVideoUrls.has(candidateUrl) || !isLikelyVideoUrl(candidateUrl)) {
+        return;
+      }
+
+      seenVideoUrls.add(candidateUrl);
+      const type = classifyCandidateType(candidateUrl);
+      const score = candidateTypeScore(type) + sourceScore('script_scan') + 10;
+      stateVideoCandidates.push({
+        url: candidateUrl,
+        type,
+        confidence: confidenceForScore(score),
+        source,
+        mediaType: 'video',
+      });
+    };
+
+    const addStateImageCandidate = (rawUrl, source) => {
+      const candidateUrl = resolveImageUrlCandidate(rawUrl);
+      if (!candidateUrl || seenImageUrls.has(candidateUrl)) {
+        return;
+      }
+
+      seenImageUrls.add(candidateUrl);
+      stateImageCandidates.push({
+        url: candidateUrl,
+        source,
+      });
+    };
+
+    if (stateNote?.raw && typeof stateNote.raw === 'object') {
+      collectMediaFromValue(stateNote.raw, addStateVideoCandidate, addStateImageCandidate);
+      extractStateNoteVideoCandidates(stateNote.raw).forEach((candidate) => {
+        addStateVideoCandidate(candidate.url, candidate.source);
+      });
+      const stateType = extractStateNoteType(stateNote.raw);
+      if (stateType === 'video') {
+        confidence = 1;
+        sources.push(`${stateNote.source}.type`);
+      }
+
+      if (
+        stateNote.raw.noteCard?.video
+        || stateNote.raw.noteCard?.note?.video
+        || stateNote.raw.note?.video
+        || stateNote.raw.video
+      ) {
+        confidence = 1;
+        sources.push(`${stateNote.source}.video`);
+      }
+
+      if (stateVideoCandidates.length > 0) {
+        confidence = Math.max(confidence, 1);
+        sources.push(`${stateNote.source}.media`);
+      }
+    }
+
+    if (hasScopedVideoElement) {
+      confidence = Math.max(confidence, 0.95);
+      sources.push('scoped-video-element');
+    }
+
+    if (hasScopedPlayIcon) {
+      confidence = Math.max(confidence, stateNote ? 0.85 : 0.65);
+      sources.push('play-icon-dom');
+    }
+
+    return {
+      hasScopedVideoElement,
+      hasScopedPlayIcon,
+      videoIntentConfidence: clampVideoIntentConfidence(confidence),
+      videoIntentSources: Array.from(new Set(sources)),
+      videoCandidates: stateVideoCandidates,
+      videoUrl: extractVideoUrl(stateVideoCandidates),
+      imageUrl: pickPreferredResolvedImage(preferredImageUrl, stateImageCandidates)
+        || extractStateNoteCoverImage(stateNote?.raw)
+        || null,
+    };
+  }
+
   function findScopeForNote(noteId, pageUrl, preferredImageUrl) {
     const candidates = [];
     const noteSelectors = [];
@@ -622,6 +1261,100 @@
     return candidates[0]?.scope ?? document.body;
   }
 
+  function findNoteNavigationAnchor({ scope, noteId, pageUrl }) {
+    const selectors = [];
+    if (noteId) {
+      selectors.push(`a[href*="/explore/${noteId}"]`);
+      selectors.push(`a[href*="/discovery/item/${noteId}"]`);
+      selectors.push(`a[href*="/user/profile/"][href*="/${noteId}"]`);
+    }
+    if (pageUrl) {
+      selectors.push(`a[href="${pageUrl}"]`);
+    }
+
+    const roots = [];
+    if (scope instanceof Element) {
+      roots.push(scope);
+    }
+    roots.push(document);
+
+    for (const root of roots) {
+      for (const selector of selectors) {
+        const anchor = root.querySelector(selector);
+        if (anchor instanceof HTMLAnchorElement) {
+          return anchor;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function resolvePreferredDetailUrl({ detailUrl, noteId, stateNote, fallbackPageUrl }) {
+    const normalizedNoteId = normalizeNoteId(noteId);
+    const directDetailUrl = normalizeUrl(detailUrl);
+    if (directDetailUrl && /[?&]xsec_token=/i.test(directDetailUrl)) {
+      return directDetailUrl;
+    }
+
+    const cachedDetailUrl = getCachedXiaohongshuNoteLink(normalizedNoteId)?.detailUrl || null;
+    if (cachedDetailUrl) {
+      return cachedDetailUrl;
+    }
+
+    const stateDetailUrl = extractStateNoteDetailUrl(stateNote?.raw || stateNote, normalizedNoteId, fallbackPageUrl);
+    if (stateDetailUrl) {
+      return stateDetailUrl;
+    }
+
+    return directDetailUrl || null;
+  }
+
+  function navigateToXiaohongshuNote({ noteId, pageUrl, detailUrl }) {
+    const scope = findScopeForNote(noteId, pageUrl, null);
+    const stateNote = resolveScopeStateNote({ scope, noteId, preferredImageUrl: null });
+    const extractedDetailUrl = resolvePreferredDetailUrl({
+      detailUrl,
+      noteId,
+      stateNote,
+      fallbackPageUrl: window.location.href,
+    });
+    const anchor = findNoteNavigationAnchor({ scope, noteId, pageUrl });
+
+    if (anchor instanceof HTMLAnchorElement) {
+      const anchorHref = normalizeUrl(anchor.href);
+      try {
+        anchor.scrollIntoView({
+          block: 'center',
+          inline: 'center',
+          behavior: 'instant',
+        });
+      } catch (_) {
+        // Ignore scroll failures in background tabs.
+      }
+
+      anchor.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, view: window }));
+      anchor.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+      anchor.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+      anchor.click();
+
+      return {
+        success: true,
+        clicked: true,
+        pageUrl: anchorHref || normalizeUrl(window.location.href),
+        detailUrl: extractedDetailUrl || anchorHref,
+      };
+    }
+
+    return {
+      success: false,
+      clicked: false,
+      pageUrl: normalizeUrl(window.location.href),
+      detailUrl: extractedDetailUrl,
+      code: 'xiaohongshu_note_anchor_missing',
+    };
+  }
+
   function collectNoteSpecificScriptSnippets(noteId, pageUrl) {
     const snippets = [];
     const markers = [noteId, pageUrl].filter((value) => typeof value === 'string' && value);
@@ -659,6 +1392,51 @@
       || /stream\/[A-Za-z0-9_-]+/i.test(snippet)
       || /video[_-]?(?:id|info|media|consumer)/i.test(snippet)
     ));
+  }
+
+  function valueSuggestsVideoNote(value, seen = new WeakSet(), depth = 0) {
+    if (value == null || depth > 12) {
+      return false;
+    }
+
+    if (typeof value === 'string') {
+      return (
+        /^video$/i.test(value.trim())
+        || /(?:^|["'{,\s])(?:type|note_?type)["']?\s*[:=]\s*["']video["']/i.test(value)
+        || /hasVideo["']?\s*[:=]\s*true/i.test(value)
+        || /master[_-]?url/i.test(value)
+        || /stream\/[A-Za-z0-9_-]+/i.test(value)
+      );
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((entry) => valueSuggestsVideoNote(entry, seen, depth + 1));
+    }
+
+    if (typeof value !== 'object') {
+      return false;
+    }
+
+    if (seen.has(value)) {
+      return false;
+    }
+    seen.add(value);
+
+    return Object.entries(value).some(([key, entry]) => {
+      if (/^type$|note_?type/i.test(key) && typeof entry === 'string') {
+        return /^video$/i.test(entry.trim());
+      }
+      if (/hasVideo/i.test(key) && entry === true) {
+        return true;
+      }
+      if (/^video$|video[_-]?(?:info|media|consumer|id)/i.test(key) && entry != null) {
+        return true;
+      }
+      if (/master[_-]?url|stream|h26[45]/i.test(key) && entry != null) {
+        return true;
+      }
+      return valueSuggestsVideoNote(entry, seen, depth + 1);
+    });
   }
 
   function collectVideoCandidatesFromSnippets(snippets) {
@@ -725,82 +1503,170 @@
   function resolveCurrentDocumentMedia({ noteId, pageUrl, preferredImageUrl, expectedMediaType }) {
     const scope = findScopeForNote(noteId, pageUrl, preferredImageUrl);
     const normalizedCurrentPageUrl = normalizeNoteUrl(window.location.href);
-    const hasScopedVideoElement = scope instanceof Element && Boolean(scope.querySelector('video'));
-    const allowDocumentWideVideoSignals =
-      normalizedCurrentPageUrl === pageUrl || hasScopedVideoElement;
-
-    if (expectedMediaType === 'image') {
-      const resolvedImageUrl = preferredImageUrl || extractPrimaryImageUrl(scope);
-      if (resolvedImageUrl) {
-        return {
-          kind: 'image',
-          pageUrl,
-          imageUrl: resolvedImageUrl,
-          videoUrl: null,
-          videoCandidates: [],
-        };
-      }
-    }
-
-    const scopeCandidates = extractVideoCandidates(scope, {
-      includeDocumentWideSignals: allowDocumentWideVideoSignals,
+    const videoIntent = detectXiaohongshuVideoIntent({
+      scope,
+      noteId,
+      preferredImageUrl,
     });
+    const hasScopedVideoElement = videoIntent.hasScopedVideoElement;
+    const allowDocumentWideVideoSignals =
+      normalizedCurrentPageUrl === pageUrl
+      || hasScopedVideoElement
+      || videoIntent.hasScopedPlayIcon
+      || videoIntent.videoIntentConfidence >= 0.7;
+
+    const scopeCandidates = mergeVideoCandidateLists(
+      videoIntent.videoCandidates,
+      extractVideoCandidates(scope, {
+        includeDocumentWideSignals: allowDocumentWideVideoSignals,
+      }),
+    );
     if (scopeCandidates.length > 0) {
+      logXhsDragResolution('resolveCurrentDocumentMedia -> scopeCandidates', {
+        pageUrl,
+        noteId,
+        expectedMediaType: expectedMediaType || null,
+        hasScopedVideoElement,
+        allowDocumentWideVideoSignals,
+        videoIntentConfidence: videoIntent.videoIntentConfidence,
+        videoIntentSources: videoIntent.videoIntentSources,
+        scopeVideoCandidatesCount: scopeCandidates.length,
+        scopeVideoCandidates: previewCandidates(scopeCandidates),
+      });
       return {
         kind: 'video',
         pageUrl,
-        imageUrl: preferredImageUrl || extractPrimaryImageUrl(scope),
-        videoUrl: extractVideoUrl(scopeCandidates),
+        imageUrl: preferredImageUrl || videoIntent.imageUrl || extractPrimaryImageUrl(scope),
+        videoUrl: videoIntent.videoUrl || extractVideoUrl(scopeCandidates),
         videoCandidates: scopeCandidates,
+        videoIntentConfidence: videoIntent.videoIntentConfidence,
+        videoIntentSources: videoIntent.videoIntentSources,
       };
     }
 
     const snippets = collectNoteSpecificScriptSnippets(noteId, pageUrl);
     const snippetCandidates = collectVideoCandidatesFromSnippets(snippets);
     if (snippetCandidates.length > 0) {
+      logXhsDragResolution('resolveCurrentDocumentMedia -> snippetCandidates', {
+        pageUrl,
+        noteId,
+        expectedMediaType: expectedMediaType || null,
+        videoIntentConfidence: videoIntent.videoIntentConfidence,
+        videoIntentSources: videoIntent.videoIntentSources,
+        snippetCount: snippets.length,
+        snippetCandidatesCount: snippetCandidates.length,
+        snippetCandidates: previewCandidates(snippetCandidates),
+      });
       return {
         kind: 'video',
         pageUrl,
-        imageUrl: preferredImageUrl || extractPrimaryImageUrl(scope),
+        imageUrl: preferredImageUrl || videoIntent.imageUrl || extractPrimaryImageUrl(scope),
         videoUrl: extractVideoUrl(snippetCandidates),
         videoCandidates: snippetCandidates,
+        videoIntentConfidence: Math.max(videoIntent.videoIntentConfidence, 0.8),
+        videoIntentSources: Array.from(new Set([
+          ...videoIntent.videoIntentSources,
+          'snippet-video-candidates',
+        ])),
       };
     }
 
     const performanceCandidates = allowDocumentWideVideoSignals
       ? collectPerformanceVideoCandidates()
       : [];
-    if (performanceCandidates.length > 0 && snippetSuggestsVideo(snippets)) {
+    if (performanceCandidates.length > 0 && (
+      snippetSuggestsVideo(snippets)
+      || videoIntent.videoIntentConfidence >= 0.7
+    )) {
+      logXhsDragResolution('resolveCurrentDocumentMedia -> performanceCandidates', {
+        pageUrl,
+        noteId,
+        expectedMediaType: expectedMediaType || null,
+        allowDocumentWideVideoSignals,
+        videoIntentConfidence: videoIntent.videoIntentConfidence,
+        videoIntentSources: videoIntent.videoIntentSources,
+        performanceCandidatesCount: performanceCandidates.length,
+        performanceCandidates: previewCandidates(performanceCandidates),
+      });
       return {
         kind: 'video',
         pageUrl,
-        imageUrl: preferredImageUrl || extractPrimaryImageUrl(scope),
+        imageUrl: preferredImageUrl || videoIntent.imageUrl || extractPrimaryImageUrl(scope),
         videoUrl: extractVideoUrl(performanceCandidates),
         videoCandidates: performanceCandidates,
+        videoIntentConfidence: Math.max(videoIntent.videoIntentConfidence, 0.75),
+        videoIntentSources: Array.from(new Set([
+          ...videoIntent.videoIntentSources,
+          'performance-video-candidates',
+        ])),
       };
     }
 
-    if (allowDocumentWideVideoSignals && snippetSuggestsVideo(snippets)) {
+    if (
+      videoIntent.videoIntentConfidence >= 0.7
+      || (allowDocumentWideVideoSignals && snippetSuggestsVideo(snippets))
+    ) {
+      logXhsDragResolution('resolveCurrentDocumentMedia -> videoIntentNoDirectUrl', {
+        pageUrl,
+        noteId,
+        expectedMediaType: expectedMediaType || null,
+        allowDocumentWideVideoSignals,
+        videoIntentConfidence: videoIntent.videoIntentConfidence,
+        videoIntentSources: videoIntent.videoIntentSources,
+        snippetCount: snippets.length,
+      });
       return {
         kind: 'video',
         pageUrl,
-        imageUrl: preferredImageUrl || extractPrimaryImageUrl(scope),
+        imageUrl: preferredImageUrl || videoIntent.imageUrl || extractPrimaryImageUrl(scope),
         videoUrl: null,
         videoCandidates: [],
+        videoIntentConfidence: Math.max(videoIntent.videoIntentConfidence, 0.7),
+        videoIntentSources: videoIntent.videoIntentSources,
       };
     }
 
-    const resolvedImageUrl = preferredImageUrl || extractPrimaryImageUrl(scope);
+    const resolvedImageUrl = preferredImageUrl || videoIntent.imageUrl || extractPrimaryImageUrl(scope);
     if (resolvedImageUrl) {
+      if (expectedMediaType === 'image') {
+        logXhsDragResolution('resolveCurrentDocumentMedia -> deferImageFallbackForVerification', {
+          pageUrl,
+          noteId,
+          expectedMediaType,
+          resolvedImageUrl,
+          videoIntentConfidence: videoIntent.videoIntentConfidence,
+          videoIntentSources: videoIntent.videoIntentSources,
+        });
+        return null;
+      }
+      logXhsDragResolution('resolveCurrentDocumentMedia -> imageFallback', {
+        pageUrl,
+        noteId,
+        expectedMediaType: expectedMediaType || null,
+        resolvedImageUrl,
+        videoIntentConfidence: videoIntent.videoIntentConfidence,
+        videoIntentSources: videoIntent.videoIntentSources,
+      });
       return {
         kind: 'image',
         pageUrl,
         imageUrl: resolvedImageUrl,
         videoUrl: null,
         videoCandidates: [],
+        videoIntentConfidence: videoIntent.videoIntentConfidence,
+        videoIntentSources: videoIntent.videoIntentSources,
       };
     }
 
+    logXhsDragResolution('resolveCurrentDocumentMedia -> noMatch', {
+      pageUrl,
+      noteId,
+      expectedMediaType: expectedMediaType || null,
+      hasScopedVideoElement,
+      allowDocumentWideVideoSignals,
+      videoIntentConfidence: videoIntent.videoIntentConfidence,
+      videoIntentSources: videoIntent.videoIntentSources,
+    });
     return null;
   }
 
@@ -863,15 +1729,42 @@
 
   function buildDragPayload(scope, pageUrl, target) {
     const noteId = resolveDragNoteId(target, pageUrl);
-    const hasScopedVideoElement = scope instanceof Element && Boolean(scope.querySelector('video'));
-    const videoCandidates = extractVideoCandidates(scope, {
-      includeDocumentWideSignals:
-        normalizeNoteUrl(window.location.href) === pageUrl || hasScopedVideoElement,
-    });
-    const videoUrl = extractVideoUrl(videoCandidates);
     const exactImageUrl = resolveDraggedImageUrl(target, scope);
-    const imageUrl = exactImageUrl || extractPrimaryImageUrl(scope);
-    const mediaType = videoUrl || videoCandidates.length > 0 || hasScopedVideoElement
+    const baseImageUrl = exactImageUrl || extractPrimaryImageUrl(scope);
+    const scopeStateNote = resolveScopeStateNote({
+      scope,
+      noteId,
+      preferredImageUrl: baseImageUrl,
+    });
+    const cachedNoteLink = getCachedXiaohongshuNoteLink(noteId);
+    const detailUrl = resolvePreferredDetailUrl({
+      noteId,
+      stateNote: scopeStateNote,
+      fallbackPageUrl: window.location.href,
+      detailUrl: cachedNoteLink?.detailUrl || null,
+    });
+    const videoIntent = detectXiaohongshuVideoIntent({
+      scope,
+      noteId,
+      preferredImageUrl: baseImageUrl,
+    });
+    const hasScopedVideoElement = videoIntent.hasScopedVideoElement;
+    const videoCandidates = mergeVideoCandidateLists(
+      videoIntent.videoCandidates,
+      extractVideoCandidates(scope, {
+        includeDocumentWideSignals:
+          normalizeNoteUrl(window.location.href) === pageUrl
+          || hasScopedVideoElement
+          || videoIntent.hasScopedPlayIcon
+          || videoIntent.videoIntentConfidence >= 0.7,
+      }),
+    );
+    const videoUrl = videoIntent.videoUrl || extractVideoUrl(videoCandidates);
+    const imageUrl = exactImageUrl || videoIntent.imageUrl || extractPrimaryImageUrl(scope);
+    const mediaType = videoUrl
+      || videoCandidates.length > 0
+      || hasScopedVideoElement
+      || videoIntent.videoIntentConfidence >= 0.7
       ? 'video'
       : imageUrl
         ? 'image'
@@ -880,12 +1773,16 @@
     return {
       token: nextToken(),
       pageUrl,
+      detailUrl,
+      sourcePageUrl: normalizeUrl(window.location.href) || window.location.href,
       noteId,
       exactImageUrl,
       imageUrl,
       videoUrl,
       videoCandidates,
       hasScopedVideoElement,
+      videoIntentConfidence: videoIntent.videoIntentConfidence || null,
+      videoIntentSources: videoIntent.videoIntentSources,
       mediaType,
       title: extractTitleFromScope(scope, { allowDocumentFallback: false }),
     };
@@ -920,8 +1817,12 @@
       type: INTERNAL_REGISTER_XIAOHONGSHU_DRAG_MESSAGE,
       token: payload.token,
       pageUrl: payload.pageUrl,
+      detailUrl: payload.detailUrl || null,
       noteId: payload.noteId,
       imageUrl: payload.exactImageUrl || payload.imageUrl || null,
+      mediaType: payload.mediaType || null,
+      videoIntentConfidence: payload.videoIntentConfidence ?? null,
+      videoIntentSources: payload.videoIntentSources || [],
       title: payload.title || null,
     }).catch((error) => {
       console.warn('[FlowSelect XHS] Failed to register drag token:', error);
@@ -978,7 +1879,7 @@
   }
 
   function collectMediaFromValue(value, addVideoCandidate, addImageCandidate, seen = new WeakSet(), depth = 0) {
-    if (value == null || depth > 8) {
+    if (value == null || depth > 12) {
       return;
     }
 
@@ -1005,6 +1906,9 @@
 
     for (const [key, entry] of Object.entries(value)) {
       if (typeof entry === 'string') {
+        if (/video|stream|master|play(?:_?url)?|h26[45]/i.test(key)) {
+          addVideoCandidate(entry, 'detail_api');
+        }
         collectUrlsFromString(entry, addVideoCandidate, addImageCandidate);
         if (/image|cover|poster|thumbnail/i.test(key)) {
           const imageUrl = resolveImageUrlCandidate(entry);
@@ -1029,7 +1933,7 @@
       }
     }
 
-    return preferredImageUrl || imageCandidates[0]?.url || null;
+    return imageCandidates[0]?.url || preferredImageUrl || null;
   }
 
   async function fetchXiaohongshuApiMedia(noteId, pageUrl, preferredImageUrl) {
@@ -1046,6 +1950,7 @@
     const imageCandidates = [];
     const seenVideoUrls = new Set();
     const seenImageUrls = new Set();
+    let detectedVideoIntent = false;
 
     const addVideoCandidate = (rawUrl, source) => {
       const candidateUrl = normalizeUrl(rawUrl);
@@ -1111,7 +2016,17 @@
           continue;
         }
 
+        detectedVideoIntent = detectedVideoIntent || valueSuggestsVideoNote(data);
         collectMediaFromValue(data, addVideoCandidate, addImageCandidate);
+        logXhsDragResolution('fetchXiaohongshuApiMedia -> response', {
+          pageUrl,
+          noteId,
+          detectedVideoIntent,
+          apiVideoCandidatesCount: videoCandidates.length,
+          apiImageCandidatesCount: imageCandidates.length,
+          apiVideoCandidates: previewCandidates(videoCandidates),
+          apiImagePreview: imageCandidates.slice(0, 2).map((candidate) => candidate.url),
+        });
         if (videoCandidates.length > 0 || imageCandidates.length > 0) {
           break;
         }
@@ -1132,6 +2047,14 @@
     const imageUrl = pickPreferredResolvedImage(preferredImageUrl, imageCandidates);
 
     if (videoUrl || orderedCandidates.length > 0) {
+      logXhsDragResolution('fetchXiaohongshuApiMedia -> resolvedVideo', {
+        pageUrl,
+        noteId,
+        detectedVideoIntent,
+        videoUrl: videoUrl || null,
+        orderedCandidatesCount: orderedCandidates.length,
+        orderedCandidates: previewCandidates(orderedCandidates),
+      });
       return {
         kind: 'video',
         pageUrl,
@@ -1141,7 +2064,27 @@
       };
     }
 
+    if (detectedVideoIntent) {
+      logXhsDragResolution('fetchXiaohongshuApiMedia -> resolvedVideoIntentWithoutUrl', {
+        pageUrl,
+        noteId,
+        imageUrl,
+      });
+      return {
+        kind: 'video',
+        pageUrl,
+        imageUrl,
+        videoUrl: null,
+        videoCandidates: [],
+      };
+    }
+
     if (imageUrl) {
+      logXhsDragResolution('fetchXiaohongshuApiMedia -> resolvedImage', {
+        pageUrl,
+        noteId,
+        imageUrl,
+      });
       return {
         kind: 'image',
         pageUrl,
@@ -1151,16 +2094,22 @@
       };
     }
 
+    logXhsDragResolution('fetchXiaohongshuApiMedia -> noResult', {
+      pageUrl,
+      noteId,
+      preferredImageUrl: preferredImageUrl || null,
+    });
     return null;
   }
 
-  async function fetchXiaohongshuHtmlMedia(pageUrl, preferredImageUrl) {
-    if (!pageUrl) {
+  async function fetchXiaohongshuHtmlMedia(pageUrl, preferredImageUrl, detailUrl) {
+    const requestUrl = normalizeUrl(detailUrl) || pageUrl;
+    if (!requestUrl) {
       return null;
     }
 
     try {
-      const response = await fetch(pageUrl, {
+      const response = await fetch(requestUrl, {
         credentials: 'include',
         cache: 'no-store',
         headers: {
@@ -1176,6 +2125,7 @@
       const imageCandidates = [];
       const seenVideoUrls = new Set();
       const seenImageUrls = new Set();
+      const detectedVideoIntent = valueSuggestsVideoNote(html);
 
       const addVideoCandidate = (rawUrl, source) => {
         const candidateUrl = normalizeUrl(rawUrl);
@@ -1221,7 +2171,15 @@
       const videoUrl = extractVideoUrl(orderedCandidates);
       const imageUrl = pickPreferredResolvedImage(preferredImageUrl, imageCandidates);
 
-      if (videoUrl || orderedCandidates.length > 0) {
+        if (videoUrl || orderedCandidates.length > 0) {
+          logXhsDragResolution('fetchXiaohongshuHtmlMedia -> resolvedVideo', {
+            pageUrl,
+            requestUrl,
+            videoUrl: videoUrl || null,
+            htmlVideoCandidatesCount: orderedCandidates.length,
+            detectedVideoIntent,
+            htmlVideoCandidates: previewCandidates(orderedCandidates),
+          });
         return {
           kind: 'video',
           pageUrl,
@@ -1231,7 +2189,32 @@
         };
       }
 
-      if (imageUrl) {
+      if (detectedVideoIntent) {
+        const imageUrl = pickPreferredResolvedImage(preferredImageUrl, imageCandidates);
+        logXhsDragResolution('fetchXiaohongshuHtmlMedia -> resolvedVideoIntentWithoutUrl', {
+          pageUrl,
+          requestUrl,
+          detectedVideoIntent,
+          imageUrl,
+          htmlImageCandidatesCount: imageCandidates.length,
+        });
+        return {
+          kind: 'video',
+          pageUrl,
+          imageUrl,
+          videoUrl: null,
+          videoCandidates: [],
+        };
+      }
+
+        if (imageUrl) {
+          logXhsDragResolution('fetchXiaohongshuHtmlMedia -> resolvedImage', {
+            pageUrl,
+            requestUrl,
+            imageUrl,
+            detectedVideoIntent,
+            htmlImageCandidatesCount: imageCandidates.length,
+          });
         return {
           kind: 'image',
           pageUrl,
@@ -1244,22 +2227,59 @@
       // Ignore html fallback failure.
     }
 
+    logXhsDragResolution('fetchXiaohongshuHtmlMedia -> noResult', {
+      pageUrl,
+      requestUrl,
+      preferredImageUrl: preferredImageUrl || null,
+    });
     return null;
   }
 
-  async function resolveXiaohongshuMedia({ pageUrl, noteId, preferredImageUrl, expectedMediaType }) {
+  async function resolveXiaohongshuMedia({
+    pageUrl,
+    detailUrl,
+    noteId,
+    preferredImageUrl,
+    expectedMediaType,
+    videoIntentConfidence,
+    videoIntentSources,
+  }) {
     const normalizedPageUrl = normalizeNoteUrl(pageUrl) || normalizeUrl(pageUrl);
+    const normalizedVideoIntentConfidence = clampVideoIntentConfidence(videoIntentConfidence);
+    const normalizedVideoIntentSources = Array.isArray(videoIntentSources)
+      ? Array.from(new Set(videoIntentSources.filter((value) => typeof value === 'string' && value.trim())))
+      : [];
     if (!normalizedPageUrl) {
       return {
-        kind: expectedMediaType === 'image' ? 'image' : 'unknown',
+        kind:
+          expectedMediaType === 'image' && normalizedVideoIntentConfidence < 0.7
+            ? 'image'
+            : 'unknown',
         pageUrl: pageUrl || window.location.href,
         imageUrl: preferredImageUrl || null,
         videoUrl: null,
         videoCandidates: [],
+        videoIntentConfidence: normalizedVideoIntentConfidence || null,
+        videoIntentSources: normalizedVideoIntentSources,
       };
     }
 
     const normalizedNoteId = normalizeNoteId(noteId) || extractNoteIdFromUrl(normalizedPageUrl);
+    const normalizedDetailUrl = resolvePreferredDetailUrl({
+      detailUrl,
+      noteId: normalizedNoteId,
+      stateNote: null,
+      fallbackPageUrl: normalizedPageUrl,
+    });
+    logXhsDragResolution('resolveXiaohongshuMedia -> start', {
+      pageUrl: normalizedPageUrl,
+      detailUrl: normalizedDetailUrl || null,
+      noteId: normalizedNoteId,
+      expectedMediaType: expectedMediaType || null,
+      preferredImageUrl: preferredImageUrl || null,
+      videoIntentConfidence: normalizedVideoIntentConfidence || null,
+      videoIntentSources: normalizedVideoIntentSources,
+    });
     const resolvedFromCurrentDocument = resolveCurrentDocumentMedia({
       noteId: normalizedNoteId,
       pageUrl: normalizedPageUrl,
@@ -1267,17 +2287,25 @@
       expectedMediaType,
     });
     if (resolvedFromCurrentDocument) {
+      logXhsDragResolution('resolveXiaohongshuMedia -> currentDocumentHit', {
+        pageUrl: normalizedPageUrl,
+        noteId: normalizedNoteId,
+        resultKind: resolvedFromCurrentDocument.kind,
+        resultVideoUrl: resolvedFromCurrentDocument.videoUrl || null,
+        resultVideoCandidatesCount: resolvedFromCurrentDocument.videoCandidates.length,
+        resultImageUrl: resolvedFromCurrentDocument.imageUrl || null,
+        resultVideoIntentConfidence: resolvedFromCurrentDocument.videoIntentConfidence ?? null,
+        resultVideoIntentSources: resolvedFromCurrentDocument.videoIntentSources ?? [],
+      });
       return resolvedFromCurrentDocument;
     }
 
-    if (expectedMediaType === 'image') {
-      return {
-        kind: preferredImageUrl ? 'image' : 'unknown',
+    if (expectedMediaType === 'image' && normalizedVideoIntentConfidence < 0.7) {
+      logXhsDragResolution('resolveXiaohongshuMedia -> deferExpectedImageFallbackUntilAfterApi', {
         pageUrl: normalizedPageUrl,
-        imageUrl: preferredImageUrl || null,
-        videoUrl: null,
-        videoCandidates: [],
-      };
+        noteId: normalizedNoteId,
+        preferredImageUrl: preferredImageUrl || null,
+      });
     }
 
     const resolvedFromApi = await fetchXiaohongshuApiMedia(
@@ -1286,20 +2314,83 @@
       preferredImageUrl,
     );
     if (resolvedFromApi) {
+      if (resolvedFromApi.kind === 'image' && normalizedVideoIntentConfidence >= 0.7) {
+        return {
+          kind: 'video',
+          pageUrl: resolvedFromApi.pageUrl,
+          imageUrl: resolvedFromApi.imageUrl || preferredImageUrl || null,
+          videoUrl: null,
+          videoCandidates: [],
+          videoIntentConfidence: normalizedVideoIntentConfidence,
+          videoIntentSources: normalizedVideoIntentSources,
+        };
+      }
+      logXhsDragResolution('resolveXiaohongshuMedia -> apiHit', {
+        pageUrl: normalizedPageUrl,
+        noteId: normalizedNoteId,
+        resultKind: resolvedFromApi.kind,
+        resultVideoUrl: resolvedFromApi.videoUrl || null,
+        resultVideoCandidatesCount: resolvedFromApi.videoCandidates.length,
+        resultImageUrl: resolvedFromApi.imageUrl || null,
+      });
       return resolvedFromApi;
     }
 
-    const resolvedFromHtml = await fetchXiaohongshuHtmlMedia(normalizedPageUrl, preferredImageUrl);
+    const resolvedFromHtml = await fetchXiaohongshuHtmlMedia(
+      normalizedPageUrl,
+      preferredImageUrl,
+      normalizedDetailUrl,
+    );
     if (resolvedFromHtml) {
+      if (resolvedFromHtml.kind === 'image' && normalizedVideoIntentConfidence >= 0.7) {
+        return {
+          kind: 'video',
+          pageUrl: resolvedFromHtml.pageUrl,
+          imageUrl: resolvedFromHtml.imageUrl || preferredImageUrl || null,
+          videoUrl: null,
+          videoCandidates: [],
+          videoIntentConfidence: normalizedVideoIntentConfidence,
+          videoIntentSources: normalizedVideoIntentSources,
+        };
+      }
+      logXhsDragResolution('resolveXiaohongshuMedia -> htmlHit', {
+        pageUrl: normalizedPageUrl,
+        noteId: normalizedNoteId,
+        resultKind: resolvedFromHtml.kind,
+        resultVideoUrl: resolvedFromHtml.videoUrl || null,
+        resultVideoCandidatesCount: resolvedFromHtml.videoCandidates.length,
+        resultImageUrl: resolvedFromHtml.imageUrl || null,
+      });
       return resolvedFromHtml;
     }
 
+    logXhsDragResolution('resolveXiaohongshuMedia -> finalFallback', {
+      pageUrl: normalizedPageUrl,
+      noteId: normalizedNoteId,
+      expectedMediaType: expectedMediaType || null,
+      preferredImageUrl: preferredImageUrl || null,
+      videoIntentConfidence: normalizedVideoIntentConfidence || null,
+      videoIntentSources: normalizedVideoIntentSources,
+    });
+    if (normalizedVideoIntentConfidence >= 0.7) {
+      return {
+        kind: 'video',
+        pageUrl: normalizedPageUrl,
+        imageUrl: preferredImageUrl || null,
+        videoUrl: null,
+        videoCandidates: [],
+        videoIntentConfidence: normalizedVideoIntentConfidence,
+        videoIntentSources: normalizedVideoIntentSources,
+      };
+    }
     return {
       kind: preferredImageUrl ? 'image' : 'unknown',
       pageUrl: normalizedPageUrl,
       imageUrl: preferredImageUrl || null,
       videoUrl: null,
       videoCandidates: [],
+      videoIntentConfidence: normalizedVideoIntentConfidence || null,
+      videoIntentSources: normalizedVideoIntentSources,
     };
   }
 
@@ -1321,9 +2412,12 @@
 
     console.info('[FlowSelect XHS] Drag payload prepared', {
       pageUrl,
+      detailUrl: payload.detailUrl || null,
       noteId: payload.noteId,
       mediaType: payload.mediaType,
       hasScopedVideoElement: payload.hasScopedVideoElement,
+      videoIntentConfidence: payload.videoIntentConfidence ?? null,
+      videoIntentSources: payload.videoIntentSources ?? [],
       hasVideoUrl: Boolean(payload.videoUrl),
       videoCandidatesCount: payload.videoCandidates.length,
       hasExactImageUrl: Boolean(payload.exactImageUrl),
@@ -1402,6 +2496,7 @@
     if (!videoUrl && videoCandidates.length === 0) {
       resolvedMedia = await resolveXiaohongshuMedia({
         pageUrl,
+        detailUrl: normalizeUrl(window.location.href),
         noteId,
         preferredImageUrl: imageUrl,
       });
@@ -1637,6 +2732,12 @@
           || cached?.exactImageUrl
           || cached?.imageUrl
           || null;
+        const detailUrl = resolvePreferredDetailUrl({
+          detailUrl: normalizeUrl(message.detailUrl) || cached?.detailUrl || null,
+          noteId,
+          stateNote: null,
+          fallbackPageUrl: pageUrl,
+        });
         const title = cached?.title || null;
 
         if (!pageUrl) {
@@ -1649,25 +2750,42 @@
 
         console.info('[FlowSelect XHS] Resolving context media in content script', {
           pageUrl,
+          detailUrl,
           noteId,
           preferredImageUrl,
           mediaType: message.mediaType || cached?.mediaType || null,
+          videoIntentConfidence:
+            typeof message.videoIntentConfidence === 'number'
+              ? message.videoIntentConfidence
+              : cached?.videoIntentConfidence ?? null,
+          videoIntentSources: Array.isArray(message.videoIntentSources) && message.videoIntentSources.length > 0
+            ? message.videoIntentSources
+            : cached?.videoIntentSources || [],
         });
 
         void resolveXiaohongshuMedia({
           pageUrl,
+          detailUrl,
           noteId,
           preferredImageUrl,
           expectedMediaType:
             message.mediaType === 'image' || message.mediaType === 'video'
               ? message.mediaType
               : cached?.mediaType || null,
+          videoIntentConfidence:
+            typeof message.videoIntentConfidence === 'number'
+              ? message.videoIntentConfidence
+              : cached?.videoIntentConfidence ?? null,
+          videoIntentSources: Array.isArray(message.videoIntentSources) && message.videoIntentSources.length > 0
+            ? message.videoIntentSources
+            : cached?.videoIntentSources || [],
         }).then((result) => {
           sendResponse({
             success: true,
             payload: {
               ...result,
               pageUrl: result?.pageUrl || pageUrl,
+              detailUrl,
               title,
             },
           });
@@ -1683,37 +2801,80 @@
         return true;
       }
 
+      if (message?.type === NAVIGATE_XIAOHONGSHU_NOTE_MESSAGE) {
+        const result = navigateToXiaohongshuNote({
+          noteId: typeof message.noteId === 'string' ? message.noteId : null,
+          pageUrl: normalizeNoteUrl(message.pageUrl) || normalizeNoteUrl(window.location.href),
+          detailUrl: normalizeUrl(message.detailUrl),
+        });
+        sendResponse(result);
+        return true;
+      }
+
       if (message?.type !== RESOLVE_XIAOHONGSHU_DRAG_MESSAGE) {
         return true;
       }
 
+      const dragPageUrl = typeof message.pageUrl === 'string'
+        ? message.pageUrl
+        : window.location.href;
+      const dragNoteId = typeof message.noteId === 'string' ? message.noteId : null;
+      const dragDetailUrl = resolvePreferredDetailUrl({
+        detailUrl: normalizeUrl(message.detailUrl),
+        noteId: dragNoteId,
+        stateNote: null,
+        fallbackPageUrl: dragPageUrl,
+      });
+
       console.info('[FlowSelect XHS] Resolving drag media in content script', {
-        token: typeof message.token === 'string' ? message.token : null,
-        pageUrl: typeof message.pageUrl === 'string' ? message.pageUrl : window.location.href,
-        noteId: typeof message.noteId === 'string' ? message.noteId : null,
+        token: redactToken(typeof message.token === 'string' ? message.token : ''),
+        pageUrl: dragPageUrl,
+        detailUrl: dragDetailUrl,
+        noteId: dragNoteId,
         preferredImageUrl: resolveImageUrlCandidate(message.imageUrl),
+        mediaType: message.mediaType === 'image' || message.mediaType === 'video'
+          ? message.mediaType
+          : null,
+        videoIntentConfidence:
+          typeof message.videoIntentConfidence === 'number'
+            ? message.videoIntentConfidence
+            : null,
+        videoIntentSources: Array.isArray(message.videoIntentSources)
+          ? message.videoIntentSources
+          : [],
       });
 
       void resolveXiaohongshuMedia({
-        pageUrl: typeof message.pageUrl === 'string' ? message.pageUrl : window.location.href,
-        noteId: typeof message.noteId === 'string' ? message.noteId : null,
+        pageUrl: dragPageUrl,
+        detailUrl: dragDetailUrl,
+        noteId: dragNoteId,
         preferredImageUrl: resolveImageUrlCandidate(message.imageUrl),
         expectedMediaType:
           message.mediaType === 'image' || message.mediaType === 'video'
             ? message.mediaType
             : null,
+        videoIntentConfidence:
+          typeof message.videoIntentConfidence === 'number'
+            ? message.videoIntentConfidence
+            : null,
+        videoIntentSources: Array.isArray(message.videoIntentSources)
+          ? message.videoIntentSources
+          : [],
       }).then((result) => {
         console.info('[FlowSelect XHS] Resolved drag media in content script', {
           kind: result?.kind ?? 'unknown',
           pageUrl: result?.pageUrl ?? null,
           imageUrl: result?.imageUrl ?? null,
           videoUrl: result?.videoUrl ?? null,
+          videoIntentConfidence: result?.videoIntentConfidence ?? null,
+          videoIntentSources: result?.videoIntentSources ?? [],
           videoCandidatesCount: Array.isArray(result?.videoCandidates)
             ? result.videoCandidates.length
             : 0,
         });
         sendResponse({
           success: true,
+          detailUrl: dragDetailUrl,
           ...result,
         });
       }).catch((error) => {
@@ -1721,7 +2882,8 @@
         sendResponse({
           success: false,
           kind: 'unknown',
-          pageUrl: typeof message.pageUrl === 'string' ? message.pageUrl : window.location.href,
+          pageUrl: dragPageUrl,
+          detailUrl: dragDetailUrl,
           imageUrl: resolveImageUrlCandidate(message.imageUrl),
           videoUrl: null,
           videoCandidates: [],

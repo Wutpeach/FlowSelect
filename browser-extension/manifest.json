@@ -18,7 +18,8 @@
     {
       "resources": [
         "locales/*/*.json",
-        "protected-image-page-bridge.js"
+        "protected-image-page-bridge.js",
+        "xiaohongshu-page-bridge.js"
       ],
       "matches": [
         "<all_urls>"

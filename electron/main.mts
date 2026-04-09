@@ -53,7 +53,7 @@ import {
   inspectRuntimeDependencyStatus,
   releaseRenameStem,
   resetRenameSequenceState,
-  resolveXiaohongshuPageMedia,
+  resolveXiaohongshuDragMedia,
   resolveRuntimeBinaryPaths,
   resolveRenameEnabled,
 } from "../src/electron-runtime/index.js";
@@ -131,7 +131,10 @@ const UI_LAB_WINDOW_HEIGHT = 560;
 const UI_LAB_WINDOW_GAP = 16;
 const WINDOW_EDGE_PADDING = 8;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15_000;
-const XIAOHONGSHU_DRAG_RESOLUTION_TIMEOUT_MS = 15_000;
+const XIAOHONGSHU_DRAG_RESOLUTION_TIMEOUT_MS = 30_000;
+const XIAOHONGSHU_HIDDEN_DETAIL_POLL_ATTEMPTS = 7;
+const XIAOHONGSHU_HIDDEN_DETAIL_POLL_INTERVAL_MS = 700;
+const XIAOHONGSHU_HIDDEN_DETAIL_INITIAL_SETTLE_MS = 900;
 const YTDLP_PROGRESS_PREFIX = "__FLOWSELECT_PROGRESS__=";
 const YTDLP_FILE_PATH_PREFIX = "__FLOWSELECT_FILE_PATH__=";
 const YTDLP_FORMAT_SELECTOR_BEST = "bestvideo+bestaudio/best";
@@ -1387,6 +1390,824 @@ function nextOpaqueId(prefix) {
   const identifier = `${safePrefix}-${Date.now()}-${nextOpaqueSequence}`;
   nextOpaqueSequence += 1;
   return identifier;
+}
+
+function buildCookieHeaderFromNetscape(rawCookies) {
+  const cookies = normalizeOptionalString(rawCookies);
+  if (!cookies) {
+    return null;
+  }
+
+  const pairs = [];
+  for (const line of cookies.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const parts = trimmed.split("\t");
+    if (parts.length < 7) {
+      continue;
+    }
+
+    const name = normalizeOptionalString(parts[5]);
+    if (!name) {
+      continue;
+    }
+
+    pairs.push(`${name}=${parts[6] ?? ""}`);
+  }
+
+  return pairs.length > 0 ? pairs.join("; ") : null;
+}
+
+function parseNetscapeCookies(rawCookies) {
+  const cookies = normalizeOptionalString(rawCookies);
+  if (!cookies) {
+    return [];
+  }
+
+  const parsedCookies = [];
+  for (const line of cookies.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const parts = trimmed.split("\t");
+    if (parts.length < 7) {
+      continue;
+    }
+
+    const domain = normalizeOptionalString(parts[0]);
+    const path = normalizeOptionalString(parts[2]) ?? "/";
+    const secure = String(parts[3] ?? "").toUpperCase() === "TRUE";
+    const expirationRaw = Number(parts[4]);
+    const name = normalizeOptionalString(parts[5]);
+    if (!domain || !name) {
+      continue;
+    }
+
+    const hostname = domain.replace(/^\./, "");
+    if (!hostname) {
+      continue;
+    }
+
+    parsedCookies.push({
+      url: `${secure ? "https" : "http"}://${hostname}${path.startsWith("/") ? path : `/${path}`}`,
+      domain,
+      path,
+      secure,
+      expirationDate: Number.isFinite(expirationRaw) && expirationRaw > 0
+        ? expirationRaw
+        : undefined,
+      name,
+      value: typeof parts[6] === "string" ? parts[6] : "",
+    });
+  }
+
+  return parsedCookies;
+}
+
+async function seedSessionCookiesFromNetscape(targetSession, rawCookies) {
+  const cookies = parseNetscapeCookies(rawCookies);
+  if (cookies.length === 0) {
+    return 0;
+  }
+
+  await Promise.allSettled(
+    cookies.map((cookie) => targetSession.cookies.set(cookie)),
+  );
+  return cookies.length;
+}
+
+function buildXiaohongshuHiddenDetailUrls(pageUrl, noteId, sourcePageUrl, detailUrl) {
+  const urls = [];
+  const seen = new Set();
+
+  const addUrl = (value) => {
+    const normalized = normalizeVideoPageUrl(value);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    urls.push(normalized);
+  };
+
+  addUrl(detailUrl);
+  addUrl(sourcePageUrl);
+  addUrl(pageUrl);
+  const normalizedNoteId = normalizeOptionalString(noteId);
+  if (normalizedNoteId) {
+    addUrl(`https://www.xiaohongshu.com/explore/${normalizedNoteId}`);
+  }
+
+  return urls;
+}
+
+function isXiaohongshuNotePageUrl(value) {
+  const normalized = normalizeVideoPageUrl(value);
+  if (!normalized) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    return /(?:^|\.)(xiaohongshu\.com|xhslink\.com)$/i.test(parsed.hostname)
+      && /\/(?:explore|discovery\/item)\/[a-zA-Z0-9]+|^\/user\/profile\/[^/?#]+\/[a-zA-Z0-9]+(?:[/?#]|$)/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isUsableXiaohongshuDirectVideoUrl(value) {
+  const normalized = normalizeVideoHintUrl(value, "xiaohongshu");
+  if (!normalized) {
+    return false;
+  }
+
+  return /xhscdn\.com/i.test(normalized)
+    && /\.(mp4|m4v|mov|m3u8)(?:[?#]|$)/i.test(normalized);
+}
+
+function hasUsableXiaohongshuVideoMedia(media) {
+  if (!media || typeof media !== "object") {
+    return false;
+  }
+
+  return isUsableXiaohongshuDirectVideoUrl(media.videoUrl)
+    || normalizeVideoCandidates(media.videoCandidates, "xiaohongshu").some((candidate) => (
+      isUsableXiaohongshuDirectVideoUrl(candidate?.url)
+    ));
+}
+
+function shouldAttemptXiaohongshuHiddenDetailResolution({
+  pageUrl,
+  detailUrl,
+  noteId,
+  mediaType,
+  videoIntentConfidence,
+  resolvedMedia,
+}) {
+  if (
+    !normalizeVideoPageUrl(pageUrl)
+    && !normalizeVideoPageUrl(detailUrl)
+    && !normalizeOptionalString(noteId)
+  ) {
+    return false;
+  }
+
+  if (hasUsableXiaohongshuVideoMedia(resolvedMedia)) {
+    return false;
+  }
+
+  const resolvedConfidence =
+    typeof resolvedMedia?.videoIntentConfidence === "number"
+      ? resolvedMedia.videoIntentConfidence
+      : 0;
+  const normalizedDetailUrl = normalizeVideoPageUrl(detailUrl);
+  const hasTokenizedDetailUrl = Boolean(
+    normalizedDetailUrl && /[?&]xsec_token=/i.test(normalizedDetailUrl),
+  );
+
+  return mediaType === "video"
+    || resolvedMedia?.kind === "video"
+    || videoIntentConfidence >= 0.7
+    || resolvedConfidence >= 0.7
+    || ((videoIntentConfidence >= 0.5 || resolvedConfidence >= 0.5) && hasTokenizedDetailUrl);
+}
+
+function extractXiaohongshuHiddenPageMediaPageContext(options) {
+  const normalizeString = (value) => (
+    typeof value === "string" && value.trim() ? value.trim() : null
+  );
+
+  const normalizeNoteId = (value) => {
+    const normalized = normalizeString(value);
+    return normalized && /^[a-zA-Z0-9]+$/.test(normalized) ? normalized : null;
+  };
+
+  const normalizeUrl = (value) => {
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const trimmed = value.replace(/\\u002F/gi, "/").replace(/\\\//g, "/").trim();
+    if (!trimmed || /^(?:blob:|data:|file:|about:|javascript:|mailto:)/i.test(trimmed)) {
+      return null;
+    }
+
+    try {
+      const normalized = new URL(trimmed, window.location.href).toString();
+      return /^https?:\/\//i.test(normalized) ? normalized : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const isUsableDirectVideoUrl = (value) => {
+    const normalized = normalizeUrl(value);
+    if (!normalized) {
+      return false;
+    }
+
+    return /xhscdn\.com/i.test(normalized)
+      && /\.(?:mp4|m4v|mov|m3u8)(?:[?#]|$)/i.test(normalized);
+  };
+
+  const isLikelyVideoUrl = (value) => {
+    const normalized = normalizeUrl(value);
+    if (!normalized) {
+      return false;
+    }
+
+    if (/\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|css|js|json|txt|woff2?|ttf)(?:[?#]|$)/i.test(normalized)) {
+      return false;
+    }
+
+    return isUsableDirectVideoUrl(normalized);
+  };
+
+  const normalizeImageUrl = (value) => {
+    const normalized = normalizeUrl(value);
+    if (
+      !normalized
+      || isLikelyVideoUrl(normalized)
+      || /\.(?:css|js|json|txt|map|woff2?|ttf)(?:[?#]|$)/i.test(normalized)
+    ) {
+      return null;
+    }
+
+    if (
+      !/sns-webpic[^/]*\.xhscdn\.com/i.test(normalized)
+      && !/\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#]|$)/i.test(normalized)
+      && !/(?:imageView2|format\/(?:jpe?g|png|webp|gif)|notes_pre_post|!nc_)/i.test(normalized)
+    ) {
+      return null;
+    }
+
+    return normalized;
+  };
+
+  const isErrorLikePage = () => {
+    const href = String(window.location.href || "");
+    const bodyText = String(document.body?.innerText || "");
+    const titleText = String(document.title || "");
+
+    return /\/website-login\/|\/404(?:[/?#]|$)/i.test(href)
+      || /error_code=300017|error_code=300031/i.test(href)
+      || /访问链接异常|当前笔记暂时无法浏览/i.test(bodyText)
+      || /访问链接异常|暂时无法浏览|404/i.test(titleText);
+  };
+
+  const resolveImageUrlCandidate = (value) => normalizeImageUrl(value);
+
+  const classifyCandidateType = (value) => {
+    const normalized = String(value || "").toLowerCase();
+    if (/\.m3u8(?:[?#]|$)/i.test(normalized)) {
+      return "manifest_m3u8";
+    }
+    if (/xhscdn\.com/i.test(normalized) && /\.(?:mp4|m4v|mov)(?:[?#]|$)/i.test(normalized)) {
+      return "direct_cdn";
+    }
+    if (/\.mp4(?:[?#]|$)/i.test(normalized)) {
+      return "direct_mp4";
+    }
+    return "indirect_media";
+  };
+
+  const candidateTypeScore = (type) => {
+    switch (type) {
+      case "direct_cdn":
+        return 100;
+      case "direct_mp4":
+        return 90;
+      case "indirect_media":
+        return 45;
+      case "manifest_m3u8":
+        return 10;
+      default:
+        return 0;
+    }
+  };
+
+  const sourceScore = (source) => {
+    switch (source) {
+      case "hidden_video_element":
+        return 20;
+      case "hidden_video_source":
+        return 18;
+      case "hidden_performance_resource":
+        return 10;
+      case "hidden_script_scan":
+        return 6;
+      case "hidden_initial_state":
+      case "hidden_initial_state_origin_video_key":
+        return 18;
+      default:
+        return 0;
+    }
+  };
+
+  const confidenceForScore = (score) => {
+    if (score >= 110) {
+      return "high";
+    }
+    if (score >= 70) {
+      return "medium";
+    }
+    return "low";
+  };
+
+  const videoCandidates = [];
+  const imageCandidates = [];
+  const seenVideoUrls = new Set();
+  const seenImageUrls = new Set();
+
+  const addVideoCandidate = (rawUrl, source) => {
+    let candidateUrl = rawUrl;
+    if (typeof candidateUrl === "string" && !/^https?:\/\//i.test(candidateUrl) && /\.mp4(?:$|\?)/i.test(candidateUrl)) {
+      candidateUrl = `https://sns-video-bd.xhscdn.com/${candidateUrl.replace(/^\/+/, "")}`;
+    }
+
+    const normalized = normalizeUrl(candidateUrl);
+    if (!normalized || seenVideoUrls.has(normalized) || !isLikelyVideoUrl(normalized)) {
+      return;
+    }
+
+    seenVideoUrls.add(normalized);
+    const type = classifyCandidateType(normalized);
+    const score = candidateTypeScore(type) + sourceScore(source);
+    videoCandidates.push({
+      url: normalized,
+      type,
+      confidence: confidenceForScore(score),
+      source,
+      mediaType: "video",
+      score,
+    });
+  };
+
+  const addImageCandidate = (rawUrl, source) => {
+    const normalized = resolveImageUrlCandidate(rawUrl);
+    if (!normalized || seenImageUrls.has(normalized)) {
+      return;
+    }
+
+    seenImageUrls.add(normalized);
+    imageCandidates.push({
+      url: normalized,
+      source,
+    });
+  };
+
+  const valueSuggestsVideoNote = (value, seen = new WeakSet(), depth = 0) => {
+    if (value == null || depth > 12) {
+      return false;
+    }
+
+    if (typeof value === "string") {
+      return /^video$/i.test(value.trim())
+        || /(?:^|["'{,\s])(?:type|note_?type)["']?\s*[:=]\s*["']video["']/i.test(value)
+        || /hasVideo["']?\s*[:=]\s*true/i.test(value)
+        || /master[_-]?url/i.test(value)
+        || /stream\/[A-Za-z0-9_-]+/i.test(value);
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((entry) => valueSuggestsVideoNote(entry, seen, depth + 1));
+    }
+
+    if (typeof value !== "object") {
+      return false;
+    }
+
+    if (seen.has(value)) {
+      return false;
+    }
+    seen.add(value);
+
+    return Object.entries(value).some(([key, entry]) => {
+      if ((/^type$|note_?type/i.test(key)) && typeof entry === "string") {
+        return /^video$/i.test(entry.trim());
+      }
+      if (/hasVideo/i.test(key) && entry === true) {
+        return true;
+      }
+      if (/^video$|video[_-]?(?:info|media|consumer|id)/i.test(key) && entry != null) {
+        return true;
+      }
+      if (/master[_-]?url|stream|h26[45]|originVideoKey/i.test(key) && entry != null) {
+        return true;
+      }
+      return valueSuggestsVideoNote(entry, seen, depth + 1);
+    });
+  };
+
+  const collectMediaFromValue = (value, seen = new WeakSet(), depth = 0) => {
+    if (value == null || depth > 12) {
+      return;
+    }
+
+    if (typeof value === "string") {
+      addVideoCandidate(value, "hidden_initial_state");
+      addImageCandidate(value, "hidden_initial_state");
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((entry) => collectMediaFromValue(entry, seen, depth + 1));
+      return;
+    }
+
+    if (typeof value !== "object") {
+      return;
+    }
+
+    if (seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+
+    if (typeof value.originVideoKey === "string") {
+      addVideoCandidate(value.originVideoKey, "hidden_initial_state_origin_video_key");
+    }
+
+    Object.values(value).forEach((entry) => collectMediaFromValue(entry, seen, depth + 1));
+  };
+
+  const extractStateEntries = (rootValue, expectedNoteId) => {
+    const matches = [];
+    const visit = (value, seen = new WeakSet(), depth = 0) => {
+      if (value == null || depth > 12) {
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((entry) => visit(entry, seen, depth + 1));
+        return;
+      }
+      if (typeof value !== "object") {
+        return;
+      }
+      if (seen.has(value)) {
+        return;
+      }
+      seen.add(value);
+
+      const candidateIds = [
+        value.noteCard?.note?.noteId,
+        value.noteCard?.note?.id,
+        value.noteCard?.noteId,
+        value.noteCard?.id,
+        value.note?.noteId,
+        value.note?.id,
+        value.noteId,
+        value.id,
+      ];
+      if (expectedNoteId && candidateIds.some((candidate) => normalizeNoteId(candidate) === expectedNoteId)) {
+        matches.push(value);
+      }
+
+      Object.values(value).forEach((entry) => visit(entry, seen, depth + 1));
+    };
+
+    visit(rootValue);
+    return matches;
+  };
+
+  const extractPrimaryImageUrl = () => {
+    const metaSelectors = [
+      'meta[property="og:image"]',
+      'meta[name="og:image"]',
+      'meta[name="twitter:image"]',
+      'meta[property="twitter:image"]',
+    ];
+    for (const selector of metaSelectors) {
+      const metaImage = document.querySelector(selector)?.getAttribute("content");
+      const resolved = resolveImageUrlCandidate(metaImage);
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    const images = Array.from(document.querySelectorAll("img"));
+    for (const image of images) {
+      const resolved = resolveImageUrlCandidate(image.currentSrc)
+        || resolveImageUrlCandidate(image.src)
+        || resolveImageUrlCandidate(image.getAttribute("src"))
+        || resolveImageUrlCandidate(image.getAttribute("data-src"));
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    return null;
+  };
+
+  const normalizedExpectedNoteId = normalizeNoteId(options?.noteId);
+  const initialState = window.__INITIAL_STATE__ && typeof window.__INITIAL_STATE__ === "object"
+    ? window.__INITIAL_STATE__
+    : null;
+  const matchedStateEntries = initialState
+    ? extractStateEntries(initialState, normalizedExpectedNoteId)
+    : [];
+
+  if (matchedStateEntries.length > 0) {
+    matchedStateEntries.forEach((entry) => collectMediaFromValue(entry));
+  } else if (initialState) {
+    collectMediaFromValue(initialState);
+  }
+
+  const videos = Array.from(document.querySelectorAll("video"));
+  for (const video of videos) {
+    addVideoCandidate(video.currentSrc, "hidden_video_element");
+    addVideoCandidate(video.src, "hidden_video_element");
+    addVideoCandidate(video.getAttribute("src"), "hidden_video_element");
+    const source = video.querySelector("source");
+    addVideoCandidate(source?.src, "hidden_video_source");
+    addVideoCandidate(source?.getAttribute("src"), "hidden_video_source");
+  }
+
+  const resources = performance.getEntriesByType("resource") || [];
+  for (let index = resources.length - 1; index >= 0; index -= 1) {
+    addVideoCandidate(resources[index]?.name, "hidden_performance_resource");
+  }
+
+  const scriptTags = Array.from(document.querySelectorAll("script"));
+  const urlRegex = /https?:\/\/[^\s"'\\]+/g;
+  for (const script of scriptTags) {
+    const rawText = script.textContent || "";
+    if (!rawText) {
+      continue;
+    }
+    const text = rawText.replace(/\\u002F/g, "/");
+    const matches = text.match(urlRegex) || [];
+    for (const match of matches) {
+      addVideoCandidate(match, "hidden_script_scan");
+      addImageCandidate(match, "hidden_script_scan");
+    }
+  }
+
+  const playTarget = document.querySelector(
+    '.play-icon, [class*="play-icon"], [class*="video-play"], [class*="play-btn"], [class*="player-btn"], button[aria-label*="play"], button[aria-label*="播放"]',
+  );
+  let clickedPlay = false;
+  if (videoCandidates.length === 0 && playTarget && !window.__FLOWSELECT_XHS_HIDDEN_PLAY_CLICKED__) {
+    window.__FLOWSELECT_XHS_HIDDEN_PLAY_CLICKED__ = true;
+    clickedPlay = true;
+    const clickable = playTarget.closest("button, [role='button'], div") || playTarget;
+    ["pointerdown", "mousedown", "mouseup", "click"].forEach((eventName) => {
+      clickable.dispatchEvent(new MouseEvent(eventName, {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      }));
+    });
+  }
+
+  const orderedVideoCandidates = videoCandidates
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12)
+    .map(({ score, ...candidate }) => candidate);
+  const errorLikePage = isErrorLikePage();
+  const filteredVideoCandidates = errorLikePage
+    ? []
+    : orderedVideoCandidates.filter((candidate) => isUsableDirectVideoUrl(candidate?.url));
+  const imageUrl = imageCandidates[0]?.url
+    || extractPrimaryImageUrl()
+    || resolveImageUrlCandidate(options?.preferredImageUrl)
+    || null;
+
+  const videoIntentSources = [];
+  let videoIntentConfidence = 0;
+
+  if (matchedStateEntries.length > 0) {
+    videoIntentConfidence = 1;
+    videoIntentSources.push("hidden_detail_state_note");
+  } else if (initialState && valueSuggestsVideoNote(initialState)) {
+    videoIntentConfidence = Math.max(videoIntentConfidence, 0.85);
+    videoIntentSources.push("hidden_detail_state_scan");
+  }
+
+  if (videos.length > 0) {
+    videoIntentConfidence = Math.max(videoIntentConfidence, 0.95);
+    videoIntentSources.push("hidden_detail_video_element");
+  }
+
+  if (playTarget) {
+    videoIntentConfidence = Math.max(videoIntentConfidence, 0.7);
+    videoIntentSources.push("hidden_detail_play_button");
+  }
+
+  if (orderedVideoCandidates.length > 0) {
+    videoIntentConfidence = 1;
+    videoIntentSources.push("hidden_detail_video_candidates");
+  }
+
+  const normalizedPageUrl = normalizeUrl(window.location.href)
+    || normalizeUrl(options?.pageUrl)
+    || null;
+  const loginRedirect =
+    /\/website-login\//i.test(window.location.href)
+    || /error_code=300017/i.test(document.body?.innerText || "");
+  const noteUnavailable = errorLikePage && !loginRedirect;
+
+  return {
+    kind:
+      filteredVideoCandidates.length > 0 || (videoIntentConfidence >= 0.7 && !errorLikePage)
+        ? "video"
+        : imageUrl
+          ? "image"
+          : "unknown",
+    pageUrl: normalizedPageUrl,
+    imageUrl,
+    videoUrl: filteredVideoCandidates[0]?.url || null,
+    videoCandidates: filteredVideoCandidates,
+    videoIntentConfidence: Math.round(videoIntentConfidence * 1000) / 1000,
+    videoIntentSources: Array.from(new Set(videoIntentSources)),
+    pending: !errorLikePage && !loginRedirect && filteredVideoCandidates.length === 0 && videoIntentConfidence >= 0.7,
+    clickedPlay,
+    loginRedirect,
+    noteUnavailable,
+    errorLikePage,
+    documentReadyState: document.readyState,
+    title: document.title || null,
+  };
+}
+
+async function resolveXiaohongshuViaHiddenDetailPage({
+  pageUrl,
+  noteId,
+  imageUrl,
+  cookies,
+  sourcePageUrl,
+  detailUrl,
+  videoIntentConfidence = 0,
+  videoIntentSources = [],
+}) {
+  const targetUrls = buildXiaohongshuHiddenDetailUrls(pageUrl, noteId, sourcePageUrl, detailUrl);
+  if (targetUrls.length === 0) {
+    return null;
+  }
+
+  const cookieHeader = buildCookieHeaderFromNetscape(cookies);
+
+  for (const targetUrl of targetUrls) {
+    const partition = `flowselect-xiaohongshu-hidden-${nextOpaqueId("partition")}`;
+    const hiddenSession = session.fromPartition(partition, { cache: false });
+    const hiddenWindow = new BrowserWindow({
+      show: false,
+      width: 1280,
+      height: 960,
+      frame: false,
+      skipTaskbar: true,
+      transparent: false,
+      backgroundColor: "#ffffff",
+      webPreferences: {
+        partition,
+        contextIsolation: true,
+        sandbox: false,
+        nodeIntegration: false,
+      },
+    });
+
+    hiddenWindow.setMenuBarVisibility(false);
+    hiddenWindow.webContents.setAudioMuted(true);
+    hiddenWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
+    try {
+      const seededCookieCount = await seedSessionCookiesFromNetscape(hiddenSession, cookies);
+      logInfo("Xiaohongshu", "Opening hidden detail page fallback", JSON.stringify({
+        targetUrl,
+        noteId: normalizeOptionalString(noteId),
+        cookiesPresent: Boolean(cookieHeader),
+        seededCookieCount,
+      }));
+
+      await hiddenWindow.loadURL(targetUrl, {
+        userAgent:
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        extraHeaders: [
+          `Referer: ${targetUrl}`,
+          cookieHeader ? `Cookie: ${cookieHeader}` : null,
+        ].filter(Boolean).join("\n"),
+      });
+
+      await new Promise((resolveDelay) => {
+        setTimeout(resolveDelay, XIAOHONGSHU_HIDDEN_DETAIL_INITIAL_SETTLE_MS);
+      });
+
+      let pendingResult = null;
+      for (let attempt = 0; attempt < XIAOHONGSHU_HIDDEN_DETAIL_POLL_ATTEMPTS; attempt += 1) {
+        const extracted = await hiddenWindow.webContents.executeJavaScript(
+          `(${extractXiaohongshuHiddenPageMediaPageContext.toString()})(${JSON.stringify({
+            noteId: normalizeOptionalString(noteId),
+            pageUrl: targetUrl,
+            preferredImageUrl: normalizeHttpUrl(imageUrl),
+          })})`,
+          true,
+        );
+
+        const orderedCandidates = normalizeVideoCandidates(extracted?.videoCandidates, "xiaohongshu");
+        const resolvedVideoUrl = normalizeVideoHintUrl(extracted?.videoUrl, "xiaohongshu")
+          ?? orderedCandidates[0]?.url
+          ?? undefined;
+        const resolvedPageUrl = isXiaohongshuNotePageUrl(extracted?.pageUrl)
+          ? extracted.pageUrl
+          : targetUrl;
+        const normalizedResult = {
+          kind: extracted?.kind === "video" || extracted?.kind === "image"
+            ? extracted.kind
+            : "unknown",
+          pageUrl: normalizeVideoPageUrl(resolvedPageUrl) ?? targetUrl,
+          imageUrl: normalizeHttpUrl(extracted?.imageUrl) ?? normalizeHttpUrl(imageUrl),
+          videoUrl: resolvedVideoUrl ?? null,
+          videoCandidates: orderedCandidates,
+          videoIntentConfidence:
+            typeof extracted?.videoIntentConfidence === "number"
+              ? extracted.videoIntentConfidence
+              : videoIntentConfidence,
+          videoIntentSources: Array.isArray(extracted?.videoIntentSources)
+            ? Array.from(new Set([
+                ...videoIntentSources,
+                ...extracted.videoIntentSources,
+              ].filter((value) => typeof value === "string" && value.trim())))
+            : videoIntentSources,
+          pending: extracted?.pending === true,
+          loginRedirect: extracted?.loginRedirect === true,
+          noteUnavailable: extracted?.noteUnavailable === true,
+          errorLikePage: extracted?.errorLikePage === true,
+          clickedPlay: extracted?.clickedPlay === true,
+        };
+
+        logInfo("Xiaohongshu", "Hidden detail page probe", JSON.stringify({
+          targetUrl,
+          attempt: attempt + 1,
+          kind: normalizedResult.kind,
+          pageUrl: normalizedResult.pageUrl,
+          videoUrl: normalizedResult.videoUrl,
+          videoCandidatesCount: normalizedResult.videoCandidates.length,
+          videoIntentConfidence: normalizedResult.videoIntentConfidence ?? null,
+          videoIntentSources: normalizedResult.videoIntentSources ?? [],
+          pending: normalizedResult.pending === true,
+          loginRedirect: normalizedResult.loginRedirect === true,
+          noteUnavailable: normalizedResult.noteUnavailable === true,
+          errorLikePage: normalizedResult.errorLikePage === true,
+          clickedPlay: normalizedResult.clickedPlay === true,
+        }));
+
+        if (hasUsableXiaohongshuVideoMedia(normalizedResult)) {
+          return {
+            kind: "video",
+            pageUrl: normalizedResult.pageUrl,
+            imageUrl: normalizedResult.imageUrl ?? null,
+            videoUrl: normalizedResult.videoUrl,
+            videoCandidates: normalizedResult.videoCandidates,
+            videoIntentConfidence: normalizedResult.videoIntentConfidence ?? videoIntentConfidence ?? null,
+            videoIntentSources: normalizedResult.videoIntentSources ?? videoIntentSources,
+          };
+        }
+
+        pendingResult = normalizedResult;
+        if (normalizedResult.loginRedirect !== true && normalizedResult.pending === true) {
+          await new Promise((resolveDelay) => {
+            setTimeout(resolveDelay, XIAOHONGSHU_HIDDEN_DETAIL_POLL_INTERVAL_MS);
+          });
+          continue;
+        }
+
+        break;
+      }
+
+      if (pendingResult) {
+        logInfo("Xiaohongshu", "Hidden detail page did not expose a direct video URL", JSON.stringify({
+          targetUrl,
+          kind: pendingResult.kind,
+          pageUrl: pendingResult.pageUrl,
+          videoIntentConfidence: pendingResult.videoIntentConfidence ?? null,
+          videoIntentSources: pendingResult.videoIntentSources ?? [],
+          loginRedirect: pendingResult.loginRedirect === true,
+          noteUnavailable: pendingResult.noteUnavailable === true,
+          errorLikePage: pendingResult.errorLikePage === true,
+        }));
+      }
+    } catch (error) {
+      logInfo(
+        "Xiaohongshu",
+        "Hidden detail page fallback failed",
+        JSON.stringify({
+          targetUrl,
+          noteId: normalizeOptionalString(noteId),
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    } finally {
+      hiddenWindow.destroy();
+      await hiddenSession.clearStorageData().catch(() => {});
+    }
+  }
+
+  return null;
 }
 
 function normalizeSelectionScope(value) {
@@ -3364,9 +4185,12 @@ async function requestXiaohongshuDragResolution(payload) {
     JSON.stringify({
       requestId,
       pageUrl: payload.pageUrl ?? null,
-        noteId: payload.noteId ?? null,
+      detailUrl: payload.detailUrl ?? null,
+      noteId: payload.noteId ?? null,
         imageUrl: payload.imageUrl ?? null,
         mediaType: payload.mediaType ?? null,
+        videoIntentConfidence: payload.videoIntentConfidence ?? null,
+        videoIntentSources: payload.videoIntentSources ?? [],
         hasToken: Boolean(payload.token),
         wsClientCount: wsClients.size,
       }),
@@ -3389,12 +4213,38 @@ async function requestXiaohongshuDragResolution(payload) {
         requestId,
         token: payload.token,
         pageUrl: payload.pageUrl ?? null,
+        detailUrl: payload.detailUrl ?? null,
         noteId: payload.noteId ?? null,
         imageUrl: payload.imageUrl ?? null,
         mediaType: payload.mediaType ?? null,
+        videoIntentConfidence: payload.videoIntentConfidence ?? null,
+        videoIntentSources: payload.videoIntentSources ?? [],
       },
     });
   });
+}
+
+function summarizeXiaohongshuResolutionForLogs(payload) {
+  return {
+    kind: payload?.kind ?? "unknown",
+    pageUrl: payload?.pageUrl ?? null,
+    imageUrl: payload?.imageUrl ?? null,
+    videoUrl: payload?.videoUrl ?? null,
+    videoIntentConfidence: typeof payload?.videoIntentConfidence === "number"
+      ? payload.videoIntentConfidence
+      : null,
+    videoIntentSources: Array.isArray(payload?.videoIntentSources)
+      ? payload.videoIntentSources
+      : [],
+    videoCandidatesCount: Array.isArray(payload?.videoCandidates) ? payload.videoCandidates.length : 0,
+    videoCandidatesPreview: Array.isArray(payload?.videoCandidates)
+      ? payload.videoCandidates.slice(0, 3).map((candidate) => ({
+          type: candidate?.type ?? null,
+          source: candidate?.source ?? null,
+          url: typeof candidate?.url === "string" ? candidate.url.slice(0, 140) : null,
+        }))
+      : [],
+  };
 }
 
 function resolveYtdlpFormatProfile(quality, hasFfmpeg) {
@@ -4766,10 +5616,22 @@ async function handleWsMessage(rawMessage) {
         success: data?.success === true,
         kind: normalizeOptionalString(data?.kind) ?? "unknown",
         pageUrl: normalizeOptionalString(data?.pageUrl ?? data?.page_url),
+        detailUrl: normalizeOptionalString(data?.detailUrl ?? data?.detail_url),
+        sourcePageUrl: normalizeOptionalString(data?.sourcePageUrl ?? data?.source_page_url),
         imageUrl: normalizeOptionalString(data?.imageUrl ?? data?.image_url),
         videoUrl: normalizeOptionalString(data?.videoUrl ?? data?.video_url),
         videoCandidates: Array.isArray(data?.videoCandidates ?? data?.video_candidates)
           ? normalizeVideoCandidates(data?.videoCandidates ?? data?.video_candidates, "xiaohongshu")
+          : [],
+        cookies: normalizeOptionalString(data?.cookies),
+        videoIntentConfidence:
+          typeof data?.videoIntentConfidence === "number"
+            ? data.videoIntentConfidence
+            : typeof data?.video_intent_confidence === "number"
+              ? data.video_intent_confidence
+              : null,
+        videoIntentSources: Array.isArray(data?.videoIntentSources ?? data?.video_intent_sources)
+          ? (data?.videoIntentSources ?? data?.video_intent_sources)
           : [],
         code: normalizeOptionalString(data?.code),
         error: normalizeOptionalString(data?.error),
@@ -4781,11 +5643,14 @@ async function handleWsMessage(rawMessage) {
           success: data?.success === true,
           kind: normalizeOptionalString(data?.kind) ?? "unknown",
           pageUrl: normalizeOptionalString(data?.pageUrl ?? data?.page_url),
+          detailUrl: normalizeOptionalString(data?.detailUrl ?? data?.detail_url),
+          sourcePageUrl: normalizeOptionalString(data?.sourcePageUrl ?? data?.source_page_url),
           imageUrl: normalizeOptionalString(data?.imageUrl ?? data?.image_url),
           videoUrl: normalizeOptionalString(data?.videoUrl ?? data?.video_url),
           videoCandidatesCount: Array.isArray(data?.videoCandidates ?? data?.video_candidates)
             ? (data?.videoCandidates ?? data?.video_candidates).length
             : 0,
+          cookiesPresent: Boolean(normalizeOptionalString(data?.cookies)),
           code: normalizeOptionalString(data?.code),
           error: normalizeOptionalString(data?.error),
         }),
@@ -4966,34 +5831,64 @@ async function handleCommand(command, payload = {}) {
         : typeof payload.image_url === "string"
           ? payload.image_url
           : undefined;
+      const detailUrl = typeof payload.detailUrl === "string"
+        ? payload.detailUrl
+        : typeof payload.detail_url === "string"
+          ? payload.detail_url
+          : undefined;
+      const sourcePageUrl = typeof payload.sourcePageUrl === "string"
+        ? payload.sourcePageUrl
+        : typeof payload.source_page_url === "string"
+          ? payload.source_page_url
+          : undefined;
       const token = typeof payload.token === "string" ? payload.token : undefined;
       const mediaType = typeof payload.mediaType === "string"
         ? payload.mediaType
         : typeof payload.media_type === "string"
           ? payload.media_type
           : undefined;
+      const videoIntentConfidence = typeof payload.videoIntentConfidence === "number"
+        ? payload.videoIntentConfidence
+        : typeof payload.video_intent_confidence === "number"
+          ? payload.video_intent_confidence
+          : undefined;
+      const videoIntentSources = Array.isArray(payload.videoIntentSources)
+        ? payload.videoIntentSources
+        : Array.isArray(payload.video_intent_sources)
+          ? payload.video_intent_sources
+          : undefined;
+      let resolvedViaExtension = null;
+      let extensionCookies = typeof payload.cookies === "string" ? payload.cookies : undefined;
 
       if (token) {
         try {
-          const resolvedViaExtension = await requestXiaohongshuDragResolution({
+          resolvedViaExtension = await requestXiaohongshuDragResolution({
             token,
             pageUrl,
+            detailUrl,
             noteId,
             imageUrl,
             mediaType,
+            videoIntentConfidence,
+            videoIntentSources,
           });
+          extensionCookies = normalizeOptionalString(resolvedViaExtension?.cookies) ?? extensionCookies;
           console.log(
             ">>> [Xiaohongshu] Electron command resolved extension result:",
             JSON.stringify({
               pageUrl: pageUrl ?? String(payload.url ?? ""),
+              detailUrl: resolvedViaExtension?.detailUrl ?? detailUrl ?? null,
               success: resolvedViaExtension?.success === true,
               kind: resolvedViaExtension?.kind ?? "unknown",
               imageUrl: resolvedViaExtension?.imageUrl ?? null,
               videoUrl: resolvedViaExtension?.videoUrl ?? null,
               videoCandidatesCount: resolvedViaExtension?.videoCandidates?.length ?? 0,
+              detailUrl: resolvedViaExtension?.detailUrl ?? detailUrl ?? null,
+              sourcePageUrl: resolvedViaExtension?.sourcePageUrl ?? sourcePageUrl ?? null,
+              cookiesPresent: Boolean(extensionCookies),
             }),
           );
-          if (resolvedViaExtension?.success) {
+          if (resolvedViaExtension?.success && hasUsableXiaohongshuVideoMedia(resolvedViaExtension)) {
             return {
               kind: resolvedViaExtension.kind === "video" || resolvedViaExtension.kind === "image"
                 ? resolvedViaExtension.kind
@@ -5002,6 +5897,13 @@ async function handleCommand(command, payload = {}) {
               imageUrl: resolvedViaExtension.imageUrl ?? imageUrl ?? null,
               videoUrl: resolvedViaExtension.videoUrl ?? null,
               videoCandidates: resolvedViaExtension.videoCandidates ?? [],
+              videoIntentConfidence:
+                typeof resolvedViaExtension.videoIntentConfidence === "number"
+                  ? resolvedViaExtension.videoIntentConfidence
+                  : videoIntentConfidence ?? null,
+              videoIntentSources: Array.isArray(resolvedViaExtension.videoIntentSources)
+                ? resolvedViaExtension.videoIntentSources
+                : videoIntentSources ?? [],
             };
           }
         } catch (error) {
@@ -5016,22 +5918,120 @@ async function handleCommand(command, payload = {}) {
         ">>> [Xiaohongshu] Falling back to desktop-side page resolution:",
         JSON.stringify({
               pageUrl: pageUrl ?? String(payload.url ?? ""),
+              detailUrl: detailUrl ?? null,
               noteId: noteId ?? null,
-              imageUrl: imageUrl ?? null,
-              mediaType: mediaType ?? null,
-              hasToken: Boolean(token),
-            }),
-          );
-
-      return resolveXiaohongshuPageMedia(
+          imageUrl: imageUrl ?? null,
+          mediaType: mediaType ?? null,
+          videoIntentConfidence: videoIntentConfidence ?? null,
+          videoIntentSources: videoIntentSources ?? [],
+          detailUrl: detailUrl ?? resolvedViaExtension?.detailUrl ?? null,
+          sourcePageUrl: sourcePageUrl ?? resolvedViaExtension?.sourcePageUrl ?? null,
+          hasToken: Boolean(token),
+          cookiesPresent: Boolean(extensionCookies),
+        }),
+      );
+      const resolvedViaDesktopFallback = await resolveXiaohongshuDragMedia(
         {
           url: String(payload.url ?? ""),
           pageUrl,
-          cookies: typeof payload.cookies === "string" ? payload.cookies : undefined,
+          noteId,
+          imageUrl,
+          mediaType: mediaType === "video" || mediaType === "image" ? mediaType : null,
+          videoIntentConfidence,
+          videoIntentSources,
+          cookies: extensionCookies,
           siteHint: "xiaohongshu",
         },
         fetchWithDesktopSession as typeof fetch,
       );
+      console.log(
+        ">>> [Xiaohongshu] Desktop-side drag fallback result:",
+        JSON.stringify({
+          pageUrl: pageUrl ?? String(payload.url ?? ""),
+          noteId: noteId ?? null,
+          mediaType: mediaType ?? null,
+          ...summarizeXiaohongshuResolutionForLogs(resolvedViaDesktopFallback),
+        }),
+      );
+      const extensionHintResult = resolvedViaExtension
+        ? {
+            kind: resolvedViaExtension.kind === "video" || resolvedViaExtension.kind === "image"
+              ? resolvedViaExtension.kind
+              : "unknown",
+            pageUrl: resolvedViaExtension.pageUrl ?? pageUrl ?? String(payload.url ?? ""),
+            imageUrl: resolvedViaExtension.imageUrl ?? imageUrl ?? null,
+            videoUrl: resolvedViaExtension.videoUrl ?? null,
+            videoCandidates: resolvedViaExtension.videoCandidates ?? [],
+            videoIntentConfidence:
+              typeof resolvedViaExtension.videoIntentConfidence === "number"
+                ? resolvedViaExtension.videoIntentConfidence
+                : videoIntentConfidence ?? null,
+            videoIntentSources: Array.isArray(resolvedViaExtension.videoIntentSources)
+              ? resolvedViaExtension.videoIntentSources
+              : videoIntentSources ?? [],
+            detailUrl: normalizeVideoPageUrl(resolvedViaExtension.detailUrl ?? detailUrl) ?? null,
+            sourcePageUrl: normalizeVideoPageUrl(resolvedViaExtension.sourcePageUrl ?? sourcePageUrl) ?? null,
+          }
+        : null;
+
+      const preferredVideoResult = resolvedViaDesktopFallback && (
+        hasUsableXiaohongshuVideoMedia(resolvedViaDesktopFallback)
+        || resolvedViaDesktopFallback.kind === "video"
+      )
+        ? resolvedViaDesktopFallback
+        : extensionHintResult && (
+          extensionHintResult.kind === "video"
+          || hasUsableXiaohongshuVideoMedia(extensionHintResult)
+          || normalizeVideoPageUrl(extensionHintResult.detailUrl ?? undefined)
+        )
+          ? extensionHintResult
+          : resolvedViaDesktopFallback;
+
+      if (
+        shouldAttemptXiaohongshuHiddenDetailResolution({
+          pageUrl,
+          detailUrl:
+            normalizeVideoPageUrl(detailUrl ?? resolvedViaExtension?.detailUrl)
+            ?? undefined,
+          noteId,
+          mediaType,
+          videoIntentConfidence: typeof preferredVideoResult?.videoIntentConfidence === "number"
+            ? preferredVideoResult.videoIntentConfidence
+            : videoIntentConfidence ?? 0,
+          resolvedMedia: preferredVideoResult,
+        })
+      ) {
+        const resolvedViaHiddenDetail = await resolveXiaohongshuViaHiddenDetailPage({
+          pageUrl: preferredVideoResult?.pageUrl ?? pageUrl ?? String(payload.url ?? ""),
+          noteId,
+          imageUrl: preferredVideoResult?.imageUrl ?? imageUrl ?? null,
+          cookies: extensionCookies,
+          detailUrl: normalizeVideoPageUrl(detailUrl ?? resolvedViaExtension?.detailUrl) ?? undefined,
+          sourcePageUrl: normalizeVideoPageUrl(sourcePageUrl ?? resolvedViaExtension?.sourcePageUrl) ?? undefined,
+          videoIntentConfidence:
+            typeof preferredVideoResult?.videoIntentConfidence === "number"
+              ? preferredVideoResult.videoIntentConfidence
+              : videoIntentConfidence ?? 0,
+          videoIntentSources: Array.isArray(preferredVideoResult?.videoIntentSources)
+            ? preferredVideoResult.videoIntentSources
+            : videoIntentSources ?? [],
+        });
+        if (resolvedViaHiddenDetail) {
+          console.log(
+            ">>> [Xiaohongshu] Hidden detail-page drag fallback result:",
+            JSON.stringify({
+              pageUrl: pageUrl ?? String(payload.url ?? ""),
+              noteId: noteId ?? null,
+              mediaType: mediaType ?? null,
+              cookiesPresent: Boolean(extensionCookies),
+              ...summarizeXiaohongshuResolutionForLogs(resolvedViaHiddenDetail),
+            }),
+          );
+          return resolvedViaHiddenDetail;
+        }
+      }
+
+      return preferredVideoResult;
     }
     case "start_runtime_dependency_bootstrap":
       return startRuntimeDependencyBootstrap(normalizeOptionalString(payload.reason) ?? undefined);

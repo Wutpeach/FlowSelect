@@ -64,6 +64,25 @@ describe("builtin site providers", () => {
     expect(plan?.engines.map((engine) => engine.engine)).toEqual(["yt-dlp"]);
   });
 
+  it("canonicalizes Xiaohongshu profile note urls before handing them to yt-dlp", () => {
+    const pageUrl = "https://www.xiaohongshu.com/user/profile/64e721f3000000000200c2b9/69ce44ea000000001b0031bb";
+    const plan = resolvePlan({
+      url: pageUrl,
+      pageUrl,
+      siteHint: "xiaohongshu",
+    });
+    const intent = expectVideoIntent(plan.intent);
+
+    expect(plan.providerId).toBe("xiaohongshu");
+    expect(plan.engines).toHaveLength(1);
+    expect(plan.engines[0]).toMatchObject({
+      engine: "yt-dlp",
+      sourceUrl: "https://www.xiaohongshu.com/explore/69ce44ea000000001b0031bb",
+    });
+    expect(intent.pageUrl).toBe(pageUrl);
+    expect(intent.originalUrl).toBe(pageUrl);
+  });
+
   it("preserves Bilibili clip metadata on the resolved provider intent", () => {
     const url = "https://www.bilibili.com/video/BV1xx411c7mD?p=2";
     const plan = resolvePlan({

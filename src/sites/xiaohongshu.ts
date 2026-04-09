@@ -12,6 +12,35 @@ const isXiaohongshuUrl = (value: string | undefined): boolean => (
   Boolean(value && XIAOHONGSHU_HOST_PATTERN.test(value))
 );
 
+const extractXiaohongshuNoteId = (value: string | undefined): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value);
+    const match = parsed.pathname.match(
+      /\/(?:explore|discovery\/item)\/([a-zA-Z0-9]+)|^\/user\/profile\/[^/?#]+\/([a-zA-Z0-9]+)(?:[/?#]|$)/i,
+    );
+    return match?.[1] ?? match?.[2] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const canonicalizeXiaohongshuNoteUrl = (value: string | undefined): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const noteId = extractXiaohongshuNoteId(value);
+  if (!noteId) {
+    return value;
+  }
+
+  return `https://www.xiaohongshu.com/explore/${noteId}`;
+};
+
 const isDirectXiaohongshuAsset = (value: string | undefined): boolean => (
   Boolean(value && /xhscdn\.com/i.test(value) && /\.(mp4|mov|m4v)(?:$|\?)/i.test(value))
 );
@@ -54,6 +83,7 @@ export const xiaohongshuProvider: SiteProvider = {
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const directSource = pickDirectSource(input);
+    const canonicalPageUrl = canonicalizeXiaohongshuNoteUrl(input.pageUrl ?? input.url);
     const intent: VideoDownloadIntent = {
       type: "video",
       siteId: "xiaohongshu",
@@ -91,7 +121,7 @@ export const xiaohongshuProvider: SiteProvider = {
               priority: 80,
               when: "primary",
               reason: "No verified direct Xiaohongshu media asset is available",
-              sourceUrl: input.pageUrl ?? input.url,
+              sourceUrl: canonicalPageUrl ?? input.pageUrl ?? input.url,
               fallbackOn: "any",
             },
           ],

@@ -42,7 +42,11 @@ import {
 import { extractImageUrlFromHtml } from "./utils/imageDrag";
 import {
   extractEmbeddedXiaohongshuDragPayload,
+  hasXiaohongshuVideoSignals,
   isXiaohongshuPageUrl,
+  pickXiaohongshuImageForDownload,
+  type XiaohongshuDragCandidate,
+  type XiaohongshuResolvedDragMedia,
 } from "./utils/xiaohongshu";
 import { parseLocalFileUrl } from "./utils/localFileUrl";
 import {
@@ -336,7 +340,7 @@ type QueuedVideoDownloadRequest = {
   url: string;
   pageUrl?: string;
   videoUrl?: string;
-  videoCandidates?: PinterestVideoCandidate[];
+  videoCandidates?: Array<PinterestVideoCandidate | XiaohongshuDragCandidate>;
   siteHint?: string;
   dragDiagnostic?: PinterestDragDiagnostic;
 };
@@ -377,11 +381,11 @@ const pickDroppedUrl = (rawValue: string): string => {
   return lines.find((line) => /^https?:\/\//i.test(line)) ?? rawValue.trim();
 };
 
-const mergePinterestVideoCandidates = (
-  embeddedCandidates: PinterestVideoCandidate[],
-  htmlCandidates: PinterestVideoCandidate[],
-): PinterestVideoCandidate[] => {
-  const merged: PinterestVideoCandidate[] = [];
+const mergeVideoCandidatesByUrl = <TCandidate extends { url: string }>(
+  embeddedCandidates: TCandidate[],
+  htmlCandidates: TCandidate[],
+): TCandidate[] => {
+  const merged: TCandidate[] = [];
   const seen = new Set<string>();
 
   for (const candidate of [...embeddedCandidates, ...htmlCandidates]) {
@@ -3454,7 +3458,7 @@ function App({
       }
 
       const videoSelection = extractPinterestVideoSelectionFromHtml(html);
-      const mergedVideoCandidates = mergePinterestVideoCandidates(
+      const mergedVideoCandidates = mergeVideoCandidatesByUrl(
         embeddedPinterestDragPayload?.videoCandidates ?? [],
         videoSelection.videoCandidates,
       );
@@ -3496,6 +3500,7 @@ function App({
         pageUrl: embeddedXiaohongshuDragPayload.pageUrl,
         videoUrl: embeddedXiaohongshuDragPayload.videoUrl ?? undefined,
         videoCandidates: embeddedXiaohongshuDragPayload.videoCandidates,
+        siteHint: "xiaohongshu",
       });
       return;
     }
@@ -3504,24 +3509,14 @@ function App({
       embeddedXiaohongshuDragPayload?.pageUrl
       ?? (url && isXiaohongshuPageUrl(url) ? url : null);
     if (xiaohongshuPageUrl) {
-      let resolvedXiaohongshuMedia: {
-        kind: "video" | "image" | "unknown";
-        pageUrl: string;
-        imageUrl: string | null;
-        videoUrl: string | null;
-        videoCandidates: PinterestVideoCandidate[];
-      } | null = null;
+      let resolvedXiaohongshuMedia: XiaohongshuResolvedDragMedia | null = null;
 
       try {
-        resolvedXiaohongshuMedia = await desktopCommands.invoke<{
-          kind: "video" | "image" | "unknown";
-          pageUrl: string;
-          imageUrl: string | null;
-          videoUrl: string | null;
-          videoCandidates: PinterestVideoCandidate[];
-        } | null>("resolve_xiaohongshu_drag_media", {
+        resolvedXiaohongshuMedia = await desktopCommands.invoke<XiaohongshuResolvedDragMedia | null>("resolve_xiaohongshu_drag_media", {
           url: xiaohongshuPageUrl,
           pageUrl: xiaohongshuPageUrl,
+          detailUrl: embeddedXiaohongshuDragPayload?.detailUrl ?? undefined,
+          sourcePageUrl: embeddedXiaohongshuDragPayload?.sourcePageUrl ?? undefined,
           token: embeddedXiaohongshuDragPayload?.token ?? undefined,
           noteId: embeddedXiaohongshuDragPayload?.noteId ?? undefined,
           imageUrl:
@@ -3529,6 +3524,8 @@ function App({
             ?? embeddedXiaohongshuDragPayload?.imageUrl
             ?? undefined,
           mediaType: embeddedXiaohongshuDragPayload?.mediaType ?? undefined,
+          videoIntentConfidence: embeddedXiaohongshuDragPayload?.videoIntentConfidence ?? undefined,
+          videoIntentSources: embeddedXiaohongshuDragPayload?.videoIntentSources ?? undefined,
         });
       } catch (error) {
         console.error("[Xiaohongshu drag debug] resolve_xiaohongshu_drag_media failed:", error);
@@ -3536,6 +3533,8 @@ function App({
 
       console.log("[Xiaohongshu drag debug] resolved drag media payload:", {
         pageUrl: xiaohongshuPageUrl,
+        detailUrl: embeddedXiaohongshuDragPayload?.detailUrl ?? null,
+        sourcePageUrl: embeddedXiaohongshuDragPayload?.sourcePageUrl ?? null,
         token: embeddedXiaohongshuDragPayload?.token ?? null,
         noteId: embeddedXiaohongshuDragPayload?.noteId ?? null,
         requestedImageUrl:
@@ -3546,40 +3545,74 @@ function App({
         resultVideoUrl: resolvedXiaohongshuMedia?.videoUrl ?? null,
         resultVideoCandidatesCount: resolvedXiaohongshuMedia?.videoCandidates.length ?? 0,
         resultImageUrl: resolvedXiaohongshuMedia?.imageUrl ?? null,
+        embeddedVideoIntentConfidence: embeddedXiaohongshuDragPayload?.videoIntentConfidence ?? null,
+        embeddedVideoIntentSources: embeddedXiaohongshuDragPayload?.videoIntentSources ?? [],
+        resolvedVideoIntentConfidence: resolvedXiaohongshuMedia?.videoIntentConfidence ?? null,
+        resolvedVideoIntentSources: resolvedXiaohongshuMedia?.videoIntentSources ?? [],
       });
 
-      if (
-        resolvedXiaohongshuMedia?.kind === "video"
-        && resolvedXiaohongshuMedia.videoUrl
-      ) {
-        console.log("[Xiaohongshu drag debug] resolved page video media:", {
-          pageUrl: resolvedXiaohongshuMedia.pageUrl,
-          videoUrl: resolvedXiaohongshuMedia.videoUrl,
-          videoCandidatesCount: resolvedXiaohongshuMedia.videoCandidates.length,
+      const resolvedXiaohongshuVideoCandidates = mergeVideoCandidatesByUrl(
+        embeddedXiaohongshuDragPayload?.videoCandidates ?? [],
+        resolvedXiaohongshuMedia?.videoCandidates ?? [],
+      );
+      const shouldQueueResolvedXiaohongshuVideo =
+        Boolean(xiaohongshuPageUrl)
+        && (
+          embeddedXiaohongshuDragPayload?.mediaType === "video"
+          || hasXiaohongshuVideoSignals(embeddedXiaohongshuDragPayload
+            ? {
+                kind: embeddedXiaohongshuDragPayload.mediaType ?? "unknown",
+                videoUrl: embeddedXiaohongshuDragPayload.videoUrl,
+                videoCandidates: embeddedXiaohongshuDragPayload.videoCandidates,
+                videoIntentConfidence: embeddedXiaohongshuDragPayload.videoIntentConfidence,
+              }
+            : null)
+          || hasXiaohongshuVideoSignals(resolvedXiaohongshuMedia)
+        );
+      console.log("[Xiaohongshu drag debug] video queue decision:", {
+        pageUrl: xiaohongshuPageUrl,
+        token: embeddedXiaohongshuDragPayload?.token ?? null,
+        noteId: embeddedXiaohongshuDragPayload?.noteId ?? null,
+        embeddedMediaType: embeddedXiaohongshuDragPayload?.mediaType ?? null,
+        embeddedHasVideoUrl: Boolean(embeddedXiaohongshuDragPayload?.videoUrl),
+        embeddedVideoCandidatesCount: embeddedXiaohongshuDragPayload?.videoCandidates.length ?? 0,
+        embeddedVideoIntentConfidence: embeddedXiaohongshuDragPayload?.videoIntentConfidence ?? null,
+        embeddedVideoIntentSources: embeddedXiaohongshuDragPayload?.videoIntentSources ?? [],
+        resolvedKind: resolvedXiaohongshuMedia?.kind ?? "null",
+        resolvedVideoUrl: resolvedXiaohongshuMedia?.videoUrl ?? null,
+        resolvedVideoCandidatesCount: resolvedXiaohongshuMedia?.videoCandidates.length ?? 0,
+        resolvedVideoIntentConfidence: resolvedXiaohongshuMedia?.videoIntentConfidence ?? null,
+        resolvedVideoIntentSources: resolvedXiaohongshuMedia?.videoIntentSources ?? [],
+        mergedVideoCandidatesCount: resolvedXiaohongshuVideoCandidates.length,
+        shouldQueueResolvedXiaohongshuVideo,
+      });
+
+      if (shouldQueueResolvedXiaohongshuVideo) {
+        const resolvedVideoUrl = resolvedXiaohongshuMedia?.videoUrl ?? embeddedXiaohongshuDragPayload?.videoUrl ?? undefined;
+        console.log("[Xiaohongshu drag debug] queueing resolved video media:", {
+          pageUrl: resolvedXiaohongshuMedia?.pageUrl ?? xiaohongshuPageUrl,
+          videoUrl: resolvedVideoUrl ?? null,
+          videoCandidatesCount: resolvedXiaohongshuVideoCandidates.length,
+          resolvedKind: resolvedXiaohongshuMedia?.kind ?? "null",
+          embeddedMediaType: embeddedXiaohongshuDragPayload?.mediaType ?? null,
+          embeddedVideoIntentConfidence: embeddedXiaohongshuDragPayload?.videoIntentConfidence ?? null,
+          resolvedVideoIntentConfidence: resolvedXiaohongshuMedia?.videoIntentConfidence ?? null,
         });
         resetDownloadOutcome();
         await enqueueVideoDownload({
-          url: resolvedXiaohongshuMedia.pageUrl,
-          pageUrl: resolvedXiaohongshuMedia.pageUrl,
-          videoUrl: resolvedXiaohongshuMedia.videoUrl,
-          videoCandidates: resolvedXiaohongshuMedia.videoCandidates,
+          url: resolvedXiaohongshuMedia?.pageUrl ?? xiaohongshuPageUrl,
+          pageUrl: resolvedXiaohongshuMedia?.pageUrl ?? xiaohongshuPageUrl,
+          videoUrl: resolvedVideoUrl,
+          videoCandidates: resolvedXiaohongshuVideoCandidates,
+          siteHint: "xiaohongshu",
         });
         return;
       }
 
-      const resolvedXiaohongshuImageUrl =
-        resolvedXiaohongshuMedia?.kind === "video"
-          ? null
-          : (
-            embeddedXiaohongshuDragPayload?.exactImageUrl
-            ?? (resolvedXiaohongshuMedia?.kind === "image"
-              ? resolvedXiaohongshuMedia.imageUrl
-              : resolvedXiaohongshuMedia?.kind === "unknown"
-                ? (embeddedXiaohongshuDragPayload?.mediaType === "image"
-                  ? embeddedXiaohongshuDragPayload.imageUrl
-                  : null)
-                : null)
-          );
+      const resolvedXiaohongshuImageUrl = pickXiaohongshuImageForDownload({
+        embeddedPayload: embeddedXiaohongshuDragPayload,
+        resolvedMedia: resolvedXiaohongshuMedia,
+      });
       if (resolvedXiaohongshuImageUrl) {
         console.log("[Xiaohongshu drag debug] resolved page image media:", {
           pageUrl: xiaohongshuPageUrl,
@@ -3608,17 +3641,10 @@ function App({
         return;
       }
 
-      if (resolvedXiaohongshuMedia?.kind === "video") {
-        console.warn("[Xiaohongshu drag debug] classified as video note but no downloadable video URL was resolved", {
-          pageUrl: xiaohongshuPageUrl,
-          videoCandidatesCount: resolvedXiaohongshuMedia.videoCandidates.length,
-          suppressedImageFallback: true,
-        });
-        return;
-      }
-
       console.warn("[Xiaohongshu drag debug] no media resolved; skipping generic fallback for Xiaohongshu page", {
         pageUrl: xiaohongshuPageUrl,
+        resolvedKind: resolvedXiaohongshuMedia?.kind ?? "null",
+        embeddedMediaType: embeddedXiaohongshuDragPayload?.mediaType ?? null,
       });
       return;
     }
