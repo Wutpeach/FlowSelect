@@ -81,12 +81,12 @@ export interface ThemeColors {
   errorIcon: string;
 }
 
-const DARK_PANEL_SHADOW = '0px 0px 6px 0px rgba(0,0,0,0.12), 0px 12px 24px 0px rgba(0,0,0,0.28), 0px 0px 0px 1px rgba(0,0,0,0.12)';
-const DARK_PANEL_SHADOW_COMPACT = '0px 1px 2px 0px rgba(0,0,0,0.14), 0px 3px 6px 0px rgba(0,0,0,0.24)';
-const DARK_PANEL_SHADOW_STRONG = '0px 0px 8px 0px rgba(0,0,0,0.14), 0px 16px 30px 0px rgba(0,0,0,0.34), 0px 0px 0px 1px rgba(0,0,0,0.14)';
-const LIGHT_PANEL_SHADOW = '0px 0px 4px 0px rgba(0,0,0,0.05), 0px 8px 16px 0px rgba(0,0,0,0.1), 0px 0px 0px 1px rgba(0,0,0,0.06)';
-const LIGHT_PANEL_SHADOW_COMPACT = '0px 1px 2px 0px rgba(0,0,0,0.05), 0px 2px 4px 0px rgba(0,0,0,0.09)';
-const LIGHT_PANEL_SHADOW_STRONG = '0px 0px 6px 0px rgba(0,0,0,0.06), 0px 12px 22px 0px rgba(0,0,0,0.14), 0px 0px 0px 1px rgba(0,0,0,0.08)';
+const DARK_PANEL_SHADOW = '0 6px 16px -8px rgba(0,0,0,0.34), 0 2px 7px -4px rgba(0,0,0,0.22), 0 1px 3px -1px rgba(0,0,0,0.16)';
+const DARK_PANEL_SHADOW_COMPACT = '0 7px 14px -7px rgba(0,0,0,0.32), 0 2px 6px -3px rgba(0,0,0,0.22), 0 1px 3px -2px rgba(0,0,0,0.18)';
+const DARK_PANEL_SHADOW_STRONG = '0 8px 20px -8px rgba(0,0,0,0.4), 0 3px 9px -4px rgba(0,0,0,0.26), 0 1px 4px -2px rgba(0,0,0,0.2)';
+const LIGHT_PANEL_SHADOW = '0 6px 15px -8px rgba(0,0,0,0.24), 0 2px 7px -4px rgba(0,0,0,0.14), 0 1px 3px -1px rgba(0,0,0,0.1)';
+const LIGHT_PANEL_SHADOW_COMPACT = '0 7px 14px -7px rgba(0,0,0,0.22), 0 2px 6px -3px rgba(0,0,0,0.13), 0 1px 3px -2px rgba(0,0,0,0.1)';
+const LIGHT_PANEL_SHADOW_STRONG = '0 8px 18px -8px rgba(0,0,0,0.28), 0 3px 9px -4px rgba(0,0,0,0.17), 0 1px 4px -2px rgba(0,0,0,0.12)';
 
 const themes: Record<Theme, ThemeColors> = {
   black: {

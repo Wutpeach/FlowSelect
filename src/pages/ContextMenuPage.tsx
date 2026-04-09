@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { useTheme } from "../contexts/ThemeContext";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
-import { getWindowShellStyle } from "../components/ui/shared-styles";
+import { getShadowBackdropStyle, getWindowShellStyle } from "../components/ui/shared-styles";
 import {
   desktopCommands,
   desktopCurrentWindow,
@@ -159,6 +159,16 @@ function ContextMenuPage() {
         background: "transparent",
       }}
     >
+      <div
+        aria-hidden="true"
+        style={{
+          ...getShadowBackdropStyle(colors, {
+            radius: 8,
+            boxShadow: colors.panelShadowCompact,
+            inset: 4,
+          }),
+        }}
+      />
       <motion.div
         initial={{ scale: 0.965, y: -2 }}
         animate={{ scale: 1, y: 0 }}
@@ -168,6 +178,8 @@ function ContextMenuPage() {
         }}
         style={{
           ...panelStyle,
+          position: "relative",
+          zIndex: 1,
           transformOrigin: "top left",
         }}
       >

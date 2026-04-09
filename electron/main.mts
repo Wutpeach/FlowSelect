@@ -88,14 +88,21 @@ import {
   shouldUsePackagedWindowsOpaqueWindow,
 } from "./windowVisibility.mjs";
 import {
-  MAIN_WINDOW_FULL_SIZE,
   buildStartupWindowModeArgument,
-  resolveMainWindowInitialSize,
   resolveMainWindowStartupMode,
 } from "./startupWindowMode.mjs";
 import { waitForInitialWindowReveal } from "./windowRevealWait.mjs";
 import { applyMacTrayAppMode } from "./macAppVisibility.mjs";
 import { openPathOrThrow } from "./openPath.mjs";
+import {
+  SETTINGS_WINDOW_CONTENT_HEIGHT,
+  SETTINGS_WINDOW_CONTENT_WIDTH,
+  UI_LAB_WINDOW_CONTENT_HEIGHT,
+  UI_LAB_WINDOW_CONTENT_WIDTH,
+  getMainWindowFullOuterSize,
+  getMainWindowOuterSize,
+  getSecondaryWindowOuterSize,
+} from "../src/constants/windowMetrics.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..", "..");
@@ -125,11 +132,11 @@ const RUNTIME_LOG_FILE_NAME = "runtime-latest.log";
 const RUNTIME_LOG_BUFFER_LIMIT = 1500;
 const EXPORTED_RUNTIME_LOG_LINE_LIMIT = 800;
 const VIDEO_QUEUE_MAX_CONCURRENT = 3;
-const SETTINGS_WINDOW_WIDTH = 320;
-const SETTINGS_WINDOW_HEIGHT = 400;
+const SETTINGS_WINDOW_WIDTH = SETTINGS_WINDOW_CONTENT_WIDTH;
+const SETTINGS_WINDOW_HEIGHT = SETTINGS_WINDOW_CONTENT_HEIGHT;
 const SETTINGS_WINDOW_GAP = 16;
-const UI_LAB_WINDOW_WIDTH = 420;
-const UI_LAB_WINDOW_HEIGHT = 560;
+const UI_LAB_WINDOW_WIDTH = UI_LAB_WINDOW_CONTENT_WIDTH;
+const UI_LAB_WINDOW_HEIGHT = UI_LAB_WINDOW_CONTENT_HEIGHT;
 const UI_LAB_WINDOW_GAP = 16;
 const WINDOW_EDGE_PADDING = 8;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15_000;
@@ -244,12 +251,39 @@ let runtimeLogCaptureInitialized = false;
 const pendingRendererReadySignals = new Map();
 const activeWindowBoundsAnimations = new Map();
 const runtimeLogBuffer = [];
+let originalConsoleStreamsAvailable = true;
 const originalConsole = {
   log: console.log.bind(console),
   info: console.info.bind(console),
   warn: console.warn.bind(console),
   error: console.error.bind(console),
 };
+
+function isConsoleStreamWriteError(error) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  return error.code === "EIO"
+    || error.code === "EPIPE"
+    || error.code === "ERR_STREAM_DESTROYED";
+}
+
+function safeWriteOriginalConsole(level, ...args) {
+  if (!originalConsoleStreamsAvailable) {
+    return;
+  }
+
+  try {
+    originalConsole[level](...args);
+  } catch (error) {
+    if (isConsoleStreamWriteError(error)) {
+      originalConsoleStreamsAvailable = false;
+      return;
+    }
+    throw error;
+  }
+}
 
 const startupDiagnosticsEnabled = shouldEnablePackagedStartupDiagnostics({
   platform: process.platform,
@@ -327,7 +361,7 @@ function appendRuntimeLogLine(level, message) {
       try {
         await appendFile(getRuntimeLogPath(), `${line}\n`, "utf8");
       } catch (error) {
-        originalConsole.error(">>> [RuntimeLog] Failed to append log:", error);
+        safeWriteOriginalConsole("error", ">>> [RuntimeLog] Failed to append log:", error);
       }
     });
   return runtimeLogWriteChain;
@@ -367,23 +401,23 @@ async function initializeRuntimeLogCapture() {
     await writeFile(getRuntimeLogPath(), `${sessionHeader}\n`, "utf8");
     runtimeLogBuffer.push(sessionHeader);
   } catch (error) {
-    originalConsole.error(">>> [RuntimeLog] Failed to initialize runtime log:", error);
+    safeWriteOriginalConsole("error", ">>> [RuntimeLog] Failed to initialize runtime log:", error);
   }
 
   console.log = (...args) => {
-    originalConsole.log(...args);
+    safeWriteOriginalConsole("log", ...args);
     captureConsoleRuntimeLog("log", args);
   };
   console.info = (...args) => {
-    originalConsole.info(...args);
+    safeWriteOriginalConsole("info", ...args);
     captureConsoleRuntimeLog("info", args);
   };
   console.warn = (...args) => {
-    originalConsole.warn(...args);
+    safeWriteOriginalConsole("warn", ...args);
     captureConsoleRuntimeLog("warn", args);
   };
   console.error = (...args) => {
-    originalConsole.error(...args);
+    safeWriteOriginalConsole("error", ...args);
     captureConsoleRuntimeLog("error", args);
   };
 }
@@ -403,7 +437,7 @@ async function readRecentRuntimeLogLines(limit = EXPORTED_RUNTIME_LOG_LINE_LIMIT
       .filter(Boolean);
     return lines.slice(-limit);
   } catch (error) {
-    originalConsole.error(">>> [RuntimeLog] Failed to read runtime log:", error);
+    safeWriteOriginalConsole("error", ">>> [RuntimeLog] Failed to read runtime log:", error);
     return fallbackLines;
   }
 }
@@ -756,6 +790,7 @@ async function createFlowSelectBrowserWindow(label: string, {
     currentTheme,
     preferZeroAlphaTransparentBackground,
   });
+  const useNativeWindowShadow = process.platform === "darwin" ? false : !transparentWindow;
 
   const browserWindow = new BrowserWindow({
     width,
@@ -772,6 +807,7 @@ async function createFlowSelectBrowserWindow(label: string, {
     icon: iconPath ?? undefined,
     skipTaskbar,
     parent: parentLabel ? getWindow(parentLabel) ?? undefined : undefined,
+    hasShadow: useNativeWindowShadow,
     roundedCorners: process.platform === "win32",
     show: false,
     webPreferences: {
@@ -796,6 +832,7 @@ async function createFlowSelectBrowserWindow(label: string, {
       show: false,
       alwaysOnTop,
       frame,
+      hasShadow: useNativeWindowShadow,
       roundedCorners: process.platform === "win32",
     },
   });
@@ -5122,7 +5159,7 @@ async function createMainWindow(startupConfigSnapshot = null) {
     platform: process.platform,
     hasShownMainWindowOnce,
   });
-  const initialWindowSize = resolveMainWindowInitialSize(startupWindowMode);
+  const initialWindowSize = getMainWindowOuterSize(process.platform, startupWindowMode);
 
   const {
     browserWindow: mainWindow,
@@ -5195,10 +5232,10 @@ async function showMainWindow({
     forceCenter: process.platform === "win32" && app.isPackaged && !hasShownMainWindowOnce,
     minimumWidth: preserveExistingBounds
       ? currentBounds.width
-      : MAIN_WINDOW_FULL_SIZE,
+      : getMainWindowFullOuterSize(process.platform),
     minimumHeight: preserveExistingBounds
       ? currentBounds.height
-      : MAIN_WINDOW_FULL_SIZE,
+      : getMainWindowFullOuterSize(process.platform),
   });
 
   void queueStartupDiagnostic("WindowDiag", "main:show-request", {
@@ -5249,8 +5286,8 @@ function resolveShortcutMainWindowPlacement() {
   const bounds = resolveWindowBoundsNearCursor({
     cursor,
     display: display.workArea,
-    width: MAIN_WINDOW_FULL_SIZE,
-    height: MAIN_WINDOW_FULL_SIZE,
+    width: getMainWindowFullOuterSize(process.platform),
+    height: getMainWindowFullOuterSize(process.platform),
     edgePadding: WINDOW_EDGE_PADDING,
   });
 
@@ -5312,13 +5349,18 @@ async function openSecondaryWindow(label, options) {
   }
 
   const routePath = secondaryWindowRoute(label);
+  const secondaryWindowOuterSize = (
+    label === WINDOW_LABELS.settings || label === WINDOW_LABELS.uiLab
+  )
+    ? getSecondaryWindowOuterSize(process.platform, resolvedOptions.width, resolvedOptions.height)
+    : null;
   const {
     browserWindow,
     transparentWindow,
   } = await createFlowSelectBrowserWindow(label, {
     routePath,
-    width: resolvedOptions.width,
-    height: resolvedOptions.height,
+    width: secondaryWindowOuterSize?.width ?? resolvedOptions.width,
+    height: secondaryWindowOuterSize?.height ?? resolvedOptions.height,
     x: resolvedOptions.x,
     y: resolvedOptions.y,
     center: resolvedOptions.center === true,

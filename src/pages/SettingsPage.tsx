@@ -28,6 +28,7 @@ import {
   getFieldSurfaceStyle,
   getCompactLabelStyle,
   getNoticeStyle,
+  getShadowBackdropStyle,
   WINDOW_NO_DRAG_REGION_STYLE,
   getWindowBodyStyle,
   getWindowHeaderStyle,
@@ -37,6 +38,7 @@ import {
 } from "../components/ui/shared-styles";
 import { saveOutputPath } from "../utils/outputPath";
 import { APP_VERSION } from "../constants/appVersion";
+import { MACOS_SECONDARY_WINDOW_SHADOW_GUTTER } from "../constants/windowMetrics";
 import { DownloaderDeck } from "./settings/DownloaderDeck";
 import { DownloaderCardContent } from "./settings/DownloaderCardContent";
 import type { GalleryDlInfo } from "../types/galleryDl";
@@ -1033,8 +1035,10 @@ function SettingsPage() {
 
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
   const settingsShellRadius = 16;
+  const windowShadowGutter = isMacOS ? MACOS_SECONDARY_WINDOW_SHADOW_GUTTER : 0;
   const panelStyle: CSSProperties = getWindowShellStyle(colors, theme, {
     radius: settingsShellRadius,
+    elevation: "none",
     includeLightBottomInset: true,
   });
   const spinnerStyle: CSSProperties = {
@@ -1841,55 +1845,73 @@ function SettingsPage() {
   };
 
   return (
-    <div style={panelStyle}>
-      {/* Draggable Header */}
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div
-        style={getWindowHeaderStyle(colors, {
-          dragRegion: true,
+        aria-hidden="true"
+        style={getShadowBackdropStyle(colors, {
+          radius: settingsShellRadius,
+          boxShadow: colors.panelShadow,
+          inset: windowShadowGutter,
         })}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: windowShadowGutter,
+          zIndex: 1,
+        }}
       >
-        <h2 style={{ fontSize: 14, fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
-          {t("desktop:settings.title")}
-        </h2>
-        <NeonIconButton
-          onClick={closeWindow}
-          tone="danger"
-          size={20}
-          style={{
-            ...WINDOW_NO_DRAG_REGION_STYLE,
-            marginRight: -2,
-          }}
-        >
-          <CloseIcon size={16} />
-        </NeonIconButton>
-      </div>
-
-      <div style={settingsTabChromeStyle} role="tablist" aria-label={t("desktop:settings.title")}>
-          {settingsTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              id={`settings-tab-${tab.id}`}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              aria-controls={`settings-panel-${tab.id}`}
-              onClick={() => setActiveTab(tab.id)}
-              onMouseEnter={() => setHoveredSettingsTab(tab.id)}
-              onMouseLeave={() => setHoveredSettingsTab((current) => (current === tab.id ? null : current))}
-              style={getSettingsTabStyle(tab.id)}
+        <div style={panelStyle}>
+          {/* Draggable Header */}
+          <div
+            style={getWindowHeaderStyle(colors, {
+              dragRegion: true,
+            })}
+          >
+            <h2 style={{ fontSize: 14, fontWeight: 600, color: colors.textPrimary, margin: 0 }}>
+              {t("desktop:settings.title")}
+            </h2>
+            <NeonIconButton
+              onClick={closeWindow}
+              tone="danger"
+              size={20}
+              style={{
+                ...WINDOW_NO_DRAG_REGION_STYLE,
+                marginRight: -2,
+              }}
             >
-              {tab.label}
-            </button>
-          ))}
-      </div>
+              <CloseIcon size={16} />
+            </NeonIconButton>
+          </div>
 
-      <div style={getWindowBodyStyle({ padding: "16px 18px 18px", gap: 0 })} className="hide-scrollbar">
-        <div
-          id={`settings-panel-${activeTab}`}
-          role="tabpanel"
-          aria-labelledby={`settings-tab-${activeTab}`}
-        >
-          {renderActiveTab()}
+          <div style={settingsTabChromeStyle} role="tablist" aria-label={t("desktop:settings.title")}>
+              {settingsTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  id={`settings-tab-${tab.id}`}
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  aria-controls={`settings-panel-${tab.id}`}
+                  onClick={() => setActiveTab(tab.id)}
+                  onMouseEnter={() => setHoveredSettingsTab(tab.id)}
+                  onMouseLeave={() => setHoveredSettingsTab((current) => (current === tab.id ? null : current))}
+                  style={getSettingsTabStyle(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+          </div>
+
+          <div style={getWindowBodyStyle({ padding: "16px 18px 18px", gap: 0 })} className="hide-scrollbar">
+            <div
+              id={`settings-panel-${activeTab}`}
+              role="tabpanel"
+              aria-labelledby={`settings-tab-${activeTab}`}
+            >
+              {renderActiveTab()}
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -25,6 +25,12 @@ interface PanelShellOptions {
   boxShadow?: string;
 }
 
+interface ShadowBackdropOptions {
+  radius?: number | string;
+  boxShadow?: string;
+  inset?: number | string;
+}
+
 interface FieldSurfaceOptions {
   active?: boolean;
   highlighted?: boolean;
@@ -97,6 +103,24 @@ export const getPanelShellStyle = (
   boxShadow: boxShadow ?? `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,
 });
 
+export const getShadowBackdropStyle = (
+  colors: ThemeColors,
+  {
+    radius = 16,
+    boxShadow,
+    inset = 0,
+  }: ShadowBackdropOptions = {},
+): CSSProperties => ({
+  position: "absolute",
+  inset,
+  pointerEvents: "none",
+  boxSizing: "border-box",
+  overflow: "visible",
+  background: "transparent",
+  boxShadow: boxShadow ?? colors.panelShadow,
+  ...getContinuousCornerStyle(radius),
+});
+
 export const getWindowShellStyle = (
   colors: ThemeColors,
   theme: Theme,
@@ -108,10 +132,10 @@ export const getWindowShellStyle = (
     includeLightBottomInset = false,
   }: WindowShellOptions = {},
 ): CSSProperties => {
-  const shellShadow = elevation === "strong"
-    ? colors.panelShadowStrong
+  const shellInnerGlow = elevation === "strong"
+    ? `inset 0 0 28px ${colors.shadowColor}`
     : elevation === "panel"
-      ? colors.panelShadow
+      ? `inset 0 0 18px ${colors.shadowColor}`
       : null;
 
   return {
@@ -131,7 +155,7 @@ export const getWindowShellStyle = (
         includeLightBottomInset && theme === "white"
           ? `inset 0 -1px 0 ${colors.shadowSpread}`
           : null,
-        shellShadow,
+        shellInnerGlow,
       ].filter(Boolean).join(", "),
     }),
   };

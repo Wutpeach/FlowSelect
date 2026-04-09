@@ -5,6 +5,7 @@ import { CloseIcon, EyeIcon, RotateCcwIcon } from "../components/icons/AppIcons"
 import { NeonButton, NeonIconButton, NeonSection } from "../components/ui";
 import {
   WINDOW_NO_DRAG_REGION_STYLE,
+  getShadowBackdropStyle,
   getNoticeStyle,
   getWindowBodyStyle,
   getWindowHeaderStyle,
@@ -12,6 +13,7 @@ import {
 } from "../components/ui/shared-styles";
 import { useTheme } from "../contexts/ThemeContext";
 import { desktopCommands, desktopCurrentWindow, desktopWindows } from "../desktop/runtime";
+import { MACOS_SECONDARY_WINDOW_SHADOW_GUTTER } from "../constants/windowMetrics";
 
 type UiLabScenarioId =
   | "runtime-auto-config"
@@ -31,6 +33,8 @@ type UiLabScenario = {
 export default function UiLabPage() {
   const { t } = useTranslation("desktop");
   const { theme, colors } = useTheme();
+  const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
+  const windowShadowGutter = isMacOS ? MACOS_SECONDARY_WINDOW_SHADOW_GUTTER : 0;
   const [activeScenario, setActiveScenario] = useState<UiLabScenarioId | null>(null);
   const [pendingScenario, setPendingScenario] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -167,120 +171,138 @@ export default function UiLabPage() {
   };
 
   return (
-    <div
-      style={getWindowShellStyle(colors, theme, {
-        radius: 18,
-        elevation: "strong",
-      })}
-    >
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div
-        style={getWindowHeaderStyle(colors, {
-          padding: "16px 18px 14px",
-          dragRegion: true,
+        aria-hidden="true"
+        style={getShadowBackdropStyle(colors, {
+          radius: 18,
+          boxShadow: colors.panelShadowStrong,
+          inset: windowShadowGutter,
         })}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: colors.textPrimary }}>
-            {t("settings.uiLab.title")}
-          </h2>
-          <span style={{ fontSize: 11, lineHeight: 1.35, color: colors.textSecondary, maxWidth: 250 }}>
-            {t("settings.uiLab.subtitle")}
-          </span>
-        </div>
-        <NeonIconButton
-          onClick={closeWindow}
-          tone="danger"
-          size={20}
-          title={t("settings.uiLab.actions.closeWindow")}
-          aria-label={t("settings.uiLab.actions.closeWindow")}
-          style={WINDOW_NO_DRAG_REGION_STYLE}
-        >
-          <CloseIcon size={16} />
-        </NeonIconButton>
-      </div>
-
+      />
       <div
-        style={getWindowBodyStyle()}
-        className="hide-scrollbar"
+        style={{
+          position: "absolute",
+          inset: windowShadowGutter,
+          zIndex: 1,
+        }}
       >
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <NeonButton
-            onClick={() => void focusMainWindow()}
-            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-          >
-            <EyeIcon size={14} />
-            {t("settings.uiLab.actions.revealMainWindow")}
-          </NeonButton>
-          <NeonButton
-            onClick={() => void resetScenario()}
-            disabled={pendingScenario === "reset"}
-            variant="outline"
-            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-          >
-            <RotateCcwIcon size={14} />
-            {t("settings.uiLab.actions.resetToLiveState")}
-          </NeonButton>
-        </div>
-
         <div
-          style={getNoticeStyle(colors)}
+          style={getWindowShellStyle(colors, theme, {
+            radius: 18,
+            elevation: "none",
+          })}
         >
-          {t("settings.uiLab.status.activePreset")}{" "}
-          <strong style={{ color: colors.textPrimary }}>{activeScenarioLabel}</strong>
-        </div>
-
-        {errorMessage ? (
           <div
-            style={getNoticeStyle(colors, {
-              tone: "danger",
+            style={getWindowHeaderStyle(colors, {
+              padding: "16px 18px 14px",
+              dragRegion: true,
             })}
           >
-            {errorMessage}
-          </div>
-        ) : null}
-
-        {scenarioGroups.map((group) => (
-          <NeonSection key={group.title} title={group.title} hint={group.hint}>
-            <div style={{ display: "grid", gap: 10 }}>
-              {group.scenarios.map((scenario) => {
-                const isPending = pendingScenario === scenario.id;
-                const isActive = activeScenario === scenario.id;
-                return (
-                  <button
-                    key={scenario.id}
-                    type="button"
-                    onClick={() => void applyScenario(scenario.id)}
-                    disabled={isPending}
-                    style={{
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "11px 12px",
-                      borderRadius: 12,
-                      border: "none",
-                      cursor: isPending ? "wait" : "pointer",
-                      background: colors.fieldBg,
-                      boxShadow: isActive
-                        ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 1px 0 ${colors.fieldInset}, 0 0 0 1px ${colors.accentBorder}`
-                        : `inset 0 0 0 1px ${colors.fieldBorder}, inset 0 1px 0 ${colors.fieldInset}`,
-                      display: "grid",
-                      gap: 4,
-                      color: colors.textPrimary,
-                      opacity: isPending ? 0.82 : 1,
-                      transition: "box-shadow 0.18s ease, transform 0.18s ease, opacity 0.18s ease",
-                    }}
-                  >
-                    <span style={{ fontSize: 12, fontWeight: 700 }}>
-                      {scenario.label}
-                    </span>
-                    <span style={{ fontSize: 11, lineHeight: 1.4, color: colors.textSecondary }}>
-                      {scenario.description}
-                    </span>
-                  </button>
-                );
-              })}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: colors.textPrimary }}>
+                {t("settings.uiLab.title")}
+              </h2>
+              <span style={{ fontSize: 11, lineHeight: 1.35, color: colors.textSecondary, maxWidth: 250 }}>
+                {t("settings.uiLab.subtitle")}
+              </span>
             </div>
-          </NeonSection>
-        ))}
+            <NeonIconButton
+              onClick={closeWindow}
+              tone="danger"
+              size={20}
+              title={t("settings.uiLab.actions.closeWindow")}
+              aria-label={t("settings.uiLab.actions.closeWindow")}
+              style={WINDOW_NO_DRAG_REGION_STYLE}
+            >
+              <CloseIcon size={16} />
+            </NeonIconButton>
+          </div>
+
+          <div
+            style={getWindowBodyStyle()}
+            className="hide-scrollbar"
+          >
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <NeonButton
+                onClick={() => void focusMainWindow()}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <EyeIcon size={14} />
+                {t("settings.uiLab.actions.revealMainWindow")}
+              </NeonButton>
+              <NeonButton
+                onClick={() => void resetScenario()}
+                disabled={pendingScenario === "reset"}
+                variant="outline"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <RotateCcwIcon size={14} />
+                {t("settings.uiLab.actions.resetToLiveState")}
+              </NeonButton>
+            </div>
+
+            <div
+              style={getNoticeStyle(colors)}
+            >
+              {t("settings.uiLab.status.activePreset")}{" "}
+              <strong style={{ color: colors.textPrimary }}>{activeScenarioLabel}</strong>
+            </div>
+
+            {errorMessage ? (
+              <div
+                style={getNoticeStyle(colors, {
+                  tone: "danger",
+                })}
+              >
+                {errorMessage}
+              </div>
+            ) : null}
+
+            {scenarioGroups.map((group) => (
+              <NeonSection key={group.title} title={group.title} hint={group.hint}>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {group.scenarios.map((scenario) => {
+                    const isPending = pendingScenario === scenario.id;
+                    const isActive = activeScenario === scenario.id;
+                    return (
+                      <button
+                        key={scenario.id}
+                        type="button"
+                        onClick={() => void applyScenario(scenario.id)}
+                        disabled={isPending}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "11px 12px",
+                          borderRadius: 12,
+                          border: "none",
+                          cursor: isPending ? "wait" : "pointer",
+                          background: colors.fieldBg,
+                          boxShadow: isActive
+                            ? `inset 0 0 0 1px ${colors.accentBorder}, inset 0 1px 0 ${colors.fieldInset}, 0 0 0 1px ${colors.accentBorder}`
+                            : `inset 0 0 0 1px ${colors.fieldBorder}, inset 0 1px 0 ${colors.fieldInset}`,
+                          display: "grid",
+                          gap: 4,
+                          color: colors.textPrimary,
+                          opacity: isPending ? 0.82 : 1,
+                          transition: "box-shadow 0.18s ease, transform 0.18s ease, opacity 0.18s ease",
+                        }}
+                      >
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>
+                          {scenario.label}
+                        </span>
+                        <span style={{ fontSize: 11, lineHeight: 1.4, color: colors.textSecondary }}>
+                          {scenario.description}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </NeonSection>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

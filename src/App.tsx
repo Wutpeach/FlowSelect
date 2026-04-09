@@ -9,6 +9,7 @@ import {
   getContinuousCornerClipPath,
   getContinuousCornerStyle,
   getInsetCardStyle,
+  getShadowBackdropStyle,
   getPanelShellStyle,
   getStatusDotStyle,
 } from "./components/ui/shared-styles";
@@ -86,6 +87,15 @@ import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
 import { isLikelyShortLinkUrl } from "./core/short-links";
+import {
+  MAIN_WINDOW_COMPACT_SHELL_SIZE,
+  MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
+  MAIN_WINDOW_MACOS_COMPACT_OUTER_SIZE,
+  MAIN_WINDOW_MACOS_FULL_SHADOW_GUTTER,
+  MAIN_WINDOW_PANEL_SIZE,
+  SETTINGS_WINDOW_CONTENT_HEIGHT,
+  SETTINGS_WINDOW_CONTENT_WIDTH,
+} from "./constants/windowMetrics";
 import i18n from "./i18n";
 import {
   getMissingRuntimeComponentsFromStatus,
@@ -810,13 +820,17 @@ function App({
     getDeferredStartupInitializationDelayMs(startupWindowEnvironment);
   const startsExpandedOnLaunch =
     shouldStartExpandedOnLaunch(startupWindowEnvironment);
-  const INTERMEDIATE_EXPAND_SIZE = 200;
-  const FULL_SIZE = INTERMEDIATE_EXPAND_SIZE;
-  const ICON_SIZE = 80;
-  const MINIMIZED_SHELL_SIZE = 60;
+  const FULL_SIZE = MAIN_WINDOW_PANEL_SIZE;
+  const FULL_WINDOW_SHADOW_GUTTER = isMacOS ? MAIN_WINDOW_MACOS_FULL_SHADOW_GUTTER : 0;
+  const INTERMEDIATE_EXPAND_SIZE = FULL_SIZE + FULL_WINDOW_SHADOW_GUTTER * 2;
+  const ICON_SIZE = isMacOS
+    ? MAIN_WINDOW_MACOS_COMPACT_OUTER_SIZE
+    : MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE;
+  const MINIMIZED_SHELL_SIZE = MAIN_WINDOW_COMPACT_SHELL_SIZE;
   const MINIMIZED_SHELL_SCALE = MINIMIZED_SHELL_SIZE / FULL_SIZE;
   const MINIMIZED_ICON_SIZE = 38;
   const MINIMIZED_SHELL_INSET = Math.round((ICON_SIZE - MINIMIZED_SHELL_SIZE) / 2);
+  const FULL_SHELL_INSET = FULL_WINDOW_SHADOW_GUTTER;
   const startsInNativeCompactStartupWindow = shouldUseNativeCompactStartupWindow({
     startupWindowMode: initialStartupWindowMode,
     startsExpandedOnLaunch,
@@ -920,8 +934,8 @@ function App({
   const PANEL_OUTPUT_FOLDER_SHORTCUT_DEDUP_MS = 400;
   const CONTEXT_MENU_WIDTH = 176;
   const CONTEXT_MENU_HEIGHT = 80;
-  const SETTINGS_WINDOW_WIDTH = 320;
-  const SETTINGS_WINDOW_HEIGHT = 400;
+  const SETTINGS_WINDOW_WIDTH = SETTINGS_WINDOW_CONTENT_WIDTH;
+  const SETTINGS_WINDOW_HEIGHT = SETTINGS_WINDOW_CONTENT_HEIGHT;
   const totalDownloadTaskCount = videoQueueState.totalCount;
   const downloadQueueTasks = videoQueueDetail.tasks;
   const activeDownloadQueueTasks = downloadQueueTasks.filter((task) => task.status === "active");
@@ -1611,12 +1625,12 @@ function App({
       ? MINIMIZED_SHELL_SIZE
       : FULL_SIZE;
   const minimizedPanelOffset = isExpandMorphVisible
-    ? 0
+    ? FULL_SHELL_INSET
     : visualIsMinimized
       ? MINIMIZED_SHELL_INSET
-      : 0;
+      : FULL_SHELL_INSET;
   const minimizedPanelScale = 1;
-  const minimizedIconSize = MINIMIZED_ICON_SIZE;
+  const minimizedIconSize = isMacOS ? MINIMIZED_ICON_SIZE - 2 : MINIMIZED_ICON_SIZE;
   const minimizedIconFrameSize = isMacOS ? MINIMIZED_SHELL_SIZE : minimizedIconSize;
   const minimizedIconWrapperScale = 1;
   const shouldUseInstantPanelTransition = panelTransitionMode === "instant";
@@ -4030,10 +4044,10 @@ function App({
     : shouldShowMiniControls
       ? "translateY(0) scale(1)"
       : "translateY(2px) scale(0.94)";
-  const containerOuterShadow = primaryTask || isHovering
+  const containerBackdropShadow = primaryTask || isHovering
     ? colors.panelShadowStrong
     : colors.panelShadow;
-  const panelViewportSize = isNativeSizedMinimizedShell ? ICON_SIZE : FULL_SIZE;
+  const panelViewportSize = isNativeSizedMinimizedShell ? ICON_SIZE : INTERMEDIATE_EXPAND_SIZE;
   const shouldShowMinimizedChromeOverlay =
     visualIsMinimized && !visualIsExpandingFromMinimized && !isMacOS;
   const panelBorderColor = visualIsMinimized
@@ -4045,14 +4059,25 @@ function App({
         : isHovering
           ? colors.accentBorder
           : colors.borderStart;
-  const containerShellOnlyBoxShadow = primaryTask?.kind === "transcode"
-    ? `inset 0 0 14px ${colors.transcodeGlow}, ${containerOuterShadow}`
+  const containerShellAccentShadow = primaryTask?.kind === "transcode"
+    ? `inset 0 0 14px ${colors.transcodeGlow}`
     : primaryTask?.kind === "download"
-      ? `inset 0 0 12px ${colors.accentGlow}, ${containerOuterShadow}`
+      ? `inset 0 0 12px ${colors.accentGlow}`
       : isHovering
-        ? `inset 0 0 18px ${colors.accentGlow}, inset 0 0 28px ${colors.accentSurfaceStrong}, ${containerOuterShadow}`
-        : containerOuterShadow;
-  const containerFullBoxShadow = `inset 0 0 0 1px ${panelBorderColor}, ${containerShellOnlyBoxShadow}`;
+        ? `inset 0 0 18px ${colors.accentGlow}, inset 0 0 28px ${colors.accentSurfaceStrong}`
+        : null;
+  const containerShellBoxShadow = [
+    `inset 0 0 0 1px ${panelBorderColor}`,
+    `inset 0 1px 0 ${colors.fieldInset}`,
+    containerShellAccentShadow,
+  ].filter(Boolean).join(", ");
+  const containerShadowBackdropStyle = getShadowBackdropStyle(colors, {
+    radius: panelRadius,
+    boxShadow: shouldUseStandaloneMacMinimizedPlate
+      ? colors.panelShadowCompact
+      : containerBackdropShadow,
+  });
+  const minimizedPlateBorderColor = colors.borderStart;
   const minimizedShadowOverlayTransition = shouldReduceMotion
     ? { duration: 0.12 }
     : visualIsMinimized
@@ -4069,8 +4094,8 @@ function App({
     ...getContinuousCornerStyle(100),
   };
   const containerBoxShadow = visualIsMinimized && !isMacOS
-    ? `inset 0 0 0 1px ${colors.borderStart}`
-    : containerFullBoxShadow;
+    ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}`
+    : containerShellBoxShadow;
   const shouldShowAppUpdateIndicator = !!appUpdateInfo && (
     appUpdatePhase === "available"
     || appUpdatePhase === "downloading"
@@ -4309,22 +4334,51 @@ function App({
 
   return (
     <div
-      style={{
+	      style={{
         position: "relative",
         width: panelViewportSize,
         height: panelViewportSize,
         overflow: "visible",
       }}
     >
-      <motion.div
-        initial={false}
-        aria-hidden="true"
-        animate={{ opacity: shouldShowMinimizedChromeOverlay ? 1 : 0 }}
-        transition={minimizedShadowOverlayTransition}
-        style={minimizedShadowOverlayStyle}
-      />
-      <motion.div
-      ref={containerRef}
+	      <motion.div
+	        initial={false}
+	        aria-hidden="true"
+	        animate={{ opacity: shouldShowMinimizedChromeOverlay ? 1 : 0 }}
+	        transition={minimizedShadowOverlayTransition}
+	        style={minimizedShadowOverlayStyle}
+	      />
+        <motion.div
+          initial={false}
+          aria-hidden="true"
+          animate={{
+            scale: isInitialMount ? 0.82 : panelScale,
+            borderRadius: panelRadius,
+            x: minimizedPanelOffset,
+            y: minimizedPanelOffset,
+            width: panelRenderSize,
+            height: panelRenderSize,
+          }}
+          transition={{
+            scale: panelShellTransition.scale,
+            borderRadius: panelShellTransition.borderRadius,
+            x: panelShellTransition.x,
+            y: panelShellTransition.y,
+            width: panelShellTransition.width,
+            height: panelShellTransition.height,
+          }}
+          style={{
+            top: 0,
+            left: 0,
+            zIndex: 0,
+            transformOrigin: "top left",
+            ...(visualIsExpandingFromMinimized
+              ? { display: "none" }
+              : containerShadowBackdropStyle),
+          }}
+        />
+	      <motion.div
+	      ref={containerRef}
       tabIndex={0}
       onDragOver={(e) => {
         e.preventDefault();
@@ -4412,27 +4466,28 @@ function App({
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
-        alignItems: 'center',
-        gap: 8,
-        outline: 'none',
-        ...(visualIsExpandingFromMinimized || shouldUseStandaloneMacMinimizedPlate
-          ? {
-              background: "transparent",
-              boxShadow: "none",
-            }
-          : getPanelShellStyle(colors, {
-              radius: panelRadius,
-              boxShadow: containerBoxShadow,
-            })),
-        overflow: isExpandMorphVisible ? 'visible' : 'hidden',
+	        alignItems: 'center',
+	        gap: 8,
+	        outline: 'none',
+          zIndex: 1,
+		        ...(visualIsExpandingFromMinimized || shouldUseStandaloneMacMinimizedPlate
+	          ? {
+	              background: "transparent",
+	              boxShadow: "none",
+	            }
+	          : getPanelShellStyle(colors, {
+	              radius: panelRadius,
+	              boxShadow: containerBoxShadow,
+	            })),
+	        overflow: isExpandMorphVisible ? 'visible' : 'hidden',
         transition: shouldUseInstantPanelTransition
           ? undefined
           : `box-shadow 0.18s ${COMPACT_EASE}`,
         willChange: 'transform, clip-path',
       }}
-    >
-      <div
-        style={{
+	          >
+	            <div
+	              style={{
           position: "absolute",
           inset: 0,
           display: "flex",
@@ -5300,10 +5355,10 @@ function App({
                 background: shouldUseStandaloneMacMinimizedPlate
                   ? `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`
                   : "transparent",
-                boxShadow: shouldUseStandaloneMacMinimizedPlate
-                  ? `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadowCompact}`
-                  : "none",
-                overflow: "hidden",
+	                boxShadow: shouldUseStandaloneMacMinimizedPlate
+	                  ? `inset 0 0 0 1px ${minimizedPlateBorderColor}, inset 0 1px 0 ${colors.fieldInset}`
+	                  : "none",
+	                overflow: "hidden",
                 transform: `scale(${minimizedIconWrapperScale})`,
                 transformOrigin: "center center",
                 willChange: "transform",
@@ -5731,8 +5786,8 @@ function App({
           }}
           animate={{
             scale: 1,
-            x: 0,
-            y: 0,
+            x: FULL_SHELL_INSET,
+            y: FULL_SHELL_INSET,
             borderRadius: 16,
             clipPath: getContinuousCornerClipPath(16),
           }}
@@ -5750,11 +5805,11 @@ function App({
             overflow: "hidden",
             pointerEvents: "none",
             transformOrigin: "0px 0px",
-            zIndex: 12,
-            willChange: "transform, border-radius, clip-path",
-            ...getPanelShellStyle(colors, {
-              radius: 16,
-              boxShadow: containerFullBoxShadow,
+	            zIndex: 12,
+	            willChange: "transform, border-radius, clip-path",
+	            ...getPanelShellStyle(colors, {
+	              radius: 16,
+	              boxShadow: containerShellBoxShadow,
             }),
           }}
         >
