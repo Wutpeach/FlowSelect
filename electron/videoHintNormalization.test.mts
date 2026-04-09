@@ -60,6 +60,12 @@ describe("normalizeVideoPageUrl", () => {
     ).toBe("https://www.pinterest.com/pin/1234567890/");
   });
 
+  it("canonicalizes X photo overlay urls back to the status permalink", () => {
+    expect(
+      normalizeVideoPageUrl("https://x.com/Jackywine/status/2042131360048128059/photo/1"),
+    ).toBe("https://x.com/Jackywine/status/2042131360048128059");
+  });
+
   it("rejects invalid page urls", () => {
     expect(normalizeVideoPageUrl(" javascript:alert('xss') ")).toBeUndefined();
     expect(normalizeVideoPageUrl(" data:text/plain;base64,SGVsbG8= ")).toBeUndefined();

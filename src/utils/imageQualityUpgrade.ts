@@ -1,10 +1,11 @@
 import { resolveMaxurlUpgrade } from "./maxurlAdapter";
+import { upgradeTwitterXImageUrl } from "./twitterX";
 import { upgradeWeiboImageUrl } from "./weiboImageUpgrade";
 
 export type ImageQualityUpgradeResult = {
   originalUrl: string;
   upgradedUrl: string | null;
-  strategy: "none" | "weibo_override" | "maxurl";
+  strategy: "none" | "weibo_override" | "twitter_x_override" | "maxurl";
   confidence: "low" | "medium" | "high";
   notes: string[];
   requestHeaders?: Record<string, string>;
@@ -45,6 +46,17 @@ export async function upgradeImageUrl(input: {
       strategy: "weibo_override",
       confidence: "high",
       notes: ["matched known sinaimg size bucket and upgraded to a larger variant"],
+    };
+  }
+
+  const twitterXUpgradedUrl = upgradeTwitterXImageUrl(originalUrl.toString());
+  if (twitterXUpgradedUrl && twitterXUpgradedUrl !== originalUrl.toString()) {
+    return {
+      originalUrl: originalUrl.toString(),
+      upgradedUrl: twitterXUpgradedUrl,
+      strategy: "twitter_x_override",
+      confidence: "high",
+      notes: ["matched known pbs.twimg.com variant and upgraded to the original image size"],
     };
   }
 

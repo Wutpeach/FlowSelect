@@ -16,6 +16,8 @@ import {
 import { once } from "node:events";
 import { createWriteStream, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
+import http from "node:http";
+import https from "node:https";
 import {
   appendFile,
   access,
@@ -1316,8 +1318,23 @@ function deriveImageDownloadHeaders(requestOptions = {}) {
       requestOptions?.requestHeaders ?? requestOptions?.headers,
     ) ?? {}),
   };
-  const normalizedReferrer =
-    normalizeHttpUrl(requestOptions?.referrer ?? requestOptions?.pageUrl) ?? undefined;
+  const normalizedReferrer = normalizeVideoPageUrl(
+    requestOptions?.referrer ?? requestOptions?.pageUrl,
+  ) ?? normalizeHttpUrl(requestOptions?.referrer ?? requestOptions?.pageUrl) ?? undefined;
+  const isTwitterXPublicImageRequest = (() => {
+    if (!normalizedImageUrl || !normalizedReferrer) {
+      return false;
+    }
+
+    try {
+      const imageHost = new URL(normalizedImageUrl).hostname.toLowerCase();
+      const referrerHost = new URL(normalizedReferrer).hostname.toLowerCase();
+      return /(?:^|\.)pbs\.twimg\.com$/i.test(imageHost)
+        && (/(?:^|\.)x\.com$/i.test(referrerHost) || /(?:^|\.)twitter\.com$/i.test(referrerHost));
+    } catch {
+      return false;
+    }
+  })();
   const isXiaohongshuProtectedImageRequest = (() => {
     if (!normalizedImageUrl || !normalizedReferrer) {
       return false;
@@ -1332,6 +1349,14 @@ function deriveImageDownloadHeaders(requestOptions = {}) {
       return false;
     }
   })();
+
+  if (isTwitterXPublicImageRequest) {
+    delete headers.Referer;
+    delete headers.referer;
+    delete headers.Origin;
+    delete headers.origin;
+    return Object.keys(headers).length > 0 ? headers : undefined;
+  }
 
   if (normalizedReferrer && !isXiaohongshuProtectedImageRequest && !headers.Referer && !headers.referer) {
     headers.Referer = normalizedReferrer;
@@ -1350,6 +1375,80 @@ function deriveImageDownloadHeaders(requestOptions = {}) {
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
+function createHeaderBagFromNodeResponseHeaders(headers = {}) {
+  const normalized = new Map();
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof key !== "string") {
+      continue;
+    }
+    const normalizedKey = key.toLowerCase();
+    const normalizedValue = Array.isArray(value)
+      ? value.join(", ")
+      : typeof value === "string"
+        ? value
+        : typeof value === "number"
+          ? String(value)
+          : "";
+    normalized.set(normalizedKey, normalizedValue);
+  }
+
+  return {
+    get(name) {
+      if (typeof name !== "string") {
+        return null;
+      }
+      return normalized.get(name.toLowerCase()) ?? null;
+    },
+  };
+}
+
+async function fetchImageWithNodeRequest(url, headers, redirectCount = 0) {
+  if (redirectCount > 5) {
+    throw new Error("Too many redirects while downloading image");
+  }
+
+  const parsed = new URL(url);
+  const transport = parsed.protocol === "https:" ? https : http;
+
+  return await new Promise((resolve, reject) => {
+    const request = transport.request(parsed, {
+      method: "GET",
+      headers,
+    }, (response) => {
+      const statusCode = response.statusCode ?? 0;
+      const locationHeader = typeof response.headers.location === "string"
+        ? response.headers.location
+        : Array.isArray(response.headers.location)
+          ? response.headers.location[0]
+          : undefined;
+
+      if (
+        locationHeader
+        && [301, 302, 303, 307, 308].includes(statusCode)
+      ) {
+        response.resume();
+        const nextUrl = new URL(locationHeader, parsed).toString();
+        void fetchImageWithNodeRequest(nextUrl, headers, redirectCount + 1)
+          .then(resolve)
+          .catch(reject);
+        return;
+      }
+
+      resolve({
+        ok: statusCode >= 200 && statusCode < 300,
+        status: statusCode,
+        statusText: response.statusMessage ?? "",
+        url: parsed.toString(),
+        headers: createHeaderBagFromNodeResponseHeaders(response.headers),
+        body: response,
+      });
+    });
+
+    request.on("error", reject);
+    request.end();
+  });
+}
+
 async function fetchImageForDownload(url, requestOptions = {}) {
   const headers = deriveImageDownloadHeaders({
     ...requestOptions,
@@ -1357,8 +1456,23 @@ async function fetchImageForDownload(url, requestOptions = {}) {
   });
   const hasExplicitHeaders = Boolean(headers && Object.keys(headers).length > 0);
   const normalizedReferrer =
-    normalizeHttpUrl(requestOptions?.referrer ?? requestOptions?.pageUrl)
+    normalizeVideoPageUrl(requestOptions?.referrer ?? requestOptions?.pageUrl)
+    ?? normalizeHttpUrl(requestOptions?.referrer ?? requestOptions?.pageUrl)
     ?? undefined;
+  const isTwitterXPublicImageRequest = (() => {
+    if (!normalizedReferrer) {
+      return false;
+    }
+
+    try {
+      const imageHost = new URL(url).hostname.toLowerCase();
+      const referrerHost = new URL(normalizedReferrer).hostname.toLowerCase();
+      return /(?:^|\.)pbs\.twimg\.com$/i.test(imageHost)
+        && (/(?:^|\.)x\.com$/i.test(referrerHost) || /(?:^|\.)twitter\.com$/i.test(referrerHost));
+    } catch {
+      return false;
+    }
+  })();
   const useOriginOnlyXiaohongshuReferrer = (() => {
     if (!normalizedReferrer) {
       return false;
@@ -1409,14 +1523,25 @@ async function fetchImageForDownload(url, requestOptions = {}) {
     }
   }
 
-  return fetchWithDesktopSession(url, {
-    credentials: "include",
-    headers,
-    referrer: useOriginOnlyXiaohongshuReferrer ? "" : normalizedReferrer,
-    referrerPolicy: useOriginOnlyXiaohongshuReferrer
-      ? "no-referrer"
-      : "strict-origin-when-cross-origin",
-  });
+  try {
+    return await fetchWithDesktopSession(url, {
+      credentials: "include",
+      headers,
+      referrer: (useOriginOnlyXiaohongshuReferrer || isTwitterXPublicImageRequest) ? "" : normalizedReferrer,
+      referrerPolicy: useOriginOnlyXiaohongshuReferrer
+        ? "no-referrer"
+        : isTwitterXPublicImageRequest
+          ? "no-referrer"
+          : "strict-origin-when-cross-origin",
+    });
+  } catch (error) {
+    logInfo(
+      "ProtectedImage",
+      "Electron session fetch failed; falling back to Node HTTP request",
+      String(error),
+    );
+    return await fetchImageWithNodeRequest(url, headers);
+  }
 }
 
 function normalizeOptionalNumber(value) {

@@ -8,6 +8,7 @@ vi.mock("image-max-url", () => ({
 
 import { upgradeImageUrl } from "./imageQualityUpgrade";
 import { resetMaxUrlModuleForTests } from "./maxurlAdapter";
+import { upgradeTwitterXImageUrl } from "./twitterX";
 import { upgradeWeiboImageUrl } from "./weiboImageUpgrade";
 
 describe("upgradeWeiboImageUrl", () => {
@@ -26,6 +27,21 @@ describe("upgradeWeiboImageUrl", () => {
       upgradeWeiboImageUrl("https://wx3.sinaimg.cn/mw2000/7840bc09gy1ic0e1mw1b1j21401hcwum.jpg"),
     ).toBeNull();
     expect(upgradeWeiboImageUrl("https://images.example.com/thumb.jpg")).toBeNull();
+  });
+});
+
+describe("upgradeTwitterXImageUrl", () => {
+  it("upgrades pbs.twimg.com size names to orig", () => {
+    expect(
+      upgradeTwitterXImageUrl("https://pbs.twimg.com/media/HFcbbVTa8AItONk?format=jpg&name=small"),
+    ).toBe("https://pbs.twimg.com/media/HFcbbVTa8AItONk?format=jpg&name=orig");
+  });
+
+  it("does not rewrite already-original or non-pbs urls", () => {
+    expect(
+      upgradeTwitterXImageUrl("https://pbs.twimg.com/media/HFcbbVTa8AItONk?format=jpg&name=orig"),
+    ).toBeNull();
+    expect(upgradeTwitterXImageUrl("https://images.example.com/thumb.jpg")).toBeNull();
   });
 });
 
@@ -87,6 +103,22 @@ describe("upgradeImageUrl", () => {
         Referer: "https://images.example.com/gallery",
       },
     });
+  });
+
+  it("prefers deterministic X upgrades before consulting maxurl", async () => {
+    const result = await upgradeImageUrl({
+      imageUrl: "https://pbs.twimg.com/media/HFcbbVTa8AItONk?format=jpg&name=small",
+      pageUrl: "https://x.com/flowselect/status/1234567890",
+    });
+
+    expect(result).toEqual({
+      originalUrl: "https://pbs.twimg.com/media/HFcbbVTa8AItONk?format=jpg&name=small",
+      upgradedUrl: "https://pbs.twimg.com/media/HFcbbVTa8AItONk?format=jpg&name=orig",
+      strategy: "twitter_x_override",
+      confidence: "high",
+      notes: ["matched known pbs.twimg.com variant and upgraded to the original image size"],
+    });
+    expect(maxUrlMock).not.toHaveBeenCalled();
   });
 
   it("falls back when maxurl only returns the original URL", async () => {

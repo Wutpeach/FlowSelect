@@ -1,5 +1,6 @@
 import { resolveSiteHint } from "../src/core/site-hints.js";
 import { orderVideoCandidatesForSite } from "../src/core/video-candidate-order.js";
+import { canonicalizeTwitterXPageUrl } from "../src/utils/twitterX.js";
 
 const normalizeHttpUrl = (value: unknown): string | undefined => {
   if (typeof value !== "string") {
@@ -76,7 +77,11 @@ export function normalizeRequiredVideoRouteUrl(value: unknown): string | undefin
 }
 
 export function normalizeVideoPageUrl(value: unknown): string | undefined {
-  return normalizeHttpUrl(value);
+  const normalized = normalizeHttpUrl(value);
+  if (!normalized) {
+    return undefined;
+  }
+  return canonicalizeTwitterXPageUrl(normalized) ?? normalized;
 }
 
 export function normalizeVideoCandidates(

@@ -50,6 +50,7 @@ import {
   type XiaohongshuResolvedDragMedia,
 } from "./utils/xiaohongshu";
 import { parseLocalFileUrl } from "./utils/localFileUrl";
+import { canonicalizeTwitterXPageUrl, shouldPreferTwitterXImageDrop } from "./utils/twitterX";
 import {
   resolvePanelPointerCaptureId,
   shouldIgnorePanelDoubleClickTarget,
@@ -825,6 +826,7 @@ function App({
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadCancelled, setDownloadCancelled] = useState(false);
   const [downloadErrorMessage, setDownloadErrorMessage] = useState<string | null>(null);
+  const [isForegroundTaskOutcomeVisible, setIsForegroundTaskOutcomeVisible] = useState(false);
   const [outputPath, setOutputPath] = useState("");
   const [renameMediaOnDownload, setRenameMediaOnDownload] = useState(false);
   const [isPanelHovered, setIsPanelHovered] = useState(false);
@@ -1017,6 +1019,7 @@ function App({
   const resetDownloadOutcome = useCallback(() => {
     clearForegroundTaskOutcomeTimer();
     isForegroundTaskOutcomeVisibleRef.current = false;
+    setIsForegroundTaskOutcomeVisible(false);
     setIsProcessing(false);
     setDownloadCancelled(false);
     setDownloadErrorMessage(null);
@@ -1524,6 +1527,7 @@ function App({
   }) => {
     clearForegroundTaskOutcomeTimer();
     isForegroundTaskOutcomeVisibleRef.current = true;
+    setIsForegroundTaskOutcomeVisible(true);
     void prepareMainWindowForForegroundTask();
     setDownloadCancelled(cancelled);
     setDownloadErrorMessage(cancelled ? error : null);
@@ -1531,12 +1535,15 @@ function App({
     foregroundTaskOutcomeTimerRef.current = window.setTimeout(() => {
       foregroundTaskOutcomeTimerRef.current = null;
       isForegroundTaskOutcomeVisibleRef.current = false;
+      setIsForegroundTaskOutcomeVisible(false);
       setIsProcessing(false);
     }, durationMs);
   }, [clearForegroundTaskOutcomeTimer, prepareMainWindowForForegroundTask]);
 
   const startForegroundProcessing = useCallback(async () => {
     await prepareMainWindowForForegroundTask();
+    isForegroundTaskOutcomeVisibleRef.current = false;
+    setIsForegroundTaskOutcomeVisible(false);
     setIsProcessing(true);
   }, [prepareMainWindowForForegroundTask]);
 
@@ -3659,11 +3666,24 @@ function App({
     const htmlImageUrl = extractImageUrlFromHtml(html, {
       baseUrl: /^https?:\/\//i.test(url) ? url : null,
     });
+    const shouldPreferTwitterXImageBranch = shouldPreferTwitterXImageDrop({
+      dropUrl: url,
+      html,
+      htmlImageUrl,
+    });
     const resolvedImageUrl =
-      url && isImageUrl(url) ? url : (!url || !isResolvableVideoInputUrl(url) ? htmlImageUrl : null);
+      url && isImageUrl(url)
+        ? url
+        : (
+            shouldPreferTwitterXImageBranch
+            || !url
+            || !isResolvableVideoInputUrl(url)
+          )
+          ? htmlImageUrl
+          : null;
     const resolvedImagePageUrl = (() => {
       if (protectedImageDragPayload?.pageUrl) {
-        return protectedImageDragPayload.pageUrl;
+        return canonicalizeTwitterXPageUrl(protectedImageDragPayload.pageUrl) ?? protectedImageDragPayload.pageUrl;
       }
       if (
         url
@@ -3671,13 +3691,13 @@ function App({
         && url !== resolvedImageUrl
         && /^https?:\/\//i.test(url)
       ) {
-        return url;
+        return canonicalizeTwitterXPageUrl(url) ?? url;
       }
       return null;
     })();
 
     // Check if it's a video URL (highest priority)
-    if (url && isResolvableVideoInputUrl(url)) {
+    if (url && isResolvableVideoInputUrl(url) && !shouldPreferTwitterXImageBranch) {
       console.log("Detected video URL:", url);
       resetDownloadOutcome();
       await enqueueVideoDownload(url);
@@ -5197,7 +5217,7 @@ function App({
           </motion.div>
         ) : isProcessing ? (
           <motion.div
-            key="check"
+            key={isForegroundTaskOutcomeVisible ? "foreground-outcome" : "foreground-loading"}
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: [1, 1.05, 1], opacity: 1 }}
             exit={{ scale: 0.8, opacity: 0 }}
@@ -5214,12 +5234,28 @@ function App({
               userSelect: "none",
             }}
           >
-            {downloadCancelled ? (
-              <CloseIcon size={48} style={{ color: colors.errorIcon, pointerEvents: "none" }} strokeWidth={3} />
+            {isForegroundTaskOutcomeVisible ? (
+              downloadCancelled ? (
+                <CloseIcon size={48} style={{ color: colors.errorIcon, pointerEvents: "none" }} strokeWidth={3} />
+              ) : (
+                <CheckIcon size={48} style={{ color: colors.successIcon, pointerEvents: "none" }} strokeWidth={3} />
+              )
             ) : (
-              <CheckIcon size={48} style={{ color: colors.successIcon, pointerEvents: "none" }} strokeWidth={3} />
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: "50%",
+                  border: `2px solid ${colors.borderStart}`,
+                  borderTopColor: colors.accentSolid,
+                  display: "block",
+                  animation: "spin 0.75s linear infinite",
+                  boxShadow: `0 0 10px ${colors.accentGlow}`,
+                }}
+              />
             )}
-            {downloadCancelled && downloadErrorMessage ? (
+            {isForegroundTaskOutcomeVisible && downloadCancelled && downloadErrorMessage ? (
               <span
                 title={downloadErrorMessage}
                 style={{
