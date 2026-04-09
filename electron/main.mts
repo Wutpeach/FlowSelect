@@ -1308,6 +1308,7 @@ function normalizeImageDownloadRequestHeaders(rawHeaders) {
 }
 
 function deriveImageDownloadHeaders(requestOptions = {}) {
+  const normalizedImageUrl = normalizeHttpUrl(requestOptions?.url);
   const headers = {
     ...(normalizeImageDownloadRequestHeaders(
       requestOptions?.requestHeaders ?? requestOptions?.headers,
@@ -1315,14 +1316,30 @@ function deriveImageDownloadHeaders(requestOptions = {}) {
   };
   const normalizedReferrer =
     normalizeHttpUrl(requestOptions?.referrer ?? requestOptions?.pageUrl) ?? undefined;
+  const isXiaohongshuProtectedImageRequest = (() => {
+    if (!normalizedImageUrl || !normalizedReferrer) {
+      return false;
+    }
 
-  if (normalizedReferrer && !headers.Referer && !headers.referer) {
+    try {
+      const imageHost = new URL(normalizedImageUrl).hostname.toLowerCase();
+      const referrerHost = new URL(normalizedReferrer).hostname.toLowerCase();
+      return /(?:^|\.)xhscdn\.com$/i.test(imageHost)
+        && (/(?:^|\.)xiaohongshu\.com$/i.test(referrerHost) || /(?:^|\.)xhslink\.com$/i.test(referrerHost));
+    } catch {
+      return false;
+    }
+  })();
+
+  if (normalizedReferrer && !isXiaohongshuProtectedImageRequest && !headers.Referer && !headers.referer) {
     headers.Referer = normalizedReferrer;
   }
 
   if (!headers.Origin && !headers.origin && normalizedReferrer) {
     try {
-      headers.Origin = new URL(normalizedReferrer).origin;
+      headers.Origin = isXiaohongshuProtectedImageRequest
+        ? "https://www.xiaohongshu.com"
+        : new URL(normalizedReferrer).origin;
     } catch {
       // Ignore invalid referrer values after normalization failure.
     }
@@ -1332,8 +1349,28 @@ function deriveImageDownloadHeaders(requestOptions = {}) {
 }
 
 async function fetchImageForDownload(url, requestOptions = {}) {
-  const headers = deriveImageDownloadHeaders(requestOptions);
+  const headers = deriveImageDownloadHeaders({
+    ...requestOptions,
+    url,
+  });
   const hasExplicitHeaders = Boolean(headers && Object.keys(headers).length > 0);
+  const normalizedReferrer =
+    normalizeHttpUrl(requestOptions?.referrer ?? requestOptions?.pageUrl)
+    ?? undefined;
+  const useOriginOnlyXiaohongshuReferrer = (() => {
+    if (!normalizedReferrer) {
+      return false;
+    }
+
+    try {
+      const imageHost = new URL(url).hostname.toLowerCase();
+      const referrerHost = new URL(normalizedReferrer).hostname.toLowerCase();
+      return /(?:^|\.)xhscdn\.com$/i.test(imageHost)
+        && (/(?:^|\.)xiaohongshu\.com$/i.test(referrerHost) || /(?:^|\.)xhslink\.com$/i.test(referrerHost));
+    } catch {
+      return false;
+    }
+  })();
 
   if (hasExplicitHeaders && typeof globalThis.fetch === "function") {
     try {
@@ -1373,10 +1410,10 @@ async function fetchImageForDownload(url, requestOptions = {}) {
   return fetchWithDesktopSession(url, {
     credentials: "include",
     headers,
-    referrer:
-      normalizeHttpUrl(requestOptions?.referrer ?? requestOptions?.pageUrl)
-      ?? undefined,
-    referrerPolicy: "strict-origin-when-cross-origin",
+    referrer: useOriginOnlyXiaohongshuReferrer ? "" : normalizedReferrer,
+    referrerPolicy: useOriginOnlyXiaohongshuReferrer
+      ? "no-referrer"
+      : "strict-origin-when-cross-origin",
   });
 }
 

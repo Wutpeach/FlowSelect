@@ -207,11 +207,29 @@
     ) {
       return null;
     }
+
+    try {
+      const parsed = new URL(normalized);
+      if (/(?:^|\.)xhscdn\.com$/i.test(parsed.hostname) && (!parsed.pathname || parsed.pathname === '/')) {
+        return null;
+      }
+    } catch (_) {
+      return null;
+    }
+
     return normalized;
   }
 
   function looksLikeImageUrl(url) {
     if (/\.(?:css|js|json|txt|map|woff2?|ttf)(?:[?#]|$)/i.test(url)) {
+      return false;
+    }
+    try {
+      const parsed = new URL(url);
+      if (/(?:^|\.)xhscdn\.com$/i.test(parsed.hostname) && (!parsed.pathname || parsed.pathname === '/')) {
+        return false;
+      }
+    } catch (_) {
       return false;
     }
     return (

@@ -6,6 +6,7 @@ importScripts(
   "generic-video-selection-utils.js",
   "injection-debug-config.js",
   "video-selection-routing.js",
+  "xiaohongshu-drag-resolution-utils.js",
 );
 
 let ws = null;
@@ -52,6 +53,7 @@ const directDownloadQuality = self.FlowSelectDirectDownloadQuality;
 const genericVideoSelectionUtils = self.FlowSelectGenericVideoSelectionUtils;
 const injectionDebugConfig = self.FlowSelectInjectionDebugConfig;
 const videoSelectionRouting = self.FlowSelectVideoSelectionRouting;
+const xiaohongshuDragResolutionUtils = self.FlowSelectXiaohongshuDragResolutionUtils;
 const languageInitializationPromise = initializeLanguageState();
 
 function isEnglishVariant(normalized) {
@@ -1227,7 +1229,22 @@ async function handleXiaohongshuDragResolveRequest(data) {
       { frameId: entry.frameId },
     );
 
-    if (!hasUsableXiaohongshuMedia(resolution)) {
+    const requestMediaType =
+      typeof data?.mediaType === 'string' && data.mediaType.trim()
+        ? data.mediaType.trim()
+        : entry.mediaType;
+    const requestVideoIntentConfidence =
+      normalizeVideoIntentConfidence(data?.videoIntentConfidence)
+      ?? entry.videoIntentConfidence
+      ?? null;
+
+    if (!(
+      hasUsableXiaohongshuMedia(resolution)
+      || xiaohongshuDragResolutionUtils?.hasResolvedXiaohongshuDragMedia?.(resolution, {
+        mediaType: requestMediaType,
+        videoIntentConfidence: requestVideoIntentConfidence,
+      }) === true
+    )) {
       console.info('[FlowSelect] Xiaohongshu drag did not expose direct media in source tab; trying background tab fallback:', {
         requestId,
         token,
@@ -1242,10 +1259,7 @@ async function handleXiaohongshuDragResolveRequest(data) {
         sourcePageUrl: entry.sourcePageUrl,
         noteId: typeof data?.noteId === 'string' && data.noteId.trim() ? data.noteId.trim() : entry.noteId,
         imageUrl: normalizeHttpUrl(data?.imageUrl) || entry.imageUrl,
-        videoIntentConfidence:
-          normalizeVideoIntentConfidence(data?.videoIntentConfidence)
-          ?? entry.videoIntentConfidence
-          ?? null,
+        videoIntentConfidence: requestVideoIntentConfidence,
         videoIntentSources: normalizeStringList(data?.videoIntentSources).length > 0
           ? normalizeStringList(data?.videoIntentSources)
           : entry.videoIntentSources,

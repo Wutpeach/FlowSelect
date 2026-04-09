@@ -111,6 +111,15 @@ const normalizeImageUrl = (value: string | undefined | null): string | null => {
     return null;
   }
 
+  try {
+    const parsed = new URL(normalized);
+    if (/(?:^|\.)xhscdn\.com$/i.test(parsed.hostname) && (!parsed.pathname || parsed.pathname === "/")) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
   if (
     !/sns-webpic[^/]*\.xhscdn\.com/i.test(normalized)
     && !/\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#]|$)/i.test(normalized)

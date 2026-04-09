@@ -78,6 +78,24 @@ function normalizeHttpUrl(raw: unknown): string | null {
   }
 }
 
+function normalizeXiaohongshuImageUrl(raw: unknown): string | null {
+  const normalized = normalizeHttpUrl(raw);
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    if (/(?:^|\.)xhscdn\.com$/i.test(parsed.hostname) && (!parsed.pathname || parsed.pathname === "/")) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  return normalized;
+}
+
 function normalizeOptionalLabel(raw: unknown): string | undefined {
   if (typeof raw !== "string") {
     return undefined;
@@ -199,8 +217,8 @@ export function extractEmbeddedXiaohongshuDragPayload(
       detailUrl: normalizeHttpUrl(parsed.detailUrl),
       sourcePageUrl: normalizeHttpUrl(parsed.sourcePageUrl),
       noteId: normalizeNoteId(parsed.noteId ?? parsed.note_id),
-      exactImageUrl: normalizeHttpUrl(parsed.exactImageUrl ?? parsed.exact_image_url),
-      imageUrl: normalizeHttpUrl(parsed.imageUrl),
+      exactImageUrl: normalizeXiaohongshuImageUrl(parsed.exactImageUrl ?? parsed.exact_image_url),
+      imageUrl: normalizeXiaohongshuImageUrl(parsed.imageUrl),
       videoUrl: normalizeHttpUrl(parsed.videoUrl),
       videoCandidates: normalizeDragCandidates(parsed.videoCandidates),
       mediaType: normalizeMediaType(parsed.mediaType),
@@ -239,15 +257,17 @@ export function pickXiaohongshuImageForDownload(options: {
   }
 
   if (resolvedMedia?.kind === "image" && resolvedMedia.imageUrl) {
-    return resolvedMedia.imageUrl;
+    return normalizeXiaohongshuImageUrl(resolvedMedia.imageUrl);
   }
 
   if (resolvedMedia?.kind === "unknown" && resolvedMedia.imageUrl) {
-    return resolvedMedia.imageUrl;
+    return normalizeXiaohongshuImageUrl(resolvedMedia.imageUrl);
   }
 
   if (embeddedPayload?.mediaType === "image") {
-    return embeddedPayload.imageUrl ?? embeddedPayload.exactImageUrl ?? null;
+    return normalizeXiaohongshuImageUrl(embeddedPayload.imageUrl)
+      ?? normalizeXiaohongshuImageUrl(embeddedPayload.exactImageUrl)
+      ?? null;
   }
 
   return null;

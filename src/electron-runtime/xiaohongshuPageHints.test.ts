@@ -467,4 +467,36 @@ describe("resolveXiaohongshuDragMedia", () => {
       videoIntentSources: ["__INITIAL_STATE__.user.notes[0][3].noteCard.type"],
     });
   });
+
+  it("ignores bare xhscdn host urls as image hints", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(
+      `<html><body><h1>plain note page</h1></body></html>`,
+      {
+        status: 200,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+        },
+      },
+    );
+
+    await expect(
+      resolveXiaohongshuDragMedia(
+        {
+          url: "https://www.xiaohongshu.com/explore/69d5e2f0000000001a023be5",
+          pageUrl: "https://www.xiaohongshu.com/explore/69d5e2f0000000001a023be5",
+          noteId: "69d5e2f0000000001a023be5",
+          imageUrl: "https://sns-webpic-qc.xhscdn.com/",
+          mediaType: "image",
+          siteHint: "xiaohongshu",
+        },
+        fetchImpl,
+      ),
+    ).resolves.toEqual({
+      kind: "unknown",
+      pageUrl: "https://www.xiaohongshu.com/explore/69d5e2f0000000001a023be5",
+      imageUrl: null,
+      videoUrl: null,
+      videoCandidates: [],
+    });
+  });
 });

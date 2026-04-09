@@ -170,6 +170,33 @@ describe("extractEmbeddedXiaohongshuDragPayload", () => {
       title: null,
     });
   });
+
+  it("rejects bare xhscdn host urls for image payloads", () => {
+    expect(
+      extractEmbeddedXiaohongshuDragPayload(
+        encodePayload({
+          pageUrl: "https://www.xiaohongshu.com/explore/123",
+          imageUrl: "https://sns-webpic-qc.xhscdn.com/",
+          exactImageUrl: "https://sns-webpic-qc.xhscdn.com/",
+          mediaType: "image",
+        }),
+      ),
+    ).toEqual({
+      token: null,
+      pageUrl: "https://www.xiaohongshu.com/explore/123",
+      detailUrl: null,
+      sourcePageUrl: null,
+      noteId: null,
+      exactImageUrl: null,
+      imageUrl: null,
+      videoUrl: null,
+      videoCandidates: [],
+      mediaType: "image",
+      videoIntentConfidence: null,
+      videoIntentSources: [],
+      title: null,
+    });
+  });
 });
 
 describe("hasXiaohongshuVideoSignals", () => {
@@ -272,6 +299,29 @@ describe("pickXiaohongshuImageForDownload", () => {
           videoUrl: null,
           videoCandidates: [],
         },
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects bare xhscdn host urls as downloadable image targets", () => {
+    expect(
+      pickXiaohongshuImageForDownload({
+        embeddedPayload: {
+          token: null,
+          pageUrl: "https://www.xiaohongshu.com/explore/123",
+          detailUrl: null,
+          sourcePageUrl: null,
+          noteId: "123",
+          exactImageUrl: "https://sns-webpic-qc.xhscdn.com/",
+          imageUrl: "https://sns-webpic-qc.xhscdn.com/",
+          videoUrl: null,
+          videoCandidates: [],
+          mediaType: "image",
+          videoIntentConfidence: null,
+          videoIntentSources: [],
+          title: null,
+        },
+        resolvedMedia: null,
       }),
     ).toBeNull();
   });
