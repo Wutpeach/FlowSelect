@@ -40,6 +40,7 @@ import {
   type PinterestVideoCandidate,
 } from "./utils/pinterest";
 import { extractImageUrlFromHtml } from "./utils/imageDrag";
+import { upgradeImageUrl } from "./utils/imageQualityUpgrade";
 import {
   extractEmbeddedXiaohongshuDragPayload,
   hasXiaohongshuVideoSignals,
@@ -3760,11 +3761,25 @@ function App({
           }
         } else {
           try {
+            const imageQualityUpgrade = await upgradeImageUrl({
+              imageUrl: resolvedImageUrl,
+              pageUrl: resolvedImagePageUrl,
+            });
+            const finalImageUrl = imageQualityUpgrade.upgradedUrl ?? resolvedImageUrl;
+            console.log("Image quality upgrade decision:", {
+              originalUrl: resolvedImageUrl,
+              finalUrl: finalImageUrl,
+              strategy: imageQualityUpgrade.strategy,
+              confidence: imageQualityUpgrade.confidence,
+              notes: imageQualityUpgrade.notes,
+              requestHeaders: imageQualityUpgrade.requestHeaders ?? null,
+            });
             const result = await desktopCommands.invoke<string>("download_image", {
-              url: resolvedImageUrl,
+              url: finalImageUrl,
               targetDir: outputPath || null,
               protectedImageFallback,
               pageUrl: resolvedImagePageUrl,
+              requestHeaders: imageQualityUpgrade.requestHeaders,
             });
             console.log("Download result:", result);
           } catch (downloadErr) {
