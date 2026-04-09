@@ -4096,6 +4096,26 @@ function App({
   const containerBoxShadow = visualIsMinimized && !isMacOS
     ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}`
     : containerShellBoxShadow;
+  const expandMorphChromeInitial = {
+    scale: MINIMIZED_SHELL_SCALE,
+    x: MINIMIZED_SHELL_INSET,
+    y: MINIMIZED_SHELL_INSET,
+    borderRadius: 100,
+  };
+  const expandMorphChromeAnimate = {
+    scale: 1,
+    x: FULL_SHELL_INSET,
+    y: FULL_SHELL_INSET,
+    borderRadius: 16,
+  };
+  const expandMorphBackdropStyle = getShadowBackdropStyle(colors, {
+    radius: 16,
+    boxShadow: containerBackdropShadow,
+  });
+  const expandMorphShellStyle = getPanelShellStyle(colors, {
+    radius: 16,
+    boxShadow: containerBoxShadow,
+  });
   const shouldShowAppUpdateIndicator = !!appUpdateInfo && (
     appUpdatePhase === "available"
     || appUpdatePhase === "downloading"
@@ -5774,49 +5794,66 @@ function App({
         </svg>
         </NeonIconButton>
       </div>
-      {isExpandMorphVisible ? (
-        <motion.div
-          key={expandMorphAnimationKey}
-          initial={{
-            scale: MINIMIZED_SHELL_SCALE,
-            x: MINIMIZED_SHELL_INSET,
-            y: MINIMIZED_SHELL_INSET,
-            borderRadius: 100,
-            clipPath: getContinuousCornerClipPath(100),
-          }}
-          animate={{
-            scale: 1,
-            x: FULL_SHELL_INSET,
-            y: FULL_SHELL_INSET,
-            borderRadius: 16,
-            clipPath: getContinuousCornerClipPath(16),
-          }}
-          transition={expandMorphShellTransition}
-          onAnimationComplete={finishExpandMorph}
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: FULL_SIZE,
-            height: FULL_SIZE,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            overflow: "hidden",
-            pointerEvents: "none",
-            transformOrigin: "0px 0px",
-	            zIndex: 12,
-	            willChange: "transform, border-radius, clip-path",
-	            ...getPanelShellStyle(colors, {
-	              radius: 16,
-	              boxShadow: containerShellBoxShadow,
-            }),
-          }}
-        >
-        </motion.div>
-      ) : null}
-
       </motion.div>
+      {isExpandMorphVisible ? (
+        <>
+          <motion.div
+            key={`${expandMorphAnimationKey}-backdrop`}
+            initial={{
+              ...expandMorphChromeInitial,
+              boxShadow: colors.panelShadowCompact,
+            }}
+            animate={{
+              ...expandMorphChromeAnimate,
+              boxShadow: containerBackdropShadow,
+            }}
+            transition={expandMorphShellTransition}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: FULL_SIZE,
+              height: FULL_SIZE,
+              pointerEvents: "none",
+              transformOrigin: "0px 0px",
+              zIndex: 11,
+              willChange: "transform, border-radius, box-shadow",
+              ...expandMorphBackdropStyle,
+            }}
+          />
+          <motion.div
+            key={expandMorphAnimationKey}
+            initial={{
+              ...expandMorphChromeInitial,
+              clipPath: getContinuousCornerClipPath(100),
+              boxShadow: `inset 0 0 0 1px ${minimizedPlateBorderColor}, inset 0 1px 0 ${colors.fieldInset}`,
+            }}
+            animate={{
+              ...expandMorphChromeAnimate,
+              clipPath: getContinuousCornerClipPath(16),
+              boxShadow: containerBoxShadow,
+            }}
+            transition={expandMorphShellTransition}
+            onAnimationComplete={finishExpandMorph}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: FULL_SIZE,
+              height: FULL_SIZE,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              overflow: "hidden",
+              pointerEvents: "none",
+              transformOrigin: "0px 0px",
+              zIndex: 12,
+              willChange: "transform, border-radius, clip-path, box-shadow",
+              ...expandMorphShellStyle,
+            }}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
