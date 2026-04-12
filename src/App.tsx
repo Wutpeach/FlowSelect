@@ -14,7 +14,10 @@ import {
   getStatusDotStyle,
 } from "./components/ui/shared-styles";
 import type { AppUpdateInfo, AppUpdatePhase } from "./types/appUpdate";
-import type { FlowSelectStartupWindowMode } from "./types/electronBridge";
+import type {
+  FlowSelectCurrentWindowInteractionMode,
+  FlowSelectStartupWindowMode,
+} from "./types/electronBridge";
 import {
   desktopClipboard,
   desktopCommands,
@@ -82,6 +85,7 @@ import {
   isMainWindowBoundsTransitionCurrent,
   type MainWindowBoundsTransitionState,
 } from "./utils/mainWindowTransitionToken";
+import { isPointInsideCompactPointerHotspot } from "./utils/compactPointerHotspot";
 import { parseDesktopAppConfig } from "./updates/appUpdatePreferences";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
@@ -809,7 +813,10 @@ function App({
   const { t } = useTranslation("desktop");
   const { colors } = useTheme();
   const shouldReduceMotion = useReducedMotion();
-  const isMacOS = navigator.userAgent.toLowerCase().includes("mac");
+  const userAgent = navigator.userAgent.toLowerCase();
+  const isMacOS = userAgent.includes("mac");
+  const isWindows = userAgent.includes("windows");
+  const supportsCompactPassthroughHotspot = isMacOS || isWindows;
   const startupWindowEnvironment = {
     protocol: window.location.protocol,
     userAgent: navigator.userAgent,
@@ -827,8 +834,8 @@ function App({
     ? MAIN_WINDOW_MACOS_COMPACT_OUTER_SIZE
     : MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE;
   const MINIMIZED_SHELL_SIZE = MAIN_WINDOW_COMPACT_SHELL_SIZE;
-  const MINIMIZED_SHELL_SCALE = MINIMIZED_SHELL_SIZE / FULL_SIZE;
   const MINIMIZED_ICON_SIZE = 38;
+  const COMPACT_HOTSPOT_FRAME_SIZE = isMacOS ? MINIMIZED_SHELL_SIZE : MINIMIZED_ICON_SIZE;
   const MINIMIZED_SHELL_INSET = Math.round((ICON_SIZE - MINIMIZED_SHELL_SIZE) / 2);
   const FULL_SHELL_INSET = FULL_WINDOW_SHADOW_GUTTER;
   const startsInNativeCompactStartupWindow = shouldUseNativeCompactStartupWindow({
@@ -870,8 +877,9 @@ function App({
   const [isMinimized, setIsMinimized] = useState(!startsExpandedOnLaunch);
   const [windowResized, setWindowResized] = useState(startsInNativeCompactStartupWindow);
   const [panelTransitionMode, setPanelTransitionMode] = useState<"animated" | "instant">("animated");
-  const [isExpandingFromMinimized, setIsExpandingFromMinimized] = useState(false);
-  const [expandMorphAnimationKey, setExpandMorphAnimationKey] = useState(0);
+  const [shellPhase, setShellPhase] = useState<"full" | "collapsing" | "compact" | "expanding">(
+    startsInNativeCompactStartupWindow ? "compact" : "full",
+  );
   const [showEdgeGlow, setShowEdgeGlow] = useState(true);
   const [isInitialMount, setIsInitialMount] = useState(!startsInNativeCompactStartupWindow);
   const [isDeferredStartupInitializationReady, setIsDeferredStartupInitializationReady] =
@@ -907,6 +915,10 @@ function App({
   const lastKnownWindowPositionRef = useRef<{ x: number; y: number } | null>(null);
   const lastPanelOutputFolderShortcutAtRef = useRef(0);
   const isDropHoveringRef = useRef(false);
+  const shellPhaseRef = useRef(shellPhase);
+  const interactionModeRef = useRef<FlowSelectCurrentWindowInteractionMode>("interactive");
+  const compactHotspotInsideRef = useRef(false);
+  const compactHotspotFrameRef = useRef<number | null>(null);
   const mainWindowBoundsTransitionRef = useRef<MainWindowBoundsTransitionState>({
     token: 0,
     target: startsInNativeCompactStartupWindow ? "compact" : "full",
@@ -924,7 +936,6 @@ function App({
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
   const startupAutoMinimizeUnlockedRef = useRef(startupAutoMinimizeGraceMs === 0);
-  const EXPAND_WINDOW_BOUNDS_DURATION_MS = shouldReduceMotion ? 140 : 240;
   const EDGE_GLOW_TRIGGER_DISTANCE = 126;
   const EDGE_GLOW_RADIUS = 248;
   const EDGE_GLOW_BORDER_WIDTH = 2.2;
@@ -974,11 +985,8 @@ function App({
   const isPreviewForcedFullMode = isUiLabPreviewActive;
   const visualIsMinimized = isPreviewForcedFullMode ? false : isMinimized;
   const visualWindowResized = isPreviewForcedFullMode ? false : windowResized;
-  const visualIsExpandingFromMinimized = isPreviewForcedFullMode
-    ? false
-    : isExpandingFromMinimized;
   const isWindowReadyForStartupRuntimeBootstrap =
-    !visualIsMinimized && !visualWindowResized && !visualIsExpandingFromMinimized;
+    !visualIsMinimized && !visualWindowResized;
   const shouldEvaluateDeferredStartupIndicators =
     isDeferredStartupInitializationReady
     || runtimeDependencyStatus !== null
@@ -1082,6 +1090,53 @@ function App({
       panelTransitionModeResetFrameRef.current = null;
       setPanelTransitionMode("animated");
     });
+  }, []);
+
+  const updateShellPhase = useCallback((
+    nextPhase: "full" | "collapsing" | "compact" | "expanding",
+  ) => {
+    shellPhaseRef.current = nextPhase;
+    setShellPhase(nextPhase);
+  }, []);
+
+  const applyCurrentWindowInteractionMode = useCallback((
+    nextMode: FlowSelectCurrentWindowInteractionMode,
+  ) => {
+    if (interactionModeRef.current === nextMode) {
+      return;
+    }
+    interactionModeRef.current = nextMode;
+    desktopCurrentWindow.setInteractionMode(nextMode);
+  }, []);
+
+  useEffect(() => {
+    if (!startsInNativeCompactStartupWindow || !supportsCompactPassthroughHotspot) {
+      return;
+    }
+    applyCurrentWindowInteractionMode("compact-passthrough");
+  }, [
+    applyCurrentWindowInteractionMode,
+    startsInNativeCompactStartupWindow,
+    supportsCompactPassthroughHotspot,
+  ]);
+
+  const settleAfterNativeResize = useCallback(async (
+    expectedToken: number | null | undefined,
+    expectedTarget: "compact" | "full",
+    commit: () => void,
+  ) => {
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 0);
+    });
+    if (!isMainWindowBoundsTransitionCurrent(
+      mainWindowBoundsTransitionRef.current,
+      expectedToken,
+      expectedTarget,
+    )) {
+      return false;
+    }
+    commit();
+    return true;
   }, []);
 
   const showQueueNotice = useCallback((message: string) => {
@@ -1263,7 +1318,10 @@ function App({
     }
 
     clearWindowIdleTimers();
+    compactHotspotInsideRef.current = false;
+    applyCurrentWindowInteractionMode("interactive");
     pendingCompactResizeTokenRef.current = beginMainWindowBoundsTransition("compact");
+    updateShellPhase("collapsing");
     setIsMinimized(true);
     setShowEdgeGlow(false);
     if (source === "idle") {
@@ -1271,9 +1329,11 @@ function App({
     }
     return true;
   }, [
+    applyCurrentWindowInteractionMode,
     beginMainWindowBoundsTransition,
     clearWindowIdleTimers,
     startsExpandedOnLaunch,
+    updateShellPhase,
   ]);
 
   const syncPanelHoverStateWithDom = useCallback(() => {
@@ -1365,54 +1425,31 @@ function App({
     updateContextMenuOpen(false);
   }, [updateContextMenuOpen]);
 
-  const finishExpandMorph = useCallback(() => {
-    const isPanelActuallyHovered = syncPanelHoverStateWithDom();
-    const shouldCollapseAfterExpandMorph =
-      !isPanelActuallyHovered
-      && shouldCollapseMainWindowOnPointerLeave({
-        isMinimized: false,
-        startupAutoMinimizeUnlocked: startupAutoMinimizeUnlockedRef.current,
-        isDragging: isDraggingRef.current,
-        isContextMenuOpen: isContextMenuOpenRef.current,
-        isMainWindowModeLocked: isMainWindowModeLockedRef.current,
-        isForegroundTaskOutcomeVisible: isForegroundTaskOutcomeVisibleRef.current,
-      });
-
-    if (shouldCollapseAfterExpandMorph) {
-      clearWindowIdleTimers();
-      setPanelTransitionMode("animated");
-      setWindowResized(false);
-      setIsExpandingFromMinimized(false);
-      pendingCompactResizeTokenRef.current = beginMainWindowBoundsTransition("compact");
-      setIsMinimized(true);
-      setShowEdgeGlow(false);
-      return;
-    }
-
-    beginMainWindowBoundsTransition("full");
-    setPanelTransitionMode("instant");
-    setWindowResized(false);
-    setIsMinimized(false);
-    setIsExpandingFromMinimized(false);
-    restoreAnimatedPanelTransitions();
-  }, [
-    beginMainWindowBoundsTransition,
-    clearWindowIdleTimers,
-    restoreAnimatedPanelTransitions,
-    syncPanelHoverStateWithDom,
-  ]);
+  const scheduleContainerFocus = useCallback(() => {
+    window.setTimeout(() => {
+      const container = document.querySelector('[tabIndex="0"]') as HTMLElement | null;
+      container?.focus();
+    }, 100);
+  }, []);
 
   // Expand window from icon mode
   const expandWindow = useCallback(async () => {
-    if (isExpandingFromMinimized) {
+    if (
+      shellPhaseRef.current !== "compact"
+      && shellPhaseRef.current !== "collapsing"
+    ) {
       return;
     }
+    clearWindowIdleTimers();
+    compactHotspotInsideRef.current = false;
+    applyCurrentWindowInteractionMode("interactive");
     const transitionToken = beginMainWindowBoundsTransition("full");
-    if (!windowResized) {
+    updateShellPhase("expanding");
+    if (!windowResizedRef.current) {
       if (!isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
         return;
       }
-      setWindowResized(false);
+      setPanelTransitionMode("animated");
       setIsMinimized(false);
       return;
     }
@@ -1426,23 +1463,35 @@ function App({
       if (!isMainWindowBoundsTransitionStillCurrent(echoedTransitionToken, "full")) {
         return;
       }
-      setExpandMorphAnimationKey(Date.now());
-      setPanelTransitionMode("instant");
-      setIsExpandingFromMinimized(true);
-    } catch (err) {
-      console.error('Failed to expand window:', err);
-      if (isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
-        finishExpandMorph();
+      const settled = await settleAfterNativeResize(
+        echoedTransitionToken ?? transitionToken,
+        "full",
+        () => {
+          setWindowResized(false);
+        },
+      );
+      if (!settled) {
+        return;
       }
+      requestAnimationFrame(() => {
+        if (!isMainWindowBoundsTransitionStillCurrent(echoedTransitionToken ?? transitionToken, "full")) {
+          return;
+        }
+        setPanelTransitionMode("animated");
+        setIsMinimized(false);
+      });
+    } catch (err) {
+      console.error("Failed to expand window:", err);
     }
   }, [
     INTERMEDIATE_EXPAND_SIZE,
+    applyCurrentWindowInteractionMode,
     beginMainWindowBoundsTransition,
-    finishExpandMorph,
-    isExpandingFromMinimized,
+    clearWindowIdleTimers,
     isMainWindowBoundsTransitionStillCurrent,
     resizeMainWindowPreservingPosition,
-    windowResized,
+    settleAfterNativeResize,
+    updateShellPhase,
   ]);
 
   const ensureMainWindowFullMode = useCallback(async ({
@@ -1453,11 +1502,13 @@ function App({
     focusContainer?: boolean;
   } = {}) => {
     clearWindowIdleTimers();
+    compactHotspotInsideRef.current = false;
+    applyCurrentWindowInteractionMode("interactive");
     const transitionToken = beginMainWindowBoundsTransition("full");
+    updateShellPhase("expanding");
     setPanelTransitionMode("instant");
-    setIsExpandingFromMinimized(false);
 
-    if (windowResized) {
+    if (windowResizedRef.current) {
       try {
         const echoedTransitionToken = await resizeMainWindowPreservingPosition(
           INTERMEDIATE_EXPAND_SIZE,
@@ -1467,24 +1518,29 @@ function App({
         if (!isMainWindowBoundsTransitionStillCurrent(echoedTransitionToken, "full")) {
           return;
         }
-        setWindowResized(false);
+        const settled = await settleAfterNativeResize(
+          echoedTransitionToken ?? transitionToken,
+          "full",
+          () => {
+            setWindowResized(false);
+          },
+        );
+        if (!settled) {
+          return;
+        }
       } catch (err) {
         console.error("Failed to restore window size:", err);
         if (!isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
           return;
         }
       }
-    } else {
-      if (!isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
-        return;
-      }
-      setWindowResized(false);
     }
 
     if (!isMainWindowBoundsTransitionStillCurrent(transitionToken, "full")) {
       return;
     }
     setIsMinimized(false);
+    updateShellPhase("full");
     restoreAnimatedPanelTransitions();
     setShowEdgeGlow(false);
     setTimeout(() => setShowEdgeGlow(true), 500);
@@ -1500,20 +1556,20 @@ function App({
     }
 
     if (focusContainer) {
-      setTimeout(() => {
-        const container = document.querySelector('[tabIndex="0"]') as HTMLElement;
-        if (container) container.focus();
-      }, 100);
+      scheduleContainerFocus();
     }
   }, [
     INTERMEDIATE_EXPAND_SIZE,
+    applyCurrentWindowInteractionMode,
     armIdleTimer,
     beginMainWindowBoundsTransition,
     clearWindowIdleTimers,
     isMainWindowBoundsTransitionStillCurrent,
     resizeMainWindowPreservingPosition,
     restoreAnimatedPanelTransitions,
-    windowResized,
+    scheduleContainerFocus,
+    settleAfterNativeResize,
+    updateShellPhase,
   ]);
 
   const prepareMainWindowForForegroundTask = useCallback(async () => {
@@ -1570,13 +1626,17 @@ function App({
       void prepareMainWindowForForegroundTask();
       return;
     }
+    applyCurrentWindowInteractionMode("interactive");
     beginMainWindowBoundsTransition("full");
+    updateShellPhase("full");
     setIsMinimized(false);
   }, [
+    applyCurrentWindowInteractionMode,
     beginMainWindowBoundsTransition,
     hasOngoingTask,
     isMinimized,
     prepareMainWindowForForegroundTask,
+    updateShellPhase,
     windowResized,
   ]);
 
@@ -1585,7 +1645,12 @@ function App({
     if (isUiLabPreviewActiveRef.current) {
       return;
     }
-    if (isMinimizedRef.current && !windowResizedRef.current && !isInitialMountRef.current) {
+    if (
+      shellPhaseRef.current === "collapsing"
+      && isMinimizedRef.current
+      && !windowResizedRef.current
+      && !isInitialMountRef.current
+    ) {
       const compactResizeToken = pendingCompactResizeTokenRef.current;
       if (!isMainWindowBoundsTransitionStillCurrent(compactResizeToken, "compact")) {
         return;
@@ -1600,35 +1665,83 @@ function App({
         if (!isMainWindowBoundsTransitionStillCurrent(echoedTransitionToken, "compact")) {
           return;
         }
-        setPanelTransitionMode("instant");
-        setWindowResized(true);
+        const settled = await settleAfterNativeResize(
+          echoedTransitionToken ?? compactResizeToken,
+          "compact",
+          () => {
+            setPanelTransitionMode("instant");
+            setWindowResized(true);
+            updateShellPhase("compact");
+          },
+        );
+        if (!settled) {
+          return;
+        }
         pendingCompactResizeTokenRef.current = null;
+        compactHotspotInsideRef.current = false;
+        isPanelHoveredRef.current = false;
+        setIsPanelHovered(false);
+        if (supportsCompactPassthroughHotspot) {
+          applyCurrentWindowInteractionMode("compact-passthrough");
+        }
         restoreAnimatedPanelTransitions();
       } catch (err) {
-        console.error('Failed to shrink window:', err);
+        console.error("Failed to shrink window:", err);
       }
+      return;
+    }
+
+    if (
+      shellPhaseRef.current === "expanding"
+      && !isMinimizedRef.current
+      && !windowResizedRef.current
+    ) {
+      const isPanelActuallyHovered = syncPanelHoverStateWithDom();
+      const shouldCollapseAfterExpand =
+        !isPanelActuallyHovered
+        && shouldCollapseMainWindowOnPointerLeave({
+          isMinimized: false,
+          startupAutoMinimizeUnlocked: startupAutoMinimizeUnlockedRef.current,
+          isDragging: isDraggingRef.current,
+          isContextMenuOpen: isContextMenuOpenRef.current,
+          isMainWindowModeLocked: isMainWindowModeLockedRef.current,
+          isForegroundTaskOutcomeVisible: isForegroundTaskOutcomeVisibleRef.current,
+        });
+
+      if (shouldCollapseAfterExpand) {
+        clearWindowIdleTimers();
+        compactHotspotInsideRef.current = false;
+        pendingCompactResizeTokenRef.current = beginMainWindowBoundsTransition("compact");
+        updateShellPhase("collapsing");
+        setIsMinimized(true);
+        setShowEdgeGlow(false);
+        return;
+      }
+
+      updateShellPhase("full");
+      setShowEdgeGlow(false);
+      setTimeout(() => setShowEdgeGlow(true), 500);
+      if (
+        !isMainWindowModeLockedRef.current
+        && !isDraggingRef.current
+        && !isPanelHoveredRef.current
+        && !isContextMenuOpenRef.current
+      ) {
+        armIdleTimer();
+      }
+      scheduleContainerFocus();
     }
   };
 
   const shouldShowEdgeGlow =
     isPanelHovered && !isHovering && !primaryTask && !visualIsMinimized && showEdgeGlow;
   const shouldShowDragGlow = isHovering && !primaryTask && !visualIsMinimized;
-  const isExpandMorphVisible =
-    visualIsExpandingFromMinimized && visualWindowResized;
   const isNativeSizedMinimizedShell =
-    visualIsMinimized && visualWindowResized && !isExpandMorphVisible;
+    visualIsMinimized && visualWindowResized;
   const shouldUseStandaloneMacMinimizedPlate =
     isMacOS && isNativeSizedMinimizedShell;
-  const panelRenderSize = isExpandMorphVisible
-    ? FULL_SIZE
-    : visualIsMinimized
-      ? MINIMIZED_SHELL_SIZE
-      : FULL_SIZE;
-  const minimizedPanelOffset = isExpandMorphVisible
-    ? FULL_SHELL_INSET
-    : visualIsMinimized
-      ? MINIMIZED_SHELL_INSET
-      : FULL_SHELL_INSET;
+  const panelRenderSize = visualIsMinimized ? MINIMIZED_SHELL_SIZE : FULL_SIZE;
+  const minimizedPanelOffset = visualIsMinimized ? MINIMIZED_SHELL_INSET : FULL_SHELL_INSET;
   const minimizedPanelScale = 1;
   const minimizedIconSize = isMacOS ? MINIMIZED_ICON_SIZE - 2 : MINIMIZED_ICON_SIZE;
   const minimizedIconFrameSize = isMacOS ? MINIMIZED_SHELL_SIZE : minimizedIconSize;
@@ -1657,12 +1770,8 @@ function App({
         scale: 1,
         transition: { duration: 0.05, ease: [0.22, 1, 0.36, 1] as const },
       };
-  const panelScale = isExpandMorphVisible
-    ? 1
-    : visualIsMinimized
-      ? minimizedPanelScale
-      : 1;
-  const panelRadius = isExpandMorphVisible ? 16 : visualIsMinimized ? 100 : 16;
+  const panelScale = visualIsMinimized ? minimizedPanelScale : 1;
+  const panelRadius = visualIsMinimized ? 100 : 16;
   const initialPanelTweenTransition = { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const };
   const minimizedPanelTweenTransition = { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const };
   const instantPanelValueTransition = { duration: 0 } as const;
@@ -1720,11 +1829,6 @@ function App({
         ? minimizedPanelTweenTransition
         : springPanelValueTransition,
   };
-  const expandMorphDurationSeconds = EXPAND_WINDOW_BOUNDS_DURATION_MS / 1000;
-  const expandMorphShellTransition = shouldReduceMotion
-    ? { duration: 0.14 }
-    : { duration: expandMorphDurationSeconds, ease: [0.22, 1, 0.36, 1] as const };
-
   const getEdgeGlowOpacity = () => {
     const distanceToEdge = Math.min(
       mousePos.x,
@@ -2125,6 +2229,9 @@ function App({
       }
       if (panelTransitionModeResetFrameRef.current !== null) {
         cancelAnimationFrame(panelTransitionModeResetFrameRef.current);
+      }
+      if (compactHotspotFrameRef.current !== null) {
+        cancelAnimationFrame(compactHotspotFrameRef.current);
       }
     };
   }, [clearDeferredStartupInitializationIdle]);
@@ -2677,6 +2784,75 @@ function App({
     armIdleTimer();
   }, [armIdleTimer, clearPointerLeaveCollapseTimer, expandWindow, isMinimized]);
 
+  const evaluateCompactHotspot = useCallback((clientX: number, clientY: number) => {
+    if (!supportsCompactPassthroughHotspot) {
+      return;
+    }
+    if (shellPhaseRef.current !== "compact" || !windowResizedRef.current) {
+      return;
+    }
+    if (interactionModeRef.current !== "compact-passthrough") {
+      return;
+    }
+
+    const insideHotspot = isPointInsideCompactPointerHotspot({
+      pointX: clientX,
+      pointY: clientY,
+      centerX: ICON_SIZE / 2,
+      centerY: ICON_SIZE / 2,
+      enterRadius: COMPACT_HOTSPOT_FRAME_SIZE / 2,
+      exitRadius: COMPACT_HOTSPOT_FRAME_SIZE / 2 + 4,
+      wasInside: compactHotspotInsideRef.current,
+    });
+
+    if (!insideHotspot || compactHotspotInsideRef.current) {
+      compactHotspotInsideRef.current = insideHotspot;
+      return;
+    }
+
+    compactHotspotInsideRef.current = true;
+    clearPointerLeaveCollapseTimer();
+    isPanelHoveredRef.current = true;
+    setIsPanelHovered(true);
+    void expandWindow();
+  }, [
+    COMPACT_HOTSPOT_FRAME_SIZE,
+    ICON_SIZE,
+    clearPointerLeaveCollapseTimer,
+    expandWindow,
+    supportsCompactPassthroughHotspot,
+  ]);
+
+  useEffect(() => {
+    if (!supportsCompactPassthroughHotspot || shellPhase !== "compact") {
+      return;
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (interactionModeRef.current !== "compact-passthrough") {
+        return;
+      }
+      if (compactHotspotFrameRef.current !== null) {
+        return;
+      }
+      const { clientX, clientY } = event;
+
+      compactHotspotFrameRef.current = requestAnimationFrame(() => {
+        compactHotspotFrameRef.current = null;
+        evaluateCompactHotspot(clientX, clientY);
+      });
+    };
+
+    window.addEventListener("mousemove", handleMouseMove, { passive: true });
+    return () => {
+      if (compactHotspotFrameRef.current !== null) {
+        cancelAnimationFrame(compactHotspotFrameRef.current);
+        compactHotspotFrameRef.current = null;
+      }
+      window.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [evaluateCompactHotspot, shellPhase, supportsCompactPassthroughHotspot]);
+
   useEffect(() => {
     if (hasOngoingTask || isProcessing || !shouldReturnToCompactAfterForegroundTaskRef.current) {
       return;
@@ -2734,14 +2910,18 @@ function App({
       void expandWindow();
       return;
     }
+    applyCurrentWindowInteractionMode("interactive");
     beginMainWindowBoundsTransition("full");
+    updateShellPhase("full");
     setIsMinimized(false);
   }, [
+    applyCurrentWindowInteractionMode,
     beginMainWindowBoundsTransition,
     clearWindowIdleTimers,
     expandWindow,
     isMinimized,
     runtimeGateIsBusy,
+    updateShellPhase,
     windowResized,
   ]);
 
@@ -4049,7 +4229,7 @@ function App({
     : colors.panelShadow;
   const panelViewportSize = isNativeSizedMinimizedShell ? ICON_SIZE : INTERMEDIATE_EXPAND_SIZE;
   const shouldShowMinimizedChromeOverlay =
-    visualIsMinimized && !visualIsExpandingFromMinimized && !isMacOS;
+    visualIsMinimized && !isMacOS;
   const panelBorderColor = visualIsMinimized
     ? colors.borderStart
     : primaryTask?.kind === "transcode"
@@ -4096,26 +4276,6 @@ function App({
   const containerBoxShadow = visualIsMinimized && !isMacOS
     ? `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}`
     : containerShellBoxShadow;
-  const expandMorphChromeInitial = {
-    scale: MINIMIZED_SHELL_SCALE,
-    x: MINIMIZED_SHELL_INSET,
-    y: MINIMIZED_SHELL_INSET,
-    borderRadius: 100,
-  };
-  const expandMorphChromeAnimate = {
-    scale: 1,
-    x: FULL_SHELL_INSET,
-    y: FULL_SHELL_INSET,
-    borderRadius: 16,
-  };
-  const expandMorphBackdropStyle = getShadowBackdropStyle(colors, {
-    radius: 16,
-    boxShadow: containerBackdropShadow,
-  });
-  const expandMorphShellStyle = getPanelShellStyle(colors, {
-    radius: 16,
-    boxShadow: containerBoxShadow,
-  });
   const shouldShowAppUpdateIndicator = !!appUpdateInfo && (
     appUpdatePhase === "available"
     || appUpdatePhase === "downloading"
@@ -4392,9 +4552,7 @@ function App({
             left: 0,
             zIndex: 0,
             transformOrigin: "top left",
-            ...(visualIsExpandingFromMinimized
-              ? { display: "none" }
-              : containerShadowBackdropStyle),
+            ...containerShadowBackdropStyle,
           }}
         />
 	      <motion.div
@@ -4448,7 +4606,7 @@ function App({
             clearWindowIdleTimers();
             return;
           }
-          if (visualIsExpandingFromMinimized) {
+          if (shellPhaseRef.current === "expanding") {
             clearWindowIdleTimers();
             return;
           }
@@ -4490,7 +4648,7 @@ function App({
 	        gap: 8,
 	        outline: 'none',
           zIndex: 1,
-		        ...(visualIsExpandingFromMinimized || shouldUseStandaloneMacMinimizedPlate
+		        ...(shouldUseStandaloneMacMinimizedPlate
 	          ? {
 	              background: "transparent",
 	              boxShadow: "none",
@@ -4499,7 +4657,7 @@ function App({
 	              radius: panelRadius,
 	              boxShadow: containerBoxShadow,
 	            })),
-	        overflow: isExpandMorphVisible ? 'visible' : 'hidden',
+	        overflow: 'hidden',
         transition: shouldUseInstantPanelTransition
           ? undefined
           : `box-shadow 0.18s ${COMPACT_EASE}`,
@@ -4515,9 +4673,9 @@ function App({
           justifyContent: "center",
           alignItems: "center",
           gap: 8,
-          opacity: visualIsExpandingFromMinimized ? 0 : 1,
-          visibility: visualIsExpandingFromMinimized ? "hidden" : "visible",
-          pointerEvents: visualIsExpandingFromMinimized ? "none" : "auto",
+          opacity: 1,
+          visibility: "visible",
+          pointerEvents: "auto",
         }}
       >
         {/* Edge glow layer - follows mouse */}
@@ -5347,7 +5505,7 @@ function App({
               </span>
             ) : null}
           </motion.div>
-        ) : (visualIsMinimized && !visualIsExpandingFromMinimized) ? (
+        ) : visualIsMinimized ? (
           <motion.div
             key="minimized"
             initial={{ scale: 0.82, opacity: 0 }}
@@ -5795,65 +5953,6 @@ function App({
         </NeonIconButton>
       </div>
       </motion.div>
-      {isExpandMorphVisible ? (
-        <>
-          <motion.div
-            key={`${expandMorphAnimationKey}-backdrop`}
-            initial={{
-              ...expandMorphChromeInitial,
-              boxShadow: colors.panelShadowCompact,
-            }}
-            animate={{
-              ...expandMorphChromeAnimate,
-              boxShadow: containerBackdropShadow,
-            }}
-            transition={expandMorphShellTransition}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: FULL_SIZE,
-              height: FULL_SIZE,
-              pointerEvents: "none",
-              transformOrigin: "0px 0px",
-              zIndex: 11,
-              willChange: "transform, border-radius, box-shadow",
-              ...expandMorphBackdropStyle,
-            }}
-          />
-          <motion.div
-            key={expandMorphAnimationKey}
-            initial={{
-              ...expandMorphChromeInitial,
-              clipPath: getContinuousCornerClipPath(100),
-              boxShadow: `inset 0 0 0 1px ${minimizedPlateBorderColor}, inset 0 1px 0 ${colors.fieldInset}`,
-            }}
-            animate={{
-              ...expandMorphChromeAnimate,
-              clipPath: getContinuousCornerClipPath(16),
-              boxShadow: containerBoxShadow,
-            }}
-            transition={expandMorphShellTransition}
-            onAnimationComplete={finishExpandMorph}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: FULL_SIZE,
-              height: FULL_SIZE,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              overflow: "hidden",
-              pointerEvents: "none",
-              transformOrigin: "0px 0px",
-              zIndex: 12,
-              willChange: "transform, border-radius, clip-path, box-shadow",
-              ...expandMorphShellStyle,
-            }}
-          />
-        </>
-      ) : null}
     </div>
   );
 }

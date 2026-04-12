@@ -164,6 +164,8 @@ export type FlowSelectAnimateBoundsResult = {
   transitionToken: number | null;
 };
 
+export type FlowSelectCurrentWindowInteractionMode = "interactive" | "compact-passthrough";
+
 export interface FlowSelectCurrentWindowApi {
   outerPosition(): Promise<FlowSelectPoint>;
   outerSize(): Promise<FlowSelectSize>;
@@ -171,6 +173,7 @@ export interface FlowSelectCurrentWindowApi {
   startupWindowMode(): FlowSelectStartupWindowMode;
   startDragging(): Promise<void>;
   setPosition(position: FlowSelectPoint): void;
+  setInteractionMode(mode: FlowSelectCurrentWindowInteractionMode): void;
   animateBounds(
     bounds: FlowSelectBounds,
     options?: FlowSelectAnimateBoundsOptions,

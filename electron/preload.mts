@@ -89,6 +89,9 @@ contextBridge.exposeInMainWorld("flowselect", {
     setPosition(position) {
       ipcRenderer.send("flowselect:current-window:set-position", position);
     },
+    setInteractionMode(mode) {
+      ipcRenderer.send("flowselect:current-window:set-interaction-mode", { mode });
+    },
     animateBounds(bounds, options) {
       return invoke("flowselect:current-window:animate-bounds", { bounds, options });
     },

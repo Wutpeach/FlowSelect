@@ -6505,6 +6505,24 @@ function registerIpcHandlers() {
     win.setPosition(Math.round(x), Math.round(y));
   });
 
+  ipcMain.on("flowselect:current-window:set-interaction-mode", (event, payload) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) {
+      return;
+    }
+
+    const mode = payload?.mode;
+    if (mode === "compact-passthrough") {
+      win.setIgnoreMouseEvents(true, { forward: true });
+      win.setFocusable(false);
+      win.blur();
+      return;
+    }
+
+    win.setIgnoreMouseEvents(false);
+    win.setFocusable(true);
+  });
+
   ipcMain.handle("flowselect:current-window:animate-bounds", async (event, request) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) {
