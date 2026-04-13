@@ -57,6 +57,12 @@ import {
 } from "./transcode.js";
 import { resolveShortLinkDownloadInput } from "./shortLinkResolution.js";
 import { resolveXiaohongshuPageHints } from "./xiaohongshuPageHints.js";
+import {
+  createDownloadTelemetryEvent,
+  createDownloadTelemetrySink,
+  type DownloadTelemetrySink,
+} from "./downloadTelemetry.js";
+import { DownloadRuntimeError } from "../core/index.js";
 
 type PendingTask = {
   traceId: string;
@@ -115,6 +121,8 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
   private transcodePumpScheduled = false;
   private readonly resolver;
   private readonly orchestrator: DownloadOrchestrator;
+  private readonly siteRegistry;
+  private readonly telemetrySink: DownloadTelemetrySink;
 
   constructor(options: ElectronDownloadRuntimeOptions) {
     this.options = options;
@@ -122,10 +130,13 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
     this.logger = options.logger ?? NOOP_LOGGER;
     const providers = options.providers ?? loadBuiltinProviders();
     const engines = options.engines ?? builtinEngines();
+    this.siteRegistry = createSiteRegistry(providers);
     this.orchestrator = new DownloadOrchestrator(
-      createSiteRegistry(providers),
+      this.siteRegistry,
       createEngineRegistry(engines),
     );
+    this.telemetrySink = options.telemetrySink
+      ?? createDownloadTelemetrySink(options.environment, this.logger);
     this.resolver = createRuntimeDependencyResolver(
       inspectRuntimeDependencyStatus(options.environment),
       () => inspectRuntimeDependencyStatus(options.environment),
@@ -211,8 +222,22 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
   async cancelDownload(traceId: string): Promise<boolean> {
     const pendingIndex = this.pending.findIndex((task) => task.traceId === traceId);
     if (pendingIndex >= 0) {
-      this.pending.splice(pendingIndex, 1);
+      const [cancelledTask] = this.pending.splice(pendingIndex, 1);
       await this.emitQueueState();
+      const cancellationError = new DownloadRuntimeError(
+        "E_ABORTED",
+        "Download cancelled",
+        {
+          classification: "cancelled",
+        },
+      );
+      await this.recordDownloadTelemetry(
+        traceId,
+        cancelledTask.request,
+        this.siteRegistry.resolve(cancelledTask.request),
+        null,
+        cancellationError,
+      );
       await this.options.eventSink.emit("video-download-complete", {
         traceId,
         success: false,
@@ -565,6 +590,9 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
     }
 
     let outputDir: string | null = null;
+    let telemetryPlan: ResolvedDownloadPlan | null = null;
+    let executedProviderId: string | null = null;
+    let executedEngineId: EnginePlan["engine"] | null = null;
     try {
       const config = parseJsonObject(await this.options.configStore.readConfigString());
       const resolvedOutputDir = resolveOutputDir(this.options.environment, config);
@@ -593,6 +621,7 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
         activeTask.request.pageUrl,
         activeTask.request.url,
       );
+      telemetryPlan = this.siteRegistry.resolve(activeTask.request);
       if (shouldProbeMissingYtDlpTitle(activeTask.request, resolvedSiteHint)) {
         const probedTitle = await probeYtDlpMetadataTitle({
           sourceUrl: activeTask.request.url,
@@ -621,8 +650,6 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
         preferredOutputStem,
         config,
       );
-      let executedProviderId: string | null = null;
-      let executedEngineId: EnginePlan["engine"] | null = null;
       let result = await this.orchestrator.execute(
         activeTask.request,
         (plan: ResolvedDownloadPlan, enginePlan: EnginePlan) => {
@@ -693,6 +720,13 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
         );
       }
       await this.options.eventSink.emit("video-download-complete", result);
+      await this.recordDownloadTelemetry(
+        traceId,
+        activeTask.request,
+        telemetryPlan,
+        executedEngineId,
+        null,
+      );
       if (result.success && result.file_path) {
         void this.handleCompletedVideoSource(
           traceId,
@@ -704,11 +738,19 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
         );
       }
     } catch (error) {
-      this.logger.log(`>>> [ElectronRuntime] task ${traceId} failed: ${String(error)}`);
+      const runtimeError = this.toTaskRuntimeError(error, activeTask.abortController.signal.aborted);
+      this.logger.log(`>>> [ElectronRuntime] task ${traceId} failed: ${runtimeError.message}`);
+      await this.recordDownloadTelemetry(
+        traceId,
+        activeTask.request,
+        telemetryPlan,
+        executedEngineId,
+        runtimeError,
+      );
       await this.options.eventSink.emit("video-download-complete", {
         traceId,
         success: false,
-        error: summarizeError(error),
+        error: runtimeError.message,
       } satisfies DownloadResultPayload);
     } finally {
       const reservedOutputStem = this.reservedOutputStems.get(traceId);
@@ -721,6 +763,50 @@ export class FlowSelectElectronDownloadRuntime implements ElectronDownloadRuntim
       void this.pumpQueue();
       this.scheduleTranscodePump();
     }
+  }
+
+  private toTaskRuntimeError(
+    error: unknown,
+    aborted: boolean,
+  ): DownloadRuntimeError {
+    if (error instanceof DownloadRuntimeError) {
+      return error;
+    }
+
+    if (aborted) {
+      return new DownloadRuntimeError(
+        "E_ABORTED",
+        "Download cancelled",
+        {
+          cause: error,
+          classification: "cancelled",
+        },
+      );
+    }
+
+    return new DownloadRuntimeError(
+      "E_EXECUTION_FAILED",
+      summarizeError(error),
+      {
+        cause: error,
+      },
+    );
+  }
+
+  private async recordDownloadTelemetry(
+    traceId: string,
+    request: RawDownloadInput,
+    plan: ResolvedDownloadPlan | null,
+    chosenEngine: EnginePlan["engine"] | null,
+    error: DownloadRuntimeError | null,
+  ): Promise<void> {
+    await this.telemetrySink.record(createDownloadTelemetryEvent({
+      traceId,
+      request,
+      plan,
+      chosenEngine,
+      error,
+    }));
   }
 }
 

@@ -18,6 +18,7 @@ import type {
   RawDownloadInput,
   SiteProvider,
 } from "../core/index.js";
+import type { DownloadTelemetryEvent } from "../download-capabilities/telemetry.js";
 
 export type RuntimeManagedComponent = RuntimeDependencyManagedComponent;
 
@@ -49,6 +50,10 @@ export interface RuntimeConfigStore {
 
 export interface RuntimeLogger {
   log(message: string): void;
+}
+
+export interface DownloadTelemetrySink {
+  record(event: DownloadTelemetryEvent): Promise<void>;
 }
 
 export interface ElectronRuntimeEnvironment {
@@ -83,6 +88,7 @@ export interface ElectronDownloadRuntimeOptions {
   configStore: RuntimeConfigStore;
   eventSink: RuntimeEventSink;
   logger?: RuntimeLogger;
+  telemetrySink?: DownloadTelemetrySink;
   maxConcurrent?: number;
   providers?: SiteProvider[];
   engines?: DownloadEngine[];

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DownloadEngine, RawDownloadInput, SiteProvider } from "../core";
+import type { DownloadTelemetryEvent } from "../download-capabilities/telemetry";
 import { genericProvider } from "../sites/generic";
 import { pinterestProvider } from "../sites/pinterest";
 import { xiaohongshuProvider } from "../sites/xiaohongshu";
@@ -112,6 +113,7 @@ const createRuntime = (options: {
     resolveUrlViaNavigation?: (url: string) => Promise<string | undefined>;
   };
   onEmit?(event: RuntimeEmitterEvent, payload: unknown): void;
+  onTelemetry?(event: DownloadTelemetryEvent): void;
 }) => createElectronDownloadRuntime({
   environment: {
     repoRoot: options.environment?.repoRoot ?? process.cwd(),
@@ -130,6 +132,11 @@ const createRuntime = (options: {
   eventSink: {
     emit(event, payload) {
       options.onEmit?.(event, payload);
+    },
+  },
+  telemetrySink: {
+    async record(event) {
+      options.onTelemetry?.(event);
     },
   },
   maxConcurrent: options.maxConcurrent,
@@ -281,6 +288,75 @@ describe("FlowSelectElectronDownloadRuntime", () => {
       success: false,
     });
     await waitFor(() => runtime.getQueueState().totalCount === 0);
+  });
+
+  it("records success telemetry with site, interaction mode, engine chain, and chosen engine", async () => {
+    const telemetry: DownloadTelemetryEvent[] = [];
+    const runtime = createRuntime({
+      providers: [youtubeProvider, genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => ({
+          traceId: context.traceId,
+          success: true,
+          file_path: `${context.outputDir}/${context.outputStem}.mp4`,
+        })),
+      ],
+      onTelemetry(event) {
+        telemetry.push(event);
+      },
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.youtube.com/watch?v=abc123",
+      pageUrl: "https://www.youtube.com/watch?v=abc123",
+    });
+
+    await waitFor(() => telemetry.length === 1);
+    expect(telemetry[0]).toMatchObject({
+      eventType: "download_outcome",
+      outcome: "success",
+      siteId: "youtube",
+      providerId: "youtube",
+      interactionMode: "paste",
+      engineChain: ["yt-dlp"],
+      chosenEngine: "yt-dlp",
+      errorCode: null,
+      errorClassification: null,
+    });
+  });
+
+  it("records failure telemetry with classified errors", async () => {
+    const telemetry: DownloadTelemetryEvent[] = [];
+    const runtime = createRuntime({
+      providers: [genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async () => {
+          throw new Error("cookies required for this resource");
+        }),
+      ],
+      onTelemetry(event) {
+        telemetry.push(event);
+      },
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://example.com/protected",
+      diagnostics: {
+        source: "context_menu",
+      },
+    });
+
+    await waitFor(() => telemetry.length === 1);
+    expect(telemetry[0]).toMatchObject({
+      outcome: "failure",
+      siteId: "generic",
+      providerId: "generic",
+      interactionMode: "context_menu",
+      engineChain: ["yt-dlp"],
+      chosenEngine: "yt-dlp",
+      errorCode: "E_EXECUTION_FAILED",
+      errorClassification: "auth_required",
+    });
   });
 
   it("prefers gallery-dl for a Pinterest page without a verified direct asset", async () => {
