@@ -15,6 +15,7 @@
     "preelectron:build": "npm run runtime:ensure:downloaders",
     "electron:build": "node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\" && tsc -p tsconfig.electron.json",
     "version:set": "node ./scripts/update-version.mjs",
+    "capabilities:seed": "node ./scripts/generate-capabilities-seed.mjs",
     "locales:sync": "node ./scripts/sync-locales.mjs",
     "prebuild": "npm run locales:sync && npm run runtime:ensure:downloaders",
     "build:renderer": "tsc && vite build",
