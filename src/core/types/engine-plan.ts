@@ -1,4 +1,5 @@
 import type { DownloadErrorCode } from "../constants/error-codes.js";
+import type { DownloadFailureClassification } from "../constants/error-classifications.js";
 
 export type EngineId = "yt-dlp" | "gallery-dl" | "direct";
 
@@ -9,6 +10,7 @@ export type EnginePlan = {
   reason: string;
   sourceUrl?: string;
   fallbackOn?: DownloadErrorCode[] | "any";
+  fallbackOnClassifications?: DownloadFailureClassification[];
   options?: Record<string, unknown>;
 };
 

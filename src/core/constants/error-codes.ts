@@ -1,5 +1,6 @@
 export type DownloadErrorCode =
   | "E_ABORTED"
+  | "E_AUTH_REQUIRED"
   | "E_DIRECT_SOURCE_REQUIRED"
   | "E_ENGINE_NOT_FOUND"
   | "E_ENGINE_REJECTED_INTENT"

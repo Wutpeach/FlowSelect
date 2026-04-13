@@ -1,4 +1,5 @@
 export * from "./constants/error-codes.js";
+export * from "./constants/error-classifications.js";
 export * from "./errors/download-runtime-error.js";
 export * from "./short-links.js";
 export * from "./site-hints.js";

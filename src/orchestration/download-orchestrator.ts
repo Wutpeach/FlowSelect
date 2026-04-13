@@ -17,6 +17,9 @@ const shouldFallbackForError = (
   error: DownloadRuntimeError,
   plan: EnginePlan,
 ): boolean => {
+  if (plan.fallbackOnClassifications) {
+    return plan.fallbackOnClassifications.includes(error.classification);
+  }
   if (!error.fallbackable) {
     return false;
   }
@@ -25,6 +28,11 @@ const shouldFallbackForError = (
   }
   return plan.fallbackOn.includes(error.code);
 };
+
+const shouldContinueEngineChain = (
+  error: DownloadRuntimeError,
+  plan: EnginePlan,
+): boolean => shouldFallbackForError(error, plan);
 
 const toRuntimeError = (error: unknown, code: DownloadErrorCode): DownloadRuntimeError => {
   if (error instanceof DownloadRuntimeError) {
@@ -60,7 +68,7 @@ export class DownloadOrchestrator {
         "No site provider matched the incoming download request",
         {
           context: { input: normalizedInput },
-          fallbackable: false,
+          classification: "input_invalid",
         },
       );
     }
@@ -88,7 +96,7 @@ export class DownloadOrchestrator {
       const validationError = engine.validateIntent(resolvedPlan.intent, enginePlan);
       if (validationError) {
         lastError = validationError;
-        if (shouldFallbackForError(validationError, enginePlan)) {
+        if (shouldContinueEngineChain(validationError, enginePlan)) {
           continue;
         }
         throw validationError;
@@ -104,13 +112,13 @@ export class DownloadOrchestrator {
           "E_EXECUTION_FAILED",
           result.error || `Engine ${enginePlan.engine} reported an unsuccessful result`,
         );
-        if (shouldFallbackForError(lastError, enginePlan)) {
+        if (shouldContinueEngineChain(lastError, enginePlan)) {
           continue;
         }
         throw lastError;
       } catch (error) {
         lastError = toRuntimeError(error, "E_EXECUTION_FAILED");
-        if (shouldFallbackForError(lastError, enginePlan)) {
+        if (shouldContinueEngineChain(lastError, enginePlan)) {
           continue;
         }
         throw lastError;
