@@ -38,6 +38,11 @@ export const interactionStatusSchema = z.enum([
   "needs_special_adapter",
   "not_supported",
 ]);
+export const downloadStrategyKindSchema = z.enum([
+  "single_engine",
+  "ordered_fallback",
+  "conditional_direct",
+]);
 
 export const capabilitySourceEntrySchema = z.object({
   id: z.string().trim().min(1),
@@ -79,10 +84,22 @@ export const interactionCapabilityEntrySchema = z.object({
   notes: z.array(z.string().trim().min(1)).optional(),
 });
 
+export const downloadSiteStrategyEntrySchema = z.object({
+  siteId: z.string().trim().min(1),
+  displayName: z.string().trim().min(1),
+  sourceId: z.string().trim().min(1),
+  strategyKind: downloadStrategyKindSchema,
+  engineOrder: z.array(capabilityEngineIdSchema).min(1),
+  forbiddenEngines: z.array(capabilityEngineIdSchema).optional(),
+  matchHints: capabilityMatchHintsSchema.optional(),
+  notes: z.array(z.string().trim().min(1)).optional(),
+});
+
 export const capabilitySeedSchema = z.object({
   schemaVersion: z.literal(1),
   generatedAt: z.iso.datetime(),
   sources: z.array(capabilitySourceEntrySchema),
   downloadCapabilities: z.array(downloadCapabilityEntrySchema),
   interactionCapabilities: z.array(interactionCapabilityEntrySchema),
+  siteStrategies: z.array(downloadSiteStrategyEntrySchema),
 });

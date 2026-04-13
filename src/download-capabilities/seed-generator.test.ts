@@ -19,6 +19,7 @@ type CapabilitySeed = {
   sources: Array<{ id: string }>;
   downloadCapabilities: DownloadCapabilityEntry[];
   interactionCapabilities: unknown[];
+  siteStrategies: unknown[];
 };
 
 type GeneratorLib = {
@@ -132,5 +133,6 @@ describe("capabilities seed generator", () => {
     ]);
     expect(seed.downloadCapabilities).toHaveLength(2);
     expect(seed.interactionCapabilities).toEqual([]);
+    expect(seed.siteStrategies).toEqual([]);
   });
 });

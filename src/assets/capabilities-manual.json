@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-13T14:30:00.000Z",
+  "sources": [
+    {
+      "id": "flowselect-manual-sites",
+      "type": "manual",
+      "engine": null,
+      "label": "FlowSelect manual capability overlay",
+      "fetchedAt": "2026-04-13T14:30:00.000Z",
+      "entryCount": 8,
+      "notes": [
+        "Captures current first-party site strategy and interaction support.",
+        "These entries represent project-maintained routing knowledge, not upstream support claims."
+      ]
+    }
+  ],
+  "downloadCapabilities": [
+    {
+      "siteId": "youtube",
+      "displayName": "YouTube",
+      "engine": "yt-dlp",
+      "sourceId": "flowselect-manual-sites",
+      "claimStatus": "manual_supported",
+      "probeStatus": "unknown",
+      "authRequirement": "optional",
+      "upstreamState": "reported_supported",
+      "matchHints": {
+        "hosts": ["youtube.com", "youtu.be"]
+      },
+      "notes": ["Project-maintained extractor-first routing for YouTube."]
+    },
+    {
+      "siteId": "bilibili",
+      "displayName": "Bilibili",
+      "engine": "yt-dlp",
+      "sourceId": "flowselect-manual-sites",
+      "claimStatus": "manual_supported",
+      "probeStatus": "unknown",
+      "authRequirement": "optional",
+      "upstreamState": "reported_supported",
+      "matchHints": {
+        "hosts": ["bilibili.com", "b23.tv", "bilivideo.com"]
+      }
+    },
+    {
+      "siteId": "twitter-x",
+      "displayName": "Twitter/X",
+      "engine": "yt-dlp",
+      "sourceId": "flowselect-manual-sites",
+      "claimStatus": "manual_supported",
+      "probeStatus": "unknown",
+      "authRequirement": "optional",
+      "upstreamState": "reported_supported",
+      "matchHints": {
+        "hosts": ["x.com", "twitter.com"]
+      }
+    },
+    {
+      "siteId": "douyin",
+      "displayName": "Douyin",
+      "engine": "direct",
+      "sourceId": "flowselect-manual-sites",
+      "claimStatus": "manual_supported",
+      "probeStatus": "unknown",
+      "authRequirement": "optional",
+      "upstreamState": "reported_supported",
+      "matchHints": {
+        "hosts": ["douyin.com", "douyinvod.com", "douyincdn.com"]
+      },
+      "notes": ["Direct candidates can short-circuit into yt-dlp fallback when needed."]
+    },
+    {
+      "siteId": "xiaohongshu",
+      "displayName": "Xiaohongshu",
+      "engine": "direct",
+      "sourceId": "flowselect-manual-sites",
+      "claimStatus": "manual_supported",
+      "probeStatus": "unknown",
+      "authRequirement": "optional",
+      "upstreamState": "reported_supported",
+      "matchHints": {
+        "hosts": ["xiaohongshu.com", "xhslink.com", "xhscdn.com"]
+      }
+    },
+    {
+      "siteId": "pinterest",
+      "displayName": "Pinterest",
+      "engine": "gallery-dl",
+      "sourceId": "flowselect-manual-sites",
+      "claimStatus": "manual_supported",
+      "probeStatus": "unknown",
+      "authRequirement": "optional",
+      "upstreamState": "reported_supported",
+      "matchHints": {
+        "hosts": ["pinterest.com", "pin.it", "pinimg.com"]
+      }
+    },
+    {
+      "siteId": "weibo",
+      "displayName": "Weibo",
+      "engine": "gallery-dl",
+      "sourceId": "flowselect-manual-sites",
+      "claimStatus": "manual_supported",
+      "probeStatus": "unknown",
+      "authRequirement": "optional",
+      "upstreamState": "reported_supported",
+      "matchHints": {
+        "hosts": ["weibo.com", "weibo.cn", "m.weibo.com", "m.weibo.cn", "video.weibo.com"]
+      }
+    },
+    {
+      "siteId": "generic",
+      "displayName": "Generic",
+      "engine": "yt-dlp",
+      "sourceId": "flowselect-manual-sites",
+      "claimStatus": "manual_supported",
+      "probeStatus": "unknown",
+      "authRequirement": "unknown",
+      "upstreamState": "reported_supported",
+      "notes": ["Catch-all routing when no explicit site strategy matches."]
+    }
+  ],
+  "interactionCapabilities": [
+    {
+      "siteId": "youtube",
+      "sourceId": "flowselect-manual-sites",
+      "interactionStatus": "native_ok",
+      "supportedModes": ["paste", "context_menu", "injected_button"]
+    },
+    {
+      "siteId": "bilibili",
+      "sourceId": "flowselect-manual-sites",
+      "interactionStatus": "native_ok",
+      "supportedModes": ["paste", "context_menu", "injected_button"]
+    },
+    {
+      "siteId": "twitter-x",
+      "sourceId": "flowselect-manual-sites",
+      "interactionStatus": "native_ok",
+      "supportedModes": ["paste", "context_menu", "injected_button"]
+    },
+    {
+      "siteId": "douyin",
+      "sourceId": "flowselect-manual-sites",
+      "interactionStatus": "needs_special_adapter",
+      "supportedModes": ["paste", "context_menu"]
+    },
+    {
+      "siteId": "xiaohongshu",
+      "sourceId": "flowselect-manual-sites",
+      "interactionStatus": "needs_special_adapter",
+      "supportedModes": ["paste", "drag", "context_menu", "injected_button", "page_bridge"]
+    },
+    {
+      "siteId": "pinterest",
+      "sourceId": "flowselect-manual-sites",
+      "interactionStatus": "needs_special_adapter",
+      "supportedModes": ["paste", "drag", "context_menu", "injected_button"]
+    },
+    {
+      "siteId": "weibo",
+      "sourceId": "flowselect-manual-sites",
+      "interactionStatus": "needs_special_adapter",
+      "supportedModes": ["paste", "context_menu"]
+    },
+    {
+      "siteId": "generic",
+      "sourceId": "flowselect-manual-sites",
+      "interactionStatus": "unknown",
+      "supportedModes": ["paste", "drag", "context_menu"]
+    }
+  ],
+  "siteStrategies": [
+    {
+      "siteId": "youtube",
+      "displayName": "YouTube",
+      "sourceId": "flowselect-manual-sites",
+      "strategyKind": "single_engine",
+      "engineOrder": ["yt-dlp"],
+      "matchHints": {
+        "hosts": ["youtube.com", "youtu.be"]
+      }
+    },
+    {
+      "siteId": "bilibili",
+      "displayName": "Bilibili",
+      "sourceId": "flowselect-manual-sites",
+      "strategyKind": "single_engine",
+      "engineOrder": ["yt-dlp"],
+      "matchHints": {
+        "hosts": ["bilibili.com", "b23.tv", "bilivideo.com"]
+      }
+    },
+    {
+      "siteId": "twitter-x",
+      "displayName": "Twitter/X",
+      "sourceId": "flowselect-manual-sites",
+      "strategyKind": "single_engine",
+      "engineOrder": ["yt-dlp"],
+      "matchHints": {
+        "hosts": ["x.com", "twitter.com"]
+      }
+    },
+    {
+      "siteId": "douyin",
+      "displayName": "Douyin",
+      "sourceId": "flowselect-manual-sites",
+      "strategyKind": "conditional_direct",
+      "engineOrder": ["direct", "yt-dlp"],
+      "matchHints": {
+        "hosts": ["douyin.com", "douyinvod.com", "douyincdn.com"]
+      }
+    },
+    {
+      "siteId": "xiaohongshu",
+      "displayName": "Xiaohongshu",
+      "sourceId": "flowselect-manual-sites",
+      "strategyKind": "conditional_direct",
+      "engineOrder": ["direct", "yt-dlp"],
+      "matchHints": {
+        "hosts": ["xiaohongshu.com", "xhslink.com", "xhscdn.com"]
+      }
+    },
+    {
+      "siteId": "pinterest",
+      "displayName": "Pinterest",
+      "sourceId": "flowselect-manual-sites",
+      "strategyKind": "conditional_direct",
+      "engineOrder": ["direct", "gallery-dl"],
+      "matchHints": {
+        "hosts": ["pinterest.com", "pin.it", "pinimg.com"]
+      }
+    },
+    {
+      "siteId": "weibo",
+      "displayName": "Weibo",
+      "sourceId": "flowselect-manual-sites",
+      "strategyKind": "ordered_fallback",
+      "engineOrder": ["gallery-dl", "yt-dlp"],
+      "matchHints": {
+        "hosts": ["weibo.com", "weibo.cn", "m.weibo.com", "m.weibo.cn", "video.weibo.com"]
+      }
+    },
+    {
+      "siteId": "generic",
+      "displayName": "Generic",
+      "sourceId": "flowselect-manual-sites",
+      "strategyKind": "single_engine",
+      "engineOrder": ["yt-dlp"],
+      "notes": ["Default project strategy when no explicit site strategy matches."]
+    }
+  ]
+}

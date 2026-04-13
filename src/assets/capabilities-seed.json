@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-04-13T14:16:18.235Z",
+  "generatedAt": "2026-04-13T14:31:48.858Z",
   "sources": [
     {
       "id": "yt-dlp-supportedsites",
@@ -8,7 +8,7 @@
       "engine": "yt-dlp",
       "label": "yt-dlp supported sites",
       "url": "https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/supportedsites.md",
-      "fetchedAt": "2026-04-13T14:16:18.235Z",
+      "fetchedAt": "2026-04-13T14:31:48.858Z",
       "entryCount": 1851,
       "notes": [
         "Imported from the upstream supported-sites document.",
@@ -21,7 +21,7 @@
       "engine": "gallery-dl",
       "label": "gallery-dl supported sites",
       "url": "https://raw.githubusercontent.com/mikf/gallery-dl/master/docs/supportedsites.md",
-      "fetchedAt": "2026-04-13T14:16:18.235Z",
+      "fetchedAt": "2026-04-13T14:31:48.858Z",
       "entryCount": 356,
       "notes": [
         "Imported from the upstream supported-sites document.",
@@ -37143,5 +37143,6 @@
       ]
     }
   ],
-  "interactionCapabilities": []
+  "interactionCapabilities": [],
+  "siteStrategies": []
 }

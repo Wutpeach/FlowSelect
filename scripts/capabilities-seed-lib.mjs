@@ -247,6 +247,7 @@ export function buildCapabilitySeed({
     ],
     downloadCapabilities: [...ytDlpEntries, ...galleryDlEntries],
     interactionCapabilities: [],
+    siteStrategies: [],
   };
 }
 

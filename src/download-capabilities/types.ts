@@ -34,6 +34,11 @@ export type InteractionStatus =
   | "needs_special_adapter"
   | "not_supported";
 
+export type DownloadStrategyKind =
+  | "single_engine"
+  | "ordered_fallback"
+  | "conditional_direct";
+
 export type CapabilitySourceEntry = {
   id: string;
   type: CapabilitySourceType;
@@ -74,10 +79,22 @@ export type InteractionCapabilityEntry = {
   notes?: string[];
 };
 
+export type DownloadSiteStrategyEntry = {
+  siteId: string;
+  displayName: string;
+  sourceId: string;
+  strategyKind: DownloadStrategyKind;
+  engineOrder: CapabilityEngineId[];
+  forbiddenEngines?: CapabilityEngineId[];
+  matchHints?: CapabilityMatchHints;
+  notes?: string[];
+};
+
 export type CapabilitySeed = {
   schemaVersion: CapabilitySeedSchemaVersion;
   generatedAt: string;
   sources: CapabilitySourceEntry[];
   downloadCapabilities: DownloadCapabilityEntry[];
   interactionCapabilities: InteractionCapabilityEntry[];
+  siteStrategies: DownloadSiteStrategyEntry[];
 };
