@@ -125,6 +125,7 @@ export type QueuedVideoDownloadRequest = {
   ytdlpQuality?: "best" | "balanced" | "data_saver";
   siteHint?: string;
   dragDiagnostic?: PinterestDragDiagnostic;
+  diagnostics?: Record<string, unknown>;
 };
 
 export type QueuedVideoDownloadAck = {

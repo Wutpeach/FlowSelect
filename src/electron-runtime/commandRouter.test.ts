@@ -166,6 +166,15 @@ describe("createElectronRuntimeCommandRouter", () => {
           },
         ],
       },
+      diagnostics: {
+        interactionCapability: {
+          siteId: "pinterest",
+          interactionMode: "drag",
+          interactionStatus: "needs_special_adapter",
+          supportedModes: ["paste", "drag", "context_menu", "injected_button"],
+          isModeSupported: true,
+        },
+      },
     });
   });
 
@@ -185,6 +194,40 @@ describe("createElectronRuntimeCommandRouter", () => {
 
     expect(runtime.cancelDownload).toHaveBeenCalledWith("trace-1");
     expect(runtime.startRuntimeDependencyBootstrap).toHaveBeenCalledWith("settings_retry");
+  });
+
+  it("preserves upstream diagnostics and attaches interaction capability summaries", async () => {
+    const runtime = createRuntimeStub();
+    const router = createElectronRuntimeCommandRouter({ runtime });
+
+    await router.invoke<{ accepted: boolean; traceId: string }>("queue_video_download", {
+      url: "https://www.xiaohongshu.com/explore/66112233445566778899",
+      page_url: "https://www.xiaohongshu.com/explore/66112233445566778899",
+      site_hint: "xiaohongshu",
+      diagnostics: {
+        resolver: "generic_video_detector",
+        source: "context_menu",
+        candidateCount: 2,
+      },
+    });
+
+    expect(runtime.queueVideoDownload).toHaveBeenCalledWith(expect.objectContaining({
+      url: "https://www.xiaohongshu.com/explore/66112233445566778899",
+      pageUrl: "https://www.xiaohongshu.com/explore/66112233445566778899",
+      siteHint: "xiaohongshu",
+      diagnostics: {
+        resolver: "generic_video_detector",
+        source: "context_menu",
+        candidateCount: 2,
+        interactionCapability: {
+          siteId: "xiaohongshu",
+          interactionMode: "context_menu",
+          interactionStatus: "needs_special_adapter",
+          supportedModes: ["paste", "drag", "context_menu", "injected_button", "page_bridge"],
+          isModeSupported: true,
+        },
+      },
+    }));
   });
 
   it("drops invalid Pinterest video hints before dispatching queue requests", async () => {
@@ -316,7 +359,7 @@ describe("createElectronRuntimeCommandRouter", () => {
       },
     });
 
-    expect(runtime.queueVideoDownload).toHaveBeenCalledWith({
+    expect(runtime.queueVideoDownload).toHaveBeenCalledWith(expect.objectContaining({
       url: "https://www.pinterest.com/pin/1234567890/",
       pageUrl: undefined,
       videoUrl: undefined,
@@ -341,7 +384,16 @@ describe("createElectronRuntimeCommandRouter", () => {
         videoCandidatesCount: 0,
         videoCandidates: [],
       },
-    });
+      diagnostics: {
+        interactionCapability: {
+          siteId: "pinterest",
+          interactionMode: "drag",
+          interactionStatus: "needs_special_adapter",
+          supportedModes: ["paste", "drag", "context_menu", "injected_button"],
+          isModeSupported: true,
+        },
+      },
+    }));
   });
 
   it("drops invalid page urls before dispatching Pinterest queue requests", async () => {

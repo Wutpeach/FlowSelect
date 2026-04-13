@@ -13,6 +13,7 @@ import type {
 import type { ElectronDownloadRuntime } from "./contracts.js";
 import { resolveSiteHint } from "../core/site-hints.js";
 import { orderVideoCandidatesForSite } from "../core/video-candidate-order.js";
+import { createInteractionCapabilityDiagnostic } from "../download-capabilities/runtime-interaction-capabilities.js";
 
 export type ElectronRuntimeCommand = Extract<
   FlowSelectRendererCommand,
@@ -62,9 +63,9 @@ const supportedCommands = new Set<ElectronRuntimeCommand>([
   "start_runtime_dependency_bootstrap",
 ]);
 
-const asObject = (payload: CommandPayload): Record<string, unknown> => (
+const asObject = (payload: unknown): Record<string, unknown> => (
   payload && typeof payload === "object" && !Array.isArray(payload)
-    ? payload
+    ? payload as Record<string, unknown>
     : {}
 );
 
@@ -327,6 +328,27 @@ const normalizeQueueVideoDownloadRequest = (
   const request = asObject(payload);
   const siteHint = resolvePayloadSiteHint(request);
   const normalizedVideoCandidates = normalizeVideoCandidates(request, siteHint);
+  const dragDiagnostic = normalizeDragDiagnostic(request, normalizedVideoCandidates);
+  const rawDiagnostics = asObject(request.diagnostics);
+  const diagnosticsSource = readOptionalTrimmedString(rawDiagnostics, "source")
+    ?? readOptionalTrimmedString(request, "source");
+  const diagnostics = (() => {
+    if (Object.keys(rawDiagnostics).length === 0 && !dragDiagnostic) {
+      return undefined;
+    }
+
+    return {
+      ...rawDiagnostics,
+      ...(diagnosticsSource ? { source: diagnosticsSource } : {}),
+      interactionCapability: createInteractionCapabilityDiagnostic({
+        siteHint,
+        pageUrl: readOptionalHttpUrlString(request, "pageUrl", "page_url"),
+        url: readRequiredHttpUrlString(request, "url"),
+        source: diagnosticsSource,
+        hasDragPayload: Boolean(dragDiagnostic),
+      }),
+    };
+  })();
 
   return {
     url: readRequiredHttpUrlString(request, "url"),
@@ -366,7 +388,8 @@ const normalizeQueueVideoDownloadRequest = (
         : undefined;
     })(),
     siteHint,
-    dragDiagnostic: normalizeDragDiagnostic(request, normalizedVideoCandidates),
+    dragDiagnostic,
+    diagnostics,
   };
 };
 
