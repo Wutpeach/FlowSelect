@@ -33,3 +33,23 @@ If a higher-trust note hint arrives later:
 - Preserve `noteId`, tokenized `detailUrl`, `sourcePageUrl`, and video-intent metadata across browser script -> extension background -> desktop runtime.
 - Verify that a weak early image classification cannot suppress a later higher-trust video-capable note hint.
 - Verify that hidden/background detail fallback still runs when the direct resolver returns only a cover image but canonical note context is available.
+
+## Added Lesson: Isolate Native Settle Before Retuning Transparent Renderer Motion
+
+When a transparent desktop window flashes right after an animation appears complete, do not assume the renderer shell motion is the cause.
+
+Split the flow into:
+
+1. renderer visual motion
+2. native post-animation settle
+
+For compact-window passthrough debugging, disable the native settle first, then re-enable native calls one by one:
+
+- `setIgnoreMouseEvents(true, { forward: true })`
+- `setFocusable(false)`
+- `blur()`
+
+This session's result:
+- `ignoreMouseEvents` alone did not flash
+- `setFocusable(false)` also did not flash
+- `blur()` was the flashing trigger

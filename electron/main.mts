@@ -6515,7 +6515,6 @@ function registerIpcHandlers() {
     if (mode === "compact-passthrough") {
       win.setIgnoreMouseEvents(true, { forward: true });
       win.setFocusable(false);
-      win.blur();
       return;
     }
 

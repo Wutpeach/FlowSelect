@@ -2784,7 +2784,7 @@ function App({
       }
       window.removeEventListener("mousemove", handleMouseMove);
     };
-  }, [evaluateCompactHotspot, shellPhase, supportsCompactPassthroughHotspot]);
+  }, [evaluateCompactHotspot, shellPhase, supportsCompactPassthroughHotspot, visualIsMinimized]);
 
   useEffect(() => {
     if (hasOngoingTask || isProcessing || !shouldReturnToCompactAfterForegroundTaskRef.current) {

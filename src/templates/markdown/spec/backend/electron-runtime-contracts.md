@@ -56,3 +56,22 @@ Implication:
 - A cached tokenized `detailUrl` survives drag payload parsing and reaches Electron.
 - Extension/direct resolver returning `kind: "image"` does not immediately force cover-image download when tokenized `detailUrl` and video intent still exist.
 - Hidden detail fallback still runs for waterfall video drags that expose note context but not direct media bytes.
+
+## Added Lesson: Compact Passthrough Native Settle Must Not Call `blur()`
+
+When `src/App.tsx` finishes compact collapse and calls `currentWindow.setInteractionMode("compact-passthrough")`, the Electron main handler may only use:
+
+- `win.setIgnoreMouseEvents(true, { forward: true })`
+- `win.setFocusable(false)`
+
+Do not call:
+
+- `win.blur()`
+
+Why:
+- In the transparent main BrowserWindow, the flash can happen after the renderer motion is already visually complete.
+- Renderer-side experiments on shell motion, icon ownership, and content fade may appear ineffective because the real regression is the native focus-state handoff.
+
+Debug rule:
+- If a transparent-window compact flash appears at the end of the animation, temporarily disable the native interaction settle first.
+- Re-enable native calls one by one (`ignoreMouseEvents` -> `setFocusable` -> `blur`) to isolate the real trigger before changing renderer motion.
