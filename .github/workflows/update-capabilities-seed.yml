@@ -1,0 +1,49 @@
+name: Update Capabilities Seed
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * 0"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-capabilities-seed:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Regenerate capability seed
+        run: npm run capabilities:seed
+
+      - name: Verify capability tests
+        run: npm test -- --run src/download-capabilities/schema.test.ts src/download-capabilities/seed-generator.test.ts src/download-capabilities/provider-alignment.test.ts
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/update-capabilities-seed
+          commit-message: "chore(download): refresh capabilities seed"
+          title: "chore(download): refresh capabilities seed"
+          body: |
+            Regenerated `src/assets/capabilities-seed.json` from the upstream `yt-dlp` and `gallery-dl` supported-sites documents.
+
+            This workflow only updates the generated seed and leaves the manual overlay untouched.
+          labels: |
+            automation
+            download
+          add-paths: |
+            src/assets/capabilities-seed.json
