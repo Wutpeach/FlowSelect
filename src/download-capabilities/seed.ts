@@ -2,6 +2,9 @@ import capabilitiesManualJson from "../assets/capabilities-manual.json";
 import capabilitiesSeedJson from "../assets/capabilities-seed.json";
 import { capabilitySeedSchema } from "./schema.js";
 import type {
+  CapabilityEngineId,
+  CapabilityMatchHints,
+  InteractionMode,
   CapabilitySeed,
   DownloadCapabilityEntry,
   DownloadSiteStrategyEntry,
@@ -29,6 +32,11 @@ export type CapabilityRegistry = {
   getDownloadCapabilities(siteId: string): readonly DownloadCapabilityEntry[];
   getInteractionCapabilities(siteId: string): readonly InteractionCapabilityEntry[];
   getSiteStrategy(siteId: string): DownloadSiteStrategyEntry | null;
+  getPreferredEngine(siteId: string): CapabilityEngineId | null;
+  supportsEngine(siteId: string, engine: CapabilityEngineId): boolean;
+  supportsInteractionMode(siteId: string, mode: InteractionMode): boolean;
+  findDownloadCapabilitiesForUrl(url: string): readonly DownloadCapabilityEntry[];
+  findInteractionCapabilityForUrl(url: string): InteractionCapabilityEntry | null;
   findSiteStrategyForUrl(url: string): DownloadSiteStrategyEntry | null;
 };
 
@@ -40,6 +48,16 @@ const manualCapabilitySeed = capabilitySeedSchema.parse(
 ) satisfies CapabilitySeed;
 
 const normalizeHost = (value: string): string => value.trim().toLowerCase().replace(/^www\./, "");
+
+const matchesNormalizedHost = (
+  normalizedHost: string,
+  matchHints: CapabilityMatchHints | undefined,
+): boolean => (
+  matchHints?.hosts?.some((host) => {
+    const normalizedCandidate = normalizeHost(host);
+    return normalizedHost === normalizedCandidate || normalizedHost.endsWith(`.${normalizedCandidate}`);
+  }) ?? false
+);
 
 const mergeCapabilitySeeds = (
   baseSeed: CapabilitySeed,
@@ -106,6 +124,48 @@ export const createCapabilityRegistry = (
     getSiteStrategy(siteId: string) {
       return strategyBySiteId.get(siteId) ?? null;
     },
+    getPreferredEngine(siteId: string) {
+      return strategyBySiteId.get(siteId)?.engineOrder[0] ?? null;
+    },
+    supportsEngine(siteId: string, engine: CapabilityEngineId) {
+      const strategy = strategyBySiteId.get(siteId);
+      if (strategy) {
+        if (strategy.forbiddenEngines?.includes(engine)) {
+          return false;
+        }
+        return strategy.engineOrder.includes(engine);
+      }
+
+      return (downloadBySiteId.get(siteId) ?? []).some((entry) => entry.engine === engine);
+    },
+    supportsInteractionMode(siteId: string, mode: InteractionMode) {
+      return (interactionBySiteId.get(siteId) ?? []).some((entry) => entry.supportedModes.includes(mode));
+    },
+    findDownloadCapabilitiesForUrl(url: string) {
+      let normalizedHost: string;
+      try {
+        normalizedHost = normalizeHost(new URL(url).hostname);
+      } catch {
+        return [];
+      }
+
+      return seed.downloadCapabilities.filter((entry) => (
+        matchesNormalizedHost(normalizedHost, entry.matchHints)
+      ));
+    },
+    findInteractionCapabilityForUrl(url: string) {
+      const strategy = this.findSiteStrategyForUrl(url);
+      if (strategy) {
+        return interactionBySiteId.get(strategy.siteId)?.[0] ?? null;
+      }
+
+      const [firstCapability] = this.findDownloadCapabilitiesForUrl(url);
+      if (!firstCapability) {
+        return null;
+      }
+
+      return interactionBySiteId.get(firstCapability.siteId)?.[0] ?? null;
+    },
     findSiteStrategyForUrl(url: string) {
       let normalizedHost: string;
       try {
@@ -115,10 +175,7 @@ export const createCapabilityRegistry = (
       }
 
       for (const strategy of seed.siteStrategies) {
-        const strategyHosts = strategy.matchHints?.hosts ?? [];
-        if (strategyHosts.some((host) => (
-          normalizedHost === normalizeHost(host) || normalizedHost.endsWith(`.${normalizeHost(host)}`)
-        ))) {
+        if (matchesNormalizedHost(normalizedHost, strategy.matchHints)) {
           return strategy;
         }
       }

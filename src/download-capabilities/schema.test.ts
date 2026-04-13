@@ -24,9 +24,25 @@ describe("download capability seed", () => {
       siteId: "youtube",
       engineOrder: ["yt-dlp"],
     });
+    expect(registry.getPreferredEngine("pinterest")).toBe("direct");
+    expect(registry.supportsEngine("weibo", "gallery-dl")).toBe(true);
+    expect(registry.supportsEngine("weibo", "direct")).toBe(false);
+    expect(registry.supportsInteractionMode("xiaohongshu", "page_bridge")).toBe(true);
     expect(registry.findSiteStrategyForUrl("https://www.xiaohongshu.com/explore/123")).toMatchObject({
       siteId: "xiaohongshu",
       engineOrder: ["direct", "yt-dlp"],
+    });
+    expect(registry.findDownloadCapabilitiesForUrl("https://www.pinterest.com/pin/123/")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          siteId: "pinterest",
+          engine: "gallery-dl",
+        }),
+      ]),
+    );
+    expect(registry.findInteractionCapabilityForUrl("https://x.com/flowselect/status/1")).toMatchObject({
+      siteId: "twitter-x",
+      supportedModes: expect.arrayContaining(["injected_button"]),
     });
     expect(bundledCapabilityRegistry.listInteractionCapabilities().length).toBeGreaterThan(0);
   });
