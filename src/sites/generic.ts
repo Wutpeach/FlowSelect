@@ -4,6 +4,8 @@ import type {
   SiteProvider,
   VideoDownloadIntent,
 } from "../core/index.js";
+import { buildEnginePlansFromStrategy } from "../download-capabilities/strategy-plans.js";
+import { getRuntimeManualSiteStrategy } from "../download-capabilities/runtime-site-strategies.js";
 
 export const genericProvider: SiteProvider = {
   id: "generic",
@@ -25,20 +27,13 @@ export const genericProvider: SiteProvider = {
       ytdlpQuality: input.ytdlpQuality,
       preferredFormat: "best",
     };
+    const strategy = getRuntimeManualSiteStrategy("generic");
+
     return {
       providerId: "generic",
       label: input.title?.trim() || input.pageUrl || input.url,
       intent,
-      engines: [
-        {
-          engine: "yt-dlp",
-          priority: 50,
-          when: "primary",
-          reason: "Generic downloads default to yt-dlp",
-          sourceUrl: input.pageUrl ?? input.url,
-          fallbackOn: "any",
-        },
-      ],
+      engines: buildEnginePlansFromStrategy(strategy, input.pageUrl ?? input.url),
     };
   },
 };

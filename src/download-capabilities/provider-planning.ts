@@ -1,7 +1,6 @@
 import {
   detectSiteHintFromUrl,
   normalizeSiteHint,
-  type EnginePlan,
   type RawDownloadInput,
 } from "../core/index.js";
 import type { CapabilityRegistry } from "./seed.js";
@@ -37,9 +36,6 @@ export type ProviderMigrationTarget = {
   candidateSelectionOwner: "provider" | "none";
   notes: readonly string[];
 };
-
-const DEFAULT_PRIMARY_PRIORITY = 100;
-const DEFAULT_FALLBACK_PRIORITY_STEP = 10;
 
 const resolveStrategyBySiteId = (
   siteId: string | undefined,
@@ -116,35 +112,6 @@ export const resolveProviderStrategy = (
     resolvedSiteHint: "generic",
   };
 };
-
-const buildRegistryEngineReason = (
-  strategy: DownloadSiteStrategyEntry,
-  engine: EnginePlan["engine"],
-  index: number,
-): string => {
-  if (strategy.engineOrder.length === 1) {
-    return `${strategy.displayName} registry strategy allows only ${engine}`;
-  }
-
-  if (index === 0) {
-    return `${strategy.displayName} registry strategy prefers ${engine} first`;
-  }
-
-  return `${strategy.displayName} registry strategy falls back to ${engine}`;
-};
-
-export const buildEnginePlansFromStrategy = (
-  strategy: DownloadSiteStrategyEntry,
-  sourceUrl: string,
-): EnginePlan[] => (
-  strategy.engineOrder.map((engine, index) => ({
-    engine,
-    priority: DEFAULT_PRIMARY_PRIORITY - (index * DEFAULT_FALLBACK_PRIORITY_STEP),
-    when: index === 0 ? "primary" : "fallback",
-    reason: buildRegistryEngineReason(strategy, engine, index),
-    sourceUrl,
-  }))
-);
 
 export const providerMigrationTargets = [
   {

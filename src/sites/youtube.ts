@@ -4,6 +4,8 @@ import type {
   SiteProvider,
   VideoDownloadIntent,
 } from "../core/index.js";
+import { buildEnginePlansFromStrategy } from "../download-capabilities/strategy-plans.js";
+import { getRuntimeManualSiteStrategy } from "../download-capabilities/runtime-site-strategies.js";
 
 const isYouTubeUrl = (value: string | undefined): boolean =>
   Boolean(value && (value.includes("youtube.com/") || value.includes("youtu.be/")));
@@ -14,6 +16,7 @@ export const youtubeProvider: SiteProvider = {
     return input.siteHint === "youtube" || isYouTubeUrl(input.pageUrl) || isYouTubeUrl(input.url);
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
+    const strategy = getRuntimeManualSiteStrategy("youtube");
     const intent: VideoDownloadIntent = {
       type: "video",
       siteId: "youtube",
@@ -32,16 +35,7 @@ export const youtubeProvider: SiteProvider = {
       providerId: "youtube",
       label: input.title?.trim() || input.pageUrl || input.url,
       intent,
-      engines: [
-        {
-          engine: "yt-dlp",
-          priority: 100,
-          when: "primary",
-          reason: "YouTube downloads are extractor-first and best handled by yt-dlp",
-          sourceUrl: input.url,
-          fallbackOn: "any",
-        },
-      ],
+      engines: buildEnginePlansFromStrategy(strategy, input.url),
     };
   },
 };
