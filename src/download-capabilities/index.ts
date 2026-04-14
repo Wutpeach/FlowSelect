@@ -2,6 +2,7 @@ export * from "./types.js";
 export * from "./schema.js";
 export * from "./seed.js";
 export * from "./provider-planning.js";
+export * from "./provider-migration-targets.js";
 export * from "./probe.js";
 export * from "./telemetry.js";
 export * from "./strategy-plans.js";

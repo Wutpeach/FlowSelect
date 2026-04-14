@@ -1,8 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { capabilityProbeSnapshotSchema } from "../src/download-capabilities/probe-snapshot.js";
 import { downloadTelemetryEventSchema } from "../src/download-capabilities/telemetry.js";
 import {
+  renderDownloadTelemetryReportHtml,
   renderDownloadTelemetryReportMarkdown,
   summarizeDownloadTelemetryEvents,
 } from "../src/download-capabilities/telemetry-report.js";
@@ -10,6 +12,7 @@ import {
 type ParsedArgs = Record<string, string>;
 
 const repoRoot = process.cwd();
+const defaultProbeSnapshotPath = path.join(repoRoot, "src", "assets", "capabilities-probe.json");
 
 const parseArgs = (argv: string[]): ParsedArgs => {
   const parsed: ParsedArgs = {};
@@ -66,33 +69,54 @@ const readTelemetryEvents = async (inputPath: string) => {
     .map((line) => downloadTelemetryEventSchema.parse(JSON.parse(line) as unknown));
 };
 
+const readProbeSnapshot = async (inputPath: string) => {
+  const raw = await readFile(inputPath, "utf8").catch(() => "");
+  if (!raw.trim()) {
+    return null;
+  }
+
+  return capabilityProbeSnapshotSchema.parse(JSON.parse(raw) as unknown);
+};
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const inputPath = args.input
     ? path.resolve(repoRoot, args.input)
     : defaultTelemetryInputPath();
+  const probeSnapshotPath = args.probeSnapshot
+    ? path.resolve(repoRoot, args.probeSnapshot)
+    : defaultProbeSnapshotPath;
   const outputBase = args.outputDir
     ? path.resolve(repoRoot, args.outputDir)
     : path.join(repoRoot, "build", "download-telemetry-report");
   const outputJsonPath = path.join(outputBase, "report.json");
   const outputMarkdownPath = path.join(outputBase, "report.md");
+  const outputHtmlPath = path.join(outputBase, "report.html");
 
   const events = await readTelemetryEvents(inputPath);
-  const report = summarizeDownloadTelemetryEvents(events);
+  const probeSnapshot = await readProbeSnapshot(probeSnapshotPath);
+  const report = summarizeDownloadTelemetryEvents(events, { probeSnapshot });
   const markdown = renderDownloadTelemetryReportMarkdown(report);
+  const html = renderDownloadTelemetryReportHtml(report);
 
   await mkdir(outputBase, { recursive: true });
   await writeFile(outputJsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   await writeFile(outputMarkdownPath, markdown, "utf8");
+  await writeFile(outputHtmlPath, html, "utf8");
 
   console.log(JSON.stringify({
     inputPath,
+    probeSnapshotPath: probeSnapshot ? probeSnapshotPath : null,
     outputJsonPath,
     outputMarkdownPath,
+    outputHtmlPath,
     total: report.totals.total,
     successRate: report.totals.successRate,
     authHotspots: report.authHotspots.length,
     highRiskEngineCombos: report.highRiskEngineCombos.length,
+    migratedProviders: report.providerMigration.migrated,
+    plannedProviders: report.providerMigration.planned,
+    probeTargets: report.probeSummary?.totalTargets ?? 0,
   }, null, 2));
 }
 

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  renderDownloadTelemetryReportHtml,
   renderDownloadTelemetryReportMarkdown,
   summarizeDownloadTelemetryEvents,
 } from "./telemetry-report.js";
+import { createCapabilityProbeSnapshot } from "./probe-snapshot.js";
 import type { DownloadTelemetryEvent } from "./telemetry.js";
 
 describe("telemetry report helpers", () => {
-  it("summarizes success rates, auth hotspots, and high-risk engine combinations", () => {
+  it("summarizes telemetry, migration progress, probe status, and renders html", () => {
     const events: DownloadTelemetryEvent[] = [
       {
         schemaVersion: 1,
@@ -55,7 +57,52 @@ describe("telemetry report helpers", () => {
       },
     ];
 
-    const report = summarizeDownloadTelemetryEvents(events);
+    const probeSnapshot = createCapabilityProbeSnapshot({
+      generatedAt: "2026-04-14T00:10:00.000Z",
+      targets: [
+        {
+          id: "youtube-ytdlp",
+          engine: "yt-dlp",
+          sourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          siteId: "youtube",
+          tier: "critical",
+        },
+        {
+          id: "weibo-gallery-dl",
+          engine: "gallery-dl",
+          sourceUrl: "https://weibo.com/detail/4913212871149937",
+          siteId: "weibo",
+          tier: "auth_sensitive",
+        },
+      ],
+      records: [],
+    });
+
+    const report = summarizeDownloadTelemetryEvents(events, {
+      providerTargets: [
+        {
+          providerId: "youtube",
+          strategySiteId: "youtube",
+          planningMode: "registry_engine_order",
+          status: "migrated",
+          matchingOwner: "provider",
+          sourceUrlOwner: "provider",
+          candidateSelectionOwner: "none",
+          notes: [],
+        },
+        {
+          providerId: "gallery-dl-supported",
+          strategySiteId: null,
+          planningMode: "dynamic_capability_resolution",
+          status: "planned",
+          matchingOwner: "provider",
+          sourceUrlOwner: "provider",
+          candidateSelectionOwner: "none",
+          notes: [],
+        },
+      ],
+      probeSnapshot,
+    });
     expect(report.totals).toEqual({
       total: 3,
       success: 1,
@@ -71,10 +118,30 @@ describe("telemetry report helpers", () => {
       engine: "gallery-dl",
       failures: 1,
     });
+    expect(report.providerMigration).toMatchObject({
+      migrated: 1,
+      planned: 1,
+      total: 2,
+    });
+    expect(report.probeSummary).toMatchObject({
+      totalTargets: 2,
+      tierCounts: {
+        critical: 1,
+        authSensitive: 1,
+        coverage: 0,
+      },
+    });
 
     const markdown = renderDownloadTelemetryReportMarkdown(report);
     expect(markdown).toContain("# Download Telemetry Report");
     expect(markdown).toContain("weibo: 50%");
     expect(markdown).toContain("weibo / gallery-dl");
+    expect(markdown).toContain("## Provider Migration Progress");
+    expect(markdown).toContain("## Capability Probe Status");
+
+    const html = renderDownloadTelemetryReportHtml(report);
+    expect(html).toContain("<!DOCTYPE html>");
+    expect(html).toContain("Provider Migration Progress");
+    expect(html).toContain("Capability Probe Status");
   });
 });

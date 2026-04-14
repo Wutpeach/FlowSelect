@@ -113,4 +113,16 @@ describe("provider migration targets", () => {
       }),
     ]);
   });
+
+  it("marks gallery-dl-supported as planned while keeping the remaining providers migrated", () => {
+    const plannedTargets = providerMigrationTargets.filter((target) => target.status === "planned");
+    const migratedTargets = providerMigrationTargets.filter((target) => target.status === "migrated");
+
+    expect(plannedTargets).toEqual([
+      expect.objectContaining({
+        providerId: "gallery-dl-supported",
+      }),
+    ]);
+    expect(migratedTargets).toHaveLength(providerMigrationTargets.length - 1);
+  });
 });

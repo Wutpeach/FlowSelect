@@ -17,6 +17,7 @@
     "scripts/generate-capability-probe-review.ts",
     "scripts/generate-download-telemetry-report.ts",
     "src/download-capabilities/probe.ts",
+    "src/download-capabilities/provider-migration-targets.ts",
     "src/download-capabilities/probe-review.ts",
     "src/download-capabilities/probe-snapshot.ts",
     "src/download-capabilities/schema.ts",
