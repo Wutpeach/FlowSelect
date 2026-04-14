@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": false,
+    "outDir": "dist-scripts",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "files": [
+    "scripts/run-capability-probes.ts",
+    "src/download-capabilities/probe.ts",
+    "src/download-capabilities/probe-snapshot.ts",
+    "src/download-capabilities/schema.ts",
+    "src/download-capabilities/types.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts"
+  ]
+}

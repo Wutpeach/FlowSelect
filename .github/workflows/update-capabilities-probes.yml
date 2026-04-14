@@ -1,0 +1,52 @@
+name: Update Capability Probes
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 0"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-capability-probes:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure downloader binaries
+        run: npm run runtime:ensure:downloaders
+
+      - name: Refresh capability probe snapshot
+        run: npm run capabilities:probe
+
+      - name: Verify probe tests
+        run: npm test -- --run src/download-capabilities/probe.test.ts src/download-capabilities/probe-snapshot.test.ts
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/update-capability-probes
+          commit-message: "chore(download): refresh capability probe snapshot"
+          title: "chore(download): refresh capability probe snapshot"
+          body: |
+            Refreshed `src/assets/capabilities-probe.json` from the curated capability probe target list.
+
+            This workflow keeps probe outputs separate from the bundled capability seed so probe status can evolve independently from upstream claimed support.
+          labels: |
+            automation
+            download
+          add-paths: |
+            src/assets/capabilities-probe.json

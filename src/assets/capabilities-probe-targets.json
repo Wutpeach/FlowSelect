@@ -1,0 +1,38 @@
+[
+  {
+    "id": "youtube-ytdlp",
+    "engine": "yt-dlp",
+    "sourceUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "siteId": "youtube",
+    "notes": [
+      "Stable public sample for yt-dlp probe smoke coverage."
+    ]
+  },
+  {
+    "id": "generic-direct-media",
+    "engine": "direct",
+    "sourceUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "siteId": "generic",
+    "notes": [
+      "Stable public media URL for direct HEAD/range probe coverage."
+    ]
+  },
+  {
+    "id": "weibo-gallery-dl",
+    "engine": "gallery-dl",
+    "sourceUrl": "https://weibo.com/detail/4913212871149937",
+    "siteId": "weibo",
+    "notes": [
+      "Representative Weibo detail route used by provider regression tests."
+    ]
+  },
+  {
+    "id": "weibo-ytdlp-tvshow",
+    "engine": "yt-dlp",
+    "sourceUrl": "https://weibo.com/tv/show/1034:5284550214090773?from=old_pc_videoshow",
+    "siteId": "weibo",
+    "notes": [
+      "Representative Weibo tv/show route used by provider regression tests."
+    ]
+  }
+]
