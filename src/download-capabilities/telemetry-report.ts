@@ -69,11 +69,11 @@ export type DownloadTelemetryReport = {
 const roundRate = (value: number): number => Math.round(value * 10_000) / 100;
 
 const escapeHtml = (value: string): string => value
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll("\"", "&quot;")
-  .replaceAll("'", "&#39;");
+  .split("&").join("&amp;")
+  .split("<").join("&lt;")
+  .split(">").join("&gt;")
+  .split("\"").join("&quot;")
+  .split("'").join("&#39;");
 
 const summarizeProviderMigrationTargets = (
   targets: readonly ProviderMigrationTarget[],

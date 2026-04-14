@@ -2,9 +2,6 @@ import { z } from "zod";
 import type { DownloadFailureClassification } from "../core/index.js";
 import type { CapabilityProbeRecord, CapabilityProbeTarget } from "./probe-snapshot.js";
 import type {
-  CapabilityAuthRequirement,
-  CapabilityClaimStatus,
-  CapabilityProbeStatus,
   CapabilitySourceEntry,
   DownloadCapabilityEntry,
 } from "./types.js";

@@ -8,7 +8,6 @@ import { bundledCapabilityRegistry } from "./seed.js";
 import {
   providerMigrationTargets,
   type ProviderMigrationTarget,
-  type ProviderPlanningMode,
 } from "./provider-migration-targets.js";
 import type { DownloadSiteStrategyEntry } from "./types.js";
 
