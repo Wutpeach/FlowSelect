@@ -17,6 +17,7 @@
     "version:set": "node ./scripts/update-version.mjs",
     "capabilities:seed": "node ./scripts/generate-capabilities-seed.mjs",
     "capabilities:probe": "tsc -p tsconfig.scripts.json && node ./dist-scripts/scripts/run-capability-probes.js",
+    "telemetry:report": "tsc -p tsconfig.scripts.json && node ./dist-scripts/scripts/generate-download-telemetry-report.js",
     "locales:sync": "node ./scripts/sync-locales.mjs",
     "prebuild": "npm run locales:sync && npm run runtime:ensure:downloaders",
     "build:renderer": "tsc && vite build",

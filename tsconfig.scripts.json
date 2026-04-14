@@ -13,10 +13,13 @@
   },
   "files": [
     "scripts/run-capability-probes.ts",
+    "scripts/generate-download-telemetry-report.ts",
     "src/download-capabilities/probe.ts",
     "src/download-capabilities/probe-snapshot.ts",
     "src/download-capabilities/schema.ts",
-    "src/download-capabilities/types.ts"
+    "src/download-capabilities/types.ts",
+    "src/download-capabilities/telemetry.ts",
+    "src/download-capabilities/telemetry-report.ts"
   ],
   "exclude": [
     "**/*.test.ts"
