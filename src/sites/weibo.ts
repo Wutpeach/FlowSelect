@@ -1,4 +1,6 @@
 import type { RawDownloadInput, ResolvedDownloadPlan, SiteProvider } from "../core/index.js";
+import { buildEnginePlansFromStrategySources } from "../download-capabilities/strategy-plans.js";
+import { getRuntimeManualSiteStrategy } from "../download-capabilities/runtime-site-strategies.js";
 import {
   buildGalleryDlVideoIntent,
   isWeiboTvShowUrl,
@@ -16,22 +18,19 @@ export const weiboProvider: SiteProvider = {
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const originalSourceUrl = input.pageUrl ?? input.url;
     const resolvedSourceUrl = resolveWeiboSourceUrl(originalSourceUrl) ?? originalSourceUrl;
+    const strategy = getRuntimeManualSiteStrategy("weibo");
 
     if (isWeiboTvShowUrl(resolvedSourceUrl)) {
       return {
         providerId: "weibo",
         label: input.title?.trim() || input.pageUrl || input.url,
         intent: buildGalleryDlVideoIntent(input, "weibo"),
-        engines: [
-          {
-            engine: "yt-dlp",
-            priority: 96,
-            when: "primary",
-            reason: "Weibo tv/show pages are supported by yt-dlp but not by gallery-dl",
+        engines: buildEnginePlansFromStrategySources(strategy, {
+          "yt-dlp": {
             sourceUrl: resolvedSourceUrl,
-            fallbackOn: "any",
+            reason: "Weibo tv/show pages are supported by yt-dlp but not by gallery-dl",
           },
-        ],
+        }),
       };
     }
 
@@ -41,26 +40,18 @@ export const weiboProvider: SiteProvider = {
       providerId: "weibo",
       label: input.title?.trim() || input.pageUrl || input.url,
       intent: buildGalleryDlVideoIntent(input, "weibo"),
-      engines: [
-        {
-          engine: "gallery-dl",
-          priority: 92,
-          when: "primary",
+      engines: buildEnginePlansFromStrategySources(strategy, {
+        "gallery-dl": {
+          sourceUrl: galleryDlSourceUrl,
           reason: galleryDlSourceUrl === originalSourceUrl
             ? "Weibo downloads should prefer gallery-dl extraction"
             : "Normalize Weibo links to a canonical detail URL before gallery-dl extraction",
-          sourceUrl: galleryDlSourceUrl,
-          fallbackOn: "any",
         },
-        {
-          engine: "yt-dlp",
-          priority: 54,
-          when: "fallback",
-          reason: "Use yt-dlp as a safe fallback when gallery-dl cannot resolve the Weibo page",
+        "yt-dlp": {
           sourceUrl: resolvedSourceUrl,
-          fallbackOn: "any",
+          reason: "Use yt-dlp as a safe fallback when gallery-dl cannot resolve the Weibo page",
         },
-      ],
+      }),
     };
   },
 };

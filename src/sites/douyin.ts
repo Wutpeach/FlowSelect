@@ -6,6 +6,8 @@ import type {
   SiteProvider,
   VideoDownloadIntent,
 } from "../core/index.js";
+import { buildEnginePlansFromStrategySources } from "../download-capabilities/strategy-plans.js";
+import { getRuntimeManualSiteStrategy } from "../download-capabilities/runtime-site-strategies.js";
 
 const DOUYIN_HOST_PATTERN = /(douyin\.com|douyinvod\.com|douyincdn\.com|bytecdn|bytedance)/i;
 
@@ -54,40 +56,27 @@ export const douyinProvider: SiteProvider = {
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const directSource = pickDirectSource(input);
     const intent = buildIntent(input) as VideoDownloadIntent;
+    const strategy = getRuntimeManualSiteStrategy("douyin");
+    const pageSourceUrl = input.pageUrl ?? input.url;
 
     return {
       providerId: "douyin",
       label: input.title?.trim() || input.pageUrl || input.url,
       intent,
-      engines: directSource
-        ? [
-            {
-              engine: "direct",
-              priority: 100,
-              when: "primary",
-              reason: "Verified Douyin direct media candidate is available",
+      engines: buildEnginePlansFromStrategySources(strategy, {
+        direct: directSource
+          ? {
               sourceUrl: directSource,
-              fallbackOn: "any",
-            },
-            {
-              engine: "yt-dlp",
-              priority: 60,
-              when: "fallback",
-              reason: "Use yt-dlp page extraction when direct media fails",
-              sourceUrl: input.pageUrl ?? input.url,
-              fallbackOn: "any",
-            },
-          ]
-        : [
-            {
-              engine: "yt-dlp",
-              priority: 80,
-              when: "primary",
-              reason: "No direct media candidate is available",
-              sourceUrl: input.pageUrl ?? input.url,
-              fallbackOn: "any",
-            },
-          ],
+              reason: "Verified Douyin direct media candidate is available",
+            }
+          : undefined,
+        "yt-dlp": {
+          sourceUrl: pageSourceUrl,
+          reason: directSource
+            ? "Use yt-dlp page extraction when direct media fails"
+            : "No direct media candidate is available",
+        },
+      }),
     };
   },
 };

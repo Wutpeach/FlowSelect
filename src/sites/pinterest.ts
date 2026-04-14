@@ -5,6 +5,8 @@ import type {
   SiteProvider,
   VideoDownloadIntent,
 } from "../core/index.js";
+import { buildEnginePlansFromStrategySources } from "../download-capabilities/strategy-plans.js";
+import { getRuntimeManualSiteStrategy } from "../download-capabilities/runtime-site-strategies.js";
 
 const isPinterestUrl = (value: string | undefined): boolean =>
   Boolean(value && /pinterest\./i.test(value));
@@ -32,6 +34,8 @@ export const pinterestProvider: SiteProvider = {
   },
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const directSource = directSourceFromPinterest(input);
+    const strategy = getRuntimeManualSiteStrategy("pinterest");
+    const pageSourceUrl = input.pageUrl ?? input.url;
     const intent: VideoDownloadIntent = {
       type: "video",
       siteId: "pinterest",
@@ -51,35 +55,20 @@ export const pinterestProvider: SiteProvider = {
       providerId: "pinterest",
       label: input.title?.trim() || input.pageUrl || input.url,
       intent,
-      engines: directSource
-        ? [
-            {
-              engine: "direct",
-              priority: 100,
-              when: "primary",
-              reason: "Verified Pinterest direct media asset is available",
+      engines: buildEnginePlansFromStrategySources(strategy, {
+        direct: directSource
+          ? {
               sourceUrl: directSource,
-              fallbackOn: "any",
-            },
-            {
-              engine: "gallery-dl",
-              priority: 90,
-              when: "fallback",
-              reason: "Use gallery-dl as the maintained Pinterest extractor path",
-              sourceUrl: input.pageUrl ?? input.url,
-              fallbackOn: "any",
-            },
-          ]
-        : [
-            {
-              engine: "gallery-dl",
-              priority: 100,
-              when: "primary",
-              reason: "Pinterest resources are handled by gallery-dl",
-              sourceUrl: input.pageUrl ?? input.url,
-              fallbackOn: "any",
-            },
-          ],
+              reason: "Verified Pinterest direct media asset is available",
+            }
+          : undefined,
+        "gallery-dl": {
+          sourceUrl: pageSourceUrl,
+          reason: directSource
+            ? "Use gallery-dl as the maintained Pinterest extractor path"
+            : "Pinterest resources are handled by gallery-dl",
+        },
+      }),
     };
   },
 };

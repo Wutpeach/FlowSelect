@@ -5,6 +5,8 @@ import type {
   SiteProvider,
   VideoDownloadIntent,
 } from "../core/index.js";
+import { buildEnginePlansFromStrategySources } from "../download-capabilities/strategy-plans.js";
+import { getRuntimeManualSiteStrategy } from "../download-capabilities/runtime-site-strategies.js";
 
 const XIAOHONGSHU_HOST_PATTERN = /(xiaohongshu\.com|xhslink\.com|xhscdn\.com)/i;
 
@@ -84,6 +86,7 @@ export const xiaohongshuProvider: SiteProvider = {
   resolvePlan(input: RawDownloadInput): ResolvedDownloadPlan {
     const directSource = pickDirectSource(input);
     const canonicalPageUrl = canonicalizeXiaohongshuNoteUrl(input.pageUrl ?? input.url);
+    const strategy = getRuntimeManualSiteStrategy("xiaohongshu");
     const intent: VideoDownloadIntent = {
       type: "video",
       siteId: "xiaohongshu",
@@ -105,26 +108,20 @@ export const xiaohongshuProvider: SiteProvider = {
       providerId: "xiaohongshu",
       label: input.title?.trim() || input.pageUrl || input.url,
       intent,
-      engines: directSource
-        ? [
-            {
-              engine: "direct",
-              priority: 100,
-              when: "primary",
-              reason: "Verified Xiaohongshu direct media asset is already available",
+      engines: buildEnginePlansFromStrategySources(strategy, {
+        direct: directSource
+          ? {
               sourceUrl: directSource,
-            },
-          ]
-        : [
-            {
-              engine: "yt-dlp",
-              priority: 80,
-              when: "primary",
-              reason: "No verified direct Xiaohongshu media asset is available",
+              reason: "Verified Xiaohongshu direct media asset is already available",
+            }
+          : undefined,
+        "yt-dlp": !directSource
+          ? {
               sourceUrl: canonicalPageUrl ?? input.pageUrl ?? input.url,
-              fallbackOn: "any",
-            },
-          ],
+              reason: "No verified direct Xiaohongshu media asset is available",
+            }
+          : undefined,
+      }),
     };
   },
 };

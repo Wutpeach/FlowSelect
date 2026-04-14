@@ -185,6 +185,20 @@ describe("builtin site providers", () => {
     ]);
   });
 
+  it("keeps Pinterest page-only routing on gallery-dl when no direct asset is available", () => {
+    const plan = resolvePlan({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      pageUrl: "https://www.pinterest.com/pin/1234567890/",
+      siteHint: "pinterest",
+    });
+
+    expect(plan.providerId).toBe("pinterest");
+    expect(plan.engines.map((engine) => engine.engine)).toEqual(["gallery-dl"]);
+    expect(plan.engines[0]).toMatchObject({
+      sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+    });
+  });
+
   it("routes gallery-dl-supported sites through gallery-dl before the generic yt-dlp fallback", () => {
     const url = "https://www.instagram.com/p/C7example/";
     const plan = resolvePlan({

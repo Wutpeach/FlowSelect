@@ -32,3 +32,38 @@ export const buildEnginePlansFromStrategy = (
     sourceUrl,
   }))
 );
+
+type StrategyEngineSourceConfig = {
+  sourceUrl: string;
+  reason?: string;
+  fallbackOn?: EnginePlan["fallbackOn"];
+  fallbackOnClassifications?: EnginePlan["fallbackOnClassifications"];
+  options?: EnginePlan["options"];
+};
+
+type StrategyEngineSourceMap = Partial<
+  Record<EnginePlan["engine"], StrategyEngineSourceConfig>
+>;
+
+export const buildEnginePlansFromStrategySources = (
+  strategy: DownloadSiteStrategyEntry,
+  sources: StrategyEngineSourceMap,
+): EnginePlan[] => (
+  strategy.engineOrder.flatMap((engine, index) => {
+    const config = sources[engine];
+    if (!config?.sourceUrl) {
+      return [];
+    }
+
+    return [{
+      engine,
+      priority: DEFAULT_PRIMARY_PRIORITY - (index * DEFAULT_FALLBACK_PRIORITY_STEP),
+      when: index === 0 ? "primary" : "fallback",
+      reason: config.reason ?? buildRegistryEngineReason(strategy, engine, index),
+      sourceUrl: config.sourceUrl,
+      fallbackOn: config.fallbackOn,
+      fallbackOnClassifications: config.fallbackOnClassifications,
+      options: config.options,
+    }];
+  })
+);
