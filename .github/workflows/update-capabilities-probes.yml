@@ -32,8 +32,17 @@ jobs:
       - name: Refresh capability probe snapshot
         run: npm run capabilities:probe
 
+      - name: Generate capability probe review artifact
+        run: npm run capabilities:probe:review
+
+      - name: Upload capability probe review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: capability-probe-review
+          path: build/capability-probe-review/review.json
+
       - name: Verify probe tests
-        run: npm test -- --run src/download-capabilities/probe.test.ts src/download-capabilities/probe-snapshot.test.ts
+        run: npm test -- --run src/download-capabilities/probe.test.ts src/download-capabilities/probe-snapshot.test.ts src/download-capabilities/probe-review.test.ts
 
       - name: Create pull request
         uses: peter-evans/create-pull-request@v7
@@ -45,6 +54,7 @@ jobs:
             Refreshed `src/assets/capabilities-probe.json` from the curated capability probe target list.
 
             This workflow keeps probe outputs separate from the bundled capability seed so probe status can evolve independently from upstream claimed support.
+            A machine-readable review artifact is uploaded so maintainers can inspect capability update candidates before changing the registry.
           labels: |
             automation
             download

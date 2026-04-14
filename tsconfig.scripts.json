@@ -6,6 +6,7 @@
     "lib": ["ES2022", "DOM"],
     "strict": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "noEmit": false,
     "outDir": "dist-scripts",
     "rootDir": ".",
@@ -13,8 +14,10 @@
   },
   "files": [
     "scripts/run-capability-probes.ts",
+    "scripts/generate-capability-probe-review.ts",
     "scripts/generate-download-telemetry-report.ts",
     "src/download-capabilities/probe.ts",
+    "src/download-capabilities/probe-review.ts",
     "src/download-capabilities/probe-snapshot.ts",
     "src/download-capabilities/schema.ts",
     "src/download-capabilities/types.ts",
