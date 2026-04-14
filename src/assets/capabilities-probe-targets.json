@@ -4,17 +4,63 @@
     "engine": "yt-dlp",
     "sourceUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     "siteId": "youtube",
+    "tier": "critical",
     "notes": [
-      "Stable public sample for yt-dlp probe smoke coverage."
+      "Stable public sample for yt-dlp probe smoke coverage.",
+      "Represents the single-engine registry strategy for YouTube."
     ]
   },
   {
-    "id": "generic-direct-media",
-    "engine": "direct",
-    "sourceUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "siteId": "generic",
+    "id": "bilibili-ytdlp",
+    "engine": "yt-dlp",
+    "sourceUrl": "https://www.bilibili.com/video/BV1gaoDYVEWo/",
+    "siteId": "bilibili",
+    "tier": "critical",
     "notes": [
-      "Stable public media URL for direct HEAD/range probe coverage."
+      "Public Bilibili video used to keep migrated yt-dlp-only routing covered."
+    ]
+  },
+  {
+    "id": "twitter-x-ytdlp",
+    "engine": "yt-dlp",
+    "sourceUrl": "https://x.com/niji_dps/status/1978389886299263319",
+    "siteId": "twitter-x",
+    "tier": "auth_sensitive",
+    "notes": [
+      "Representative X status route for yt-dlp coverage.",
+      "Expected to surface auth or login sensitivity more often than YouTube or Bilibili."
+    ]
+  },
+  {
+    "id": "douyin-ytdlp",
+    "engine": "yt-dlp",
+    "sourceUrl": "https://www.douyin.com/video/7493088730088770870",
+    "siteId": "douyin",
+    "tier": "critical",
+    "notes": [
+      "Representative Douyin page URL for the post-normalization fallback engine path."
+    ]
+  },
+  {
+    "id": "xiaohongshu-ytdlp",
+    "engine": "yt-dlp",
+    "sourceUrl": "https://www.xiaohongshu.com/explore/69ce44ea000000001b0031bb",
+    "siteId": "xiaohongshu",
+    "tier": "auth_sensitive",
+    "notes": [
+      "Representative Xiaohongshu note URL aligned with provider tests.",
+      "Used for fragile authenticated page-extractor coverage."
+    ]
+  },
+  {
+    "id": "pinterest-gallery-dl",
+    "engine": "gallery-dl",
+    "sourceUrl": "https://www.pinterest.com/pin/735564551608774456/",
+    "siteId": "pinterest",
+    "tier": "coverage",
+    "notes": [
+      "Representative Pinterest pin URL for migrated gallery-dl fallback coverage.",
+      "Direct-asset probing remains intentionally out of scope for curated stable targets."
     ]
   },
   {
@@ -22,8 +68,10 @@
     "engine": "gallery-dl",
     "sourceUrl": "https://weibo.com/detail/4913212871149937",
     "siteId": "weibo",
+    "tier": "auth_sensitive",
     "notes": [
-      "Representative Weibo detail route used by provider regression tests."
+      "Representative Weibo detail route used by provider regression tests.",
+      "Tracks the gallery-dl first leg that often becomes auth-sensitive."
     ]
   },
   {
@@ -31,8 +79,20 @@
     "engine": "yt-dlp",
     "sourceUrl": "https://weibo.com/tv/show/1034:5284550214090773?from=old_pc_videoshow",
     "siteId": "weibo",
+    "tier": "coverage",
     "notes": [
-      "Representative Weibo tv/show route used by provider regression tests."
+      "Representative Weibo tv/show route used by provider regression tests.",
+      "Covers the explicit yt-dlp fallback path that bypasses gallery-dl."
+    ]
+  },
+  {
+    "id": "generic-direct-media",
+    "engine": "direct",
+    "sourceUrl": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "siteId": "generic",
+    "tier": "coverage",
+    "notes": [
+      "Stable public media URL for direct HEAD or range probe coverage."
     ]
   }
 ]

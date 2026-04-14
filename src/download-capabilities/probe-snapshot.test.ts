@@ -12,12 +12,14 @@ describe("capability probe snapshots", () => {
         engine: "yt-dlp",
         sourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         siteId: "youtube",
+        tier: "critical",
       },
       {
         id: "generic-direct",
         engine: "direct",
         sourceUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
         siteId: "generic",
+        tier: "coverage",
       },
     ] as const;
 
@@ -50,6 +52,11 @@ describe("capability probe snapshots", () => {
       ],
     });
 
+    expect(snapshot.schemaVersion).toBe(2);
+    expect(snapshot.targets[0]).toMatchObject({
+      id: "youtube-ytdlp",
+      tier: "critical",
+    });
     expect(snapshot.summary).toEqual({
       total: 2,
       works: 1,

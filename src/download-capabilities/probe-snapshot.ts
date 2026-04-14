@@ -5,11 +5,20 @@ import {
 } from "./probe.js";
 import { capabilityEngineIdSchema } from "./schema.js";
 
+export const capabilityProbeTargetTierSchema = z.enum([
+  "critical",
+  "auth_sensitive",
+  "coverage",
+]);
+
+export type CapabilityProbeTargetTier = z.infer<typeof capabilityProbeTargetTierSchema>;
+
 export const capabilityProbeTargetSchema = z.object({
   id: z.string().trim().min(1),
   engine: capabilityEngineIdSchema,
   sourceUrl: z.url(),
   siteId: z.string().trim().min(1).optional(),
+  tier: capabilityProbeTargetTierSchema,
   notes: z.array(z.string().trim().min(1)).optional(),
 });
 
@@ -22,7 +31,7 @@ export const capabilityProbeRecordSchema = capabilityProbeResultSchema.extend({
 export type CapabilityProbeRecord = z.infer<typeof capabilityProbeRecordSchema>;
 
 export const capabilityProbeSnapshotSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   generatedAt: z.iso.datetime(),
   targets: z.array(capabilityProbeTargetSchema),
   records: z.array(capabilityProbeRecordSchema),
@@ -84,7 +93,7 @@ export const createCapabilityProbeSnapshot = (input: {
   targets: readonly CapabilityProbeTarget[];
   records: readonly CapabilityProbeRecord[];
 }): CapabilityProbeSnapshot => capabilityProbeSnapshotSchema.parse({
-  schemaVersion: 1,
+  schemaVersion: 2,
   generatedAt: input.generatedAt ?? new Date().toISOString(),
   targets: input.targets,
   records: input.records,
