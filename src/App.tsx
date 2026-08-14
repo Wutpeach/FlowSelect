@@ -159,6 +159,8 @@ import {
   shouldInvalidateTerminalRevealForPrimaryDownload,
   shouldShowDownloadTerminalReveal,
 } from "./presentation/main-window/downloadTerminalProjection";
+import { useDownloadIntakePresentation } from "./presentation/main-window/downloadIntakePresentation";
+import { resolveExpandedPresentationTarget } from "./presentation/main-window/expandedPresentationPolicy";
 import { isMainWindowFullContentVisible } from "./presentation/main-window/projections";
 import i18n from "./i18n";
 import {
@@ -434,8 +436,14 @@ function App() {
   const {
     state: downloadState,
     actions: downloadActions,
+    onIntake: onDownloadIntake,
     onTerminal: onDownloadTerminal,
   } = useDownloadQueue(downloadClient);
+  const downloadIntakePresentation = useDownloadIntakePresentation({
+    downloadState,
+    onIntake: onDownloadIntake,
+    onTerminal: onDownloadTerminal,
+  });
   const [queueNoticeMessage, setQueueNoticeMessage] = useState<string | null>(null);
   const [isQueuePopoverOpen, setIsQueuePopoverOpen] = useState(false);
   const [appUpdateInfo, setAppUpdateInfo] = useState<AppUpdateInfo | null>(null);
@@ -558,6 +566,11 @@ function App() {
     centerOverlayState,
     primaryDownloadTask,
   );
+  const expandedPresentationTarget = resolveExpandedPresentationTarget({
+    progress: expandedPresentationProgress,
+    terminal: expandedPresentationTerminal,
+    intake: downloadIntakePresentation,
+  });
   const centerOverlayVisual = selectCenterOverlayVisual({
     primaryTask: primaryTask
       ? {
@@ -2894,8 +2907,7 @@ function App() {
       }}
       locks={presentationLocks}
       primaryTaskKind={primaryTask?.kind ?? null}
-      expandedPresentationProgress={expandedPresentationProgress}
-      expandedPresentationTerminal={expandedPresentationTerminal}
+      expandedPresentationTarget={expandedPresentationTarget}
       isContextMenuOpen={isContextMenuOpen}
       interactionBusy={isProcessing || Boolean(primaryTask) || totalTaskCount > 0 || isQueuePopoverOpen}
       onCloseContextMenu={closeContextMenuWindow}

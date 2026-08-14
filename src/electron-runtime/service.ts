@@ -487,7 +487,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     }
 
     const traceId = nextDownloadTraceId();
-    await this.enqueuePendingDownloadTask(traceId, request);
+    await this.enqueuePendingDownloadTask(traceId, request, traceId);
     return {
       accepted: true,
       traceId,
@@ -582,13 +582,14 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
   private async enqueuePendingDownloadTask(
     traceId: string,
     request: RawDownloadInput,
+    acceptedTraceId?: string,
   ): Promise<void> {
     this.pending.push({
       traceId,
       label: queueTaskLabel(request),
       request,
     });
-    await this.emitQueueState();
+    await this.emitQueueState(acceptedTraceId);
     void this.pumpQueue();
   }
 
@@ -638,7 +639,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     };
     this.advancedQualityTasks.set(traceId, task);
     this.advancedQualityDedupe.set(dedupeKey, traceId);
-    await this.emitQueueState();
+    await this.emitQueueState(traceId);
     void this.probeAdvancedQualityTask(traceId);
     return {
       accepted: true,
@@ -953,9 +954,14 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     return true;
   }
 
-  private async emitQueueState(): Promise<void> {
-    await this.options.eventSink.emit("video-queue-count", this.getQueueState());
-    await this.options.eventSink.emit("video-queue-detail", this.getQueueDetail());
+  private async emitQueueState(acceptedTraceId?: string): Promise<void> {
+    const state = this.getQueueState();
+    const detail = this.getQueueDetail();
+    await this.options.eventSink.emit("video-queue-count", state);
+    await this.options.eventSink.emit(
+      "video-queue-detail",
+      acceptedTraceId === undefined ? detail : { ...detail, acceptedTraceId },
+    );
   }
 
   getTranscodeQueueState(): VideoTranscodeQueueStatePayload {

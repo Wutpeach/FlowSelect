@@ -353,3 +353,12 @@ publisher removes them, classify outcomes, release `centerOutcome`, progress the
 main-window lifecycle, mutate Download/Application state, or expose semantic
 callbacks. WebGL context/resource state is decorative renderer-local state and
 failure leaves all authorities unchanged.
+
+MR8 adds one Download-Intake-specific bounded Presentation owner beside these
+projections. Its source is the Application-authored `acceptedTraceId` marker on
+the exact new-membership queue snapshot; unmarked snapshots and local command
+acks never create it. It owns only latest opportunity identity, deadline, and
+stale invalidation. The pure Expanded Presentation policy resolves MR4 current-
+primary suppression, Terminal, Intake, then MR3 Progress before passing one
+typed target to the MR7 host. Intake creates no lifecycle lock, Product field,
+renderer completion callback, queue, scheduler, or generic Reveal authority.

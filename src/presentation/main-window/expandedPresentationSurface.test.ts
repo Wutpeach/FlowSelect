@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const here = import.meta.dirname;
 const hostSource = readFileSync(resolve(here, "ExpandedPresentationSurface.tsx"), "utf8");
 const surfaceSource = readFileSync(resolve(here, "MainWindowPresentationSurface.tsx"), "utf8");
+const runtimeSource = readFileSync(resolve(here, "expandedPresentationRuntime.ts"), "utf8");
 
 describe("Expanded Presentation graphics host contract", () => {
   it("owns one noninteractive decorative canvas", () => {
@@ -16,6 +17,9 @@ describe("Expanded Presentation graphics host contract", () => {
       hostSource.indexOf("type GraphicsColors"),
     );
     expect(props).not.toContain("=>");
+    expect(props).toContain("target: ExpandedPresentationTarget");
+    expect(props).not.toContain("progress:");
+    expect(props).not.toContain("terminal:");
   });
 
   it("uses one concrete WebGL2 backend with no fallback", () => {
@@ -44,5 +48,12 @@ describe("Expanded Presentation graphics host contract", () => {
     expect(surfaceSource.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
     expect(surfaceSource).not.toMatch(/DotField|dotField/);
     expect(surfaceSource).toContain("{children}");
+  });
+
+  it("receives one resolved Intake-capable target without semantic callbacks", () => {
+    expect(hostSource).toContain('frame.target.kind === "intake"');
+    expect(hostSource).toContain("uMode == 6");
+    expect(runtimeSource).toContain("target: ExpandedPresentationTarget");
+    expect(runtimeSource).not.toMatch(/onComplete|onExpire|dispatchLifecycle|requestFull/);
   });
 });

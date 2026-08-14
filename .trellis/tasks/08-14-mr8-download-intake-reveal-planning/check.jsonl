@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check reducer/controller ownership, transient latest-only state, and no duplicate authority."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check the runtime event -> Download controller -> Presentation -> host boundary and source-of-truth precedence."}
+{"file":".trellis/tasks/08-14-mr8-download-intake-reveal-planning/research/repository-grounded-planning-report.md","reason":"Check every MR8 acceptance item, priority edge case, implementation boundary, and architecture stop condition."}
+{"file":".trellis/spec/frontend/docs-site.md","reason":"Check paired locale documentation updates and docs-site build validation."}

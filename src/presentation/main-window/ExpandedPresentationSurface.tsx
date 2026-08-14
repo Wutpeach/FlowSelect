@@ -5,10 +5,7 @@ import {
   type ExpandedPresentationInputs,
   type ExpandedPresentationRuntime,
 } from "./expandedPresentationRuntime";
-import type {
-  ExpandedPresentationProgressTarget,
-  ExpandedPresentationTerminalTarget,
-} from "./expandedPresentationTargets";
+import type { ExpandedPresentationTarget } from "./expandedPresentationTargets";
 
 const MAX_DPR = 2;
 
@@ -77,6 +74,14 @@ void main() {
     energy = halo * band;
     alpha = 0.1 + 0.22 * energy;
     color = uWarning;
+  } else if (uMode == 6) {
+    float phase = uReducedMotion ? 0.58 : fract(uTime * 0.42);
+    float intakeRadius = mix(0.68, 0.12, phase);
+    float arrival = exp(-abs(radius - intakeRadius) * 28.0);
+    float focus = 1.0 - smoothstep(0.04, 0.2, radius);
+    energy = max(halo * 0.24, arrival * 0.78 + focus * 0.36);
+    alpha = 0.08 + 0.24 * energy;
+    color = uAccent;
   } else {
     energy = halo * 0.18;
     alpha = 0.035 + 0.055 * energy;
@@ -88,8 +93,7 @@ void main() {
 export type ExpandedPresentationSurfaceProps = {
   eligible: boolean;
   reducedMotion: boolean;
-  progress: ExpandedPresentationProgressTarget;
-  terminal: ExpandedPresentationTerminalTarget;
+  target: ExpandedPresentationTarget;
   accentColor: string;
   warningColor: string;
   dangerColor: string;
@@ -225,14 +229,16 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
     if (disposed || gl.isContextLost()) return;
     lastFrame = frame;
     let mode = 0;
-    if (frame.progress.kind === "determinate") mode = 1;
-    else if (frame.progress.kind === "indeterminate") mode = 2;
-    else if (frame.terminal.kind === "terminal") {
-      mode = frame.terminal.status === "success"
+    if (frame.target.kind === "progress") {
+      mode = frame.target.progress.kind === "determinate" ? 1 : 2;
+    } else if (frame.target.kind === "terminal") {
+      mode = frame.target.status === "success"
         ? 3
-        : frame.terminal.status === "failure"
+        : frame.target.status === "failure"
           ? 4
           : 5;
+    } else if (frame.target.kind === "intake") {
+      mode = 6;
     }
     gl.useProgram(linkedProgram);
     gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
@@ -278,8 +284,7 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
 export function ExpandedPresentationSurface({
   eligible,
   reducedMotion,
-  progress,
-  terminal,
+  target,
   accentColor,
   warningColor,
   dangerColor,
@@ -290,8 +295,7 @@ export function ExpandedPresentationSurface({
   const runtimeRef = useRef<ExpandedPresentationRuntime | null>(null);
   const eligibleRef = useRef(eligible);
   const inputsRef = useRef<ExpandedPresentationInputs>({
-    progress,
-    terminal,
+    target,
     reducedMotion,
   });
   const colorsRef = useRef<GraphicsColors>({
@@ -304,7 +308,7 @@ export function ExpandedPresentationSurface({
 
   useEffect(() => {
     eligibleRef.current = eligible;
-    inputsRef.current = { progress, terminal, reducedMotion };
+    inputsRef.current = { target, reducedMotion };
     colorsRef.current = {
       accent: accentColor,
       warning: warningColor,
@@ -316,9 +320,8 @@ export function ExpandedPresentationSurface({
     dangerColor,
     eligible,
     mutedColor,
-    progress,
     reducedMotion,
-    terminal,
+    target,
     warningColor,
   ]);
 
@@ -378,7 +381,7 @@ export function ExpandedPresentationSurface({
       runtime.sleep();
       rendererRef.current?.clear();
     }
-  }, [eligible, progress, terminal, reducedMotion]);
+  }, [eligible, reducedMotion, target]);
 
   useEffect(() => {
     if (eligible) rendererRef.current?.redraw(colorsRef.current);

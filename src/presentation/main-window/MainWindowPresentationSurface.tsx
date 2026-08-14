@@ -49,10 +49,7 @@ import {
 } from "./pointerField";
 import { useMainWindowMagnetic } from "./magnetic";
 import { ExpandedPresentationSurface } from "./ExpandedPresentationSurface";
-import type {
-  ExpandedPresentationProgressTarget,
-  ExpandedPresentationTerminalTarget,
-} from "./expandedPresentationTargets";
+import type { ExpandedPresentationTarget } from "./expandedPresentationTargets";
 
 /**
  * Lock facts owned by Application state and mirrored from App into the
@@ -101,10 +98,8 @@ export type MainWindowPresentationSurfaceProps = {
   };
   locks: Record<MainWindowApplicationLock, boolean>;
   primaryTaskKind: "download" | "transcode" | null;
-  /** MR3 projected Download progress target; plain Presentation input. */
-  expandedPresentationProgress: ExpandedPresentationProgressTarget;
-  /** MR4 projected terminal target; plain Presentation input. */
-  expandedPresentationTerminal: ExpandedPresentationTerminalTarget;
+  /** MR8 pure policy output; the host receives no competing semantic lanes. */
+  expandedPresentationTarget: ExpandedPresentationTarget;
   isContextMenuOpen: boolean;
   /** Application busy state that blocks the panel double-click shortcut. */
   interactionBusy: boolean;
@@ -499,8 +494,7 @@ export function MainWindowPresentationSurface({
   environment,
   locks,
   primaryTaskKind,
-  expandedPresentationProgress,
-  expandedPresentationTerminal,
+  expandedPresentationTarget,
   isContextMenuOpen,
   interactionBusy,
   onCloseContextMenu,
@@ -1111,8 +1105,7 @@ export function MainWindowPresentationSurface({
             <ExpandedPresentationSurface
               eligible={expandedGraphicsEligible}
               reducedMotion={environment.reducedMotion}
-              progress={expandedPresentationProgress}
-              terminal={expandedPresentationTerminal}
+              target={expandedPresentationTarget}
               accentColor={colors.accentSolid}
               warningColor={colors.warningSolid}
               dangerColor={colors.dangerSolid}

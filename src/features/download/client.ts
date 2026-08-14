@@ -56,7 +56,11 @@ export type DownloadQueueEvent =
   | { type: "progress"; progress: DownloadProgress }
   | { type: "terminal"; payload: DownloadTerminalPayload }
   | { type: "queueCount"; maxConcurrent: number }
-  | { type: "queueDetail"; tasks: DownloadTask[] };
+  | {
+      type: "queueDetail";
+      tasks: DownloadTask[];
+      acceptedTraceId?: string;
+    };
 
 export interface DownloadQueueClient {
   queue(request: DownloadQueueRequest): Promise<DownloadQueueAck>;
@@ -152,9 +156,13 @@ const registerDownloadSubscriptions = async (
       listener({ type: "queueCount", maxConcurrent });
     }),
     bridge.events.on<VideoQueueDetailPayload>("video-queue-detail", (event) => {
+      const detail = normalizeVideoQueueDetail(event.payload);
       listener({
         type: "queueDetail",
-        tasks: normalizeVideoQueueDetail(event.payload).tasks.map((task) => ({
+        ...(detail.acceptedTraceId === undefined
+          ? {}
+          : { acceptedTraceId: detail.acceptedTraceId }),
+        tasks: detail.tasks.map((task) => ({
           traceId: task.traceId,
           label: task.label,
           videoTitle: task.videoTitle,

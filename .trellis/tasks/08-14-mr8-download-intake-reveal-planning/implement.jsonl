@@ -1,0 +1,5 @@
+{"file":".trellis/tasks/08-14-mr8-download-intake-reveal-planning/research/repository-grounded-planning-report.md","reason":"MR8 authoritative trigger, lifetime, priority, host input, implementation boundary, and stop conditions."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/04-electron-download-command-bridge-contract.md","reason":"Existing Electron Download command/event authority and queue snapshot boundary."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/15-advanced-quality-selection-queue-metadata.md","reason":"Existing-trace quality selection and advanced-quality new-membership/dedupe behavior."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Reducer/controller source-of-truth, transient state, and lifecycle ownership rules."}
+{"file":".trellis/spec/frontend/docs-site.md","reason":"Required paired Chinese/English public Download documentation and docs build contract for the visible Intake behavior."}

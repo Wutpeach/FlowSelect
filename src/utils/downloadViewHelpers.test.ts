@@ -279,6 +279,22 @@ describe("video queue helpers", () => {
       ],
     });
   });
+
+  it("keeps only a nonblank Intake marker that identifies a normalized task", () => {
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: " accepted ",
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).toMatchObject({ acceptedTraceId: "accepted" });
+
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: "missing",
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).not.toHaveProperty("acceptedTraceId");
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: "   ",
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).not.toHaveProperty("acceptedTraceId");
+  });
 });
 
 describe("video transcode queue helpers", () => {

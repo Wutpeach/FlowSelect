@@ -237,8 +237,8 @@ export const normalizeVideoQueueState = (
 
 export const normalizeVideoQueueDetail = (
   payload: Partial<VideoQueueDetailPayload> | null | undefined,
-): VideoQueueDetailPayload => ({
-  tasks: Array.isArray(payload?.tasks)
+): VideoQueueDetailPayload => {
+  const tasks = Array.isArray(payload?.tasks)
     ? payload.tasks.flatMap((task) => {
         if (!task || typeof task.traceId !== "string" || typeof task.label !== "string") {
           return [];
@@ -278,8 +278,18 @@ export const normalizeVideoQueueDetail = (
           qualityOptions,
         }];
       })
-    : [],
-});
+    : [];
+  const acceptedTraceId = typeof payload?.acceptedTraceId === "string"
+    ? payload.acceptedTraceId.trim()
+    : "";
+  return {
+    tasks,
+    ...(acceptedTraceId.length > 0
+      && tasks.some((task) => task.traceId === acceptedTraceId)
+      ? { acceptedTraceId }
+      : {}),
+  };
+};
 
 const normalizeVideoTranscodeStage = (
   stage: unknown,

@@ -1,6 +1,6 @@
 import type {
   ExpandedPresentationProgressTarget,
-  ExpandedPresentationTerminalTarget,
+  ExpandedPresentationTarget,
 } from "./expandedPresentationTargets";
 
 const PROGRESS_CONVERGENCE_PER_SECOND = 2.4;
@@ -8,15 +8,13 @@ const PROGRESS_SNAP = 0.001;
 const MAX_FRAME_DELTA_SECONDS = 0.05;
 
 export type ExpandedPresentationInputs = Readonly<{
-  progress: ExpandedPresentationProgressTarget;
-  terminal: ExpandedPresentationTerminalTarget;
+  target: ExpandedPresentationTarget;
   reducedMotion: boolean;
 }>;
 
 export type ExpandedPresentationFrame = Readonly<{
-  progress: ExpandedPresentationProgressTarget;
+  target: ExpandedPresentationTarget;
   progressLevel: number;
-  terminal: ExpandedPresentationTerminalTarget;
   reducedMotion: boolean;
   timeSeconds: number;
 }>;
@@ -30,13 +28,13 @@ export type ExpandedPresentationRuntime = {
   dispose: () => void;
   getState: () => ExpandedPresentationRuntimeState;
   getPendingFrameCount: () => number;
+  getTarget: () => ExpandedPresentationTarget;
   getProgressTarget: () => ExpandedPresentationProgressTarget;
   getProgressLevel: () => number;
-  getTerminalTarget: () => ExpandedPresentationTerminalTarget;
 };
 
+const IDLE_TARGET: ExpandedPresentationTarget = { kind: "idle" };
 const IDLE_PROGRESS: ExpandedPresentationProgressTarget = { kind: "idle" };
-const NO_TERMINAL: ExpandedPresentationTerminalTarget = { kind: "none" };
 
 const clamp01 = (value: number): number => Math.min(Math.max(value, 0), 1);
 
@@ -54,28 +52,47 @@ const progressEquals = (
     || (right.kind === "determinate" && left.target === right.target);
 };
 
-const terminalEquals = (
-  left: ExpandedPresentationTerminalTarget,
-  right: ExpandedPresentationTerminalTarget,
-): boolean => (
-  left.kind === "none" || right.kind === "none"
-    ? left.kind === right.kind
-    : left.status === right.status
-);
+const targetProgress = (
+  target: ExpandedPresentationTarget,
+): ExpandedPresentationProgressTarget => {
+  if (target.kind === "progress" || target.kind === "intake") {
+    return target.progress;
+  }
+  return IDLE_PROGRESS;
+};
+
+const targetEquals = (
+  left: ExpandedPresentationTarget,
+  right: ExpandedPresentationTarget,
+): boolean => {
+  if (left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case "idle":
+      return true;
+    case "progress":
+      return right.kind === "progress" && progressEquals(left.progress, right.progress);
+    case "terminal":
+      return right.kind === "terminal" && left.status === right.status;
+    case "intake":
+      return right.kind === "intake"
+        && left.opportunityId === right.opportunityId
+        && left.traceId === right.traceId
+        && progressEquals(left.progress, right.progress);
+  }
+};
 
 const inputsEqual = (
   left: ExpandedPresentationInputs,
   right: ExpandedPresentationInputs,
 ): boolean => (
   left.reducedMotion === right.reducedMotion
-  && progressEquals(left.progress, right.progress)
-  && terminalEquals(left.terminal, right.terminal)
+  && targetEquals(left.target, right.target)
 );
 
 /**
  * Consumer-local frame execution for the one Expanded graphics host. It owns
- * only reconstructible interpolation and bounded rAF scheduling. It has no
- * Product, lifecycle, retention, native, or semantic-completion channel.
+ * only reconstructible interpolation and bounded rAF scheduling. Semantic
+ * priority and Intake lifetime are already resolved by Presentation policy.
  */
 export const createExpandedPresentationRuntime = (dependencies: {
   now: () => number;
@@ -88,12 +105,11 @@ export const createExpandedPresentationRuntime = (dependencies: {
   let generation = 0;
   let frameHandle: number | null = null;
   let inputs: ExpandedPresentationInputs = {
-    progress: IDLE_PROGRESS,
-    terminal: NO_TERMINAL,
+    target: IDLE_TARGET,
     reducedMotion: false,
   };
+  let target: ExpandedPresentationTarget = IDLE_TARGET;
   let progressTarget: ExpandedPresentationProgressTarget = IDLE_PROGRESS;
-  let terminalTarget: ExpandedPresentationTerminalTarget = NO_TERMINAL;
   let progressLevel = 0;
   let lastFrameAt = 0;
 
@@ -113,9 +129,8 @@ export const createExpandedPresentationRuntime = (dependencies: {
   const renderCurrent = (timeMs: number): boolean => {
     try {
       render({
-        progress: progressTarget,
+        target,
         progressLevel,
-        terminal: terminalTarget,
         reducedMotion: inputs.reducedMotion,
         timeSeconds: timeMs / 1000,
       });
@@ -129,7 +144,8 @@ export const createExpandedPresentationRuntime = (dependencies: {
   const needsFrames = (): boolean => (
     !inputs.reducedMotion
     && (
-      progressTarget.kind === "indeterminate"
+      target.kind === "intake"
+      || progressTarget.kind === "indeterminate"
       || (
         progressTarget.kind === "determinate"
         && Math.abs(progressTarget.target - progressLevel) > PROGRESS_SNAP
@@ -168,41 +184,52 @@ export const createExpandedPresentationRuntime = (dependencies: {
   };
 
   const applyInputs = (next: ExpandedPresentationInputs): void => {
-    const previous = progressTarget;
-    const previousTrace = previous.kind === "idle" ? null : previous.traceId;
-    const nextTrace = next.progress.kind === "idle" ? null : next.progress.traceId;
+    const previousProgress = progressTarget;
+    const previousTrace = previousProgress.kind === "idle"
+      ? null
+      : previousProgress.traceId;
+    const nextProgress = targetProgress(next.target);
+    const nextTrace = nextProgress.kind === "idle" ? null : nextProgress.traceId;
     const traceChanged = previousTrace !== null
       && nextTrace !== null
       && previousTrace !== nextTrace;
 
     inputs = next;
-    progressTarget = next.progress;
-    terminalTarget = next.progress.kind === "idle" ? next.terminal : NO_TERMINAL;
+    target = next.target;
+    progressTarget = nextProgress;
 
-    if (next.progress.kind === "idle") {
+    if (nextProgress.kind === "idle") {
       progressLevel = 0;
       return;
     }
-    if (next.progress.kind === "indeterminate") {
+    if (nextProgress.kind === "indeterminate") {
       if (traceChanged) {
         progressLevel = 0;
       }
       return;
     }
 
-    const target = clamp01(next.progress.target);
-    progressTarget = { ...next.progress, target };
+    const normalizedProgress = {
+      ...nextProgress,
+      target: clamp01(nextProgress.target),
+    };
+    progressTarget = normalizedProgress;
+    if (target.kind === "progress") {
+      target = { ...target, progress: normalizedProgress };
+    } else if (target.kind === "intake") {
+      target = { ...target, progress: normalizedProgress };
+    }
     if (
-      previous.kind === "idle"
+      previousProgress.kind === "idle"
       || traceChanged
       || next.reducedMotion
     ) {
-      progressLevel = target;
-    } else if (previous.kind === "indeterminate") {
-      progressLevel = Math.min(progressLevel, target);
-    } else if (target < progressLevel) {
+      progressLevel = normalizedProgress.target;
+    } else if (previousProgress.kind === "indeterminate") {
+      progressLevel = Math.min(progressLevel, normalizedProgress.target);
+    } else if (normalizedProgress.target < progressLevel) {
       // An authoritative downward revision must never be visually overstated.
-      progressLevel = target;
+      progressLevel = normalizedProgress.target;
     }
   };
 
@@ -232,8 +259,8 @@ export const createExpandedPresentationRuntime = (dependencies: {
     }
     state = "awake";
     generation += 1;
+    target = IDLE_TARGET;
     progressTarget = IDLE_PROGRESS;
-    terminalTarget = NO_TERMINAL;
     progressLevel = 0;
     applyInputs(next);
     lastFrameAt = now();
@@ -249,8 +276,8 @@ export const createExpandedPresentationRuntime = (dependencies: {
     generation += 1;
     cancelPendingFrame();
     state = "sleeping";
+    target = IDLE_TARGET;
     progressTarget = IDLE_PROGRESS;
-    terminalTarget = NO_TERMINAL;
     progressLevel = 0;
   };
 
@@ -261,8 +288,8 @@ export const createExpandedPresentationRuntime = (dependencies: {
     generation += 1;
     cancelPendingFrame();
     state = "disposed";
+    target = IDLE_TARGET;
     progressTarget = IDLE_PROGRESS;
-    terminalTarget = NO_TERMINAL;
     progressLevel = 0;
   };
 
@@ -273,8 +300,8 @@ export const createExpandedPresentationRuntime = (dependencies: {
     dispose,
     getState: () => state,
     getPendingFrameCount: () => (frameHandle === null ? 0 : 1),
+    getTarget: () => target,
     getProgressTarget: () => progressTarget,
     getProgressLevel: () => progressLevel,
-    getTerminalTarget: () => terminalTarget,
   };
 };

@@ -34,6 +34,12 @@ If you are unsure, pick the Installer EXE on Windows or the arm64 DMG on Apple S
 4. Launch Ameow and confirm the floating window appears near the desktop edge.
 5. Download the matching `browser_extension.zip` only when you need page handoff, login state, or current-page media scanning.
 
+## What Appears When a Media Download Is Accepted?
+
+When the desktop app actually accepts a new media download, the expanded floating window briefly shows a blue intake acknowledgement, then continues with the live progress for the current task. It means the same thing whether the task came from the desktop app or the browser extension. Repeated clicks or ordinary queue refreshes do not replay it.
+
+If several new tasks arrive quickly, only the latest acknowledgement is shown; acknowledgements are never queued for delayed playback. A task that completes, fails, or is cancelled quickly follows the current task priority rules. With Reduced Motion enabled, Ameow keeps a static intake distinction without continuous travelling or explosive motion.
+
 ## Windows Installer or Portable ZIP?
 
 Choose the Installer EXE by default. It fits long-term daily use and behaves like a normal desktop-app install.

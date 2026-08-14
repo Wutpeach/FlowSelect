@@ -1113,3 +1113,133 @@ Required regression evidence:
   production Dot Field references, deleted legacy modules, and exclusive host;
 - real Windows Electron validation for WebGL2 context creation, semantic
   target rendering, collapse/expand sleep/wake, and context recovery.
+
+## Scenario: MR8 Download Intake Presentation
+
+### 1. Scope / Trigger
+
+MR8 adds one concrete Download Intake mode without widening the MR7 substrate
+into a generic Reveal system.
+
+Trigger: changes to authoritative Download membership acceptance,
+`video-queue-detail`, Download Intake Presentation lifetime/priority, or the
+MR7 Expanded target/host.
+
+### 2. Signatures
+
+```ts
+type VideoQueueDetailPayload = {
+  tasks: VideoQueueTaskPayload[];
+  acceptedTraceId?: string;
+};
+
+type DownloadIntakeTransition = Readonly<{ traceId: string }>;
+
+type ExpandedPresentationTarget =
+  | { kind: "idle" }
+  | { kind: "progress"; progress: ExpandedPresentationProgressTarget }
+  | { kind: "terminal"; status: "success" | "failure" | "cancelled" }
+  | {
+      kind: "intake";
+      opportunityId: number;
+      traceId: string;
+      progress: ExpandedPresentationProgressTarget;
+    };
+```
+
+Production dependency direction is fixed:
+
+```text
+Application new Download membership
+  -> video-queue-detail + transient acceptedTraceId
+  -> DownloadQueueController normal reduction + pre/post membership guard
+  -> latest bounded Download Intake Presentation opportunity
+  -> pure Terminal / Intake / Progress policy
+  -> one ExpandedPresentationTarget
+  -> the sole ExpandedPresentationSurface
+```
+
+### 3. Contracts
+
+- `acceptedTraceId` exists only on the full queue snapshot caused by actual new
+  membership. It is transient protocol metadata, never Download model state,
+  persistence, hydration, timing inference, local acknowledgement, or a second
+  event channel.
+- The controller reduces the queue snapshot first, then publishes Intake only
+  when the marked trace is present after reduction and absent before it. The
+  listener receives the exact post-reduction state.
+- Intake Presentation owns one latest opportunity, a monotonic opportunity id,
+  one finite deadline, and stale guards. A newer Intake replaces it; there is
+  no Presentation queue or replay.
+- Deadline, trace removal, qualifying foreground terminal, unrelated primary
+  replacement, controller replacement, and unmount invalidate the opportunity.
+  A background terminal remains subject to MR4 suppression. Expiry returns to
+  a fresh MR3 projection, never a stored Progress snapshot.
+- Intake creates no lifecycle lock, phase, full-intent reason, or native
+  request. Download/Application and the Main Window lifecycle reducer retain
+  their existing authority.
+- `expandedPresentationPolicy.ts` resolves MR4 current-primary suppression,
+  Terminal, Intake, then Progress before the host. The host/runtime receives
+  one `idle | progress | terminal | intake` target and never competes lanes or
+  emits semantic completion.
+- The Intake target is concrete to Download Intake. Do not add Folder fields,
+  a scene/layer API, command bus, scheduler, priority number, second host, or
+  second backend.
+- Reduced Motion retains the typed Intake distinction as an immediate/static
+  treatment and schedules no nonessential continuous travelling frames.
+
+### 4. Validation & Error Matrix
+
+| Input / transition | Required result |
+| --- | --- |
+| marked trace absent before and present after normal reduction | publish exactly one Intake with exact post state |
+| unmarked hydration/full snapshot | update Download state; publish no Intake |
+| replayed marker or advanced-quality dedupe | publish no Intake |
+| existing-trace quality selection | preserve membership; publish no Intake |
+| rapid distinct accepted traces | latest opportunity replaces; no delayed queue |
+| deadline or marked trace removal | invalidate; resolve from current MR3 facts |
+| foreground / background terminal | foreground invalidates and Terminal wins; background remains MR4-suppressed |
+| controller replacement / unmount | old opportunity and callbacks are stale |
+| Reduced Motion Intake | one static semantic frame; no continuous frame work |
+
+### 5. Good / Base / Bad Cases
+
+- Good: an extension-origin request and a renderer-origin request both enter
+  the same Application queue path and each new membership carries one marker.
+- Base: an unmarked queue refresh updates current Progress without creating or
+  replaying Intake.
+- Bad: treating an ack, click, first progress, React commit, elapsed guess, or
+  shader completion as acceptance; storing Intake in Download state; adding a
+  Reveal queue or a second host.
+
+### 6. Tests Required
+
+- runtime/protocol/controller tests for marked normal and advanced creation,
+  unmarked hydration/dedupe/existing-trace quality selection, replay guards,
+  renderer and extension paths, exact post state, and rapid event order;
+- `downloadIntakePresentation.test.ts` for latest replacement, guarded expiry,
+  removal, primary change, foreground/background terminal behavior, and reset;
+- `expandedPresentationPolicy.test.ts` for the full priority matrix;
+- Expanded runtime/surface tests for latest target replacement, current
+  Progress reconstruction, Reduced Motion zero continuous frames, one pending
+  frame, failure isolation, and the single WebGL2 canvas boundary.
+
+### 7. Wrong vs Correct
+
+Wrong — infer acceptance from an unmarked snapshot and let the renderer decide:
+
+```ts
+if (nextTasks.length > previousTasks.length) runtime.playReveal();
+```
+
+Correct — validate the Application-authored cause after normal reduction and
+resolve one target before rendering:
+
+```ts
+dispatch({ type: "queueDetailReceived", tasks });
+if (acceptedTraceId && !wasMember && state.tasksById[acceptedTraceId]) {
+  publishIntake({ traceId: acceptedTraceId }, state);
+}
+
+const target = resolveExpandedPresentationTarget({ progress, terminal, intake });
+```

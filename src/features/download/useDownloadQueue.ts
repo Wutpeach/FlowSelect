@@ -21,6 +21,8 @@ import {
   type DownloadTerminalOutcome,
 } from "./model";
 
+export type DownloadIntakeTransition = Readonly<{ traceId: string }>;
+
 /**
  * Lifecycle-safe Download queue controller: one reducer instance and one
  * subscription owner per client identity. Protocol events are reduced
@@ -39,6 +41,9 @@ export class DownloadQueueController {
   // the state is never mutated by listeners.
   private readonly terminalListeners = new Set<
     (outcome: DownloadTerminalOutcome, postReductionState: DownloadQueueState) => void
+  >();
+  private readonly intakeListeners = new Set<
+    (transition: DownloadIntakeTransition, postReductionState: DownloadQueueState) => void
   >();
   /** True only after dispose(); a pre-start controller is still usable. */
   private disposed = false;
@@ -73,6 +78,18 @@ export class DownloadQueueController {
     this.terminalListeners.add(listener);
     return () => {
       this.terminalListeners.delete(listener);
+    };
+  }
+
+  subscribeIntake(
+    listener: (
+      transition: DownloadIntakeTransition,
+      postReductionState: DownloadQueueState,
+    ) => void,
+  ): () => void {
+    this.intakeListeners.add(listener);
+    return () => {
+      this.intakeListeners.delete(listener);
     };
   }
 
@@ -112,6 +129,7 @@ export class DownloadQueueController {
     this.registration = null;
     this.stateListeners.clear();
     this.terminalListeners.clear();
+    this.intakeListeners.clear();
   }
 
   queue(request: DownloadQueueRequest): Promise<DownloadQueueAck> {
@@ -223,9 +241,22 @@ export class DownloadQueueController {
       case "queueCount":
         this.dispatch({ type: "queueCountReceived", maxConcurrent: event.maxConcurrent });
         break;
-      case "queueDetail":
+      case "queueDetail": {
+        const acceptedTraceId = event.acceptedTraceId;
+        const wasAlreadyMember = acceptedTraceId === undefined
+          ? false
+          : Object.prototype.hasOwnProperty.call(this.state.tasksById, acceptedTraceId);
         this.dispatch({ type: "queueDetailReceived", tasks: event.tasks });
+        if (
+          acceptedTraceId !== undefined
+          && !wasAlreadyMember
+          && Object.prototype.hasOwnProperty.call(this.state.tasksById, acceptedTraceId)
+        ) {
+          const transition = { traceId: acceptedTraceId };
+          this.intakeListeners.forEach((listener) => listener(transition, this.state));
+        }
         break;
+      }
     }
   }
 }
@@ -275,5 +306,15 @@ export function useDownloadQueue(client: DownloadQueueClient) {
     [controller],
   );
 
-  return { state, actions, onTerminal };
+  const onIntake = useCallback(
+    (
+      listener: (
+        transition: DownloadIntakeTransition,
+        postReductionState: DownloadQueueState,
+      ) => void,
+    ) => controller.subscribeIntake(listener),
+    [controller],
+  );
+
+  return { state, actions, onIntake, onTerminal };
 }

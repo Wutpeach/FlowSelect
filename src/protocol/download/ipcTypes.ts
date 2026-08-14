@@ -64,6 +64,8 @@ export type VideoQueueStatePayload = {
 
 export type VideoQueueDetailPayload = {
   tasks: VideoQueueTaskPayload[];
+  /** Transient cause present only on the snapshot emitted by new membership. */
+  acceptedTraceId?: string;
 };
 
 export type VideoTranscodeTaskStatus = "active" | "pending" | "failed";

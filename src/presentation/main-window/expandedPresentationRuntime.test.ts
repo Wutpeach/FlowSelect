@@ -6,8 +6,19 @@ import {
 } from "./expandedPresentationRuntime";
 
 const idle = (reducedMotion = false): ExpandedPresentationInputs => ({
-  progress: { kind: "idle" },
-  terminal: { kind: "none" },
+  target: { kind: "idle" },
+  reducedMotion,
+});
+
+const progress = (
+  traceId: string,
+  target: number,
+  reducedMotion = false,
+): ExpandedPresentationInputs => ({
+  target: {
+    kind: "progress",
+    progress: { kind: "determinate", traceId, target },
+  },
   reducedMotion,
 });
 
@@ -53,18 +64,9 @@ describe("Expanded Presentation runtime", () => {
 
   it("converges upward toward the latest same-trace target with one frame", () => {
     const harness = createHarness();
-    harness.runtime.wake({
-      ...idle(),
-      progress: { kind: "determinate", traceId: "a", target: 0.2 },
-    });
-    harness.runtime.setInputs({
-      ...idle(),
-      progress: { kind: "determinate", traceId: "a", target: 0.6 },
-    });
-    harness.runtime.setInputs({
-      ...idle(),
-      progress: { kind: "determinate", traceId: "a", target: 0.8 },
-    });
+    harness.runtime.wake(progress("a", 0.2));
+    harness.runtime.setInputs(progress("a", 0.6));
+    harness.runtime.setInputs(progress("a", 0.8));
     expect(harness.runtime.getProgressLevel()).toBe(0.2);
     expect(harness.runtime.getProgressTarget()).toEqual({
       kind: "determinate",
@@ -77,92 +79,129 @@ describe("Expanded Presentation runtime", () => {
     expect(harness.pending()).toBe(1);
   });
 
-  it("applies authoritative downward revisions immediately", () => {
+  it("applies downward revisions and replacement traces immediately", () => {
     const harness = createHarness();
-    harness.runtime.wake({
-      ...idle(),
-      progress: { kind: "determinate", traceId: "a", target: 0.8 },
-    });
-    harness.runtime.setInputs({
-      ...idle(),
-      progress: { kind: "determinate", traceId: "a", target: 0.35 },
-    });
+    harness.runtime.wake(progress("old", 0.8));
+    harness.runtime.setInputs(progress("old", 0.35));
     expect(harness.runtime.getProgressLevel()).toBe(0.35);
-    expect(harness.pending()).toBe(0);
-  });
-
-  it("rebases a replacement trace instead of inheriting prior progress", () => {
-    const harness = createHarness();
-    harness.runtime.wake({
-      ...idle(),
-      progress: { kind: "determinate", traceId: "old", target: 0.9 },
-    });
-    harness.runtime.setInputs({
-      ...idle(),
-      progress: { kind: "determinate", traceId: "new", target: 0.12 },
-    });
+    harness.runtime.setInputs(progress("new", 0.12));
     expect(harness.runtime.getProgressLevel()).toBe(0.12);
     expect(harness.pending()).toBe(0);
   });
 
-  it("keeps normal indeterminate evolution bounded and stops it for Reduced Motion", () => {
+  it("keeps indeterminate evolution bounded and stops it for Reduced Motion", () => {
     const harness = createHarness();
     harness.runtime.wake({
-      ...idle(),
-      progress: { kind: "indeterminate", traceId: "a" },
+      target: {
+        kind: "progress",
+        progress: { kind: "indeterminate", traceId: "a" },
+      },
+      reducedMotion: false,
     });
     expect(harness.pending()).toBe(1);
     harness.step();
     expect(harness.pending()).toBe(1);
     harness.runtime.setInputs({
-      ...idle(true),
-      progress: { kind: "indeterminate", traceId: "a" },
+      target: {
+        kind: "progress",
+        progress: { kind: "indeterminate", traceId: "a" },
+      },
+      reducedMotion: true,
     });
     expect(harness.pending()).toBe(0);
-    const lastFrame = harness.frames[harness.frames.length - 1];
-    expect(lastFrame?.progress.kind).toBe("indeterminate");
-    expect(lastFrame?.reducedMotion).toBe(true);
+    expect(harness.frames[harness.frames.length - 1]?.reducedMotion).toBe(true);
   });
 
   it.each(["success", "failure", "cancelled"] as const)(
-    "renders terminal %s without taking retention ownership",
+    "renders resolved terminal %s without taking retention ownership",
     (status) => {
       const harness = createHarness();
       harness.runtime.wake({
-        ...idle(),
-        terminal: { kind: "terminal", status },
+        target: { kind: "terminal", status },
+        reducedMotion: false,
       });
-      expect(harness.runtime.getTerminalTarget()).toEqual({ kind: "terminal", status });
+      expect(harness.runtime.getTarget()).toEqual({ kind: "terminal", status });
       expect(harness.pending()).toBe(0);
       harness.runtime.setInputs(idle());
-      expect(harness.runtime.getTerminalTarget()).toEqual({ kind: "none" });
-      expect(harness.pending()).toBe(0);
+      expect(harness.runtime.getTarget()).toEqual({ kind: "idle" });
     },
   );
 
-  it("gives current progress priority over a terminal target", () => {
+  it("renders normal Intake with one continuous frame and Reduced Motion statically", () => {
     const harness = createHarness();
     harness.runtime.wake({
-      ...idle(),
-      progress: { kind: "indeterminate", traceId: "current" },
-      terminal: { kind: "terminal", status: "success" },
+      target: {
+        kind: "intake",
+        opportunityId: 1,
+        traceId: "accepted",
+        progress: { kind: "indeterminate", traceId: "current" },
+      },
+      reducedMotion: false,
     });
-    expect(harness.runtime.getTerminalTarget()).toEqual({ kind: "none" });
-    expect(harness.runtime.getProgressTarget().kind).toBe("indeterminate");
+    expect(harness.runtime.getTarget().kind).toBe("intake");
+    expect(harness.pending()).toBe(1);
+    harness.runtime.setInputs({
+      target: {
+        kind: "intake",
+        opportunityId: 2,
+        traceId: "latest",
+        progress: { kind: "idle" },
+      },
+      reducedMotion: true,
+    });
+    expect(harness.runtime.getTarget()).toMatchObject({
+      kind: "intake",
+      opportunityId: 2,
+      traceId: "latest",
+    });
+    expect(harness.pending()).toBe(0);
+  });
+
+  it("returns from Intake to the current Progress target rather than an old snapshot", () => {
+    const harness = createHarness();
+    harness.runtime.wake({
+      target: {
+        kind: "intake",
+        opportunityId: 1,
+        traceId: "accepted",
+        progress: { kind: "determinate", traceId: "current", target: 0.2 },
+      },
+      reducedMotion: false,
+    });
+    harness.runtime.setInputs({
+      target: {
+        kind: "intake",
+        opportunityId: 1,
+        traceId: "accepted",
+        progress: { kind: "determinate", traceId: "current", target: 0.65 },
+      },
+      reducedMotion: false,
+    });
+    harness.runtime.setInputs(progress("current", 0.65));
+
+    expect(harness.runtime.getTarget()).toEqual({
+      kind: "progress",
+      progress: { kind: "determinate", traceId: "current", target: 0.65 },
+    });
+    expect(harness.runtime.getProgressTarget()).toEqual({
+      kind: "determinate",
+      traceId: "current",
+      target: 0.65,
+    });
   });
 
   it("reconstructs from current inputs after sleep and ignores stale generations", () => {
     const harness = createHarness();
     harness.runtime.wake({
-      ...idle(),
-      progress: { kind: "indeterminate", traceId: "old" },
+      target: {
+        kind: "progress",
+        progress: { kind: "indeterminate", traceId: "old" },
+      },
+      reducedMotion: false,
     });
     const [staleFrame] = harness.capturePending();
     harness.runtime.sleep();
-    harness.runtime.wake({
-      ...idle(),
-      progress: { kind: "determinate", traceId: "new", target: 0.42 },
-    });
+    harness.runtime.wake(progress("new", 0.42));
     const renderCount = harness.render.mock.calls.length;
     staleFrame?.(100);
     expect(harness.render).toHaveBeenCalledTimes(renderCount);
@@ -170,21 +209,21 @@ describe("Expanded Presentation runtime", () => {
     expect(harness.pending()).toBe(0);
   });
 
-  it("dispose is permanent and leaves zero work", () => {
+  it("dispose is permanent and decorative render failure fails closed", () => {
     const harness = createHarness();
     harness.runtime.wake({
-      ...idle(),
-      progress: { kind: "indeterminate", traceId: "a" },
+      target: {
+        kind: "progress",
+        progress: { kind: "indeterminate", traceId: "a" },
+      },
+      reducedMotion: false,
     });
     harness.runtime.dispose();
     harness.runtime.wake(idle());
-    harness.runtime.setInputs(idle());
     expect(harness.runtime.getState()).toBe("disposed");
     expect(harness.pending()).toBe(0);
-  });
 
-  it("fails decorative rendering closed without propagating authority", () => {
-    const runtime = createExpandedPresentationRuntime({
+    const failing = createExpandedPresentationRuntime({
       now: () => 0,
       scheduleFrame: () => 1,
       cancelFrame: vi.fn(),
@@ -192,8 +231,8 @@ describe("Expanded Presentation runtime", () => {
         throw new Error("context unavailable");
       },
     });
-    expect(() => runtime.wake(idle())).not.toThrow();
-    expect(runtime.getState()).toBe("sleeping");
-    expect(runtime.getPendingFrameCount()).toBe(0);
+    expect(() => failing.wake(idle())).not.toThrow();
+    expect(failing.getState()).toBe("sleeping");
+    expect(failing.getPendingFrameCount()).toBe(0);
   });
 });

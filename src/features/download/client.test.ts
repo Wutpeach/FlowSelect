@@ -163,6 +163,30 @@ describe("createDownloadQueueClient", () => {
     });
   });
 
+  it("preserves a valid authoritative Intake marker for renderer and extension-origin events", async () => {
+    const { bridge, emit } = createFakeBridge();
+    const client = createDownloadQueueClient(bridge);
+    const listener = vi.fn();
+    await client.subscribe(listener);
+
+    emit("video-queue-detail", {
+      acceptedTraceId: "accepted",
+      tasks: [{ traceId: "accepted", label: "Extension download", status: "pending" }],
+    });
+
+    expect(listener).toHaveBeenLastCalledWith({
+      type: "queueDetail",
+      acceptedTraceId: "accepted",
+      tasks: [{
+        traceId: "accepted",
+        label: "Extension download",
+        status: "pending",
+        phase: null,
+        qualityOptions: undefined,
+      }],
+    });
+  });
+
   it("returns a working disposer even when one channel fails to register", async () => {
     const { bridge, on } = createFakeBridge();
     on.mockImplementationOnce(() => Promise.reject(new Error("bridge down")));

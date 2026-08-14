@@ -32,9 +32,13 @@ const task = (overrides: Partial<DownloadTask> = {}): DownloadTask => ({
   ...overrides,
 });
 
-const detailEvent = (tasks: DownloadTask[]): DownloadQueueEvent => ({
+const detailEvent = (
+  tasks: DownloadTask[],
+  acceptedTraceId?: string,
+): DownloadQueueEvent => ({
   type: "queueDetail",
   tasks,
+  acceptedTraceId,
 });
 
 const progressEvent = (traceId = "trace-1", percent = 50): DownloadQueueEvent => ({
@@ -475,5 +479,58 @@ describe("MR4 terminal notification seam: exact post-reduction snapshot", () => 
     expect(selectPrimaryDownloadTask(snapshot)?.traceId).toBe("trace-b");
     expect(snapshot.progressByTrace["trace-b"]?.percent).toBe(77);
     expect(snapshot.terminalTraceIds).toEqual(["trace-a"]);
+  });
+});
+
+describe("MR8 Intake notification seam: authoritative marked membership", () => {
+  it("reduces first and publishes one marked new membership with exact post state", () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: Array<{ traceId: string; order: string[] }> = [];
+    controller.subscribeIntake((transition, snapshot) => {
+      transitions.push({ traceId: transition.traceId, order: snapshot.order });
+    });
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "accepted" })], "accepted"));
+
+    expect(transitions).toEqual([{ traceId: "accepted", order: ["accepted"] }]);
+  });
+
+  it("never fabricates Intake from hydration, replay, an absent marker, or a local ack", async () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: string[] = [];
+    controller.subscribeIntake((transition) => transitions.push(transition.traceId));
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "existing" })]));
+    fake.emit(detailEvent([task({ traceId: "existing" })], "existing"));
+    fake.emit(detailEvent([task({ traceId: "existing" })], "missing"));
+    await controller.queue({ url: "https://example.com/local-command" });
+
+    expect(transitions).toEqual([]);
+  });
+
+  it("publishes both concurrently captured marked post snapshots in order and stops after dispose", async () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: string[] = [];
+    controller.subscribeIntake((transition) => transitions.push(transition.traceId));
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "first" })], "first"));
+    fake.emit(detailEvent([
+      task({ traceId: "first" }),
+      task({ traceId: "second", status: "pending" }),
+    ], "second"));
+    controller.dispose();
+    await flushMicrotasks();
+    fake.emit(detailEvent([task({ traceId: "third" })], "third"));
+
+    expect(transitions).toEqual(["first", "second"]);
   });
 });
