@@ -1635,3 +1635,24 @@ MR5 minimal consolidation received GPT Architecture Lead final Implementation Ar
 ### Status
 
 [OK] **Completed**
+
+
+## Session 250: MR8 Download Intake Reveal closure
+
+**Date**: 2026-08-15
+**Task**: MR8 Download Intake Reveal closure
+**Branch**: `motion/presentation-integration`
+
+### Summary
+
+Implemented and architecture-approved authoritative Download Intake Reveal with transient causal marker, bounded latest-only Presentation, pure Terminal/Intake/Progress policy, single Expanded host rendering, docs/spec updates, and Windows validation. Retained macOS NOT VERIFIED and the pre-existing browser-extension CRLF-sensitive full-suite debt.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3a3aeb3` | (see git log) |
+
+### Status
+
+[OK] **Completed**
