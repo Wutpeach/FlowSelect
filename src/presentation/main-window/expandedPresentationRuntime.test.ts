@@ -1,23 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ACTIVATION_DURATION_MS,
   createExpandedPresentationRuntime,
   type ExpandedPresentationFrame,
   type ExpandedPresentationInputs,
 } from "./expandedPresentationRuntime";
+
+const progress = (traceId: string, target: number): ExpandedPresentationInputs => ({
+  target: { kind: "progress", progress: { kind: "determinate", traceId, target } },
+  reducedMotion: false,
+});
 
 const idle = (reducedMotion = false): ExpandedPresentationInputs => ({
   target: { kind: "idle" },
   reducedMotion,
 });
 
-const progress = (
-  traceId: string,
-  target: number,
-  reducedMotion = false,
-): ExpandedPresentationInputs => ({
+const indeterminate = (traceId: string, reducedMotion = false): ExpandedPresentationInputs => ({
+  target: { kind: "progress", progress: { kind: "indeterminate", traceId } },
+  reducedMotion,
+});
+
+const activation = (startedAt: number, reducedMotion = false): ExpandedPresentationInputs => ({
   target: {
-    kind: "progress",
-    progress: { kind: "determinate", traceId, target },
+    kind: "activation",
+    source: "intake",
+    opportunityId: 1,
+    origin: { x: 0.25, y: 0.75 },
+    startedAt,
+    progress: { kind: "determinate", traceId: "a", target: 0.2 },
   },
   reducedMotion,
 });
@@ -26,13 +37,11 @@ const createHarness = () => {
   let now = 0;
   let nextHandle = 1;
   const callbacks = new Map<number, (time: number) => void>();
-  const frames: ExpandedPresentationFrame[] = [];
-  const render = vi.fn((frame: ExpandedPresentationFrame) => frames.push(frame));
+  const render = vi.fn<(frame: ExpandedPresentationFrame) => void>();
   const runtime = createExpandedPresentationRuntime({
     now: () => now,
     scheduleFrame: (callback) => {
-      const handle = nextHandle;
-      nextHandle += 1;
+      const handle = nextHandle++;
       callbacks.set(handle, callback);
       return handle;
     },
@@ -41,14 +50,13 @@ const createHarness = () => {
   });
   return {
     runtime,
-    frames,
     render,
     pending: () => callbacks.size,
     step: (delta = 16) => {
       now += delta;
-      const current = [...callbacks.values()];
+      const pending = [...callbacks.values()];
       callbacks.clear();
-      current.forEach((callback) => callback(now));
+      pending.forEach((callback) => callback(now));
     },
     capturePending: () => [...callbacks.values()],
   };
@@ -58,147 +66,111 @@ describe("Expanded Presentation runtime", () => {
   it("draws idle once on wake and leaves no frame work", () => {
     const harness = createHarness();
     harness.runtime.wake(idle());
-    expect(harness.frames).toHaveLength(1);
+    expect(harness.render).toHaveBeenCalledTimes(1);
     expect(harness.pending()).toBe(0);
   });
 
-  it("converges upward toward the latest same-trace target with one frame", () => {
+  it("keeps honest indeterminate progress static without a fake quantitative loop", () => {
     const harness = createHarness();
-    harness.runtime.wake(progress("a", 0.2));
-    harness.runtime.setInputs(progress("a", 0.6));
-    harness.runtime.setInputs(progress("a", 0.8));
-    expect(harness.runtime.getProgressLevel()).toBe(0.2);
-    expect(harness.runtime.getProgressTarget()).toEqual({
-      kind: "determinate",
-      traceId: "a",
-      target: 0.8,
-    });
-    expect(harness.pending()).toBe(1);
-    harness.step(50);
-    expect(harness.runtime.getProgressLevel()).toBeGreaterThan(0.2);
-    expect(harness.pending()).toBe(1);
+    harness.runtime.wake(indeterminate("a"));
+    expect(harness.pending()).toBe(0);
+    expect(harness.runtime.getProgressTarget()).toEqual({ kind: "indeterminate", traceId: "a" });
   });
 
-  it("applies downward revisions and replacement traces immediately", () => {
+  it("snaps downward and resets quantitative state for replacement traces", () => {
     const harness = createHarness();
     harness.runtime.wake(progress("old", 0.8));
     harness.runtime.setInputs(progress("old", 0.35));
     expect(harness.runtime.getProgressLevel()).toBe(0.35);
     harness.runtime.setInputs(progress("new", 0.12));
     expect(harness.runtime.getProgressLevel()).toBe(0.12);
-    expect(harness.pending()).toBe(0);
   });
 
-  it("keeps indeterminate evolution bounded and stops it for Reduced Motion", () => {
+  it("runs at most one bounded Activation frame chain then settles with no further work", () => {
     const harness = createHarness();
-    harness.runtime.wake({
-      target: {
-        kind: "progress",
-        progress: { kind: "indeterminate", traceId: "a" },
-      },
-      reducedMotion: false,
-    });
+    harness.runtime.wake(activation(0));
     expect(harness.pending()).toBe(1);
-    harness.step();
-    expect(harness.pending()).toBe(1);
-    harness.runtime.setInputs({
-      target: {
-        kind: "progress",
-        progress: { kind: "indeterminate", traceId: "a" },
-      },
-      reducedMotion: true,
-    });
+    harness.step(ACTIVATION_DURATION_MS + 1);
     expect(harness.pending()).toBe(0);
-    expect(harness.frames[harness.frames.length - 1]?.reducedMotion).toBe(true);
+    expect(harness.runtime.getTarget()).toMatchObject({ kind: "activation", source: "intake" });
   });
 
-  it.each(["success", "failure", "cancelled"] as const)(
-    "renders resolved terminal %s without taking retention ownership",
-    (status) => {
-      const harness = createHarness();
-      harness.runtime.wake({
-        target: { kind: "terminal", status },
-        reducedMotion: false,
-      });
-      expect(harness.runtime.getTarget()).toEqual({ kind: "terminal", status });
-      expect(harness.pending()).toBe(0);
-      harness.runtime.setInputs(idle());
-      expect(harness.runtime.getTarget()).toEqual({ kind: "idle" });
-    },
-  );
-
-  it("renders normal Intake with one continuous frame and Reduced Motion statically", () => {
+  it("renders static Reduced Motion activation and never schedules a frame", () => {
     const harness = createHarness();
-    harness.runtime.wake({
-      target: {
-        kind: "intake",
-        opportunityId: 1,
-        traceId: "accepted",
-        progress: { kind: "indeterminate", traceId: "current" },
-      },
-      reducedMotion: false,
-    });
-    expect(harness.runtime.getTarget().kind).toBe("intake");
-    expect(harness.pending()).toBe(1);
-    harness.runtime.setInputs({
-      target: {
-        kind: "intake",
-        opportunityId: 2,
-        traceId: "latest",
-        progress: { kind: "idle" },
-      },
-      reducedMotion: true,
-    });
-    expect(harness.runtime.getTarget()).toMatchObject({
-      kind: "intake",
-      opportunityId: 2,
-      traceId: "latest",
-    });
+    harness.runtime.wake(activation(0, true));
     expect(harness.pending()).toBe(0);
+    expect(harness.render).toHaveBeenCalledTimes(1);
   });
 
-  it("returns from Intake to the current Progress target rather than an old snapshot", () => {
+  it("sleeps, disposes, and render-fails closed without retained frame work", () => {
     const harness = createHarness();
-    harness.runtime.wake({
-      target: {
-        kind: "intake",
-        opportunityId: 1,
-        traceId: "accepted",
-        progress: { kind: "determinate", traceId: "current", target: 0.2 },
-      },
-      reducedMotion: false,
-    });
-    harness.runtime.setInputs({
-      target: {
-        kind: "intake",
-        opportunityId: 1,
-        traceId: "accepted",
-        progress: { kind: "determinate", traceId: "current", target: 0.65 },
-      },
-      reducedMotion: false,
-    });
-    harness.runtime.setInputs(progress("current", 0.65));
-
+    harness.runtime.wake(activation(0));
+    harness.runtime.sleep();
+    expect(harness.pending()).toBe(0);
+    harness.runtime.wake(progress("after-sleep", 0.5));
     expect(harness.runtime.getTarget()).toEqual({
       kind: "progress",
-      progress: { kind: "determinate", traceId: "current", target: 0.65 },
+      progress: { kind: "determinate", traceId: "after-sleep", target: 0.5 },
+    });
+    harness.runtime.dispose();
+    harness.runtime.wake(progress("a", 0.5));
+    expect(harness.runtime.getState()).toBe("disposed");
+  });
+
+  it("replaces a live activation without retaining the cancelled frame", () => {
+    const harness = createHarness();
+    harness.runtime.wake(activation(0));
+    const replacement: ExpandedPresentationInputs = {
+      target: {
+        kind: "activation",
+        opportunityId: 2,
+        source: "folder",
+        origin: { x: 0.7, y: 0.3 },
+        startedAt: 40,
+        progress: { kind: "determinate", traceId: "a", target: 0.2 },
+      },
+      reducedMotion: false,
+    };
+    harness.runtime.setInputs(replacement);
+    expect(harness.pending()).toBe(1);
+    harness.step();
+    expect(harness.runtime.getTarget()).toMatchObject({
+      kind: "activation",
+      opportunityId: 2,
+      source: "folder",
+      origin: { x: 0.7, y: 0.3 },
+    });
+  });
+
+  it("returns from Activation to the latest progress fact", () => {
+    const harness = createHarness();
+    harness.runtime.wake(activation(0));
+    harness.runtime.setInputs({
+      target: {
+        kind: "activation",
+        source: "intake",
+        opportunityId: 1,
+        origin: { x: 0.25, y: 0.75 },
+        startedAt: 0,
+        progress: { kind: "determinate", traceId: "a", target: 0.65 },
+      },
+      reducedMotion: false,
+    });
+    harness.runtime.setInputs(progress("a", 0.65));
+    expect(harness.runtime.getTarget()).toEqual({
+      kind: "progress",
+      progress: { kind: "determinate", traceId: "a", target: 0.65 },
     });
     expect(harness.runtime.getProgressTarget()).toEqual({
       kind: "determinate",
-      traceId: "current",
+      traceId: "a",
       target: 0.65,
     });
   });
 
-  it("reconstructs from current inputs after sleep and ignores stale generations", () => {
+  it("ignores a stale scheduled callback after sleep and reconstruction", () => {
     const harness = createHarness();
-    harness.runtime.wake({
-      target: {
-        kind: "progress",
-        progress: { kind: "indeterminate", traceId: "old" },
-      },
-      reducedMotion: false,
-    });
+    harness.runtime.wake(activation(0));
     const [staleFrame] = harness.capturePending();
     harness.runtime.sleep();
     harness.runtime.wake(progress("new", 0.42));
@@ -209,30 +181,46 @@ describe("Expanded Presentation runtime", () => {
     expect(harness.pending()).toBe(0);
   });
 
-  it("dispose is permanent and decorative render failure fails closed", () => {
+  it("does not replay an expired activation when waking after its bounded phase", () => {
     const harness = createHarness();
-    harness.runtime.wake({
-      target: {
-        kind: "progress",
-        progress: { kind: "indeterminate", traceId: "a" },
-      },
-      reducedMotion: false,
-    });
-    harness.runtime.dispose();
-    harness.runtime.wake(idle());
-    expect(harness.runtime.getState()).toBe("disposed");
+    harness.step(ACTIVATION_DURATION_MS + 1);
+    harness.runtime.wake(activation(0));
     expect(harness.pending()).toBe(0);
+    expect(harness.render).toHaveBeenCalledTimes(1);
+  });
 
-    const failing = createExpandedPresentationRuntime({
-      now: () => 0,
-      scheduleFrame: () => 1,
-      cancelFrame: vi.fn(),
+  it("converges same-trace upward revisions with one pending frame at a time", () => {
+    const harness = createHarness();
+    harness.runtime.wake(progress("a", 0.1));
+    harness.runtime.setInputs(progress("a", 0.5));
+    expect(harness.pending()).toBe(1);
+    for (let step = 0; step < 10 && harness.pending() > 0; step += 1) {
+      harness.step(100);
+      expect(harness.pending()).toBeLessThanOrEqual(1);
+    }
+    expect(harness.runtime.getProgressLevel()).toBe(0.5);
+    expect(harness.pending()).toBe(0);
+  });
+
+  it("fails closed when rendering throws", () => {
+    let now = 0;
+    const callbacks = new Map<number, (time: number) => void>();
+    const runtime = createExpandedPresentationRuntime({
+      now: () => now,
+      scheduleFrame: (callback) => {
+        const handle = callbacks.size + 1;
+        callbacks.set(handle, callback);
+        return handle;
+      },
+      cancelFrame: (handle) => callbacks.delete(handle),
       render: () => {
-        throw new Error("context unavailable");
+        throw new Error("GPU failed");
       },
     });
-    expect(() => failing.wake(idle())).not.toThrow();
-    expect(failing.getState()).toBe("sleeping");
-    expect(failing.getPendingFrameCount()).toBe(0);
+    runtime.wake(activation(0));
+    now += 16;
+    callbacks.forEach((callback) => callback(now));
+    expect(runtime.getState()).toBe("sleeping");
+    expect(runtime.getPendingFrameCount()).toBe(0);
   });
 });

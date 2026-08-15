@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useMotionValue, type MotionValue } from "motion/react";
+import type { LocalIntakeOrigin } from "../../application/download-api";
 
 // Main Window Pointer Field: the one renderer-local authority for continuous
 // pointer coordinates. Coordinates are viewport-local pixels measured from the
@@ -96,4 +97,39 @@ export const resetPointerFieldToCenter = (
   }
   field.x.set(point.x);
   field.y.set(point.y);
+};
+
+/**
+ * Captures one causal point while the Surface still knows the pointer is
+ * inside. Consumers must not call this during later command acceptance.
+ */
+export const snapshotPointerFieldOrigin = (
+  field: MainWindowPointerField,
+  viewportSize: number,
+): LocalIntakeOrigin | undefined => {
+  if (!Number.isFinite(viewportSize) || viewportSize <= 0) {
+    return undefined;
+  }
+  const x = field.x.get() / viewportSize;
+  const y = field.y.get() / viewportSize;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) {
+    return undefined;
+  }
+  return { x, y };
+};
+
+export const snapshotClientPointOrigin = (
+  clientX: number,
+  clientY: number,
+  rect: Pick<DOMRect, "left" | "top" | "width" | "height">,
+): LocalIntakeOrigin | undefined => {
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || rect.width <= 0 || rect.height <= 0) {
+    return undefined;
+  }
+  const x = (clientX - rect.left) / rect.width;
+  const y = (clientY - rect.top) / rect.height;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return undefined;
+  }
+  return { x: Math.min(Math.max(x, 0), 1), y: Math.min(Math.max(y, 0), 1) };
 };

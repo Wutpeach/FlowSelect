@@ -92,7 +92,7 @@ import {
   summarizeDownloadError,
   upsertTranscodeTaskToDetail,
 } from "./utils/downloadEventReducers";
-import type { DownloadQueueAck } from "./application/download-api";
+import type { DownloadQueueAck, LocalIntakeOrigin } from "./application/download-api";
 import {
   createDownloadQueueClient,
   type DownloadQueueRequest,
@@ -155,12 +155,13 @@ import {
 } from "./presentation/main-window/MainWindowPresentationSurface";
 import { resolveDownloadProgressTarget } from "./presentation/main-window/downloadProgressProjection";
 import {
-  resolveDownloadTerminalTarget,
   shouldInvalidateTerminalRevealForPrimaryDownload,
   shouldShowDownloadTerminalReveal,
 } from "./presentation/main-window/downloadTerminalProjection";
 import { useDownloadIntakePresentation } from "./presentation/main-window/downloadIntakePresentation";
+import { resolveFolderActivationPresentation } from "./presentation/main-window/folderActivationPresentation";
 import { resolveExpandedPresentationTarget } from "./presentation/main-window/expandedPresentationPolicy";
+import { snapshotClientPointOrigin } from "./presentation/main-window/pointerField";
 import { isMainWindowFullContentVisible } from "./presentation/main-window/projections";
 import i18n from "./i18n";
 import {
@@ -481,7 +482,16 @@ function App() {
   const centerOverlayStateRef = useRef<CenterOverlayState>(centerOverlayState);
   const isContextMenuOpenRef = useRef(false);
   const pendingTranscodeActionTraceIdsRef = useRef<Set<string>>(new Set());
-  const pasteHandlerRef = useRef<(event: ClipboardEvent) => void>(() => undefined);
+  const pasteHandlerRef = useRef<(
+    clipboardData: DataTransfer | null,
+    origin?: LocalIntakeOrigin,
+  ) => void>(() => undefined);
+  const handleSurfacePaste = useCallback((
+    clipboardData: DataTransfer | null,
+    origin?: LocalIntakeOrigin,
+  ) => {
+    pasteHandlerRef.current(clipboardData, origin);
+  }, []);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
   const isUiLabPreviewActiveRef = useRef(isUiLabPreviewActive);
   const previousTaskCountRef = useRef(0);
@@ -558,18 +568,11 @@ function App() {
   // the same Reveal fact never activates both the `task` and `centerOutcome`
   // locks.
   const isTaskProcessing = centerOverlayState.kind === "task-processing";
-  // MR4 pure projection: current center outcome Presentation + current
-  // primary DOWNLOAD -> neutral terminal target (none/terminal).
-  // Transcode primaries are not an MR4 interruption rule; the center overlay
-  // selector visually prioritizes them independently. Recomputed per render;
-  const expandedPresentationTerminal = resolveDownloadTerminalTarget(
-    centerOverlayState,
-    primaryDownloadTask,
-  );
+  const folderActivationPresentation = resolveFolderActivationPresentation(centerOverlayState);
   const expandedPresentationTarget = resolveExpandedPresentationTarget({
     progress: expandedPresentationProgress,
-    terminal: expandedPresentationTerminal,
     intake: downloadIntakePresentation,
+    folder: folderActivationPresentation,
   });
   const centerOverlayVisual = selectCenterOverlayVisual({
     primaryTask: primaryTask
@@ -836,13 +839,15 @@ function App() {
     updateCenterOverlayState,
   ]);
 
-  const showFolderDropOutcome = useCallback(() => {
+  const showFolderDropOutcome = useCallback((origin?: LocalIntakeOrigin) => {
     clearForegroundTaskOutcomeTimer();
     clearCenterOutcomeTimer();
     const outcomeState = updateCenterOverlayState({
       type: "showFolderOutcome",
       status: "success",
       durationMs: 1400,
+      origin,
+      startedAt: performance.now(),
     });
     const requestId = outcomeState.requestId;
     centerOutcomeTimerRef.current = window.setTimeout(() => {
@@ -1092,13 +1097,20 @@ function App() {
     showForegroundTaskOutcome,
   ]);
 
-  const enqueueVideoDownload = useCallback((request: string | DownloadQueueRequest) => {
+  const enqueueVideoDownload = useCallback((
+    request: string | DownloadQueueRequest,
+    intakeOrigin?: LocalIntakeOrigin,
+  ) => {
     const payload = typeof request === "string" ? { url: request } : request;
-    return runDownloadEnqueue(() => downloadActions.queue(payload), payload.pageUrl ?? payload.url);
+    const requestWithCause = intakeOrigin === undefined ? payload : { ...payload, intakeOrigin };
+    return runDownloadEnqueue(
+      () => downloadActions.queue(requestWithCause),
+      requestWithCause.pageUrl ?? requestWithCause.url,
+    );
   }, [downloadActions, runDownloadEnqueue]);
 
-  const enqueuePastedVideoDownload = useCallback((url: string) => (
-    runDownloadEnqueue(() => downloadActions.queuePasted(url), url)
+  const enqueuePastedVideoDownload = useCallback((url: string, intakeOrigin?: LocalIntakeOrigin) => (
+    runDownloadEnqueue(() => downloadActions.queuePasted(url, intakeOrigin), url)
   ), [downloadActions, runDownloadEnqueue]);
 
   const cancelVideoTask = useCallback(async (traceId: string) => {
@@ -1780,13 +1792,16 @@ function App() {
   }, [closeContextMenuWindow, isContextMenuOpen]);
 
   // Handle paste event - check for video URL first, then image URL, then clipboard images/files.
-  const handlePaste = async (clipboardData: DataTransfer | null) => {
+  const handlePaste = async (
+    clipboardData: DataTransfer | null,
+    intakeOrigin?: LocalIntakeOrigin,
+  ) => {
     const text = clipboardData?.getData("text/plain") ?? "";
 
     // 1. Check if clipboard text is a video URL (highest priority)
     if (text && isResolvableVideoInputUrl(text)) {
       console.log("Pasted video URL:", text);
-      await enqueuePastedVideoDownload(text);
+      await enqueuePastedVideoDownload(text, intakeOrigin);
       return;
     }
 
@@ -1903,21 +1918,9 @@ function App() {
     }
   };
 
-  pasteHandlerRef.current = (event: ClipboardEvent) => {
-    event.preventDefault();
-    void handlePaste(event.clipboardData);
+  pasteHandlerRef.current = (clipboardData, origin) => {
+    void handlePaste(clipboardData, origin);
   };
-
-  useEffect(() => {
-    const handleWindowPaste = (event: ClipboardEvent) => {
-      pasteHandlerRef.current(event);
-    };
-
-    window.addEventListener("paste", handleWindowPaste);
-    return () => {
-      window.removeEventListener("paste", handleWindowPaste);
-    };
-  }, []);
 
   // Check if URL looks like an image
   const isImageUrl = (url: string): boolean => {
@@ -1953,13 +1956,22 @@ function App() {
   // (drag hover, drop lock, dragleave suppression) is owned by the
   // presentation surface; this handler only processes dropped content.
   const handleDrop = async (e: React.DragEvent) => {
+    // Capture before the first await. This point is a transient Presentation
+    // cause only and is never reread during acceptance or reduction.
+    const intakeOrigin = mainWindowFullContentVisible
+      ? snapshotClientPointOrigin(
+          e.clientX,
+          e.clientY,
+          e.currentTarget.getBoundingClientRect(),
+        )
+      : undefined;
     const droppedFolderResult = await desktopDrop.consumePendingFolderDrop();
     if (droppedFolderResult?.success) {
       try {
         await saveOutputPath(droppedFolderResult.path);
         setOutputPath(droppedFolderResult.path);
         resetDownloadOutcome();
-        showFolderDropOutcome();
+        showFolderDropOutcome(intakeOrigin);
       } catch (err) {
         console.error("Failed to save dropped folder path:", err);
         showFolderDropErrorOutcome(t("app.drop.errors.saveFailed"));
@@ -2123,7 +2135,7 @@ function App() {
         videoUrl: mergedVideoUrl,
         videoCandidates: mergedVideoCandidates,
         dragDiagnostic: pinterestDragDiagnostic,
-      });
+      }, intakeOrigin);
       return;
     }
 
@@ -2219,7 +2231,7 @@ function App() {
           videoUrl: resolvedXiaohongshuMedia?.videoUrl ?? undefined,
           videoCandidates: resolvedXiaohongshuMedia?.videoCandidates ?? undefined,
           siteHint: "xiaohongshu",
-        });
+        }, intakeOrigin);
         return;
       }
 
@@ -2292,7 +2304,7 @@ function App() {
     if (url && isResolvableVideoInputUrl(url) && !shouldPreferTwitterXImageBranch) {
       console.log("Detected video URL:", url);
       resetDownloadOutcome();
-      await enqueueVideoDownload(url);
+      await enqueueVideoDownload(url, intakeOrigin);
       return;
     }
 
@@ -2914,6 +2926,7 @@ function App() {
       onOutputFolderShortcut={handleOutputFolderShortcut}
       onContextMenu={handleContextMenu}
       onDrop={handleDrop}
+      onPaste={handleSurfacePaste}
       onPanelHoveredChange={setIsPanelHovered}
     >
         {showVideoTaskBadge || isQueuePopoverOpen ? (
@@ -3629,6 +3642,7 @@ function App() {
         {centerOverlayVisual.kind === "task-progress" && primaryTask ? (
           <motion.div
             key={centerOverlayVisual.key}
+            data-mr9-coverable="task-progress"
             initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
             animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
             exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
@@ -3636,13 +3650,15 @@ function App() {
             draggable={false}
             style={CENTER_OVERLAY_CONTENT_STYLE}
           >
-            <CircularProgressIndicator
-              strokeColor={primaryTaskStroke}
-              trackColor={primaryTaskTrackStroke}
-              textColor={primaryTaskTextColor}
-              percent={primaryTask.percent}
-              indeterminate={primaryTask.indeterminate}
-            />
+            {primaryTask.kind === "transcode" ? (
+              <CircularProgressIndicator
+                strokeColor={primaryTaskStroke}
+                trackColor={primaryTaskTrackStroke}
+                textColor={primaryTaskTextColor}
+                percent={primaryTask.percent}
+                indeterminate={primaryTask.indeterminate}
+              />
+            ) : null}
             {primaryTaskStatusText ? (
               <span style={{ fontSize: 10, color: primaryTaskStatusColor, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>
                 {primaryTaskStatusText}
@@ -3664,58 +3680,6 @@ function App() {
               >
                 {primaryTaskSummaryText}
               </span>
-            ) : null}
-            {primaryTask.kind === "download" || primaryTask.kind === "transcode" ? (
-              <button
-                onClick={async () => {
-                  if (isPrimaryTaskActionPending) {
-                    return;
-                  }
-                  if (primaryTask.kind === "download") {
-                    void cancelVideoTask(primaryTask.task.traceId);
-                    return;
-                  }
-                  void cancelTranscodeTask(primaryTask.task.traceId);
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-                onMouseEnter={() => setIsProgressCancelHovered(true)}
-                onMouseLeave={() => setIsProgressCancelHovered(false)}
-                style={{
-                  margin: 0,
-                  marginTop: 4,
-                  width: 20,
-                  height: 20,
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: isProgressCancelHovered ? colors.progressCancelHoverBg : 'transparent',
-                  border: 'none',
-                  cursor: isPrimaryTaskActionPending ? 'default' : 'pointer',
-                  transition: 'background-color 0.2s',
-                  opacity: isPrimaryTaskActionPending ? 0.6 : 1,
-                  pointerEvents: 'auto',
-                }}
-                title={primaryTask.kind === "transcode" ? t("app.actions.exitCurrentTranscode") : t("app.actions.cancelCurrentTask")}
-              >
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 10 10"
-                  style={{
-                    color: isProgressCancelHovered ? colors.progressCancelHoverIcon : colors.progressCancelIcon,
-                    transition: 'color 0.2s',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  <path
-                    d="M2 2L8 8M8 2L2 8"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
             ) : null}
           </motion.div>
         ) : centerOverlayVisual.kind === "task-processing" ? (
@@ -3744,7 +3708,7 @@ function App() {
             exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
             transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
             draggable={false}
-            style={CENTER_OVERLAY_CONTENT_STYLE}
+            style={{ ...CENTER_OVERLAY_CONTENT_STYLE, zIndex: 3 }}
           >
             <ForegroundOutcomeOverlay
               outcomeVisible={centerOverlayVisual.outcomeVisible}
@@ -3792,6 +3756,76 @@ function App() {
             />
           </motion.div>
         ) : null}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {centerOverlayVisual.kind === "task-progress"
+            && primaryTask
+            && (primaryTask.kind === "download" || primaryTask.kind === "transcode") ? (
+              <motion.div
+                key={`${centerOverlayVisual.key}-protected-cancel`}
+                initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
+                animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
+                exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
+                transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
+                style={{ ...CENTER_OVERLAY_CONTENT_STYLE, zIndex: 3 }}
+              >
+                <button
+                  data-mr9-protected-control="primary-cancel"
+                  onClick={() => {
+                    if (isPrimaryTaskActionPending) return;
+                    if (primaryTask.kind === "download") {
+                      void cancelVideoTask(primaryTask.task.traceId);
+                    } else {
+                      void cancelTranscodeTask(primaryTask.task.traceId);
+                    }
+                  }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onMouseEnter={() => setIsProgressCancelHovered(true)}
+                  onMouseLeave={() => setIsProgressCancelHovered(false)}
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transform: `translateY(${primaryTask.kind === "transcode" ? 42 : 22}px)`,
+                    backgroundColor: isProgressCancelHovered
+                      ? colors.progressCancelHoverBg
+                      : "transparent",
+                    border: "none",
+                    cursor: isPrimaryTaskActionPending ? "default" : "pointer",
+                    transition: "background-color 0.2s",
+                    opacity: isPrimaryTaskActionPending ? 0.6 : 1,
+                    pointerEvents: "auto",
+                  }}
+                  title={primaryTask.kind === "transcode"
+                    ? t("app.actions.exitCurrentTranscode")
+                    : t("app.actions.cancelCurrentTask")}
+                >
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 10 10"
+                    style={{
+                      color: isProgressCancelHovered
+                        ? colors.progressCancelHoverIcon
+                        : colors.progressCancelIcon,
+                      transition: "color 0.2s",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <path
+                      d="M2 2L8 8M8 2L2 8"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </motion.div>
+            ) : null}
         </AnimatePresence>
 
         <AnimatePresence>

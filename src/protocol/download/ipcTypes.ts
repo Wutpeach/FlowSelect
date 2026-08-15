@@ -2,6 +2,7 @@ import type { RuntimeFailureDiagnostic } from "../../types/errorDiagnostics.js";
 import type {
   AdvancedQualityOption,
   AdvancedQualityPostProcessPlan,
+  LocalIntakeOrigin,
 } from "../../application/download-api.js";
 
 /**
@@ -66,6 +67,8 @@ export type VideoQueueDetailPayload = {
   tasks: VideoQueueTaskPayload[];
   /** Transient cause present only on the snapshot emitted by new membership. */
   acceptedTraceId?: string;
+  /** Valid only beside the same acceptedTraceId marker; never persisted. */
+  acceptedIntakeOrigin?: LocalIntakeOrigin;
 };
 
 export type VideoTranscodeTaskStatus = "active" | "pending" | "failed";

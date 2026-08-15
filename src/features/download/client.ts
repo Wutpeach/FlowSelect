@@ -1,4 +1,7 @@
-import type { DownloadQueueAck } from "../../application/download-api";
+import type {
+  DownloadQueueAck,
+  LocalIntakeOrigin,
+} from "../../application/download-api";
 import type {
   DownloadProgressPayload,
   DownloadResultPayload,
@@ -42,6 +45,8 @@ export type DownloadQueueRequest = {
   /** Opaque Pinterest drag telemetry bag forwarded verbatim to the runtime;
    * the Application treats it as an untracked diagnostic container. */
   dragDiagnostic?: unknown;
+  /** Renderer-only causal sidecar, kept separate from the canonical command. */
+  intakeOrigin?: LocalIntakeOrigin;
 };
 
 /** Terminal wire payload as exposed to the feature (raw DTO is never kept). */
@@ -60,11 +65,12 @@ export type DownloadQueueEvent =
       type: "queueDetail";
       tasks: DownloadTask[];
       acceptedTraceId?: string;
+      acceptedIntakeOrigin?: LocalIntakeOrigin;
     };
 
 export interface DownloadQueueClient {
   queue(request: DownloadQueueRequest): Promise<DownloadQueueAck>;
-  queuePasted(url: string): Promise<DownloadQueueAck>;
+  queuePasted(url: string, intakeOrigin?: LocalIntakeOrigin): Promise<DownloadQueueAck>;
   cancel(traceId: string): Promise<boolean>;
   selectQuality(traceId: string, optionId: string): Promise<boolean>;
   /** Registers all Download channels; resolves with a disposer. */
@@ -162,6 +168,9 @@ const registerDownloadSubscriptions = async (
         ...(detail.acceptedTraceId === undefined
           ? {}
           : { acceptedTraceId: detail.acceptedTraceId }),
+        ...(detail.acceptedIntakeOrigin === undefined
+          ? {}
+          : { acceptedIntakeOrigin: detail.acceptedIntakeOrigin }),
         tasks: detail.tasks.map((task) => ({
           traceId: task.traceId,
           label: task.label,
@@ -187,7 +196,10 @@ const registerDownloadSubscriptions = async (
 
 export const createDownloadQueueClient = (bridge: DownloadQueueBridge): DownloadQueueClient => ({
   queue: (request) => bridge.commands.invoke<DownloadQueueAck>("queue_video_download", request),
-  queuePasted: (url) => bridge.commands.invoke<DownloadQueueAck>("queue_pasted_video_download", { url }),
+  queuePasted: (url, intakeOrigin) => bridge.commands.invoke<DownloadQueueAck>(
+    "queue_pasted_video_download",
+    { url, ...(intakeOrigin === undefined ? {} : { intakeOrigin }) },
+  ),
   cancel: (traceId) => bridge.commands.invoke<boolean>("cancel_download", { traceId }),
   selectQuality: (traceId, optionId) => bridge.commands.invoke<boolean>(
     "select_advanced_quality_option",

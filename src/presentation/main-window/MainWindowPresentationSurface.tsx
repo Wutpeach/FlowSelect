@@ -43,6 +43,7 @@ import {
 } from "./motionRecipes";
 import {
   resetPointerFieldToCenter,
+  snapshotPointerFieldOrigin,
   updatePointerFieldFromClientPoint,
   useMainWindowPointerField,
   type MainWindowPointerField,
@@ -50,6 +51,8 @@ import {
 import { useMainWindowMagnetic } from "./magnetic";
 import { ExpandedPresentationSurface } from "./ExpandedPresentationSurface";
 import type { ExpandedPresentationTarget } from "./expandedPresentationTargets";
+import { THERMAL_PALETTE } from "./thermalPalette";
+import type { LocalIntakeOrigin } from "../../application/download-api";
 
 /**
  * Lock facts owned by Application state and mirrored from App into the
@@ -109,6 +112,7 @@ export type MainWindowPresentationSurfaceProps = {
   onOutputFolderShortcut: (e: ReactMouseEvent<HTMLDivElement>) => Promise<void>;
   onContextMenu: (e: ReactMouseEvent<HTMLDivElement>) => Promise<void>;
   onDrop: (e: React.DragEvent<HTMLDivElement>) => Promise<void>;
+  onPaste: (clipboardData: DataTransfer | null, origin: LocalIntakeOrigin | undefined) => void;
   children: ReactNode;
 };
 
@@ -501,6 +505,7 @@ export function MainWindowPresentationSurface({
   onOutputFolderShortcut,
   onContextMenu,
   onDrop,
+  onPaste,
   onPanelHoveredChange,
   children,
 }: MainWindowPresentationSurfaceProps) {
@@ -885,6 +890,18 @@ export function MainWindowPresentationSurface({
     updateDropHoverState,
   ]);
 
+  useEffect(() => {
+    const handleWindowPaste = (event: ClipboardEvent) => {
+      event.preventDefault();
+      const origin = expandedGraphicsEligible && isPointerInsidePanelRef.current
+        ? snapshotPointerFieldOrigin(pointerField, panelViewportSize)
+        : undefined;
+      onPaste(event.clipboardData, origin);
+    };
+    window.addEventListener("paste", handleWindowPaste);
+    return () => window.removeEventListener("paste", handleWindowPaste);
+  }, [expandedGraphicsEligible, onPaste, panelViewportSize, pointerField]);
+
   const handleContextMenu = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1106,10 +1123,7 @@ export function MainWindowPresentationSurface({
               eligible={expandedGraphicsEligible}
               reducedMotion={environment.reducedMotion}
               target={expandedPresentationTarget}
-              accentColor={colors.accentSolid}
-              warningColor={colors.warningSolid}
-              dangerColor={colors.dangerSolid}
-              mutedColor={colors.controlMuted}
+              palette={THERMAL_PALETTE}
             />
 
             {/* Drag glow layer */}

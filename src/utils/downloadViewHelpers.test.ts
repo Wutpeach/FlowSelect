@@ -295,6 +295,23 @@ describe("video queue helpers", () => {
       tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
     })).not.toHaveProperty("acceptedTraceId");
   });
+
+  it("accepts an Intake origin only beside a valid accepted marker", () => {
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: "accepted",
+      acceptedIntakeOrigin: { x: 0.25, y: 0.75 },
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).toMatchObject({ acceptedIntakeOrigin: { x: 0.25, y: 0.75 } });
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: "accepted",
+      acceptedIntakeOrigin: { x: 2, y: Number.NaN },
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).not.toHaveProperty("acceptedIntakeOrigin");
+    expect(normalizeVideoQueueDetail({
+      acceptedIntakeOrigin: { x: 0.25, y: 0.75 },
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).not.toHaveProperty("acceptedIntakeOrigin");
+  });
 });
 
 describe("video transcode queue helpers", () => {

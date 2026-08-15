@@ -1,4 +1,5 @@
 import type { ErrorDiagnosticCopyRequest } from "../types/errorDiagnostics";
+import type { LocalIntakeOrigin } from "../application/download-api";
 
 export type CenterOverlayOutcomeStatus = "success" | "failure" | "cancelled";
 
@@ -45,6 +46,8 @@ export type CenterOverlayState =
       status: CenterOverlayFolderOutcomeStatus;
       message: string | null;
       durationMs: number;
+      origin?: LocalIntakeOrigin;
+      startedAt?: number;
     };
 
 export type CenterOverlayAction =
@@ -67,6 +70,8 @@ export type CenterOverlayAction =
       status: CenterOverlayFolderOutcomeStatus;
       message?: string | null;
       durationMs: number;
+      origin?: LocalIntakeOrigin;
+      startedAt?: number;
     }
   | { type: "finishFolderOutcome"; requestId: number };
 
@@ -133,6 +138,8 @@ export const reduceCenterOverlayState = (
         status: action.status,
         message: action.message ?? null,
         durationMs: action.durationMs,
+        origin: action.origin,
+        startedAt: action.startedAt,
       };
 
     case "finishFolderOutcome":

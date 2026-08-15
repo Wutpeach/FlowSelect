@@ -4,8 +4,10 @@ import type {
   DownloadTerminalOutcome,
 } from "../../features/download/model";
 import { selectPrimaryDownloadTask } from "../../features/download/selectors";
+import type { LocalIntakeOrigin } from "../../application/download-api";
 
 export const DOWNLOAD_INTAKE_PRESENTATION_DURATION_MS = 1200;
+export const NEUTRAL_PRESENTATION_ORIGIN: LocalIntakeOrigin = { x: 0.5, y: 0.5 };
 
 const readPresentationNow = (): number => (
   typeof performance === "undefined" ? Date.now() : performance.now()
@@ -15,6 +17,8 @@ export type DownloadIntakePresentationOpportunity = Readonly<{
   opportunityId: number;
   traceId: string;
   primaryTraceIdAtStart: string | null;
+  origin: LocalIntakeOrigin;
+  startedAt: number;
   deadlineAt: number;
 }>;
 
@@ -28,6 +32,7 @@ export type DownloadIntakePresentationAction =
       type: "accepted";
       traceId: string;
       primaryTraceIdAtStart: string | null;
+      origin?: LocalIntakeOrigin;
       now: number;
     }
   | { type: "expired"; opportunityId: number; now: number }
@@ -73,6 +78,8 @@ export const reduceDownloadIntakePresentation = (
           opportunityId,
           traceId: action.traceId,
           primaryTraceIdAtStart: action.primaryTraceIdAtStart,
+          origin: action.origin ?? NEUTRAL_PRESENTATION_ORIGIN,
+          startedAt: action.now,
           deadlineAt: action.now + DOWNLOAD_INTAKE_PRESENTATION_DURATION_MS,
         },
       };
@@ -121,7 +128,7 @@ export const reduceDownloadIntakePresentation = (
 
 type SubscribeIntake = (
   listener: (
-    transition: Readonly<{ traceId: string }>,
+    transition: Readonly<{ traceId: string; origin?: LocalIntakeOrigin }>,
     postReductionState: DownloadQueueState,
   ) => void,
 ) => () => void;
@@ -158,6 +165,7 @@ export const useDownloadIntakePresentation = ({
         traceId: transition.traceId,
         primaryTraceIdAtStart:
           selectPrimaryDownloadTask(postReductionState)?.traceId ?? null,
+        origin: transition.origin,
         now: now(),
       });
     });

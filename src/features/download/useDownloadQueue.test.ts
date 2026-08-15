@@ -7,7 +7,10 @@ import {
 } from "./client";
 import type { DownloadQueueState, DownloadTask } from "./model";
 import { selectPrimaryDownloadTask } from "./selectors";
-import { DownloadQueueController } from "./useDownloadQueue";
+import {
+  DownloadQueueController,
+  type DownloadIntakeTransition,
+} from "./useDownloadQueue";
 import { shouldShowDownloadTerminalReveal } from "../../presentation/main-window/downloadTerminalProjection";
 
 const deferred = <T>(): {
@@ -35,10 +38,12 @@ const task = (overrides: Partial<DownloadTask> = {}): DownloadTask => ({
 const detailEvent = (
   tasks: DownloadTask[],
   acceptedTraceId?: string,
+  acceptedIntakeOrigin?: { x: number; y: number },
 ): DownloadQueueEvent => ({
   type: "queueDetail",
   tasks,
   acceptedTraceId,
+  ...(acceptedIntakeOrigin === undefined ? {} : { acceptedIntakeOrigin }),
 });
 
 const progressEvent = (traceId = "trace-1", percent = 50): DownloadQueueEvent => ({
@@ -496,6 +501,35 @@ describe("MR8 Intake notification seam: authoritative marked membership", () => 
     fake.emit(detailEvent([task({ traceId: "accepted" })], "accepted"));
 
     expect(transitions).toEqual([{ traceId: "accepted", order: ["accepted"] }]);
+  });
+
+  it("forwards an origin only when it is paired with a newly proven membership", () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: Array<{ traceId: string; origin?: { x: number; y: number } }> = [];
+    controller.subscribeIntake((transition) => transitions.push(transition));
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "local" })], "local", { x: 0.2, y: 0.7 }));
+    fake.emit(detailEvent([task({ traceId: "local" })], "local", { x: 0.9, y: 0.1 }));
+
+    expect(transitions).toEqual([{ traceId: "local", origin: { x: 0.2, y: 0.7 } }]);
+  });
+
+  it("rejects an unpaired origin and a marked non-new membership", () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: DownloadIntakeTransition[] = [];
+    controller.subscribeIntake((transition) => transitions.push(transition));
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "existing" })]));
+    fake.emit(detailEvent([task({ traceId: "existing" })], undefined, { x: 0.2, y: 0.7 }));
+    fake.emit(detailEvent([task({ traceId: "existing" })], "existing", { x: 0.2, y: 0.7 }));
+
+    expect(transitions).toEqual([]);
   });
 
   it("never fabricates Intake from hydration, replay, an absent marker, or a local ack", async () => {

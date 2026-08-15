@@ -5,7 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { DownloadQueueAck } from "../../application/download-api";
+import type { DownloadQueueAck, LocalIntakeOrigin } from "../../application/download-api";
 import {
   reduceDownloadQueue,
   type DownloadAction,
@@ -21,7 +21,10 @@ import {
   type DownloadTerminalOutcome,
 } from "./model";
 
-export type DownloadIntakeTransition = Readonly<{ traceId: string }>;
+export type DownloadIntakeTransition = Readonly<{
+  traceId: string;
+  origin?: LocalIntakeOrigin;
+}>;
 
 /**
  * Lifecycle-safe Download queue controller: one reducer instance and one
@@ -137,9 +140,9 @@ export class DownloadQueueController {
     return this.client.queue(request).then((ack) => this.acceptQueueAck(epoch, ack));
   }
 
-  queuePasted(url: string): Promise<DownloadQueueAck> {
+  queuePasted(url: string, intakeOrigin?: LocalIntakeOrigin): Promise<DownloadQueueAck> {
     const epoch = this.epoch;
-    return this.client.queuePasted(url).then((ack) => this.acceptQueueAck(epoch, ack));
+    return this.client.queuePasted(url, intakeOrigin).then((ack) => this.acceptQueueAck(epoch, ack));
   }
 
   cancel(traceId: string): Promise<boolean> {
@@ -252,7 +255,12 @@ export class DownloadQueueController {
           && !wasAlreadyMember
           && Object.prototype.hasOwnProperty.call(this.state.tasksById, acceptedTraceId)
         ) {
-          const transition = { traceId: acceptedTraceId };
+          const transition = {
+            traceId: acceptedTraceId,
+            ...(event.acceptedIntakeOrigin === undefined
+              ? {}
+              : { origin: event.acceptedIntakeOrigin }),
+          };
           this.intakeListeners.forEach((listener) => listener(transition, this.state));
         }
         break;
@@ -290,7 +298,7 @@ export function useDownloadQueue(client: DownloadQueueClient) {
 
   const actions = useMemo(() => ({
     queue: (request: DownloadQueueRequest) => controller.queue(request),
-    queuePasted: (url: string) => controller.queuePasted(url),
+    queuePasted: (url: string, intakeOrigin?: LocalIntakeOrigin) => controller.queuePasted(url, intakeOrigin),
     cancel: (traceId: string) => controller.cancel(traceId),
     selectQuality: (traceId: string, optionId: string) => controller.selectQuality(traceId, optionId),
     reset: () => controller.reset(),

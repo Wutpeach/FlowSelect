@@ -391,6 +391,28 @@ describe("AmeowElectronDownloadRuntime", () => {
     expect(runtime.getQueueDetail()).not.toHaveProperty("acceptedTraceId");
   });
 
+  it("emits a local Intake origin only on the same new-membership marker", async () => {
+    const events: Array<{ event: RuntimeEmitterEvent; payload: unknown }> = [];
+    const runtime = createRuntime({
+      providers: [genericProvider],
+      engines: [createEngineStub("yt-dlp", async () => new Promise(() => undefined))],
+      onEmit(event, payload) {
+        events.push({ event, payload });
+      },
+    });
+    const ack = await runtime.queueDownload(
+      { url: "https://example.com/origin" },
+      { intakeOrigin: { x: 0.2, y: 0.7 } },
+    );
+    const marked = events.find((entry) => entry.event === "video-queue-detail"
+      && (entry.payload as { acceptedTraceId?: string }).acceptedTraceId === ack.traceId)?.payload;
+    expect(marked).toMatchObject({
+      acceptedTraceId: ack.traceId,
+      acceptedIntakeOrigin: { x: 0.2, y: 0.7 },
+    });
+    expect(runtime.getQueueDetail()).not.toHaveProperty("acceptedIntakeOrigin");
+  });
+
   it("cancels pending work immediately", async () => {
     const completed: Array<{ traceId: string; success: boolean; error?: string }> = [];
     const telemetry: DownloadTelemetryEvent[] = [];

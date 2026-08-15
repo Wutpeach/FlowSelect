@@ -6,6 +6,9 @@ import type {
 const PROGRESS_CONVERGENCE_PER_SECOND = 2.4;
 const PROGRESS_SNAP = 0.001;
 const MAX_FRAME_DELTA_SECONDS = 0.05;
+// Visual tuning only. Product, lifecycle, retention, and acceptance never
+// depend on this renderer-local duration.
+export const ACTIVATION_DURATION_MS = 720;
 
 export type ExpandedPresentationInputs = Readonly<{
   target: ExpandedPresentationTarget;
@@ -55,7 +58,7 @@ const progressEquals = (
 const targetProgress = (
   target: ExpandedPresentationTarget,
 ): ExpandedPresentationProgressTarget => {
-  if (target.kind === "progress" || target.kind === "intake") {
+  if (target.kind === "progress" || target.kind === "activation") {
     return target.progress;
   }
   return IDLE_PROGRESS;
@@ -71,12 +74,13 @@ const targetEquals = (
       return true;
     case "progress":
       return right.kind === "progress" && progressEquals(left.progress, right.progress);
-    case "terminal":
-      return right.kind === "terminal" && left.status === right.status;
-    case "intake":
-      return right.kind === "intake"
+    case "activation":
+      return right.kind === "activation"
+        && left.source === right.source
         && left.opportunityId === right.opportunityId
-        && left.traceId === right.traceId
+        && left.origin.x === right.origin.x
+        && left.origin.y === right.origin.y
+        && left.startedAt === right.startedAt
         && progressEquals(left.progress, right.progress);
   }
 };
@@ -144,8 +148,7 @@ export const createExpandedPresentationRuntime = (dependencies: {
   const needsFrames = (): boolean => (
     !inputs.reducedMotion
     && (
-      target.kind === "intake"
-      || progressTarget.kind === "indeterminate"
+      (target.kind === "activation" && now() < target.startedAt + ACTIVATION_DURATION_MS)
       || (
         progressTarget.kind === "determinate"
         && Math.abs(progressTarget.target - progressLevel) > PROGRESS_SNAP
@@ -216,7 +219,7 @@ export const createExpandedPresentationRuntime = (dependencies: {
     progressTarget = normalizedProgress;
     if (target.kind === "progress") {
       target = { ...target, progress: normalizedProgress };
-    } else if (target.kind === "intake") {
+    } else if (target.kind === "activation") {
       target = { ...target, progress: normalizedProgress };
     }
     if (

@@ -1,25 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
-
 import {
   resetPointerFieldToCenter,
   resolvePointerFieldCenterPoint,
   resolvePointerFieldPoint,
+  snapshotClientPointOrigin,
+  snapshotPointerFieldOrigin,
   updatePointerFieldFromClientPoint,
   type MainWindowPointerField,
 } from "./pointerField";
 
-// Pointer coordinates live in local Motion values, not React application
-// state. The pure conversion and reset helpers are tested directly; writes
-// must go through MotionValue setters only.
-
 const ROOT_RECT = { left: 14, top: 14, width: 200, height: 200 };
 
 const createFakeField = () => ({
-  x: { set: vi.fn() },
-  y: { set: vi.fn() },
+  x: { get: vi.fn(() => 86), set: vi.fn() },
+  y: { get: vi.fn(() => 36), set: vi.fn() },
 }) as unknown as MainWindowPointerField;
 
-describe("resolvePointerFieldPoint", () => {
+describe("Main Window Pointer Field", () => {
   it("converts client coordinates into stable-root-relative points", () => {
     expect(resolvePointerFieldPoint(100, 50, ROOT_RECT)).toEqual({ x: 86, y: 36 });
   });
@@ -29,25 +26,18 @@ describe("resolvePointerFieldPoint", () => {
     expect(resolvePointerFieldPoint(1000, 10, ROOT_RECT)).toEqual({ x: 200, y: 0 });
   });
 
-  it("returns null for non-finite input or empty geometry", () => {
+  it("rejects non-finite input or empty geometry", () => {
     expect(resolvePointerFieldPoint(Number.NaN, 50, ROOT_RECT)).toBeNull();
     expect(resolvePointerFieldPoint(100, Number.POSITIVE_INFINITY, ROOT_RECT)).toBeNull();
     expect(resolvePointerFieldPoint(100, 50, { ...ROOT_RECT, width: 0 })).toBeNull();
   });
-});
 
-describe("resolvePointerFieldCenterPoint", () => {
-  it("resolves the stable root center", () => {
+  it("resolves and validates the stable root center", () => {
     expect(resolvePointerFieldCenterPoint(200)).toEqual({ x: 100, y: 100 });
-  });
-
-  it("returns null for invalid viewport sizes", () => {
     expect(resolvePointerFieldCenterPoint(0)).toBeNull();
     expect(resolvePointerFieldCenterPoint(Number.NaN)).toBeNull();
   });
-});
 
-describe("updatePointerFieldFromClientPoint", () => {
   it("writes root-relative coordinates through MotionValue setters only", () => {
     const field = createFakeField();
     updatePointerFieldFromClientPoint(field, 100, 50, ROOT_RECT);
@@ -57,25 +47,41 @@ describe("updatePointerFieldFromClientPoint", () => {
     expect(field.y.set).toHaveBeenCalledTimes(1);
   });
 
-  it("skips writes for invalid geometry", () => {
+  it("skips Pointer Field writes for invalid geometry", () => {
     const field = createFakeField();
     updatePointerFieldFromClientPoint(field, 100, 50, { ...ROOT_RECT, width: 0 });
+    resetPointerFieldToCenter(field, 0);
     expect(field.x.set).not.toHaveBeenCalled();
     expect(field.y.set).not.toHaveBeenCalled();
   });
-});
 
-describe("resetPointerFieldToCenter", () => {
-  it("writes the stable root center on semantic leave", () => {
+  it("resets the Pointer Field to center on semantic leave", () => {
     const field = createFakeField();
     resetPointerFieldToCenter(field, 200);
     expect(field.x.set).toHaveBeenCalledWith(100);
     expect(field.y.set).toHaveBeenCalledWith(100);
   });
+});
 
-  it("skips writes for invalid viewport sizes", () => {
-    const field = createFakeField();
-    resetPointerFieldToCenter(field, 0);
-    expect(field.x.set).not.toHaveBeenCalled();
+describe("Presentation causal origins", () => {
+  it("normalizes a synchronous drop point and clamps it to its captured surface", () => {
+    expect(snapshotClientPointOrigin(75, 50, { left: 25, top: 0, width: 100, height: 100 }))
+      .toEqual({ x: 0.5, y: 0.5 });
+    expect(snapshotClientPointOrigin(1000, -20, { left: 0, top: 0, width: 100, height: 100 }))
+      .toEqual({ x: 1, y: 0 });
+  });
+
+  it("snapshots the current in-surface field without retaining a later pointer read", () => {
+    let x = 20;
+    let y = 80;
+    const field = {
+      x: { get: () => x },
+      y: { get: () => y },
+    } as MainWindowPointerField;
+    const snapshot = snapshotPointerFieldOrigin(field, 100);
+    x = 90;
+    y = 10;
+    expect(snapshot).toEqual({ x: 0.2, y: 0.8 });
+    expect(snapshotPointerFieldOrigin(field, 0)).toBeUndefined();
   });
 });

@@ -1,32 +1,33 @@
 import type { DownloadIntakePresentationOpportunity } from "./downloadIntakePresentation";
+import type { FolderActivationPresentationOpportunity } from "./folderActivationPresentation";
 import type {
   ExpandedPresentationProgressTarget,
   ExpandedPresentationTarget,
-  ExpandedPresentationTerminalTarget,
 } from "./expandedPresentationTargets";
 
 /** Resolves all semantic priority before the one Expanded graphics host. */
 export const resolveExpandedPresentationTarget = ({
   progress,
-  terminal,
   intake,
+  folder,
 }: {
   progress: ExpandedPresentationProgressTarget;
-  terminal: ExpandedPresentationTerminalTarget;
   intake: DownloadIntakePresentationOpportunity | null;
+  folder: FolderActivationPresentationOpportunity | null;
 }): ExpandedPresentationTarget => {
-  // Preserve MR4's current-primary suppression even for defensive overlap.
-  if (progress.kind !== "idle" && terminal.kind === "terminal") {
-    return { kind: "progress", progress };
-  }
-  if (terminal.kind === "terminal") {
-    return { kind: "terminal", status: terminal.status };
-  }
-  if (intake !== null) {
+  const activation = intake === null
+    ? folder
+    : folder === null || intake.startedAt >= folder.startedAt
+      ? intake
+      : folder;
+  if (activation !== null) {
+    const source = activation === intake ? "intake" : "folder";
     return {
-      kind: "intake",
-      opportunityId: intake.opportunityId,
-      traceId: intake.traceId,
+      kind: "activation",
+      source,
+      opportunityId: activation.opportunityId,
+      origin: activation.origin,
+      startedAt: activation.startedAt,
       progress,
     };
   }

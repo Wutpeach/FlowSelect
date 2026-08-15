@@ -23,12 +23,34 @@ describe("Download Intake Presentation", () => {
     });
 
     expect(first.current?.opportunityId).toBe(1);
+    expect(first.current).toMatchObject({
+      origin: { x: 0.5, y: 0.5 },
+      startedAt: 100,
+    });
     expect(latest.current).toMatchObject({
       opportunityId: 2,
       traceId: "latest",
       primaryTraceIdAtStart: "current",
     });
     expect(latest.current?.deadlineAt).toBeGreaterThan(200);
+  });
+
+  it("preserves a paired local origin without later pointer sampling", () => {
+    const state = reduceDownloadIntakePresentation(
+      createDownloadIntakePresentationState(),
+      {
+        type: "accepted",
+        traceId: "local",
+        primaryTraceIdAtStart: "local",
+        origin: { x: 0.2, y: 0.8 },
+        now: 100,
+      },
+    );
+    expect(state.current).toMatchObject({
+      traceId: "local",
+      origin: { x: 0.2, y: 0.8 },
+      startedAt: 100,
+    });
   });
 
   it("ignores stale expiry and expires only the matching elapsed opportunity", () => {

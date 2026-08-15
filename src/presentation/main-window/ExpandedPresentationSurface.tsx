@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   createExpandedPresentationRuntime,
+  ACTIVATION_DURATION_MS,
   type ExpandedPresentationFrame,
   type ExpandedPresentationInputs,
   type ExpandedPresentationRuntime,
 } from "./expandedPresentationRuntime";
 import type { ExpandedPresentationTarget } from "./expandedPresentationTargets";
+import type { ThermalPalette } from "./thermalPalette";
 
 const MAX_DPR = 2;
 
@@ -30,63 +32,137 @@ out vec4 outColor;
 uniform vec2 uResolution;
 uniform float uTime;
 uniform float uProgress;
-uniform int uMode;
+uniform int uProgressMode;
 uniform bool uReducedMotion;
-uniform vec3 uAccent;
-uniform vec3 uWarning;
-uniform vec3 uDanger;
-uniform vec3 uMuted;
+uniform float uActivationAge;
+uniform int uActivationKind;
+uniform vec2 uActivationOrigin;
+uniform vec3 uThermalVoid;
+uniform vec3 uThermalDeep;
+uniform vec3 uThermalEmber;
+uniform vec3 uThermalFlare;
+uniform vec3 uThermalGold;
+uniform vec3 uThermalCore;
+
+float arcMask(float angle, float amount) {
+  return step(angle, clamp(amount, 0.0, 1.0));
+}
+
+float ring(vec2 point, float radius, float width) {
+  return 1.0 - smoothstep(width, width * 1.8, abs(length(point) - radius));
+}
+
+float angularDistance(float left, float right) {
+  return abs(fract(left - right + 0.5) - 0.5);
+}
+
+float edgeMask(vec2 uv, float width) {
+  float edgeDistance = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+  return 1.0 - smoothstep(width, width * 1.8, edgeDistance);
+}
+
+float perimeterCoordinate(vec2 uv) {
+  float left = uv.x;
+  float right = 1.0 - uv.x;
+  float bottom = uv.y;
+  float top = 1.0 - uv.y;
+  float nearest = min(min(left, right), min(bottom, top));
+  if (nearest == bottom) return uv.x * 0.25;
+  if (nearest == right) return 0.25 + uv.y * 0.25;
+  if (nearest == top) return 0.5 + (1.0 - uv.x) * 0.25;
+  return 0.75 + (1.0 - uv.y) * 0.25;
+}
+
+float phasePulse(float phase, float start, float peak, float end) {
+  return smoothstep(start, peak, phase) * (1.0 - smoothstep(peak, end, phase));
+}
 
 void main() {
   vec2 centered = vUv - 0.5;
   centered.x *= uResolution.x / max(uResolution.y, 1.0);
-  float radius = length(centered);
-  float halo = 1.0 - smoothstep(0.08, 0.72, radius);
-  float energy = 0.0;
-  float alpha = 0.0;
-  vec3 color = uMuted;
-
-  if (uMode == 1) {
-    float fill = 1.0 - smoothstep(uProgress - 0.025, uProgress + 0.025, vUv.x);
-    float frontier = exp(-abs(vUv.x - uProgress) * 42.0);
-    energy = halo * (0.2 + 0.8 * fill) + frontier * 0.42;
-    alpha = 0.08 + 0.22 * energy;
-    color = uAccent;
-  } else if (uMode == 2) {
-    float phase = uReducedMotion ? 0.5 : fract(uTime * 0.18);
-    float band = exp(-abs(vUv.x - phase) * 10.0);
-    energy = halo * (0.28 + 0.72 * band);
-    alpha = 0.08 + 0.2 * energy;
-    color = uAccent;
-  } else if (uMode == 3) {
-    float ring = exp(-abs(radius - 0.26) * 24.0);
-    energy = max(halo * 0.72, ring);
-    alpha = 0.1 + 0.24 * energy;
-    color = uAccent;
-  } else if (uMode == 4) {
-    float crossA = exp(-abs(centered.x - centered.y) * 18.0);
-    float crossB = exp(-abs(centered.x + centered.y) * 18.0);
-    energy = halo * max(crossA, crossB);
-    alpha = 0.1 + 0.24 * energy;
-    color = uDanger;
-  } else if (uMode == 5) {
-    float band = exp(-abs(centered.y) * 18.0);
-    energy = halo * band;
-    alpha = 0.1 + 0.22 * energy;
-    color = uWarning;
-  } else if (uMode == 6) {
-    float phase = uReducedMotion ? 0.58 : fract(uTime * 0.42);
-    float intakeRadius = mix(0.68, 0.12, phase);
-    float arrival = exp(-abs(radius - intakeRadius) * 28.0);
-    float focus = 1.0 - smoothstep(0.04, 0.2, radius);
-    energy = max(halo * 0.24, arrival * 0.78 + focus * 0.36);
-    alpha = 0.08 + 0.24 * energy;
-    color = uAccent;
-  } else {
-    energy = halo * 0.18;
-    alpha = 0.035 + 0.055 * energy;
+  float angle = fract(atan(centered.x, centered.y) / 6.28318530718);
+  float track = ring(centered, 0.26, 0.011);
+  float arc = 0.0;
+  float frontier = 0.0;
+  if (uProgressMode == 1) {
+    arc = track * arcMask(angle, uProgress);
+    // Keep the material strictly behind the authoritative angular frontier.
+    frontier = track * exp(-abs(angle - uProgress) * 72.0)
+      * arcMask(angle, uProgress) * step(0.002, uProgress);
+  } else if (uProgressMode == 2) {
+    // Honest indeterminate: one fixed non-percent segment, never a travelling frontier.
+    arc = track * step(0.16, angle) * step(angle, 0.42);
   }
+  float visibleTrack = uProgressMode == 0 ? 0.0 : track;
+  vec3 color = mix(uThermalVoid, uThermalDeep, visibleTrack);
+  color = mix(color, uThermalEmber, arc);
+  color = mix(color, uThermalGold, frontier);
+  float alpha = visibleTrack * 0.14 + arc * 0.34 + frontier * 0.24;
 
+  if (uActivationKind != 0) {
+    float phase = clamp(uActivationAge, 0.0, 1.0);
+    // DOM client coordinates are top-down; WebGL UV coordinates are bottom-up.
+    vec2 interactionUv = vec2(uActivationOrigin.x, 1.0 - uActivationOrigin.y);
+    vec2 origin = interactionUv - 0.5;
+    origin.x *= uResolution.x / max(uResolution.y, 1.0);
+    float distanceFromOrigin = length(centered - origin);
+    float intake = uActivationKind == 1 ? 1.0 : 0.0;
+    float turbulence = intake * 0.018 * sin((centered.y + uTime) * 42.0);
+    float ignition = (1.0 - smoothstep(
+      0.015,
+      mix(0.12, 0.2, smoothstep(0.0, 0.28, phase)),
+      distanceFromOrigin + turbulence
+    )) * (1.0 - smoothstep(0.18, 0.46, phase));
+    float sweepLimit = mix(0.76, 0.9, intake);
+    float sweep = exp(-abs(
+      distanceFromOrigin - mix(0.03, sweepLimit, smoothstep(0.08, 0.52, phase))
+    ) * mix(24.0, 19.0, intake));
+    float perimeter = edgeMask(vUv, mix(0.04, 0.032, intake));
+    float perimeterPosition = perimeterCoordinate(vUv);
+    float originPosition = perimeterCoordinate(interactionUv);
+    float chaseDistance = mix(0.0, 0.5, smoothstep(0.34, 0.72, phase));
+    float dualFrontDistance = min(
+      angularDistance(perimeterPosition, originPosition + chaseDistance),
+      angularDistance(perimeterPosition, originPosition - chaseDistance)
+    );
+    float capturedDistance = angularDistance(perimeterPosition, originPosition);
+    float capturedEdge = perimeter
+      * (1.0 - smoothstep(max(chaseDistance - 0.035, 0.0), chaseDistance + 0.02, capturedDistance))
+      * smoothstep(0.24, 0.42, phase);
+    float edgeFronts = perimeter * (1.0 - smoothstep(0.025, 0.075, dualFrontDistance));
+    float oppositeDistance = angularDistance(perimeterPosition, originPosition + 0.5);
+    float oppositeClosure = perimeter
+      * (1.0 - smoothstep(0.02, 0.1, oppositeDistance))
+      * phasePulse(phase, 0.62, 0.74, 0.86);
+    float convergence = exp(-length(centered) * 17.0)
+      * phasePulse(phase, 0.7, 0.79, 0.89);
+    float dissipate = 1.0 - smoothstep(0.78, 1.0, phase);
+    float travellingThermal = max(
+      ignition,
+      max(
+        sweep * mix(0.64, 0.78, intake),
+        max(
+          capturedEdge * mix(0.86, 0.68, intake),
+          max(edgeFronts * 0.74, max(oppositeClosure * 0.82, convergence * 0.52))
+        )
+      )
+    ) * dissipate;
+    float reducedIntake = max(
+      1.0 - smoothstep(0.035, 0.17, distanceFromOrigin),
+      ring(centered - origin, 0.18, 0.022) * 0.5
+    );
+    float reducedFolderLock = perimeter
+      * (1.0 - smoothstep(0.025, 0.12, oppositeDistance));
+    float reducedFolder = max(perimeter * 0.55, reducedFolderLock * 0.82);
+    float thermal = uReducedMotion
+      ? mix(reducedFolder, reducedIntake, intake)
+      : travellingThermal;
+    vec3 activationColor = mix(uThermalDeep, uThermalEmber, smoothstep(0.08, 0.42, thermal));
+    activationColor = mix(activationColor, uThermalFlare, smoothstep(0.35, 0.68, thermal));
+    activationColor = mix(activationColor, uThermalGold, smoothstep(0.66, 0.86, thermal));
+    color = mix(activationColor, uThermalCore, smoothstep(0.86, 0.98, thermal));
+    alpha = max(alpha * 0.35, thermal * (uReducedMotion ? 0.24 : 0.72));
+  }
   outColor = vec4(color, alpha);
 }`;
 
@@ -94,18 +170,10 @@ export type ExpandedPresentationSurfaceProps = {
   eligible: boolean;
   reducedMotion: boolean;
   target: ExpandedPresentationTarget;
-  accentColor: string;
-  warningColor: string;
-  dangerColor: string;
-  mutedColor: string;
+  palette: ThermalPalette;
 };
 
-type GraphicsColors = Readonly<{
-  accent: string;
-  warning: string;
-  danger: string;
-  muted: string;
-}>;
+type GraphicsColors = ThermalPalette;
 
 type GraphicsRenderer = {
   render: (frame: ExpandedPresentationFrame, colors: GraphicsColors) => void;
@@ -199,12 +267,17 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
   const resolutionLocation = gl.getUniformLocation(linkedProgram, "uResolution");
   const timeLocation = gl.getUniformLocation(linkedProgram, "uTime");
   const progressLocation = gl.getUniformLocation(linkedProgram, "uProgress");
-  const modeLocation = gl.getUniformLocation(linkedProgram, "uMode");
+  const progressModeLocation = gl.getUniformLocation(linkedProgram, "uProgressMode");
   const reducedMotionLocation = gl.getUniformLocation(linkedProgram, "uReducedMotion");
-  const accentLocation = gl.getUniformLocation(linkedProgram, "uAccent");
-  const warningLocation = gl.getUniformLocation(linkedProgram, "uWarning");
-  const dangerLocation = gl.getUniformLocation(linkedProgram, "uDanger");
-  const mutedLocation = gl.getUniformLocation(linkedProgram, "uMuted");
+  const activationAgeLocation = gl.getUniformLocation(linkedProgram, "uActivationAge");
+  const activationKindLocation = gl.getUniformLocation(linkedProgram, "uActivationKind");
+  const activationOriginLocation = gl.getUniformLocation(linkedProgram, "uActivationOrigin");
+  const voidLocation = gl.getUniformLocation(linkedProgram, "uThermalVoid");
+  const deepLocation = gl.getUniformLocation(linkedProgram, "uThermalDeep");
+  const emberLocation = gl.getUniformLocation(linkedProgram, "uThermalEmber");
+  const flareLocation = gl.getUniformLocation(linkedProgram, "uThermalFlare");
+  const goldLocation = gl.getUniformLocation(linkedProgram, "uThermalGold");
+  const coreLocation = gl.getUniformLocation(linkedProgram, "uThermalCore");
 
   const resize = (): void => {
     if (disposed) return;
@@ -228,28 +301,36 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
   const draw = (frame: ExpandedPresentationFrame, colors: GraphicsColors): void => {
     if (disposed || gl.isContextLost()) return;
     lastFrame = frame;
-    let mode = 0;
+    let progressMode = 0;
     if (frame.target.kind === "progress") {
-      mode = frame.target.progress.kind === "determinate" ? 1 : 2;
-    } else if (frame.target.kind === "terminal") {
-      mode = frame.target.status === "success"
-        ? 3
-        : frame.target.status === "failure"
-          ? 4
-          : 5;
-    } else if (frame.target.kind === "intake") {
-      mode = 6;
+      progressMode = frame.target.progress.kind === "determinate" ? 1 : 2;
+    } else if (frame.target.kind === "activation") {
+      progressMode = frame.target.progress.kind === "determinate"
+        ? 1
+        : frame.target.progress.kind === "indeterminate" ? 2 : 0;
     }
     gl.useProgram(linkedProgram);
     gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
     gl.uniform1f(timeLocation, frame.timeSeconds);
     gl.uniform1f(progressLocation, frame.progressLevel);
-    gl.uniform1i(modeLocation, mode);
+    gl.uniform1i(progressModeLocation, progressMode);
     gl.uniform1i(reducedMotionLocation, frame.reducedMotion ? 1 : 0);
-    gl.uniform3fv(accentLocation, parseHexColor(colors.accent));
-    gl.uniform3fv(warningLocation, parseHexColor(colors.warning));
-    gl.uniform3fv(dangerLocation, parseHexColor(colors.danger));
-    gl.uniform3fv(mutedLocation, parseHexColor(colors.muted));
+    const activation = frame.target.kind === "activation" ? frame.target : null;
+    const activationAge = activation === null
+      ? 1
+      : Math.min(Math.max((frame.timeSeconds * 1000 - activation.startedAt) / ACTIVATION_DURATION_MS, 0), 1);
+    gl.uniform1f(activationAgeLocation, activationAge);
+    gl.uniform1i(
+      activationKindLocation,
+      activation === null ? 0 : activation.source === "intake" ? 1 : 2,
+    );
+    gl.uniform2f(activationOriginLocation, activation?.origin.x ?? 0.5, activation?.origin.y ?? 0.5);
+    gl.uniform3fv(voidLocation, parseHexColor(colors.thermalVoid));
+    gl.uniform3fv(deepLocation, parseHexColor(colors.thermalDeep));
+    gl.uniform3fv(emberLocation, parseHexColor(colors.thermalEmber));
+    gl.uniform3fv(flareLocation, parseHexColor(colors.thermalFlare));
+    gl.uniform3fv(goldLocation, parseHexColor(colors.thermalGold));
+    gl.uniform3fv(coreLocation, parseHexColor(colors.thermalCore));
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -285,10 +366,7 @@ export function ExpandedPresentationSurface({
   eligible,
   reducedMotion,
   target,
-  accentColor,
-  warningColor,
-  dangerColor,
-  mutedColor,
+  palette,
 }: ExpandedPresentationSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<GraphicsRenderer | null>(null);
@@ -298,31 +376,18 @@ export function ExpandedPresentationSurface({
     target,
     reducedMotion,
   });
-  const colorsRef = useRef<GraphicsColors>({
-    accent: accentColor,
-    warning: warningColor,
-    danger: dangerColor,
-    muted: mutedColor,
-  });
+  const colorsRef = useRef<GraphicsColors>(palette);
   const [dprEpoch, setDprEpoch] = useState(0);
 
   useEffect(() => {
     eligibleRef.current = eligible;
     inputsRef.current = { target, reducedMotion };
-    colorsRef.current = {
-      accent: accentColor,
-      warning: warningColor,
-      danger: dangerColor,
-      muted: mutedColor,
-    };
+    colorsRef.current = palette;
   }, [
-    accentColor,
-    dangerColor,
     eligible,
-    mutedColor,
+    palette,
     reducedMotion,
     target,
-    warningColor,
   ]);
 
   useEffect(() => {
@@ -385,7 +450,7 @@ export function ExpandedPresentationSurface({
 
   useEffect(() => {
     if (eligible) rendererRef.current?.redraw(colorsRef.current);
-  }, [accentColor, dangerColor, eligible, mutedColor, warningColor]);
+  }, [eligible, palette]);
 
   useEffect(() => {
     rendererRef.current?.resize();
@@ -411,7 +476,7 @@ export function ExpandedPresentationSurface({
       style={{
         position: "absolute",
         inset: 0,
-        zIndex: 0,
+        zIndex: target.kind === "activation" && !reducedMotion ? 2 : 0,
         width: "100%",
         height: "100%",
         pointerEvents: "none",

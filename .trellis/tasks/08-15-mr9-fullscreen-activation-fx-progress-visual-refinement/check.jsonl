@@ -1,0 +1,7 @@
+{"file":".trellis/tasks/08-15-mr9-fullscreen-activation-fx-progress-visual-refinement/research/repository-grounded-planning-report.md","reason":"Check every MR9 acceptance item, baseline gate, authority classification, shader boundary, risk, and explicit non-implementation stop condition."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check that origin/opportunity metadata stays bounded Presentation state and no session completion or Download truth is duplicated."}
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Check reduced motion, transition illusion, lifecycle independence, and zero-idle-frame behavior."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Check named canonical palette, dark-neutral validation, low-intensity progress material, and no anonymous local colors."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check one host/canvas/program, failure isolation, code reuse, no speculative framework, and focused validation coverage."}
+{"file":".trellis/spec/frontend/docs-site.md","reason":"Check paired locale documentation updates and docs-site build result."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check the authoritative flow from Application/Download facts through pure Presentation to renderer-local pixels."}

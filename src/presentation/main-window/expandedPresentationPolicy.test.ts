@@ -3,48 +3,39 @@ import { resolveExpandedPresentationTarget } from "./expandedPresentationPolicy"
 
 const idleProgress = { kind: "idle" } as const;
 const currentProgress = { kind: "indeterminate", traceId: "current" } as const;
-const noTerminal = { kind: "none" } as const;
 const intake = {
   opportunityId: 7,
   traceId: "accepted",
   primaryTraceIdAtStart: "current",
+  origin: { x: 0.2, y: 0.8 },
+  startedAt: 100,
   deadlineAt: 1200,
 } as const;
+const folder = { opportunityId: 4, origin: { x: 0.4, y: 0.6 }, startedAt: 120 } as const;
 
 describe("Expanded Presentation policy", () => {
-  it("preserves current-primary suppression when defensive progress and terminal inputs overlap", () => {
+  it("resolves the latest causal activation before progress and never has a terminal lane", () => {
     expect(resolveExpandedPresentationTarget({
       progress: currentProgress,
-      terminal: { kind: "terminal", status: "success" },
       intake,
-    })).toEqual({ kind: "progress", progress: currentProgress });
-  });
-
-  it("resolves Terminal, Intake, Progress, then idle without renderer competition", () => {
-    expect(resolveExpandedPresentationTarget({
-      progress: idleProgress,
-      terminal: { kind: "terminal", status: "failure" },
-      intake,
-    })).toEqual({ kind: "terminal", status: "failure" });
-    expect(resolveExpandedPresentationTarget({
-      progress: currentProgress,
-      terminal: noTerminal,
-      intake,
+      folder,
     })).toEqual({
-      kind: "intake",
-      opportunityId: 7,
-      traceId: "accepted",
+      kind: "activation",
+      source: "folder",
+      opportunityId: 4,
+      origin: { x: 0.4, y: 0.6 },
+      startedAt: 120,
       progress: currentProgress,
     });
     expect(resolveExpandedPresentationTarget({
-      progress: currentProgress,
-      terminal: noTerminal,
-      intake: null,
-    })).toEqual({ kind: "progress", progress: currentProgress });
-    expect(resolveExpandedPresentationTarget({
       progress: idleProgress,
-      terminal: noTerminal,
       intake: null,
-    })).toEqual({ kind: "idle" });
+      folder,
+    })).toMatchObject({ kind: "activation", source: "folder", opportunityId: 4 });
+    expect(resolveExpandedPresentationTarget({
+      progress: currentProgress,
+      intake: null,
+      folder: null,
+    })).toEqual({ kind: "progress", progress: currentProgress });
   });
 });

@@ -3,26 +3,12 @@
  * These values are pure projections of the current primary Download. They are
  * not renderer commands and carry no lifecycle or retention authority.
  */
+import type { LocalIntakeOrigin } from "../../application/download-api";
+
 export type ExpandedPresentationProgressTarget =
   | { kind: "idle" }
   | { kind: "indeterminate"; traceId: string }
   | { kind: "determinate"; traceId: string; target: number };
-
-export type ExpandedPresentationTerminalStatus =
-  | "success"
-  | "failure"
-  | "cancelled";
-
-/**
- * Durable terminal Presentation fact. Its lifetime is owned by the existing
- * center-outcome Presentation; the graphics host must not retain it locally.
- */
-export type ExpandedPresentationTerminalTarget =
-  | { kind: "none" }
-  | {
-      kind: "terminal";
-      status: ExpandedPresentationTerminalStatus;
-    };
 
 /**
  * The single semantic input consumed by the Expanded graphics host. Priority
@@ -36,12 +22,10 @@ export type ExpandedPresentationTarget =
       progress: Exclude<ExpandedPresentationProgressTarget, { kind: "idle" }>;
     }
   | {
-      kind: "terminal";
-      status: ExpandedPresentationTerminalStatus;
-    }
-  | {
-      kind: "intake";
+      kind: "activation";
+      source: "intake" | "folder";
       opportunityId: number;
-      traceId: string;
+      origin: LocalIntakeOrigin;
+      startedAt: number;
       progress: ExpandedPresentationProgressTarget;
     };

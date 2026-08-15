@@ -282,11 +282,32 @@ export const normalizeVideoQueueDetail = (
   const acceptedTraceId = typeof payload?.acceptedTraceId === "string"
     ? payload.acceptedTraceId.trim()
     : "";
+  const acceptedIntakeOrigin = payload?.acceptedIntakeOrigin;
+  const validAcceptedIntakeOrigin = (
+    acceptedIntakeOrigin
+    && typeof acceptedIntakeOrigin === "object"
+    && !Array.isArray(acceptedIntakeOrigin)
+    && typeof acceptedIntakeOrigin.x === "number"
+    && Number.isFinite(acceptedIntakeOrigin.x)
+    && acceptedIntakeOrigin.x >= 0
+    && acceptedIntakeOrigin.x <= 1
+    && typeof acceptedIntakeOrigin.y === "number"
+    && Number.isFinite(acceptedIntakeOrigin.y)
+    && acceptedIntakeOrigin.y >= 0
+    && acceptedIntakeOrigin.y <= 1
+  )
+    ? { x: acceptedIntakeOrigin.x, y: acceptedIntakeOrigin.y }
+    : undefined;
   return {
     tasks,
     ...(acceptedTraceId.length > 0
       && tasks.some((task) => task.traceId === acceptedTraceId)
-      ? { acceptedTraceId }
+      ? {
+          acceptedTraceId,
+          ...(validAcceptedIntakeOrigin === undefined
+            ? {}
+            : { acceptedIntakeOrigin: validAcceptedIntakeOrigin }),
+        }
       : {}),
   };
 };
