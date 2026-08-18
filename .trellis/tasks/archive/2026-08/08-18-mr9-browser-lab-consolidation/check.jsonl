@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check production reuse, no duplicate renderer/state authority, focused tests, failure isolation, and no speculative framework."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Check App/Lab shared component boundaries, browser-safe imports, pointer/accessibility behavior, and styling consistency."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check Lab state remains ephemeral and no real Product/Download/Transcode/config/lifecycle state is written."}
+{"file":".trellis/spec/frontend/docs-site.md","reason":"Check documentation screenshot replacement and docs build behavior after the legacy script is retired."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check the end-to-end fixture-to-production-pixels path and the Browser/Electron validation boundary."}
