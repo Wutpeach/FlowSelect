@@ -1,6 +1,6 @@
 import type {
   ErrorDiagnosticCategory,
-  ErrorDiagnosticCopyPayload,
+  ErrorDiagnosticCopyReport,
   ErrorDiagnosticCopyRequest,
   ErrorDiagnosticSurface,
   RuntimeFailureDiagnostic,
@@ -8,6 +8,7 @@ import type {
 import {
   DOWNLOAD_DIAGNOSTIC_CATEGORIES,
   sanitizeDiagnosticText,
+  sanitizeDiagnosticValue,
   toSafeDiagnosticUrl,
   type DownloadDiagnosticCategory,
   type DownloadErrorCode,
@@ -19,16 +20,13 @@ import type {
   DownloadTerminalDiagnosticSummary,
 } from "../src/application/download-diagnostics.js";
 
-type BuildErrorDiagnosticCopyTextOptions = {
+type BuildErrorDiagnosticCopyReportOptions = {
   request: ErrorDiagnosticCopyRequest;
   appVersion: string;
   platform?: string;
   arch?: string;
-  readRecentRuntimeLogLines(limit: number): Promise<string[]>;
   now?(): Date;
 };
-
-const RUNTIME_LOG_LINE_LIMIT = 120;
 
 const asObject = (value: unknown): Record<string, unknown> | null => (
   value && typeof value === "object" && !Array.isArray(value)
@@ -203,12 +201,6 @@ const normalizeTerminalSummary = (
   };
 };
 
-export const redactRuntimeLogLine = (line: string): string => sanitizeDiagnosticText(line, 4_000);
-
-export const redactDiagnosticContext = (
-  _context?: Record<string, unknown>,
-): Record<string, unknown> | undefined => undefined;
-
 export const normalizeErrorDiagnosticCopyRequest = (
   payload: unknown,
 ): ErrorDiagnosticCopyRequest => {
@@ -247,20 +239,34 @@ export const normalizeErrorDiagnosticCopyRequest = (
   };
 };
 
-export const buildErrorDiagnosticCopyPayload = async (
-  options: BuildErrorDiagnosticCopyTextOptions,
-): Promise<ErrorDiagnosticCopyPayload> => {
-  let runtimeLogLines: string[];
-  try {
-    runtimeLogLines = await options.readRecentRuntimeLogLines(RUNTIME_LOG_LINE_LIMIT);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    runtimeLogLines = [`<runtime log unavailable: ${sanitizeDiagnosticText(message)}>`];
-  }
+const PRIVACY_NOTES = [
+  "URLs are reduced to origin only.",
+  "Local paths, cookies, credentials, tokens, and proxy endpoints are redacted.",
+  "Session runtime logs are not included in this report.",
+];
 
+/**
+ * Incident-scoped Quick Copy report (v2). Typed terminal/attempt facts come
+ * first; a bounded sanitized evidence line is included only for
+ * Transcode/legacy failures that have no typed attempt summary. No session
+ * runtime-log excerpt and no open context bags are ever copied.
+ */
+export const buildErrorDiagnosticCopyReport = (
+  options: BuildErrorDiagnosticCopyReportOptions,
+): ErrorDiagnosticCopyReport => {
   const failure = options.request.failure ?? null;
-  const payload: ErrorDiagnosticCopyPayload = {
-    schemaVersion: 1,
+  const attemptSummary = failure?.attemptSummary;
+  const rawMessage = normalizeOptionalString(failure?.rawMessage);
+  const hasTypedEvidence = Boolean(attemptSummary);
+  const evidence = !hasTypedEvidence && rawMessage && !failure?.diagnosticCategory
+    ? {
+        kind: options.request.surface === "transcode" ? "transcode" as const : "legacy" as const,
+        summary: sanitizeDiagnosticText(rawMessage, 480),
+      }
+    : undefined;
+
+  const report: ErrorDiagnosticCopyReport = {
+    formatVersion: 2,
     generatedAt: (options.now?.() ?? new Date()).toISOString(),
     app: {
       version: options.appVersion,
@@ -268,38 +274,130 @@ export const buildErrorDiagnosticCopyPayload = async (
       arch: options.arch,
       language: options.request.language,
     },
-    failure: {
+    incident: {
       surface: options.request.surface,
-      traceId: normalizeSafeString(options.request.traceId),
+      traceId: options.request.traceId,
       userMessage: sanitizeDiagnosticText(options.request.userMessage),
       category: options.request.category,
       url: failure?.safeUrl ?? toSafeDiagnosticUrl(failure?.userUrl),
       code: normalizeSafeString(failure?.code, 80),
       classification: normalizeSafeString(failure?.classification, 80),
-      rawMessage: failure?.diagnosticCategory
-        ? undefined
-        : failure?.rawMessage
-          ? sanitizeDiagnosticText(failure.rawMessage)
-          : undefined,
       diagnosticCategory: failure?.diagnosticCategory,
-      attemptSummary: failure?.attemptSummary,
+      attemptSummary,
+      evidence,
     },
-    runtimeLog: {
-      excerptLineCount: runtimeLogLines.length,
-      lines: runtimeLogLines.map(redactRuntimeLogLine),
-    },
-    redaction: {
+    privacy: {
       applied: true,
-      urlReducedToOrigin: true,
+      notes: PRIVACY_NOTES,
     },
   };
 
-  return payload;
+  // Final recursive safety net over the complete projected report before
+  // formatting/clipboard. Allowlist projection above stays primary; this
+  // guarantees unnormalized app/trace/attempt/network string leaves (for
+  // example a raw traceId or attemptSummary passed straight through) cannot
+  // egress secrets or local paths. Typed values and array order are
+  // preserved; exotic leaves are dropped.
+  return sanitizeDiagnosticValue(report) as ErrorDiagnosticCopyReport;
 };
 
-export const buildErrorDiagnosticCopyText = async (
-  options: BuildErrorDiagnosticCopyTextOptions,
-): Promise<string> => {
-  const payload = await buildErrorDiagnosticCopyPayload(options);
-  return JSON.stringify(payload, null, 2);
+const yesNo = (value: boolean): string => (value ? "yes" : "no");
+
+const formatNetwork = (network: DownloadDiagnosticNetwork | undefined): string | undefined => {
+  if (!network) {
+    return undefined;
+  }
+  return [
+    `routeKind=${network.routeKind}`,
+    `source=${network.source}`,
+    `consumer=${network.consumer}`,
+    `appliedToEngine=${yesNo(network.appliedToEngine)}`,
+    network.proxyProtocol ? `proxyProtocol=${network.proxyProtocol}` : null,
+    network.failureClassification ? `failureClassification=${network.failureClassification}` : null,
+  ].filter(Boolean).join(" ");
 };
+
+const formatAttemptLines = (attempts: readonly AttemptDiagnosticSummary[]): string[] => {
+  const lines: string[] = [];
+  for (const attempt of attempts) {
+    const parts = [
+      `${attempt.attemptIndex}.`,
+      `engine=${attempt.engineId}`,
+      `cycle=${attempt.cycle}`,
+      `outcome=${attempt.outcome}`,
+      attempt.errorCode ? `code=${attempt.errorCode}` : null,
+      attempt.classification ? `classification=${attempt.classification}` : null,
+      attempt.category ? `category=${attempt.category}` : null,
+      formatNetwork(attempt.network),
+    ].filter(Boolean);
+    lines.push(parts.join(" "));
+  }
+  return lines;
+};
+
+export const formatErrorDiagnosticCopyReport = (
+  report: ErrorDiagnosticCopyReport,
+): string => {
+  const lines: Array<string | string[] | null> = [
+    "Ameow Diagnostic Report",
+    `formatVersion=${report.formatVersion}`,
+    `generatedAt=${report.generatedAt}`,
+    `appVersion=${report.app.version}`,
+    report.app.platform ? `platform=${report.app.platform}` : null,
+    report.app.arch ? `arch=${report.app.arch}` : null,
+    report.app.language ? `language=${report.app.language}` : null,
+    "",
+    "[summary]",
+    report.incident.userMessage,
+    "",
+    "[incident]",
+    `surface=${report.incident.surface}`,
+    report.incident.traceId ? `traceId=${report.incident.traceId}` : null,
+    `category=${report.incident.category}`,
+    report.incident.code ? `code=${report.incident.code}` : null,
+    report.incident.classification ? `classification=${report.incident.classification}` : null,
+    report.incident.diagnosticCategory
+      ? `diagnosticCategory=${report.incident.diagnosticCategory}`
+      : null,
+    report.incident.url
+      ? [
+          `url-origin=${report.incident.url.origin}`,
+          `url-has-query=${yesNo(report.incident.url.hasQuery)}`,
+          `url-has-fragment=${yesNo(report.incident.url.hasFragment)}`,
+        ]
+      : null,
+  ];
+
+  const attemptSummary = report.incident.attemptSummary;
+  if (attemptSummary && attemptSummary.attempts.length > 0) {
+    lines.push("", "[attempts]", formatAttemptLines(attemptSummary.attempts));
+    lines.push("", "[terminal]");
+    lines.push(`status=${attemptSummary.status}`);
+    lines.push(`attemptCount=${attemptSummary.attemptCount}`);
+    lines.push(`finalEngine=${attemptSummary.finalEngineId ?? ""}`);
+    lines.push(`finalCode=${attemptSummary.finalCode ?? ""}`);
+    lines.push(`finalClassification=${attemptSummary.finalClassification ?? ""}`);
+    lines.push(`finalCategory=${attemptSummary.finalCategory ?? ""}`);
+  }
+
+  if (report.incident.evidence) {
+    lines.push("", "[evidence]");
+    lines.push(`kind=${report.incident.evidence.kind}`);
+    lines.push(report.incident.evidence.summary);
+    lines.push("", "This is raw process evidence only; it does not define the error classification.");
+  }
+
+  lines.push("", "[privacy]");
+  for (const note of report.privacy.notes) {
+    lines.push(`- ${note}`);
+  }
+
+  const flattened = lines.flatMap((entry) => (
+    Array.isArray(entry) ? entry : entry === null ? [] : [entry]
+  ));
+  return `${flattened.join("\n")}\n`;
+};
+
+export const buildErrorDiagnosticCopyText = (
+  options: BuildErrorDiagnosticCopyReportOptions,
+): string => formatErrorDiagnosticCopyReport(buildErrorDiagnosticCopyReport(options));

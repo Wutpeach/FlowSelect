@@ -18,7 +18,6 @@ export type ErrorDiagnosticCommandControllerOptions = {
   appVersion: string;
   platform?: string;
   arch?: string;
-  readRecentRuntimeLogLines(limit: number): Promise<string[]>;
   writeClipboardText(text: string): void;
   now?(): Date;
 };
@@ -41,12 +40,11 @@ export const createErrorDiagnosticCommandController = (
     switch (command) {
       case "copy_error_diagnostics": {
         const request = normalizeErrorDiagnosticCopyRequest(payload);
-        const text = await buildErrorDiagnosticCopyText({
+        const text = buildErrorDiagnosticCopyText({
           request,
           appVersion: options.appVersion,
           platform: options.platform,
           arch: options.arch,
-          readRecentRuntimeLogLines: options.readRecentRuntimeLogLines,
           now: options.now,
         });
         options.writeClipboardText(text);

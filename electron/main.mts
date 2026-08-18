@@ -1244,6 +1244,7 @@ async function exportSupportLog() {
       appVersion: app.getVersion(),
       platform: process.platform,
       arch: process.arch,
+      isPackaged: app.isPackaged,
       configPath: getConfigPath(),
       logDir: getLogsDir(),
       runtimeLogPath: getRuntimeLogPath(),
@@ -1725,7 +1726,6 @@ function getErrorDiagnosticCommandController() {
     appVersion: app.getVersion(),
     platform: process.platform,
     arch: process.arch,
-    readRecentRuntimeLogLines,
     writeClipboardText(text) {
       clipboard.writeText(text);
     },
