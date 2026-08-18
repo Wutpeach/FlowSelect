@@ -1656,3 +1656,24 @@ Implemented and architecture-approved authoritative Download Intake Reveal with 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 251: MR9 Browser Lab consolidation
+
+**Date**: 2026-08-18
+**Task**: MR9 Browser Lab consolidation
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+Implemented and validated the dev-only Chinese Browser Lab, migrated seven legacy UI Lab scenarios onto shared production presentation paths, added transparent 4x PNG export, retired the Electron UI Lab and legacy screenshot workflow, synchronized Trellis contracts, and archived the completed child task after Architecture and manual acceptance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `30e0e54` | (see git log) |
+
+### Status
+
+[OK] **Completed**
