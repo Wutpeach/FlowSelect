@@ -3,8 +3,7 @@ import type { AppUpdateInfo, AppUpdateStatePayload } from "./appUpdate.js";
 export type AmeowWindowLabel =
   | "main"
   | "settings"
-  | "context-menu"
-  | "ui-lab";
+  | "context-menu";
 
 // These command names intentionally preserve the stable renderer command vocabulary
 // while the transport stays fully Electron-owned.
@@ -17,7 +16,6 @@ export type AmeowRendererCommand =
   | "check_ytdlp_version"
   | "copy_error_diagnostics"
   | "download_image"
-  | "dev_ui_lab_apply_scenario"
   | "export_support_log"
   | "get_douyin_session_state"
   | "get_site_session_registry"
@@ -67,7 +65,6 @@ export type AmeowAppEvent =
   | "site-session-state-changed"
   | "shortcut-show"
   | "theme-changed"
-  | "ui-lab-reset"
   | "video-download-complete"
   | "video-download-progress"
   | "video-queue-count"
@@ -241,10 +238,9 @@ export interface AmeowElectronBridge {
   windows: {
     has(label: AmeowWindowLabel): Promise<boolean>;
     focus(label: AmeowWindowLabel): Promise<void>;
-    close(label: "settings" | "context-menu" | "ui-lab"): Promise<void>;
+    close(label: "settings" | "context-menu"): Promise<void>;
     openSettings(options: AmeowSecondaryWindowOptions): Promise<void>;
     openContextMenu(options: AmeowContextMenuWindowOptions): Promise<void>;
-    openUiLab(options: AmeowSecondaryWindowOptions): Promise<void>;
   };
   currentWindow: AmeowCurrentWindowApi;
   system: AmeowSystemApi;

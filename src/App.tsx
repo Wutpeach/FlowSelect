@@ -1,22 +1,9 @@
-import { startTransition, useState, useEffect, useMemo, useRef, useCallback, type CSSProperties } from "react";
+import { startTransition, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
-import { CircularProgressIndicator } from "./components/CircularProgressIndicator";
-import {
-  CENTER_OVERLAY_CONTENT_STYLE,
-  CENTER_OVERLAY_PRESENCE_MOTION,
-} from "./components/foregroundOverlayShared";
-import {
-  ForegroundOutcomeOverlay,
-} from "./components/ForegroundOutcomeOverlay";
-import { FolderCheckIcon } from "./components/icons/AppIcons";
 import { NeonIconButton } from "./components/ui";
 import {
   COMPACT_EASE,
-  getContinuousCornerStyle,
-  getInsetCardStyle,
-  getPanelShellStyle,
-  getStatusDotStyle,
 } from "./components/ui/shared-styles";
 import type { AppUpdateInfo, AppUpdatePhase, AppUpdateStatePayload } from "./types/appUpdate";
 import type { ProcessFilesResult } from "./types/fileIntake";
@@ -75,8 +62,6 @@ import {
   getDownloadStatusText,
   getTranscodeStageLabel,
   getTranscodeTaskStatusText,
-  getVideoTranscodeFormatLabel,
-  getVideoTranscodeTaskProgressPercent,
   mergeVideoTranscodeTask,
   normalizeVideoTranscodeQueueDetail,
   normalizeVideoTranscodeTask,
@@ -105,8 +90,6 @@ import {
   selectPrimaryDownloadStage,
   selectPrimaryDownloadTask,
   selectRemainingDownloadCount,
-  selectTaskProgress,
-  selectTaskProgressPercent,
   selectVisibleTaskCount,
 } from "./features/download/selectors";
 import { useDownloadQueue } from "./features/download/useDownloadQueue";
@@ -163,6 +146,9 @@ import { resolveFolderActivationPresentation } from "./presentation/main-window/
 import { resolveExpandedPresentationTarget } from "./presentation/main-window/expandedPresentationPolicy";
 import { snapshotClientPointOrigin } from "./presentation/main-window/pointerField";
 import { isMainWindowFullContentVisible } from "./presentation/main-window/projections";
+import { MainWindowQueuePopover } from "./presentation/main-window/MainWindowQueuePopover";
+import { MainWindowCenterOverlay } from "./presentation/main-window/MainWindowCenterOverlay";
+import { MainWindowRuntimeIndicator } from "./presentation/main-window/MainWindowRuntimeIndicator";
 import i18n from "./i18n";
 import {
   getMissingRuntimeComponentsFromStatus,
@@ -457,7 +443,6 @@ function App() {
   const [isRuntimeRetryFeedbackVisible, setIsRuntimeRetryFeedbackVisible] = useState(false);
   const [isRuntimeRetryInFlight, setIsRuntimeRetryInFlight] = useState(false);
   const [showRuntimeSuccessIndicator, setShowRuntimeSuccessIndicator] = useState(false);
-  const [isUiLabPreviewActive, setIsUiLabPreviewActive] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [isDeferredStartupInitializationReady, setIsDeferredStartupInitializationReady] =
     useState(deferredStartupInitializationDelayMs <= 0);
@@ -468,7 +453,6 @@ function App() {
   // directly from the lifecycle projection, never mirrored here.
   const [isPanelHovered, setIsPanelHovered] = useState(false);
   const [isResetCounterActive, setIsResetCounterActive] = useState(false);
-  const [isProgressCancelHovered, setIsProgressCancelHovered] = useState(false);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const resetCounterFeedbackTimerRef = useRef<number | null>(null);
   const queueNoticeTimerRef = useRef<number | null>(null);
@@ -493,7 +477,6 @@ function App() {
     pasteHandlerRef.current(clipboardData, origin);
   }, []);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
-  const isUiLabPreviewActiveRef = useRef(isUiLabPreviewActive);
   const previousTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
@@ -599,7 +582,6 @@ function App() {
     contextMenu: isContextMenuOpen,
     task: hasOngoingTask || isTaskProcessing,
     centerOutcome: centerOverlayLockActive,
-    uiLab: isUiLabPreviewActive,
     appUpdate: appUpdatePhase === "downloading" || appUpdatePhase === "installing" || runtimeGateIsBusy,
   }), [
     appUpdatePhase,
@@ -607,12 +589,11 @@ function App() {
     hasOngoingTask,
     isContextMenuOpen,
     isTaskProcessing,
-    isUiLabPreviewActive,
     runtimeGateIsBusy,
   ]);
 
   const requestFullIntent = useCallback((
-    reason: "task" | "runtimeGate" | "shortcut" | "uiLab" | "foreground",
+    reason: "task" | "runtimeGate" | "shortcut" | "foreground",
     recipe: "animated" | "instant" = "animated",
   ) => {
     presentation.dispatch({ type: "requestFull", reason, recipe });
@@ -672,10 +653,6 @@ function App() {
     clearDeferredStartupInitializationIdle();
     setIsDeferredStartupInitializationReady(true);
   }, [clearDeferredStartupInitializationIdle]);
-
-  useEffect(() => {
-    isUiLabPreviewActiveRef.current = isUiLabPreviewActive;
-  }, [isUiLabPreviewActive]);
 
   useEffect(() => {
     centerOverlayStateRef.current = centerOverlayState;
@@ -1458,49 +1435,6 @@ function App() {
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
-
-  useEffect(() => {
-    const unlisten = desktopEvents.on<{ restoreLive?: boolean }>("ui-lab-reset", (event) => {
-      const restoreLive = event.payload?.restoreLive === true;
-      isUiLabPreviewActiveRef.current = !restoreLive;
-      setIsUiLabPreviewActive(!restoreLive);
-      if (!restoreLive) {
-        // UI Lab requests full presentation through the authoritative
-        // lifecycle (uiLab lock plus explicit full intent); no visual override.
-        requestFullIntent("uiLab", "instant");
-      }
-      if (queueNoticeTimerRef.current !== null) {
-        clearTimeout(queueNoticeTimerRef.current);
-        queueNoticeTimerRef.current = null;
-      }
-      if (runtimeRetryFeedbackTimerRef.current !== null) {
-        clearTimeout(runtimeRetryFeedbackTimerRef.current);
-        runtimeRetryFeedbackTimerRef.current = null;
-      }
-      if (runtimeSuccessTimerRef.current !== null) {
-        clearTimeout(runtimeSuccessTimerRef.current);
-        runtimeSuccessTimerRef.current = null;
-      }
-
-      pendingTranscodeActionTraceIdsRef.current = new Set();
-      setPendingTranscodeActionTraceIds([]);
-      downloadActions.reset();
-      setVideoTranscodeQueueState(EMPTY_VIDEO_TRANSCODE_QUEUE_STATE);
-      setVideoTranscodeQueueDetail(EMPTY_VIDEO_TRANSCODE_QUEUE_DETAIL);
-      setTranscodeProgressByTrace({});
-      resetDownloadOutcome();
-      setQueueNoticeMessage(null);
-      setIsQueuePopoverOpen(false);
-      setIsRuntimeRetryInFlight(false);
-      setIsRuntimeRetryFeedbackVisible(false);
-      setShowRuntimeSuccessIndicator(false);
-      setIsRuntimeIndicatorHovered(false);
-      if (restoreLive) {
-        void refreshRuntimeDependencyContext();
-      }
-    });
-    return () => { unlisten.then(fn => fn()); };
-  }, [downloadActions, refreshRuntimeDependencyContext, requestFullIntent, resetDownloadOutcome]);
 
   // Listen for rename toggle changes from settings window
   useEffect(() => {
@@ -2608,33 +2542,6 @@ function App() {
     : primaryTask?.kind === "transcode"
       ? pendingTranscodeActionTraceIds.includes(primaryTask.task.traceId)
       : false;
-  const getDownloadQueueTaskProgressText = (task: DownloadTask): string => {
-    if (selectIsTaskCancelling(downloadState, task.traceId)) {
-      return t("app.queue.cancelling");
-    }
-    if (task.phase === "probing_quality") {
-      return t("app.queue.probingAdvancedQuality");
-    }
-    if (task.phase === "selecting_quality") {
-      return t("app.queue.selectAdvancedQuality");
-    }
-    if (task.status === "pending") {
-      return t("app.queue.waiting");
-    }
-    const progress = selectTaskProgress(downloadState, task.traceId);
-    if (!progress) {
-      return t("app.downloadStage.preparing");
-    }
-    const statusText = getDownloadStatusText(i18n.t, progress, progress.stage);
-    return progress.percent < 0
-      ? statusText
-      : t("app.queue.percentStatus", {
-          percent: Math.round(progress.percent),
-          status: statusText,
-        });
-  };
-  const getDownloadQueueTaskProgressPercent = (task: DownloadTask): number =>
-    selectTaskProgressPercent(downloadState, task);
   const primaryTaskStatusText = primaryTask
     ? primaryTask.statusText
     : "";
@@ -2754,33 +2661,6 @@ function App() {
     isQueuePopoverOpen,
     isAdvancedQualitySelectionPopover,
   });
-  const queueViewMeta = [
-    totalDownloadTaskCount > 0 ? t("app.queue.downloadCountSummary", { count: totalDownloadTaskCount }) : null,
-    totalTranscodeTaskCount > 0 ? t("app.queue.transcodeCountSummary", { count: totalTranscodeTaskCount }) : null,
-  ].filter(Boolean).join(" · ");
-  const hasDownloadTasks = totalDownloadTaskCount > 0;
-  const hasTranscodeTasks = totalTranscodeTaskCount > 0;
-  const primaryTaskStroke = primaryTask?.kind === "transcode"
-    ? colors.transcodeSolid
-    : colors.progressFgStroke;
-  const primaryTaskTextColor = primaryTask?.kind === "transcode"
-    ? colors.transcodeText
-    : colors.progressText;
-  const primaryTaskStatusColor = primaryTask?.kind === "transcode"
-    ? colors.transcodeMutedText
-    : colors.accentText;
-  const primaryTaskPillBackground = primaryTask?.kind === "transcode"
-    ? colors.transcodeSurface
-    : colors.accentSurface;
-  const primaryTaskPillBorder = primaryTask?.kind === "transcode"
-    ? colors.transcodeBorder
-    : colors.accentBorder;
-  const primaryTaskPillText = primaryTask?.kind === "transcode"
-    ? colors.transcodeText
-    : colors.accentText;
-  const primaryTaskTrackStroke = primaryTask?.kind === "transcode"
-    ? colors.transcodeTrack
-    : colors.progressBgStroke;
   const runtimeMissingComponents = runtimeDependencyGateState?.missingComponents.length
     ? runtimeDependencyGateState.missingComponents
     : getMissingRuntimeComponentsFromStatus(runtimeDependencyStatus);
@@ -2822,91 +2702,9 @@ function App() {
   const runtimeIndicatorIsIndeterminate = runtimeIndicatorShouldRenderRing
     && !showRuntimeSuccessIndicator
     && runtimeIndicatorProgressPercent === null;
-  const runtimeIndicatorSize = 18;
-  const runtimeIndicatorRadius = 7;
-  const runtimeIndicatorCircumference = 2 * Math.PI * runtimeIndicatorRadius;
-  const runtimeIndicatorFillRatio = showRuntimeSuccessIndicator
-    ? 1
-    : runtimeIndicatorProgressPercent !== null
-      ? Math.max(0.08, runtimeIndicatorProgressPercent / 100)
-      : 0.34;
-  const runtimeIndicatorDashOffset = runtimeIndicatorCircumference * (1 - runtimeIndicatorFillRatio);
-  const shouldShowRuntimePopover = shouldShowRuntimeIndicator
-    && isRuntimeIndicatorHovered
-    && !showRuntimeSuccessIndicator;
   const runtimeIndicatorTitle = runtimeGateRequiresManualAction
     ? runtimeIndicatorErrorSummary ?? runtimeIndicatorFallbackSummary
     : runtimeIndicatorProgressLabel ?? runtimeIndicatorHeadline;
-  const runtimeIndicatorPresenceTransition = shouldReduceMotion
-    ? { duration: 0.1 }
-    : { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const };
-  const runtimeIndicatorShellAnimate = showRuntimeSuccessIndicator && !shouldReduceMotion
-    ? {
-        scale: [1, 1.18, 1.03],
-        y: [0, -1, 0],
-        opacity: [0.96, 1, 1],
-      }
-    : {
-        scale: 1,
-        y: 0,
-        opacity: 1,
-      };
-  const runtimeIndicatorShellTransition = showRuntimeSuccessIndicator && !shouldReduceMotion
-    ? {
-        duration: 0.42,
-        ease: [0.22, 1, 0.36, 1] as const,
-        times: [0, 0.56, 1],
-      }
-    : {
-        duration: 0.16,
-        ease: [0.22, 1, 0.36, 1] as const,
-      };
-  const runtimeIndicatorPopoverBorder = runtimeGateRequiresManualAction
-    ? colors.warningBorder
-    : colors.borderStart;
-  const runtimeIndicatorPopoverStyle: CSSProperties = {
-    position: "absolute",
-    left: 0,
-    bottom: 0,
-    marginBottom: 26,
-    width: 166,
-    display: "flex",
-    flexDirection: "column",
-    gap: 7,
-    padding: "10px 10px 9px",
-    ...getPanelShellStyle(colors, {
-      radius: 12,
-      boxShadow: `inset 0 0 0 1px ${runtimeIndicatorPopoverBorder}, inset 0 1px 0 ${colors.fieldInset}, ${colors.panelShadowStrong}`,
-    }),
-    backdropFilter: "blur(14px)",
-    transformOrigin: "bottom left",
-  };
-  const runtimeIndicatorStatusDotStyle: CSSProperties = {
-    ...getStatusDotStyle(colors.warningSolid, colors.warningGlow),
-    width: 6,
-    height: 6,
-    boxShadow: `0 0 8px ${colors.warningGlow}`,
-  };
-  const runtimeIndicatorProgressTrackStyle: CSSProperties = {
-    width: "100%",
-    height: 5,
-    borderRadius: 999,
-    overflow: "hidden",
-    background: `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgPrimary} 100%)`,
-    boxShadow: `inset 0 0 0 1px ${colors.fieldBorder}`,
-  };
-  const runtimeIndicatorProgressFillStyle: CSSProperties = {
-    width: runtimeIndicatorIsIndeterminate
-      ? "38%"
-      : `${runtimeIndicatorProgressPercent ?? 100}%`,
-    height: "100%",
-    borderRadius: 999,
-    background: `linear-gradient(90deg, ${colors.warningSolid} 0%, ${colors.warningText} 100%)`,
-    boxShadow: `0 0 12px ${colors.warningGlow}`,
-    animation: runtimeIndicatorIsIndeterminate ? "shimmer 1.2s ease-in-out infinite" : "none",
-    transformOrigin: "left center",
-    transition: runtimeIndicatorIsIndeterminate ? "none" : "width 0.22s ease",
-  };
   return (
     <MainWindowPresentationSurface
       presentation={presentation}
@@ -2929,661 +2727,38 @@ function App() {
       onPaste={handleSurfacePaste}
       onPanelHoveredChange={setIsPanelHovered}
     >
-        {showVideoTaskBadge || isQueuePopoverOpen ? (
-        <>
-          {showVideoTaskBadge ? (
-            <button
-              ref={queueBadgeButtonRef}
-              onClick={() => setIsQueuePopoverOpen((current) => !current)}
-              onMouseDown={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute',
-                top: 10,
-                left: 10,
-                minWidth: 42,
-                height: 30,
-                borderRadius: 15,
-                padding: '0 10px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                background: isQueuePopoverOpen
-                  ? `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgSecondary} 100%)`
-                  : `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgPrimary} 100%)`,
-                color: colors.textPrimary,
-                border: `1px solid ${isQueuePopoverOpen ? colors.queueStatusBorder : colors.fieldBorder}`,
-                fontSize: 12,
-                fontWeight: 800,
-                lineHeight: 1,
-                userSelect: 'none',
-                zIndex: 30,
-                boxShadow: `inset 0 0 0 1px ${isQueuePopoverOpen ? colors.queueStatusBorder : colors.borderStart}, ${colors.panelShadow}`,
-                backdropFilter: 'blur(12px)',
-                cursor: 'pointer',
-                transition: 'background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
-              }}
-              aria-pressed={isQueuePopoverOpen}
-              aria-label={t("app.queue.currentTasksAria", { count: totalTaskCount })}
-              title={isQueuePopoverOpen ? t("app.queue.closeList") : t("app.queue.showList")}
-            >
-              <span style={{ pointerEvents: 'none' }}>{totalTaskCount}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, pointerEvents: 'none' }}>
-                {hasDownloadTasks ? (
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      backgroundColor: colors.progressFgStroke,
-                      boxShadow: `0 0 10px ${colors.progressFgStroke}`,
-                      flexShrink: 0,
-                    }}
-                  />
-                ) : null}
-                {hasTranscodeTasks ? (
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      backgroundColor: colors.transcodeSolid,
-                      boxShadow: `0 0 10px ${colors.transcodeGlow}`,
-                      flexShrink: 0,
-                    }}
-                  />
-                ) : null}
-              </span>
-            </button>
-          ) : null}
+        <MainWindowQueuePopover
+          ref={queueBadgeButtonRef}
+          visible={showVideoTaskBadge || isQueuePopoverOpen}
+          showBadge={showVideoTaskBadge}
+          isOpen={isQueuePopoverOpen}
+          onToggleOpen={() => setIsQueuePopoverOpen((current) => !current)}
+          totalTaskCount={totalTaskCount}
+          downloadQueueTasks={downloadQueueTasks}
+          totalDownloadTaskCount={totalDownloadTaskCount}
+          downloadState={downloadState}
+          transcodeQueueTasks={transcodeQueueTasks}
+          totalTranscodeTaskCount={totalTranscodeTaskCount}
+          pendingTranscodeActionTraceIds={pendingTranscodeActionTraceIds}
+          isAdvancedQualitySelectionPopover={isAdvancedQualitySelectionPopover}
+          advancedQualitySelectionTask={advancedQualitySelectionTask}
+          mainWindowFullContentVisible={mainWindowFullContentVisible}
+          getAdvancedQualityTaskTitle={getAdvancedQualityTaskTitle}
+          renderAdvancedQualityOptionButton={renderAdvancedQualityOptionButton}
+          onCancelDownload={(traceId) => {
+            void cancelVideoTask(traceId);
+          }}
+          onCancelTranscode={(traceId) => {
+            void cancelTranscodeTask(traceId);
+          }}
+          onRetryTranscode={(traceId) => {
+            void retryTranscodeTask(traceId);
+          }}
+          onRemoveTranscode={(traceId) => {
+            void removeTranscodeTask(traceId);
+          }}
+        />
 
-          <AnimatePresence>
-            {isQueuePopoverOpen ? (
-              <motion.div
-                initial={{ opacity: 0, y: -8, scale: 0.98, filter: 'blur(2px)' }}
-                animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
-                exit={{ opacity: 0, y: 8, scale: 0.98, filter: 'blur(2px)' }}
-                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  padding: isAdvancedQualitySelectionPopover ? '10px' : '48px 10px 10px',
-                  ...getContinuousCornerStyle(mainWindowFullContentVisible ? 16 : 100),
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                  background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                  boxShadow: `inset 0 0 0 1px ${colors.queueBadgeBorder}, inset 0 0 18px ${colors.queueStatusBg}`,
-                  backdropFilter: 'blur(16px)',
-                  zIndex: 25,
-                }}
-                data-panel-double-click="ignore"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                {isAdvancedQualitySelectionPopover && advancedQualitySelectionTask ? (
-                  <div
-                    style={{
-                      flex: 1,
-                      minHeight: 0,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 750,
-                            lineHeight: 1.1,
-                            color: colors.textPrimary,
-                            userSelect: 'none',
-                          }}
-                        >
-                          {t("app.queue.selectAdvancedQuality")}
-                        </span>
-                        <span
-                          title={getAdvancedQualityTaskTitle(advancedQualitySelectionTask)}
-                          style={{
-                            fontSize: 10,
-                            lineHeight: 1.2,
-                            color: colors.textSecondary,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            userSelect: 'none',
-                          }}
-                        >
-                          {getAdvancedQualityTaskTitle(advancedQualitySelectionTask)}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          void cancelVideoTask(advancedQualitySelectionTask.traceId);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          border: `1px solid ${colors.fieldBorder}`,
-                          backgroundColor: colors.fieldBg,
-                          cursor: 'pointer',
-                          flexShrink: 0,
-                        }}
-                        title={t("app.queue.cancelTask")}
-                      >
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 10 10"
-                          style={{ color: colors.progressCancelIcon }}
-                        >
-                          <path
-                            d="M2 2L8 8M8 2L2 8"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-
-                    <div
-                      className="hide-scrollbar"
-                      style={{
-                        flex: 1,
-                        minHeight: 0,
-                        overflowY: 'auto',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 6,
-                      }}
-                    >
-                      {advancedQualitySelectionTask.qualityOptions?.map((option) => (
-                        renderAdvancedQualityOptionButton(advancedQualitySelectionTask, option, "popover")
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div
-                  style={{
-                    display: isAdvancedQualitySelectionPopover ? 'none' : 'flex',
-                    flexDirection: 'column',
-                    gap: 4,
-                    padding: '0 4px 2px',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: colors.textPrimary,
-                      lineHeight: 1,
-                      userSelect: 'none',
-                    }}
-                  >
-                    {t("app.queue.label")}
-                  </span>
-                  {queueViewMeta ? (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        color: colors.textSecondary,
-                        lineHeight: 1.2,
-                        userSelect: 'none',
-                      }}
-                    >
-                      {queueViewMeta}
-                    </span>
-                  ) : null}
-                </div>
-
-                <div
-                  className="hide-scrollbar"
-                  style={{
-                    flex: 1,
-                    minHeight: 0,
-                    overflowY: 'auto',
-                    display: isAdvancedQualitySelectionPopover ? 'none' : 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    paddingRight: 2,
-                  }}
-                >
-                  {hasDownloadTasks ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 8,
-                          padding: '0 4px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                          <span
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: '50%',
-                              backgroundColor: colors.progressFgStroke,
-                              boxShadow: `0 0 8px ${colors.progressFgStroke}`,
-                              flexShrink: 0,
-                            }}
-                          />
-                          <span
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: colors.textPrimary,
-                              lineHeight: 1,
-                              userSelect: 'none',
-                            }}
-                          >
-                            {t("app.queue.downloadSection")}
-                          </span>
-                        </div>
-                        <span
-                          style={{
-                            fontSize: 8,
-                            color: colors.textSecondary,
-                            lineHeight: 1,
-                            userSelect: 'none',
-                          }}
-                        >
-                          {totalDownloadTaskCount}
-                        </span>
-                      </div>
-
-                      {downloadQueueTasks.map((task) => {
-                        const isTaskCancelling = selectIsTaskCancelling(downloadState, task.traceId);
-                        return (
-                          <div
-                            key={task.traceId}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              padding: '8px 9px',
-                              ...getInsetCardStyle(colors),
-                            }}
-                          >
-                            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span
-                                  style={{
-                                    width: 6,
-                                    height: 6,
-                                    borderRadius: '50%',
-                                    flexShrink: 0,
-                                    backgroundColor: task.status === 'pending'
-                                      ? colors.accentBorder
-                                      : colors.progressFgStroke,
-                                    boxShadow: task.status === 'pending'
-                                      ? `0 0 8px ${colors.accentGlow}`
-                                      : `0 0 10px ${colors.progressFgStroke}`,
-                                  }}
-                                />
-                                <span
-                                  title={task.label}
-                                  style={{
-                                    fontSize: 10,
-                                    lineHeight: 1.2,
-                                    color: colors.textPrimary,
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                  }}
-                                >
-                                  {task.label}
-                                </span>
-                              </div>
-                              <div
-                                style={{
-                                  width: '100%',
-                                  height: 6,
-                                  borderRadius: 999,
-                                  background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                                  overflow: 'hidden',
-                                  boxShadow: `inset 0 0 0 1px ${colors.borderStart}`,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    width: `${getDownloadQueueTaskProgressPercent(task)}%`,
-                                    height: '100%',
-                                    borderRadius: 999,
-                                    background: task.status === 'pending'
-                                      ? `linear-gradient(90deg, ${colors.accentBorder} 0%, ${colors.progressText} 100%)`
-                                      : `linear-gradient(90deg, ${colors.progressFgStroke} 0%, ${colors.progressText} 100%)`,
-                                    boxShadow: task.status === 'pending'
-                                      ? `0 0 12px ${colors.accentGlow}`
-                                      : `0 0 12px ${colors.progressFgStroke}`,
-                                    transition: 'width 0.2s ease',
-                                  }}
-                                />
-                              </div>
-                              <span style={{ fontSize: 9, lineHeight: 1.1, color: colors.textSecondary }}>
-                                {getDownloadQueueTaskProgressText(task)}
-                              </span>
-                              {task.phase === "selecting_quality" && task.qualityOptions?.length ? (
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 5,
-                                  }}
-                                >
-                                  {task.qualityOptions.map((option) => (
-                                    renderAdvancedQualityOptionButton(task, option, "inline")
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                            <button
-                              onClick={() => {
-                                void cancelVideoTask(task.traceId);
-                              }}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              disabled={isTaskCancelling}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: '50%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                border: 'none',
-                                backgroundColor: isTaskCancelling
-                                  ? colors.queueStatusBg
-                                  : 'transparent',
-                                cursor: isTaskCancelling ? 'default' : 'pointer',
-                                opacity: isTaskCancelling ? 0.6 : 1,
-                                flexShrink: 0,
-                                transition: 'background-color 0.2s ease',
-                              }}
-                              title={isTaskCancelling ? t("app.queue.cancellingTask") : t("app.queue.cancelTask")}
-                            >
-                              <svg
-                                width="10"
-                                height="10"
-                                viewBox="0 0 10 10"
-                                style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
-                              >
-                                <path
-                                  d="M2 2L8 8M8 2L2 8"
-                                  stroke="currentColor"
-                                  strokeWidth="1.5"
-                                  strokeLinecap="round"
-                                />
-                              </svg>
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-
-                  {hasTranscodeTasks ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 8,
-                          padding: '0 4px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                          <span
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: '50%',
-                              backgroundColor: colors.transcodeSolid,
-                              boxShadow: `0 0 8px ${colors.transcodeGlow}`,
-                              flexShrink: 0,
-                            }}
-                          />
-                          <span
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: colors.textPrimary,
-                              lineHeight: 1,
-                              userSelect: 'none',
-                            }}
-                          >
-                            {t("app.queue.transcodeSection")}
-                          </span>
-                        </div>
-                        <span
-                          style={{
-                            fontSize: 8,
-                            color: colors.textSecondary,
-                            lineHeight: 1,
-                            userSelect: 'none',
-                          }}
-                        >
-                          {totalTranscodeTaskCount}
-                        </span>
-                      </div>
-
-                      {transcodeQueueTasks.map((task) => {
-                        const isFailedTask = task.status === "failed";
-                        const isTaskActionPending = pendingTranscodeActionTraceIds.includes(task.traceId);
-                        const formatLabel = getVideoTranscodeFormatLabel(task);
-                        const markerColor = isFailedTask ? colors.dangerSolid : colors.transcodeSolid;
-                        const markerGlow = isFailedTask ? colors.dangerGlow : colors.transcodeGlow;
-                        const taskStatusText = isTaskActionPending
-                          ? t("app.queue.cancellingTranscode")
-                          : getTranscodeTaskStatusText(i18n.t, task);
-
-                        return (
-                          <div
-                            key={task.traceId}
-                            style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 7,
-                              padding: '8px 9px',
-                              ...getInsetCardStyle(colors, isFailedTask ? colors.dangerBorder : colors.borderStart),
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                              <span
-                                style={{
-                                  width: 6,
-                                  height: 6,
-                                  borderRadius: '50%',
-                                  flexShrink: 0,
-                                  backgroundColor: markerColor,
-                                  boxShadow: `0 0 10px ${markerGlow}`,
-                                }}
-                              />
-                              <span
-                                title={task.label}
-                                style={{
-                                  flex: 1,
-                                  minWidth: 0,
-                                  fontSize: 10,
-                                  lineHeight: 1.2,
-                                  color: colors.textPrimary,
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {task.label}
-                              </span>
-                              {formatLabel ? (
-                                <span
-                                  style={{
-                                    maxWidth: 76,
-                                    padding: '2px 5px',
-                                    borderRadius: 999,
-                                    fontSize: 8,
-                                    lineHeight: 1,
-                                    color: colors.transcodeText,
-                                    backgroundColor: colors.transcodeSurface,
-                                    border: `1px solid ${colors.transcodeBorder}`,
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    userSelect: 'none',
-                                  }}
-                                  title={formatLabel}
-                                >
-                                  {formatLabel}
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <div
-                              style={{
-                                width: '100%',
-                                height: 6,
-                                borderRadius: 999,
-                                background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                                overflow: 'hidden',
-                                boxShadow: `inset 0 0 0 1px ${colors.borderStart}`,
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: `${getVideoTranscodeTaskProgressPercent(task)}%`,
-                                  height: '100%',
-                                  borderRadius: 999,
-                                  background: `linear-gradient(90deg, ${colors.transcodeSolid} 0%, ${colors.transcodeText} 100%)`,
-                                  boxShadow: `0 0 12px ${colors.transcodeGlow}`,
-                                  opacity: isFailedTask ? 0.7 : 1,
-                                  transition: 'width 0.2s ease',
-                                }}
-                              />
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
-                              <span
-                                title={isTaskActionPending ? undefined : task.error ?? undefined}
-                                style={{
-                                  flex: 1,
-                                  minWidth: 0,
-                                  fontSize: 9,
-                                  lineHeight: 1.1,
-                                  color: isFailedTask ? colors.dangerText : colors.textSecondary,
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {taskStatusText}
-                              </span>
-
-                              {isFailedTask ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                                  <button
-                                    onClick={() => {
-                                      void retryTranscodeTask(task.traceId);
-                                    }}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    disabled={isTaskActionPending}
-                                    style={{
-                                      border: `1px solid ${colors.transcodeBorder}`,
-                                      backgroundColor: colors.transcodeSurface,
-                                      color: colors.transcodeText,
-                                      borderRadius: 999,
-                                      padding: '2px 7px',
-                                      fontSize: 8,
-                                      lineHeight: 1.2,
-                                      cursor: isTaskActionPending ? 'default' : 'pointer',
-                                      opacity: isTaskActionPending ? 0.6 : 1,
-                                    }}
-                                    title={t("app.queue.retryTranscode")}
-                                  >
-                                    {t("app.queue.retryTranscode")}
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      void removeTranscodeTask(task.traceId);
-                                    }}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    disabled={isTaskActionPending}
-                                    style={{
-                                      border: `1px solid ${colors.fieldBorder}`,
-                                      backgroundColor: colors.fieldBg,
-                                      color: colors.textSecondary,
-                                      borderRadius: 999,
-                                      padding: '2px 7px',
-                                      fontSize: 8,
-                                      lineHeight: 1.2,
-                                      cursor: isTaskActionPending ? 'default' : 'pointer',
-                                      opacity: isTaskActionPending ? 0.6 : 1,
-                                    }}
-                                    title={t("app.queue.removeTranscodeHint")}
-                                  >
-                                    {t("app.queue.removeTranscode")}
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    void cancelTranscodeTask(task.traceId);
-                                  }}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  disabled={isTaskActionPending}
-                                  style={{
-                                    width: 24,
-                                    height: 24,
-                                    borderRadius: '50%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    border: 'none',
-                                    backgroundColor: isTaskActionPending
-                                      ? colors.queueStatusBg
-                                      : 'transparent',
-                                    cursor: isTaskActionPending ? 'default' : 'pointer',
-                                    opacity: isTaskActionPending ? 0.6 : 1,
-                                    flexShrink: 0,
-                                    transition: 'background-color 0.2s ease',
-                                  }}
-                                  title={isTaskActionPending ? t("app.queue.cancellingTranscode") : t("app.queue.cancelTranscode")}
-                                >
-                                  <svg
-                                    width="10"
-                                    height="10"
-                                    viewBox="0 0 10 10"
-                                    style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
-                                  >
-                                    <path
-                                      d="M2 2L8 8M8 2L2 8"
-                                      stroke="currentColor"
-                                      strokeWidth="1.5"
-                                      strokeLinecap="round"
-                                    />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        </>
-        ) : null}
 
         <AnimatePresence>
           {shouldRenderMiniControls ? (
@@ -3637,467 +2812,50 @@ function App() {
           ) : null}
         </AnimatePresence>
 
-        {/* 中央图标 */}
-        <AnimatePresence mode="sync">
-        {centerOverlayVisual.kind === "task-progress" && primaryTask ? (
-          <motion.div
-            key={centerOverlayVisual.key}
-            data-mr9-coverable="task-progress"
-            initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
-            animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
-            exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
-            transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
-            draggable={false}
-            style={CENTER_OVERLAY_CONTENT_STYLE}
-          >
-            {primaryTask.kind === "transcode" ? (
-              <CircularProgressIndicator
-                strokeColor={primaryTaskStroke}
-                trackColor={primaryTaskTrackStroke}
-                textColor={primaryTaskTextColor}
-                percent={primaryTask.percent}
-                indeterminate={primaryTask.indeterminate}
-              />
-            ) : null}
-            {primaryTaskStatusText ? (
-              <span style={{ fontSize: 10, color: primaryTaskStatusColor, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>
-                {primaryTaskStatusText}
-              </span>
-            ) : null}
-            {primaryTaskSummaryText ? (
-              <span
-                style={{
-                  fontSize: 9,
-                  color: primaryTaskPillText,
-                  backgroundColor: primaryTaskPillBackground,
-                  border: `1px solid ${primaryTaskPillBorder}`,
-                  borderRadius: 999,
-                  padding: '2px 6px',
-                  lineHeight: 1.1,
-                  userSelect: 'none',
-                  pointerEvents: 'none',
-                }}
-              >
-                {primaryTaskSummaryText}
-              </span>
-            ) : null}
-          </motion.div>
-        ) : centerOverlayVisual.kind === "task-processing" ? (
-          <motion.div
-            key={centerOverlayVisual.key}
-            initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
-            animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
-            exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
-            transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
-            draggable={false}
-            style={CENTER_OVERLAY_CONTENT_STYLE}
-          >
-            <CircularProgressIndicator
-              strokeColor={colors.accentSolid}
-              trackColor={colors.borderStart}
-              textColor={colors.textSecondary}
-              percent={0}
-              indeterminate
-            />
-          </motion.div>
-        ) : centerOverlayVisual.kind === "task-outcome" ? (
-          <motion.div
-            key={centerOverlayVisual.key}
-            initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
-            animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
-            exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
-            transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
-            draggable={false}
-            style={{ ...CENTER_OVERLAY_CONTENT_STYLE, zIndex: 3 }}
-          >
-            <ForegroundOutcomeOverlay
-              outcomeVisible={centerOverlayVisual.outcomeVisible}
-              status={centerOverlayVisual.status}
-              errorMessage={centerOverlayVisual.message}
-              showCopyAction={centerOverlayVisual.status === "failure" && Boolean(centerOverlayVisual.diagnostic)}
-              onCopyDiagnostic={centerOverlayVisual.diagnostic
-                ? () => {
-                    if (centerOverlayVisual.diagnostic) {
-                      handleCopyErrorDiagnostic(centerOverlayVisual.diagnostic);
-                    }
-                  }
-                : undefined}
-              copyDiagnosticLabel={t("app.errorDiagnostic.copy")}
-              successColor={colors.successIcon}
-              errorColor={colors.errorIcon}
-              cancelledColor={colors.progressCancelIcon}
-              loadingStrokeColor={colors.accentSolid}
-              loadingTrackColor={colors.borderStart}
-              loadingTextColor={colors.textSecondary}
-            />
-          </motion.div>
-        ) : centerOverlayVisual.kind === "folder-outcome" ? (
-          <motion.div
-            key={centerOverlayVisual.key}
-            initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
-            animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
-            exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
-            transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
-            draggable={false}
-            style={CENTER_OVERLAY_CONTENT_STYLE}
-          >
-            <ForegroundOutcomeOverlay
-              outcomeVisible
-              status={centerOverlayVisual.status === "error" ? "failure" : "success"}
-              errorMessage={centerOverlayVisual.status === "error" ? centerOverlayVisual.message : null}
-              successColor={colors.successIcon}
-              errorColor={colors.errorIcon}
-              cancelledColor={colors.progressCancelIcon}
-              loadingStrokeColor={colors.accentSolid}
-              loadingTrackColor={colors.borderStart}
-              loadingTextColor={colors.textSecondary}
-              SuccessIcon={FolderCheckIcon}
-              successIconStrokeWidth={2}
-            />
-          </motion.div>
-        ) : null}
-        </AnimatePresence>
+        <MainWindowCenterOverlay
+          centerOverlayVisual={centerOverlayVisual}
+          primaryTask={primaryTask}
+          primaryTaskStatusText={primaryTaskStatusText}
+          primaryTaskSummaryText={primaryTaskSummaryText}
+          onCopyDiagnostic={handleCopyErrorDiagnostic}
+          showPrimaryCancel={
+            Boolean(
+              centerOverlayVisual.kind === "task-progress"
+              && primaryTask !== null,
+            )
+          }
+          isPrimaryCancelPending={isPrimaryTaskActionPending}
+          primaryTaskTraceId={primaryTask?.task.traceId ?? null}
+          onCancelPrimaryTask={(traceId) => {
+            if (primaryTask?.kind === "download") {
+              void cancelVideoTask(traceId);
+            } else {
+              void cancelTranscodeTask(traceId);
+            }
+          }}
+        />
 
-        <AnimatePresence>
-          {centerOverlayVisual.kind === "task-progress"
-            && primaryTask
-            && (primaryTask.kind === "download" || primaryTask.kind === "transcode") ? (
-              <motion.div
-                key={`${centerOverlayVisual.key}-protected-cancel`}
-                initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
-                animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
-                exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
-                transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
-                style={{ ...CENTER_OVERLAY_CONTENT_STYLE, zIndex: 3 }}
-              >
-                <button
-                  data-mr9-protected-control="primary-cancel"
-                  onClick={() => {
-                    if (isPrimaryTaskActionPending) return;
-                    if (primaryTask.kind === "download") {
-                      void cancelVideoTask(primaryTask.task.traceId);
-                    } else {
-                      void cancelTranscodeTask(primaryTask.task.traceId);
-                    }
-                  }}
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onMouseEnter={() => setIsProgressCancelHovered(true)}
-                  onMouseLeave={() => setIsProgressCancelHovered(false)}
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: "50%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transform: `translateY(${primaryTask.kind === "transcode" ? 42 : 22}px)`,
-                    backgroundColor: isProgressCancelHovered
-                      ? colors.progressCancelHoverBg
-                      : "transparent",
-                    border: "none",
-                    cursor: isPrimaryTaskActionPending ? "default" : "pointer",
-                    transition: "background-color 0.2s",
-                    opacity: isPrimaryTaskActionPending ? 0.6 : 1,
-                    pointerEvents: "auto",
-                  }}
-                  title={primaryTask.kind === "transcode"
-                    ? t("app.actions.exitCurrentTranscode")
-                    : t("app.actions.cancelCurrentTask")}
-                >
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 10 10"
-                    style={{
-                      color: isProgressCancelHovered
-                        ? colors.progressCancelHoverIcon
-                        : colors.progressCancelIcon,
-                      transition: "color 0.2s",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    <path
-                      d="M2 2L8 8M8 2L2 8"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
-              </motion.div>
-            ) : null}
-        </AnimatePresence>
+        <MainWindowRuntimeIndicator
+          visible={shouldShowRuntimeIndicator}
+          showSuccess={showRuntimeSuccessIndicator}
+          isHovered={isRuntimeIndicatorHovered}
+          onHoverChange={setIsRuntimeIndicatorHovered}
+          headline={runtimeIndicatorHeadline}
+          statusText={runtimeIndicatorStatusText}
+          footerText={runtimeIndicatorFooterText}
+          title={runtimeIndicatorTitle}
+          progressPercent={runtimeIndicatorProgressPercent}
+          isIndeterminate={runtimeIndicatorIsIndeterminate}
+          shouldRenderRing={runtimeIndicatorShouldRenderRing}
+          requiresManualAction={runtimeGateRequiresManualAction}
+          reducedMotion={Boolean(shouldReduceMotion)}
+          isRetryInFlight={isRuntimeRetryInFlight}
+          isRetryFeedbackVisible={isRuntimeRetryFeedbackVisible}
+          onRecheck={() => {
+            void handleRuntimeDependencyRecheck();
+          }}
+        />
 
-        <AnimatePresence>
-          {shouldShowRuntimeIndicator ? (
-          <motion.div
-            initial={shouldReduceMotion
-              ? { opacity: 0 }
-              : { opacity: 0, scale: 0.9, y: 6, filter: "blur(1.5px)" }}
-            animate={shouldReduceMotion
-              ? { opacity: 1 }
-              : { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
-            exit={shouldReduceMotion
-              ? { opacity: 0 }
-              : { opacity: 0, scale: 0.78, y: 8, filter: "blur(1.5px)" }}
-            transition={runtimeIndicatorPresenceTransition}
-            style={{
-              position: "absolute",
-              left: 12,
-              bottom: 12,
-              zIndex: 12,
-              transformOrigin: "bottom left",
-            }}
-            data-panel-double-click="ignore"
-            onMouseEnter={() => setIsRuntimeIndicatorHovered(true)}
-            onMouseLeave={() => setIsRuntimeIndicatorHovered(false)}
-          >
-            <AnimatePresence>
-              {shouldShowRuntimePopover ? (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.94, y: 4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.96, y: 4 }}
-                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                  style={runtimeIndicatorPopoverStyle}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                    <span style={runtimeIndicatorStatusDotStyle} />
-                    <span
-                      style={{
-                        minWidth: 0,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: colors.textPrimary,
-                        lineHeight: 1.1,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        userSelect: "none",
-                      }}
-                    >
-                      {runtimeIndicatorHeadline}
-                    </span>
-                  </div>
-
-                  {runtimeIndicatorShouldRenderRing ? (
-                    <div style={runtimeIndicatorProgressTrackStyle}>
-                      <div style={runtimeIndicatorProgressFillStyle} />
-                    </div>
-                  ) : null}
-
-                  <span
-                    title={runtimeIndicatorStatusText}
-                    style={{
-                      fontSize: 9,
-                      lineHeight: 1.24,
-                      color: runtimeGateRequiresManualAction ? colors.warningText : colors.textSecondary,
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {runtimeIndicatorStatusText}
-                  </span>
-
-                  {runtimeIndicatorFooterText ? (
-                    <span
-                      style={{
-                        fontSize: 8,
-                        lineHeight: 1.2,
-                        color: colors.textSecondary,
-                        opacity: 0.88,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {runtimeIndicatorFooterText}
-                    </span>
-                  ) : null}
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-
-            {runtimeIndicatorShouldRenderRing ? (
-              <motion.div
-                initial={false}
-                onMouseDown={(e) => e.stopPropagation()}
-                title={runtimeIndicatorTitle}
-                animate={runtimeIndicatorShellAnimate}
-                transition={runtimeIndicatorShellTransition}
-                style={{
-                  position: "relative",
-                  width: 24,
-                  height: 24,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  borderRadius: "50%",
-                  background: `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgSecondary} 100%)`,
-                  boxShadow: showRuntimeSuccessIndicator
-                    ? `inset 0 0 0 1px ${colors.warningBorder}, inset 0 1px 0 ${colors.fieldInset}, 0 0 14px ${colors.warningGlow}`
-                    : `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}`,
-                  pointerEvents: "auto",
-                  transition: "box-shadow 0.18s ease",
-                }}
-              >
-                {showRuntimeSuccessIndicator && !shouldReduceMotion ? (
-                  <motion.span
-                    initial={{ opacity: 0.22, scale: 0.84 }}
-                    animate={{ opacity: [0.2, 0.44, 0], scale: [0.84, 1.42, 1.68] }}
-                    transition={{
-                      duration: 0.52,
-                      ease: [0.22, 1, 0.36, 1],
-                      times: [0, 0.48, 1],
-                    }}
-                    style={{
-                      position: "absolute",
-                      inset: 1,
-                      borderRadius: "50%",
-                      border: `1px solid ${colors.warningBorder}`,
-                      pointerEvents: "none",
-                    }}
-                  />
-                ) : null}
-                <svg
-                  width={runtimeIndicatorSize}
-                  height={runtimeIndicatorSize}
-                  viewBox={`0 0 ${runtimeIndicatorSize} ${runtimeIndicatorSize}`}
-                  style={{ transform: "rotate(-90deg)", display: "block" }}
-                >
-                  <circle
-                    cx={runtimeIndicatorSize / 2}
-                    cy={runtimeIndicatorSize / 2}
-                    r={runtimeIndicatorRadius}
-                    fill="none"
-                    stroke={colors.progressBgStroke}
-                    strokeWidth="2"
-                  />
-                  <circle
-                    cx={runtimeIndicatorSize / 2}
-                    cy={runtimeIndicatorSize / 2}
-                    r={runtimeIndicatorRadius}
-                    fill="none"
-                    stroke={colors.warningSolid}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeDasharray={runtimeIndicatorCircumference}
-                    strokeDashoffset={runtimeIndicatorDashOffset}
-                    style={{
-                      transition: runtimeIndicatorIsIndeterminate
-                        ? "none"
-                        : "stroke-dashoffset 0.24s ease, opacity 0.18s ease",
-                      animation: runtimeIndicatorIsIndeterminate ? "spin 1s linear infinite" : "none",
-                      transformOrigin: "center",
-                      opacity: showRuntimeSuccessIndicator ? 1 : 0.96,
-                    }}
-                  />
-                </svg>
-              </motion.div>
-            ) : (
-              <motion.button
-                type="button"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => {
-                  if (isRuntimeRetryInFlight) {
-                    return;
-                  }
-                  void handleRuntimeDependencyRecheck();
-                }}
-                title={runtimeIndicatorTitle}
-                style={{
-                  position: "relative",
-                  width: 24,
-                  height: 24,
-                  padding: 0,
-                  border: "none",
-                  borderRadius: 999,
-                  background: "transparent",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: isRuntimeRetryInFlight ? "default" : "pointer",
-                  opacity: isRuntimeRetryInFlight ? 0.82 : 1,
-                }}
-                animate={isRuntimeRetryFeedbackVisible
-                  ? {
-                      scale: [1, 0.92, 1.04, 1],
-                    }
-                  : {
-                      scale: 1,
-                    }}
-                transition={isRuntimeRetryFeedbackVisible
-                  ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] }
-                  : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-              >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    inset: 4,
-                    borderRadius: "50%",
-                    border: `1px solid ${colors.warningBorder}`,
-                    opacity: 0.72,
-                    pointerEvents: "none",
-                  }}
-                />
-                <motion.span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    inset: 4,
-                    borderRadius: "50%",
-                    border: `1px solid ${colors.warningBorder}`,
-                    boxShadow: `0 0 10px ${colors.warningGlow}`,
-                    pointerEvents: "none",
-                  }}
-                  animate={shouldReduceMotion
-                    ? { scale: 1, opacity: 0.64 }
-                    : isRuntimeRetryFeedbackVisible
-                      ? {
-                          scale: [1, 1.16, 1.28],
-                          opacity: [0.9, 0.42, 0],
-                        }
-                      : {
-                          scale: [1, 1.14, 1.32],
-                          opacity: [0.82, 0.3, 0],
-                        }}
-                  transition={shouldReduceMotion
-                    ? { duration: 0.16 }
-                    : isRuntimeRetryFeedbackVisible
-                      ? { duration: 0.46, ease: [0.22, 1, 0.36, 1] }
-                      : {
-                          duration: 1.45,
-                          repeat: Number.POSITIVE_INFINITY,
-                          ease: [0.22, 1, 0.36, 1],
-                        }}
-                />
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    inset: "50%",
-                    width: 8,
-                    height: 8,
-                    marginLeft: -4,
-                    marginTop: -4,
-                    borderRadius: "50%",
-                    backgroundColor: colors.warningSolid,
-                    display: "block",
-                    pointerEvents: "none",
-                    boxShadow: isRuntimeRetryFeedbackVisible
-                      ? `0 0 10px ${colors.warningGlow}`
-                      : `0 0 6px ${colors.warningGlow}`,
-                  }}
-                />
-              </motion.button>
-            )}
-          </motion.div>
-          ) : null}
-        </AnimatePresence>
 
         <AnimatePresence>
           {shouldRenderMiniControls ? (

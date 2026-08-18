@@ -303,20 +303,9 @@ describe("runtime dependency gate controller", () => {
     });
   });
 
-  it("emits UI Lab gate overrides and bypasses real refresh/bootstrap", async () => {
-    const { controller, events, getRuntimeDependencyStatus, ensureManagedFfmpegRuntimeReady } =
-      createControllerHarness([createStatus({ ffmpeg: missingManagedEntry() })]);
-    const override = createGateOverride();
-
-    controller.setUiLabRuntimeGateOverride(override);
-
-    await expect(controller.refreshState()).resolves.toEqual(override);
-    await expect(controller.startBootstrap("test")).resolves.toEqual(override);
-
-    expect(events).toHaveLength(2);
-    expect(events.every((entry) => entry.payload === override)).toBe(false);
-    expect(events.map((entry) => entry.payload)).toEqual([override, override]);
-    expect(getRuntimeDependencyStatus).not.toHaveBeenCalled();
-    expect(ensureManagedFfmpegRuntimeReady).not.toHaveBeenCalled();
+  it("does not expose UI Lab gate override methods after retirement", () => {
+    const { controller } = createControllerHarness([]);
+    expect(controller.setUiLabRuntimeGateOverride).toBeUndefined();
+    expect(controller.clearUiLabRuntimeGateOverride).toBeUndefined();
   });
 });

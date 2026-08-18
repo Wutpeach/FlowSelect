@@ -10,7 +10,7 @@
 Window labels:
 
 ```ts
-type AmeowWindowLabel = "main" | "settings" | "context-menu" | "ui-lab";
+type AmeowWindowLabel = "main" | "settings" | "context-menu";
 ```
 
 Fixed runtime endpoints / paths:
@@ -61,10 +61,9 @@ interface AmeowElectronBridge {
   windows: {
     has(label: AmeowWindowLabel): Promise<boolean>;
     focus(label: AmeowWindowLabel): Promise<void>;
-    close(label: "settings" | "context-menu" | "ui-lab"): Promise<void>;
+    close(label: "settings" | "context-menu"): Promise<void>;
     openSettings(options: AmeowSecondaryWindowOptions): Promise<void>;
     openContextMenu(options: AmeowContextMenuWindowOptions): Promise<void>;
-    openUiLab(options: AmeowSecondaryWindowOptions): Promise<void>;
   };
   currentWindow: AmeowCurrentWindowApi;
   system: AmeowSystemApi;
@@ -129,7 +128,6 @@ type AmeowRendererCommand =
   | "cancel_download"
   | "cancel_transcode"
   | "check_ytdlp_version"
-  | "dev_ui_lab_apply_scenario"
   | "download_image"
   | "export_support_log"
   | "get_autostart"

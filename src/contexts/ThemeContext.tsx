@@ -1,7 +1,5 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { saveConfigPatch } from '../desktop/config';
-import { desktopCommands, desktopEvents } from '../desktop/runtime';
-import { DEFAULT_THEME, resolveThemeFromConfigString, type Theme } from './theme';
+import { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react';
+import { DEFAULT_THEME, type Theme } from './theme';
 
 export type { Theme } from './theme';
 
@@ -271,54 +269,29 @@ export const useTheme = () => {
 export function ThemeProvider({
   children,
   initialTheme,
+  onThemeChange,
 }: {
   children: ReactNode;
   initialTheme?: Theme;
+  /**
+   * Optional persistence hook, supplied by Electron-owned entry code. The
+   * provider itself stays browser-safe (no desktop bridge import); keeping
+   * persistence here would force every consumer — including the dev-only
+   * Browser Lab — to depend on the Electron runtime.
+   */
+  onThemeChange?: (theme: Theme) => void | Promise<void>;
 }) {
   const [theme, setThemeState] = useState<Theme>(initialTheme ?? DEFAULT_THEME);
   const colors = themes[theme];
 
   useEffect(() => {
-    // 启动时从配置读取
-    let isDisposed = false;
-
-    if (initialTheme === undefined) {
-      void desktopCommands.invoke<string>('get_config')
-        .then((cfgStr) => {
-          if (isDisposed) {
-            return;
-          }
-          setThemeState(resolveThemeFromConfigString(cfgStr));
-        })
-        .catch((err) => {
-          console.error('Failed to load theme config:', err);
-        });
-    }
-
-    // 监听其他窗口的主题变更
-    const unlisten = desktopEvents.on<Theme>('theme-changed', (event) => {
-      setThemeState(event.payload);
-    });
-
-    return () => {
-      isDisposed = true;
-      unlisten.then(fn => fn());
-    };
-  }, [initialTheme]);
-
-  useEffect(() => {
     applyThemeCssVariables(theme, colors);
   }, [colors, theme]);
 
-  const setTheme = async (t: Theme) => {
-    setThemeState(t);
-    // 通知其他窗口
-    await desktopEvents.emit('theme-changed', t);
-    // 广播到浏览器扩展
-    await desktopCommands.invoke('broadcast_theme', { theme: t });
-    // 保存到配置
-    await saveConfigPatch({ theme: t });
-  };
+  const setTheme = useCallback(async (nextTheme: Theme) => {
+    setThemeState(nextTheme);
+    await onThemeChange?.(nextTheme);
+  }, [onThemeChange]);
 
   return (
     <ThemeContext.Provider value={{ theme, colors, setTheme }}>

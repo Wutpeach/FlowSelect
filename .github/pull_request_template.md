@@ -36,7 +36,7 @@ For desktop/platform-sensitive changes, confirm the affected areas you verified:
 - [ ] Tray / menu bar icon
 - [ ] Main window icon mode / compact mode
 - [ ] Settings window placement
-- [ ] UI Lab placement
+- [ ] Browser Lab rendering (dev-only preview/export)
 - [ ] Runtime bootstrap / downloader setup
 - [ ] Shortcut / reveal behavior
 

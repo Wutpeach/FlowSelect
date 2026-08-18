@@ -7,6 +7,8 @@ import ContextMenuPage from "./pages/ContextMenuPage";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import type { Theme } from "./contexts/theme";
 import { desktopCommands, desktopCurrentWindow } from "./desktop/runtime";
+import { ElectronThemeBridge } from "./desktop/ElectronThemeBridge";
+import { persistElectronTheme } from "./desktop/electronThemePersistence";
 import { I18nRuntimeBridge } from "./i18n/I18nRuntimeBridge";
 import { initializeI18n } from "./i18n";
 import { resolveAppLanguage } from "./i18n/language";
@@ -18,10 +20,6 @@ import {
   resolveDesktopRoutePath,
 } from "./utils/desktopBootstrap";
 import "./index.css";
-
-const UiLabPage = import.meta.env.DEV
-  ? React.lazy(() => import("./pages/UiLabPage"))
-  : null;
 
 const scheduleRendererReadySignal = (routePath: string) => {
   if (!window.ameow) {
@@ -142,23 +140,17 @@ const bootstrap = async () => {
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <RootWrapper>
-      <ThemeProvider initialTheme={initialTheme}>
+      <ThemeProvider
+        initialTheme={initialTheme}
+        onThemeChange={expectsElectronBridge ? persistElectronTheme : undefined}
+      >
+        {expectsElectronBridge ? <ElectronThemeBridge initialTheme={initialTheme} /> : null}
         <Router>
           <I18nRuntimeBridge />
           <Routes>
             <Route path="/" element={<App />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/context-menu" element={<ContextMenuPage />} />
-            {UiLabPage ? (
-              <Route
-                path="/ui-lab"
-                element={(
-                  <React.Suspense fallback={null}>
-                    <UiLabPage />
-                  </React.Suspense>
-                )}
-              />
-            ) : null}
           </Routes>
         </Router>
       </ThemeProvider>

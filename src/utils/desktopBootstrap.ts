@@ -9,7 +9,6 @@ export const SECONDARY_WINDOW_RENDERER_READY_FALLBACK_DELAY_MS = 24;
 const SECONDARY_WINDOW_ROUTES = new Set([
   "/settings",
   "/context-menu",
-  "/ui-lab",
 ]);
 
 export const normalizeDesktopRoutePath = (rawPath: string | null | undefined): string => {

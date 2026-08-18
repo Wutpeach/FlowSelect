@@ -7,6 +7,7 @@ const hostSource = readFileSync(resolve(here, "ExpandedPresentationSurface.tsx")
 const surfaceSource = readFileSync(resolve(here, "MainWindowPresentationSurface.tsx"), "utf8");
 const runtimeSource = readFileSync(resolve(here, "expandedPresentationRuntime.ts"), "utf8");
 const appSource = readFileSync(resolve(here, "../../App.tsx"), "utf8");
+const centerOverlaySource = readFileSync(resolve(here, "MainWindowCenterOverlay.tsx"), "utf8");
 const targetSource = readFileSync(resolve(here, "expandedPresentationTargets.ts"), "utf8");
 const policySource = readFileSync(resolve(here, "expandedPresentationPolicy.ts"), "utf8");
 const paletteSource = readFileSync(resolve(here, "thermalPalette.ts"), "utf8");
@@ -50,6 +51,25 @@ describe("Expanded Presentation graphics host contract", () => {
     expect(hostSource).toContain("gl.deleteProgram(linkedProgram)");
   });
 
+  it("treats the capture backingScale as an absolute value, not a DPR multiplier", () => {
+    // The capture override must mean backing pixels-per-CSS-pixel: it replaces
+    // (never multiplies) the clamped devicePixelRatio so a 4x export is exactly
+    // 800x800 for 200x200 CSS at DPR 1, 1.25, 1.5, 2, ... Production with no
+    // override keeps the normal clamped devicePixelRatio.
+    expect(hostSource).toContain("backingScale?: number");
+    expect(hostSource).not.toContain("pixelScale");
+    const resizeBlock = hostSource.slice(
+      hostSource.indexOf("const resize = (backingScale?: number)"),
+      hostSource.indexOf("if (canvas.width !== width"),
+    );
+    expect(resizeBlock).toMatch(/backingScale \?\? dpr/);
+    expect(resizeBlock).toMatch(/cssWidth \* scale/);
+    expect(resizeBlock).not.toMatch(/dpr \* |\* dpr/);
+    // Production path stays the clamped DPR when no override is passed.
+    expect(hostSource).toContain("resize()");
+    expect(hostSource).toContain("resize(backingScaleRef.current)");
+  });
+
   it("is the sole host mounted by the production Surface", () => {
     expect(surfaceSource.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
     expect(surfaceSource).not.toMatch(/DotField|dotField/);
@@ -77,15 +97,21 @@ describe("Expanded Presentation graphics host contract", () => {
   });
 
   it("occludes coverable center material while keeping controls and diagnostics protected", () => {
-    const progressBlock = appSource.slice(
-      appSource.indexOf('centerOverlayVisual.kind === "task-progress"'),
-      appSource.indexOf('centerOverlayVisual.kind === "task-processing"'),
+    // The center overlay is a shared browser-safe component used by both App
+    // and the Browser Lab; the coverable-material contract is enforced on the
+    // one shared implementation, and App must mount that component.
+    const progressBlock = centerOverlaySource.slice(
+      centerOverlaySource.indexOf('centerOverlayVisual.kind === "task-progress"'),
+      centerOverlaySource.indexOf('centerOverlayVisual.kind === "task-processing"'),
     );
     expect(progressBlock).toContain("style={CENTER_OVERLAY_CONTENT_STYLE}");
     expect(progressBlock).toContain('primaryTask.kind === "transcode"');
     expect(progressBlock).not.toContain("zIndex: 3");
-    expect(appSource).toContain("-protected-cancel");
-    expect(appSource).toContain("style={{ ...CENTER_OVERLAY_CONTENT_STYLE, zIndex: 3 }}");
+    expect(centerOverlaySource).toContain("-protected-cancel");
+    expect(centerOverlaySource).toContain("style={{ ...CENTER_OVERLAY_CONTENT_STYLE, zIndex: 3 }}");
+    expect(centerOverlaySource).toContain("data-mr9-protected-control=\"primary-cancel\"");
+    expect(appSource).toContain("<MainWindowCenterOverlay");
+    expect(appSource).toContain("onCancelPrimaryTask={");
     expect(hostSource).toContain('zIndex: target.kind === "activation" && !reducedMotion ? 2 : 0');
   });
 

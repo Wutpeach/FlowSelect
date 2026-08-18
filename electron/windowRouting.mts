@@ -17,7 +17,6 @@ type SecondaryWindowLabels = {
   main: string;
   settings: string;
   contextMenu: string;
-  uiLab: string;
 };
 
 export type SecondaryWindowOpenOptions = {
@@ -57,16 +56,13 @@ export const buildRendererRoute = (
 
 export const secondaryWindowRoute = (
   label: string,
-  labels: Pick<SecondaryWindowLabels, "settings" | "contextMenu" | "uiLab">,
+  labels: Pick<SecondaryWindowLabels, "settings" | "contextMenu">,
 ): string => {
   if (label === labels.settings) {
     return "/settings";
   }
   if (label === labels.contextMenu) {
     return "/context-menu";
-  }
-  if (label === labels.uiLab) {
-    return "/ui-lab";
   }
   throw new Error(`Unsupported secondary window label: ${label}`);
 };
@@ -81,26 +77,9 @@ export const resolveSecondaryWindowAnchorLabel = (
   if (label === options.labels.settings) {
     return options.labels.main;
   }
-  if (label === options.labels.uiLab) {
-    const settingsWindow = options.getWindow(options.labels.settings);
-    if (settingsWindow && !settingsWindow.isDestroyed()) {
-      return options.labels.settings;
-    }
-    return options.labels.main;
-  }
   return null;
 };
 
-export const resolveSecondaryWindowGap = (
-  label: string,
-  options: {
-    labels: Pick<SecondaryWindowLabels, "uiLab">;
-    settingsGap: number;
-    uiLabGap: number;
-  },
-): number => (
-  label === options.labels.uiLab ? options.uiLabGap : options.settingsGap
-);
 
 export const resolveSecondaryWindowOpenOptions = (
   label: string,
@@ -110,7 +89,6 @@ export const resolveSecondaryWindowOpenOptions = (
     getWindow(label: string): WindowLike | null;
     getDisplayWorkArea(anchorBounds: Bounds): Bounds;
     settingsGap: number;
-    uiLabGap: number;
     edgePadding: number;
   },
 ): SecondaryWindowOpenOptions => {
@@ -134,7 +112,7 @@ export const resolveSecondaryWindowOpenOptions = (
 
   const anchorBounds = anchorWindow.getBounds();
   const workArea = options.getDisplayWorkArea(anchorBounds);
-  const gap = resolveSecondaryWindowGap(label, options);
+  const gap = options.settingsGap;
   const minX = workArea.x + options.edgePadding;
   const minY = workArea.y + options.edgePadding;
   const maxX = workArea.x + workArea.width - openOptions.width - options.edgePadding;

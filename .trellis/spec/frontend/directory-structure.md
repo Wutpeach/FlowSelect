@@ -33,8 +33,13 @@ src/
 │       └── magnetic.ts             # Full-mode Magnetic visual consumer
 │
 ├── pages/                 # Route-level components
-│   ├── SettingsPage.tsx   # Settings window UI
-│   └── UiLabPage.tsx      # UI Lab window (DEV only)
+│   └── SettingsPage.tsx   # Settings window UI
+│
+├── lab/                   # Browser-only dev visual/state playground
+│   ├── lab-main.tsx       # zh-CN-first Vite entry; no desktop bridge
+│   ├── PresentationLab.tsx # Three-pane scenario/preview/Inspector shell
+│   ├── stateFixtures.ts   # Typed synthetic preview fixtures only
+│   └── exportPng.ts       # Lab-local 4x center-preview export
 │
 ├── components/            # Reusable components
 │   └── ui/                # Custom UI primitives
@@ -60,6 +65,12 @@ src/
 ### Pages (`src/pages/`)
 - One file per route/window
 - Named with `Page` suffix: `SettingsPage.tsx`
+
+### Browser Lab (`src/lab/`)
+- Dev-only plain-browser entry served through `vite.lab.config.ts` and `lab.html`
+- Must not be registered as an Electron route/window or imported by the production entry
+- Synthetic fixtures use production state/payload types and flow through the applicable production selectors/helpers/projections and shared production presentation components; visual fixtures do not replay event ingestion merely to simulate authority
+- Must not import `src/desktop/**` or `electron/**`, write product state, or recreate a renderer/runtime/shader
 
 ### Components (`src/components/`)
 - Reusable UI components

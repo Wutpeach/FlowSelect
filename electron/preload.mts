@@ -72,9 +72,6 @@ contextBridge.exposeInMainWorld("ameow", {
     openContextMenu(options) {
       return invoke("ameow:window:open-context-menu", { options });
     },
-    openUiLab(options) {
-      return invoke("ameow:window:open-ui-lab", { options });
-    },
   },
   currentWindow: {
     outerPosition() {

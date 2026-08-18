@@ -396,7 +396,7 @@ describe("mainWindowPresentation lifecycle", () => {
   it("does not fabricate pointer-inside truth for programmatic full intent", () => {
     const result = apply(
       createMainWindowPresentationState({ startsCompact: true }),
-      { type: "requestFull", reason: "uiLab", recipe: "instant" },
+      { type: "requestFull", reason: "runtimeGate", recipe: "instant" },
       { type: "visualTransitionCompleted", target: "full", epoch: 0 },
     );
     expect(result.state.pointerInside).toBe(false);

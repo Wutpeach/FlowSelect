@@ -634,7 +634,6 @@ export function MainWindowPresentationSurface({
     dispatch({ type: "setLock", lock: "contextMenu", active: locks.contextMenu });
     dispatch({ type: "setLock", lock: "task", active: locks.task });
     dispatch({ type: "setLock", lock: "centerOutcome", active: locks.centerOutcome });
-    dispatch({ type: "setLock", lock: "uiLab", active: locks.uiLab });
     dispatch({ type: "setLock", lock: "appUpdate", active: locks.appUpdate });
   }, [dispatch, locks]);
 

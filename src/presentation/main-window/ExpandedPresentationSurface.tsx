@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   createExpandedPresentationRuntime,
   ACTIVATION_DURATION_MS,
@@ -171,13 +171,28 @@ export type ExpandedPresentationSurfaceProps = {
   reducedMotion: boolean;
   target: ExpandedPresentationTarget;
   palette: ThermalPalette;
+  /**
+   * Optional ABSOLUTE backing pixels-per-CSS-pixel value (dev-only, default
+   * undefined = normal clamped devicePixelRatio). The Browser Lab passes 4
+   * during a PNG export so the single production canvas backing store is
+   * exactly 800x800 for the 200x200 layout, independent of devicePixelRatio
+   * (4 works at DPR 1, 1.25, 1.5, 2, ...). Production never sets it.
+   */
+  backingScale?: number;
+  /**
+   * Optional dev-only redraw epoch (default 0): when it changes the surface
+   * re-resizes and re-draws synchronously even if backingScale is unchanged, so
+   * a same-commit Lab readback always sees a freshly drawn buffer. Production
+   * never sets it.
+   */
+  redrawEpoch?: number;
 };
 
 type GraphicsColors = ThermalPalette;
 
 type GraphicsRenderer = {
   render: (frame: ExpandedPresentationFrame, colors: GraphicsColors) => void;
-  resize: () => void;
+  resize: (backingScale?: number) => void;
   redraw: (colors: GraphicsColors) => void;
   clear: () => void;
   dispose: () => void;
@@ -279,7 +294,7 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
   const goldLocation = gl.getUniformLocation(linkedProgram, "uThermalGold");
   const coreLocation = gl.getUniformLocation(linkedProgram, "uThermalCore");
 
-  const resize = (): void => {
+  const resize = (backingScale?: number): void => {
     if (disposed) return;
     const bounds = canvas.getBoundingClientRect();
     const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), MAX_DPR);
@@ -289,8 +304,14 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
     // store after the expand transition settles.
     const cssWidth = canvas.clientWidth || bounds.width;
     const cssHeight = canvas.clientHeight || bounds.height;
-    const width = Math.max(Math.round(cssWidth * dpr), 1);
-    const height = Math.max(Math.round(cssHeight * dpr), 1);
+    // The capture override is an ABSOLUTE backing pixels-per-CSS-pixel value:
+    // it REPLACES (never multiplies) the clamped devicePixelRatio, so a 4x
+    // export is exactly 800x800 for 200x200 CSS at any devicePixelRatio
+    // (1, 1.25, 1.5, 2, ...). Production passes nothing and keeps the clamped
+    // DPR exactly as before.
+    const scale = backingScale ?? dpr;
+    const width = Math.max(Math.round(cssWidth * scale), 1);
+    const height = Math.max(Math.round(cssHeight * scale), 1);
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -367,6 +388,8 @@ export function ExpandedPresentationSurface({
   reducedMotion,
   target,
   palette,
+  backingScale,
+  redrawEpoch = 0,
 }: ExpandedPresentationSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<GraphicsRenderer | null>(null);
@@ -377,15 +400,18 @@ export function ExpandedPresentationSurface({
     reducedMotion,
   });
   const colorsRef = useRef<GraphicsColors>(palette);
+  const backingScaleRef = useRef<number | undefined>(backingScale);
   const [dprEpoch, setDprEpoch] = useState(0);
 
   useEffect(() => {
     eligibleRef.current = eligible;
     inputsRef.current = { target, reducedMotion };
     colorsRef.current = palette;
+    backingScaleRef.current = backingScale;
   }, [
     eligible,
     palette,
+    backingScale,
     reducedMotion,
     target,
   ]);
@@ -420,7 +446,7 @@ export function ExpandedPresentationSurface({
 
     installRenderer();
     const resizeObserver = new ResizeObserver(() => {
-      rendererRef.current?.resize();
+      rendererRef.current?.resize(backingScaleRef.current);
       if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current);
       else rendererRef.current?.clear();
     });
@@ -448,12 +474,24 @@ export function ExpandedPresentationSurface({
     }
   }, [eligible, reducedMotion, target]);
 
+  // Backing-store changes (dev-only backingScale capture) must resize and
+  // redraw synchronously BEFORE paint so a Lab readback in the same commit
+  // can read the freshly drawn buffer (preserveDrawingBuffer is false).
+  useLayoutEffect(() => {
+    backingScaleRef.current = backingScale;
+    const renderer = rendererRef.current;
+    if (renderer === null) return;
+    renderer.resize(backingScaleRef.current);
+    if (eligibleRef.current) renderer.redraw(colorsRef.current);
+    else renderer.clear();
+  }, [backingScale, redrawEpoch]);
+
   useEffect(() => {
     if (eligible) rendererRef.current?.redraw(colorsRef.current);
   }, [eligible, palette]);
 
   useEffect(() => {
-    rendererRef.current?.resize();
+    rendererRef.current?.resize(backingScaleRef.current);
     if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current);
     else rendererRef.current?.clear();
     // Observe the raw scale even though the backing store is capped. A query

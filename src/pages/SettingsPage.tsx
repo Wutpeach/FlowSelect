@@ -29,7 +29,6 @@ import {
   desktopEvents,
   desktopSystem,
   desktopUpdater,
-  desktopWindows,
 } from "../desktop/runtime";
 import { saveConfigPatch } from "../desktop/config";
 import {
@@ -123,8 +122,6 @@ const SETTINGS_HUB_DESTINATION_MIN_HEIGHT = 54;
 const SETTINGS_HUB_SEARCH_TO_LIST_GAP = 14;
 const SETTINGS_HUB_DESTINATION_GAP = 9;
 const NETWORK_PROXY_SAVE_DEBOUNCE_MS = 650;
-const UI_LAB_WINDOW_WIDTH = 420;
-const UI_LAB_WINDOW_HEIGHT = 560;
 const formatSiteSessionSyncSource = (state: SiteSessionState | undefined): string | null => {
   const source = state?.lastSyncSource;
   if (!source) {
@@ -478,49 +475,7 @@ function SettingsPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isDevBuild) {
-      return;
-    }
 
-    let cancelled = false;
-    let firstFrameId: number | null = null;
-    let secondFrameId: number | null = null;
-
-    const preloadUiLabPage = () => {
-      if (cancelled) {
-        return;
-      }
-
-      void import("./UiLabPage").catch((err) => {
-        if (!cancelled) {
-          console.error("Failed to preload UI Lab page:", err);
-        }
-      });
-    };
-
-    if (typeof window.requestAnimationFrame === "function") {
-      firstFrameId = window.requestAnimationFrame(() => {
-        firstFrameId = null;
-        secondFrameId = window.requestAnimationFrame(() => {
-          secondFrameId = null;
-          preloadUiLabPage();
-        });
-      });
-    } else {
-      preloadUiLabPage();
-    }
-
-    return () => {
-      cancelled = true;
-      if (firstFrameId !== null) {
-        window.cancelAnimationFrame(firstFrameId);
-      }
-      if (secondFrameId !== null) {
-        window.cancelAnimationFrame(secondFrameId);
-      }
-    };
-  }, [isDevBuild]);
 
   useEffect(() => {
     const unlisten = desktopEvents.on<{ path: string }>("output-path-changed", (event) => {
@@ -1017,24 +972,6 @@ function SettingsPage() {
     });
   };
 
-  const openUiLab = async () => {
-    if (!isDevBuild) {
-      return;
-    }
-
-    if (await desktopWindows.has("ui-lab")) {
-      await desktopWindows.focus("ui-lab");
-      return;
-    }
-
-    await desktopWindows.openUiLab({
-      title: t("desktop:settings.uiLab.windowTitle"),
-      width: UI_LAB_WINDOW_WIDTH,
-      height: UI_LAB_WINDOW_HEIGHT,
-      alwaysOnTop: true,
-    });
-  };
-
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
   const settingsShellRadius = 16;
   const windowShadowGutter = isMacOS ? MACOS_SECONDARY_WINDOW_SHADOW_GUTTER : 0;
@@ -1448,9 +1385,8 @@ function SettingsPage() {
         t("desktop:settings.networkProxy.manual"),
         t("desktop:settings.supportLog.title"),
         t("desktop:settings.supportLog.button"),
-        isDevBuild ? t("desktop:settings.uiLab.developerSectionTitle") : "",
-        isDevBuild ? t("desktop:settings.uiLab.developerButton") : "",
-        isDevBuild ? t("desktop:settings.uiLab.injectionDebug.title") : "",
+        isDevBuild ? t("desktop:settings.developer.sectionTitle") : "",
+        isDevBuild ? t("desktop:settings.developer.injectionDebug.title") : "",
       ]),
       matchSummary: t("desktop:settings.hub.search.match.system"),
       attentionTone: appUpdateInfo
@@ -2343,8 +2279,8 @@ function SettingsPage() {
 
       {isDevBuild ? (
         <NeonSection
-          title={t("desktop:settings.uiLab.developerSectionTitle")}
-          hint={t("desktop:settings.uiLab.developerSectionHint")}
+          title={t("desktop:settings.developer.sectionTitle")}
+          hint={t("desktop:settings.developer.sectionHint")}
         >
           <div style={{ display: "grid", gap: 12 }}>
             <div
@@ -2362,17 +2298,13 @@ function SettingsPage() {
                   color: colors.textSecondary,
                 }}
               >
-                {t("desktop:settings.uiLab.injectionDebug.title")}
+                {t("desktop:settings.developer.injectionDebug.title")}
               </span>
               <NeonToggle
                 checked={extensionInjectionDebugEnabled}
                 onChange={toggleExtensionInjectionDebug}
               />
             </div>
-
-            <NeonButton onClick={() => void openUiLab()}>
-              {t("desktop:settings.uiLab.developerButton")}
-            </NeonButton>
           </div>
         </NeonSection>
       ) : null}

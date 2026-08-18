@@ -6,7 +6,6 @@ export type MainWindowPresentationLock =
   | "task"
   | "drop"
   | "centerOutcome"
-  | "uiLab"
   | "appUpdate";
 
 export type MainWindowPresentationRecipe = "animated" | "instant";
@@ -15,7 +14,6 @@ export type MainWindowFullIntentReason =
   | "task"
   | "runtimeGate"
   | "shortcut"
-  | "uiLab"
   | "foreground";
 
 export type MainWindowPhase =
@@ -58,7 +56,6 @@ const EMPTY_LOCKS: Record<MainWindowPresentationLock, boolean> = {
   task: false,
   drop: false,
   centerOutcome: false,
-  uiLab: false,
   appUpdate: false,
 };
 

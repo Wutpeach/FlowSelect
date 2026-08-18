@@ -149,7 +149,7 @@ export const desktopWindows = {
   async focus(label: AmeowWindowLabel): Promise<void> {
     await resolveElectronBridge().windows.focus(label);
   },
-  async close(label: "settings" | "context-menu" | "ui-lab"): Promise<void> {
+  async close(label: "settings" | "context-menu"): Promise<void> {
     await resolveElectronBridge().windows.close(label);
   },
   async openSettings(options: AmeowSecondaryWindowOptions): Promise<void> {
@@ -157,8 +157,5 @@ export const desktopWindows = {
   },
   async openContextMenu(options: AmeowContextMenuWindowOptions): Promise<void> {
     await resolveElectronBridge().windows.openContextMenu(options);
-  },
-  async openUiLab(options: AmeowSecondaryWindowOptions): Promise<void> {
-    await resolveElectronBridge().windows.openUiLab(options);
   },
 };

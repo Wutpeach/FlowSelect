@@ -80,11 +80,8 @@ The renderer cannot request arbitrary native width/height, target bounds, easing
   - `window.ameow!.windows.focus(...)`
   - `window.ameow!.windows.openSettings(...)`
   - `window.ameow!.windows.openContextMenu(...)`
-- Dev-only preview tooling may additionally use:
-  - `window.ameow!.windows.openUiLab(...)`
-  - `window.ameow!.commands.invoke<void>("dev_ui_lab_apply_scenario", { scenario })`
-  - `window.ameow!.events.on<void>("ui-lab-reset", ...)`
-- UI Lab and other internal preview routes must be gated behind `import.meta.env.DEV`; packaged builds must not expose a production-facing route or settings entry point for them.
+- Dev-only preview/export tooling does not use the Electron bridge: the Browser Lab (plain Vite, port 1421, `lab.html` + `src/lab/`) is a standalone browser page with no desktop bridge import. It synthesizes typed production state/payload fixtures, applies the relevant production selectors/helpers/projections, and renders through the production `ExpandedPresentationSurface`. The retired Electron UI Lab surface (`openUiLab`, `dev_ui_lab_apply_scenario`, `ui-lab-reset`) must not be reintroduced on the bridge.
+- The Browser Lab must remain a dev-only surface gated behind the `vite.lab.config.ts` entry; the production build input is pinned to `index.html`, so Lab code is excluded from production bundles and no packaged route or settings entry point exposes it.
 - `window.ameow!.clipboard.readImage()` must return serializable pixel data only; renderer remains responsible for converting that into a `data:` URL for existing image-save flows.
 - `window.ameow!.updater.check()` must return serializable `AppUpdateInfo | null`; renderer must not expect a raw updater handle object with platform-specific methods.
 - App-update channel preference contract:
@@ -108,8 +105,8 @@ The renderer cannot request arbitrary native width/height, target bounds, easing
 | Electron mode is detected but `window.ameow` is missing | Renderer bootstrap | Failure is explicit and diagnosable | Fail fast instead of silently mounting browser-mode UI |
 | Event listener implementation depends on one shared desktop IPC channel | Re-render / subscription churn | Listener counts stay bounded and event payloads stay local to their contract | Use event-specific channels and matching cleanup |
 | Child window created with raw Electron/Tauri APIs | Window lifecycle path | Window ownership stays centralized | Route through `window.ameow!.windows.*` |
-| Dev-only preview route is registered in production | Renderer bootstrap / routing | Internal tooling stays hidden from packaged users | Gate route registration with `import.meta.env.DEV` |
-| Scenario preview uses an untyped command or ad hoc event name | Preview boundary | UI Lab stays on the typed preload contract | Use `dev_ui_lab_apply_scenario` and `ui-lab-reset` from `src/types/electronBridge.ts` |
+| Dev-only preview route is registered in production | Renderer bootstrap / routing | Internal tooling stays hidden from packaged users | Production build input is pinned to `index.html`; the Browser Lab entry (`lab.html` + `src/lab/`) is excluded from production bundles |
+| Scenario preview uses an untyped command or ad hoc event name | Preview boundary | Browser Lab scenarios stay on production types and never touch the Electron bridge | Synthesize typed state/payload fixtures and use applicable production selectors/helpers/projections; no `dev_ui_lab_apply_scenario` / `ui-lab-reset` contract exists on the bridge |
 | Clipboard bridge returns non-serializable platform handle | Renderer paste path | Renderer can still convert to `data:` URL | Return structured `{ width, height, rgba }` only |
 | Updater bridge leaks provider-specific object shape | Update UI path | Renderer remains platform-agnostic | Return `AppUpdateInfo | null` and expose install separately |
 | Settings writes prerelease preference through ad hoc local state only | Update channel toggle path | Preference is lost on refresh/restart | Persist `receivePrereleaseUpdates` through `get_config` / `save_config` |
@@ -129,7 +126,7 @@ The renderer cannot request arbitrary native width/height, target bounds, easing
   - Settings toggles `receivePrereleaseUpdates`, persists it to config, emits `app-update-preference-changed`, and the main window refreshes update availability without restart.
   - `App.tsx` child-window logic moves from `WebviewWindow` calls to `window.ameow!.windows.has/focus/open*` without changing labels or visible behavior.
   - `src/main.tsx` stops booting the normal desktop shell when Electron is detected but the preload bridge is unavailable.
-  - Dev-only UI review tooling opens `window.ameow!.windows.openUiLab(...)` from Settings and drives the real main window through the typed `dev_ui_lab_apply_scenario` command.
+  - Dev-only preview/export stays out of Electron: the Browser Lab (plain Vite, port 1421) mounts the production surface with fixture state and never imports the desktop bridge; the retired `openUiLab` / `dev_ui_lab_apply_scenario` / `ui-lab-reset` surface is absent from the bridge.
   - Frameless window dragging uses `outerPosition()` + `setPosition(...)` over the typed current-window bridge, so pointer-move updates stay out of the command invoke path.
   - `shortcut-show` issues explicit full intent through the presentation lifecycle, and Electron main owns the corrected compact position through the semantic reachability op.
   - Clipboard-image flows still receive pixel data that the renderer turns into a PNG data URL before calling `save_data_url`.
@@ -152,7 +149,7 @@ The renderer cannot request arbitrary native width/height, target bounds, easing
 - Electron bootstrap path shows an explicit failure state if `window.ameow` is unavailable.
 - Child-window flows still open/focus `settings` and `context-menu` through the typed bridge.
 - Dev-only preview route is registered only when `import.meta.env.DEV` is true.
-- UI Lab renderer code uses typed bridge calls for `openUiLab`, `dev_ui_lab_apply_scenario`, and `ui-lab-reset`.
+- Dev-only preview stays out of Electron entirely: the Browser Lab mounts the production surface in a plain Vite page and production bundles exclude it.
 - Frameless drag stays on the typed current-window bridge and avoids per-move `invoke(...)`.
 - `ensureMainWindowCompactReachable(...)` keeps the `requestEpoch` request field aligned across renderer, preload, and main process; no generic renderer bounds animation API exists.
 - Clipboard-image save flows still receive enough data to produce a PNG data URL.
