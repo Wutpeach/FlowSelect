@@ -1677,3 +1677,38 @@ Implemented and validated the dev-only Chinese Browser Lab, migrated seven legac
 ### Status
 
 [OK] **Completed**
+
+
+## Session 252: Diagnostics Readability / Export Cleanup closure
+
+**Date**: 2026-08-19
+**Task**: Diagnostics Readability / Export Cleanup closure
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+Cherry-picked the Architecture-PASS Diagnostics repair onto the authoritative MR9 lineage without importing divergent main history; validated diagnostics contracts and archived the task.
+
+### Main Changes
+
+- Integrated reviewed Diagnostics checkpoint 353a798 as b9ba027 on the MR9 line.
+- Preserved MR9 pre-existing dirty validation artifacts byte-for-byte by aggregate status and tracked-diff hashes.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b9ba027` | (see git log) |
+
+### Testing
+
+- [OK] Focused Diagnostics suite: 196/196 passed.
+- [OK] Type-check, lint, app build, docs build, diff check, and architecture invariant assertions passed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Resume MR9 Thermal FX Visual Repair only under a separately authorized prompt from this authoritative branch state.
