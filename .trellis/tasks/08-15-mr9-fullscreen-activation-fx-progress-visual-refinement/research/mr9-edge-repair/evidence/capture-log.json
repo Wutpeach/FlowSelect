@@ -1,0 +1,70 @@
+{
+  "movingReadout": {
+    "canvasCount": 1,
+    "linked": true,
+    "heatmapMode": 1,
+    "cornerRadius": 0.07999999821186066,
+    "reducedMotion": false,
+    "time": 1.2604000568389893,
+    "boundTexture2D": false,
+    "framebufferBound": null
+  },
+  "reducedReadout": {
+    "heatmapMode": 1,
+    "reducedMotion": null,
+    "cornerRadius": 0.07999999821186066,
+    "timeFrozen": true,
+    "t1": 11.671699523925781,
+    "t2": 11.671699523925781
+  },
+  "freshDefaultProgressNoTexture": true,
+  "pageErrors": [
+    "console: %s a style property during rerender (%s) when a conflicting property is set (%s) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values. Removing borderColor border",
+    "console: %s a style property during rerender (%s) when a conflicting property is set (%s) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values. Removing borderColor border"
+  ],
+  "captured": [
+    {
+      "name": "repair-pre-contact",
+      "target": 0.03,
+      "k": 0.02615498065948496,
+      "kAfter": 0.03915503025054945
+    },
+    {
+      "name": "repair-first-contact",
+      "target": 0.1,
+      "k": 0.09765494346618664,
+      "kAfter": 0.10849703788757337
+    },
+    {
+      "name": "repair-developed",
+      "target": 0.25,
+      "k": 0.24931297302246103,
+      "kAfter": 0.2623130226135255
+    },
+    {
+      "name": "repair-developed-later",
+      "target": 0.35,
+      "k": 0.34681297302246095,
+      "kAfter": 0.3576420497894288
+    },
+    {
+      "name": "repair-late-sweep",
+      "target": 0.5,
+      "k": 0.49847100257873533,
+      "kAfter": 0.5114710521697998
+    },
+    {
+      "name": "repair-reduced",
+      "target": 0.42,
+      "k": 0.42,
+      "reduced": {
+        "heatmapMode": 1,
+        "reducedMotion": null,
+        "cornerRadius": 0.07999999821186066,
+        "timeFrozen": true,
+        "t1": 11.671699523925781,
+        "t2": 11.671699523925781
+      }
+    }
+  ]
+}

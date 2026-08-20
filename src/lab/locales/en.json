@@ -8,6 +8,7 @@
     "transcode": "Transcode",
     "mixed": "Mixed / Busy",
     "reducedMotion": "Reduced Motion",
+    "heatmapSpike": "Heatmap Spike",
     "reset": "Reset",
     "resetHint": "Resets only the current category's Lab preview state."
   },
@@ -32,6 +33,10 @@
     "replaceTraceHint": "New trace at 50%; never inherits the old trace's level.",
     "clearProgress": "Clear / idle",
     "clearProgressHint": "Idle semantic target; zero scheduled frames.",
+    "heatmapMoving": { "label": "Heatmap · moving field", "description": "Full-surface moving scalar heat field (clean-room spike)." },
+    "heatmapReduced": { "label": "Heatmap · reduced motion", "description": "Static bounded field snapshot; no travelling frames." },
+    "clearHeatmap": "Clear heatmap",
+    "clearHeatmapHint": "Return to the ordinary progress / activation surface.",
     "runtimeAutoConfig": { "label": "Auto configure", "description": "Runtime auto-configuring indicator (indeterminate progress)." },
     "runtimeFailed": { "label": "Runtime failed", "description": "Actionable state after a runtime failure." },
     "downloadActive": { "label": "Download active", "description": "Primary-task WebGL progress arc + queue rows (speed / ETA)." },

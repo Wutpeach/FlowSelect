@@ -90,6 +90,33 @@ export const LAB_PROGRESS_PRESETS: readonly LabProgressPreset[] = [
   { id: "progress-100", target: 1, label: "100%" },
 ];
 
+export type LabHeatmapPreset = Readonly<{
+  id: string;
+  forcedReducedMotion: boolean;
+  label: string;
+  description: string;
+}>;
+
+/**
+ * Paper Shaders Heatmap visual spike presets. These drive the lab-only
+ * `heatmap` flag on the single production surface; the shader field is a
+ * clean-room scalar heat ramp and never a Paper runtime or second canvas.
+ */
+export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
+  {
+    id: "heatmap-moving",
+    forcedReducedMotion: false,
+    label: "Heatmap · moving field",
+    description: "Full-surface moving scalar heat field (clean-room spike).",
+  },
+  {
+    id: "heatmap-reduced",
+    forcedReducedMotion: true,
+    label: "Heatmap · reduced motion",
+    description: "Static bounded field snapshot; no travelling frames.",
+  },
+];
+
 export type LabActivationState = Readonly<{
   presetId: string;
   source: LabActivationSource;
@@ -99,8 +126,14 @@ export type LabActivationState = Readonly<{
   opportunityId: number;
 }>;
 
+export type LabHeatmapState = Readonly<{
+  presetId: string;
+  forcedReducedMotion: boolean;
+}>;
+
 export type LabPresentationState = Readonly<{
   activation: LabActivationState | null;
+  heatmap: LabHeatmapState | null;
   progress: ExpandedPresentationProgressTarget;
   progressTraceId: string;
   replacementEpoch: number;
@@ -111,6 +144,8 @@ export type LabPresentationState = Readonly<{
 export type LabPresentationAction =
   | { type: "activate"; presetId: string; now: number }
   | { type: "replay"; now: number }
+  | { type: "setHeatmap"; presetId: string }
+  | { type: "clearHeatmap" }
   | { type: "progressPreset"; presetId: string }
   | { type: "progressTarget"; target: number }
   | { type: "progressIndeterminate" }
@@ -139,10 +174,14 @@ export const resolveActivationPreset = (presetId: string): LabActivationPreset |
 export const resolveProgressPreset = (presetId: string): LabProgressPreset | null =>
   LAB_PROGRESS_PRESETS.find((preset) => preset.id === presetId) ?? null;
 
+export const resolveHeatmapPreset = (presetId: string): LabHeatmapPreset | null =>
+  LAB_HEATMAP_PRESETS.find((preset) => preset.id === presetId) ?? null;
+
 export const createLabPresentationState = (options?: {
   reducedMotion?: boolean;
 }): LabPresentationState => ({
   activation: null,
+  heatmap: null,
   progress: {
     kind: "determinate",
     traceId: LAB_PRIMARY_TRACE_ID,
@@ -196,6 +235,26 @@ export const reduceLabPresentation = (
           opportunityId: state.activation.opportunityId + 1,
         },
       };
+    }
+    case "setHeatmap": {
+      const preset = resolveHeatmapPreset(action.presetId);
+      if (preset === null) {
+        return state;
+      }
+      return {
+        ...state,
+        activation: null,
+        heatmap: {
+          presetId: preset.id,
+          forcedReducedMotion: preset.forcedReducedMotion,
+        },
+      };
+    }
+    case "clearHeatmap": {
+      if (state.heatmap === null) {
+        return state;
+      }
+      return { ...state, heatmap: null };
     }
     case "progressPreset": {
       const preset = resolveProgressPreset(action.presetId);
@@ -280,6 +339,17 @@ export const reduceLabPresentation = (
  * toggle OR the preset's forced reduced-motion flag.
  */
 export const composeLabInput = (state: LabPresentationState): LabComposedInput => {
+  // The Heatmap spike overrides the whole surface regardless of the semantic
+  // target; keep a valid progress/idle underlay and force the preset's reduced
+  // motion flag so the field freezes to a bounded static snapshot.
+  if (state.heatmap !== null) {
+    return {
+      target: state.progress.kind === "idle"
+        ? { kind: "idle" }
+        : { kind: "progress", progress: state.progress },
+      reducedMotion: state.reducedMotion || state.heatmap.forcedReducedMotion,
+    };
+  }
   if (state.activation !== null) {
     return {
       target: {

@@ -18,9 +18,11 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "08-18-mr9-browser-lab-consolidation"
+  ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "2026-08-16: Core Architecture PASS remains preserved at c762c14. Real Electron paste-with-pointer, paste-center, and Browser Extension downloads reached authoritative membership, yt-dlp execution, real progress, and successful terminal outcomes after adding the worktree-local validation-only bundled-Python junction; no product source or dependency version changed. Focused tests 24 files / 294 tests, type-check, and lint pass. Task remains in_progress at the user manual visual acceptance gate; no final PASS, archive, or merge. See research/mr9-validation.md.",
   "meta": {}
 }

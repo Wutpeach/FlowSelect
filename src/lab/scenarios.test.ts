@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LAB_ACTIVATION_PRESETS,
+  LAB_HEATMAP_PRESETS,
   LAB_PRIMARY_TRACE_ID,
   LAB_PROGRESS_PRESETS,
   LAB_REPLACEMENT_TRACE_ID_PREFIX,
@@ -279,5 +280,62 @@ describe("Lab scenario model", () => {
     ]);
     const ids = new Set(LAB_ACTIVATION_PRESETS.map((preset) => preset.id));
     expect(ids.size).toBe(LAB_ACTIVATION_PRESETS.length);
+  });
+
+  it("starts with the heatmap spike disabled", () => {
+    const state = createLabPresentationState();
+    expect(state.heatmap).toBeNull();
+  });
+
+  it("activates the moving-field heatmap preset over a progress underlay", () => {
+    let state = createLabPresentationState();
+    state = reduceLabPresentation(state, { type: "setHeatmap", presetId: "heatmap-moving" });
+    expect(state.heatmap).toEqual({
+      presetId: "heatmap-moving",
+      forcedReducedMotion: false,
+    });
+    // The spike keeps a valid semantic underlay (progress) and does not force
+    // reduced motion for the moving-field preset.
+    const composed = composeLabInput(state);
+    expect(composed.reducedMotion).toBe(false);
+    expect(composed.target).toEqual({
+      kind: "progress",
+      progress: { kind: "determinate", traceId: LAB_PRIMARY_TRACE_ID, target: 0.5 },
+    });
+  });
+
+  it("forces reduced motion for the static heatmap preset", () => {
+    let state = createLabPresentationState();
+    state = reduceLabPresentation(state, { type: "setHeatmap", presetId: "heatmap-reduced" });
+    expect(state.heatmap).toEqual({
+      presetId: "heatmap-reduced",
+      forcedReducedMotion: true,
+    });
+    expect(composeLabInput(state).reducedMotion).toBe(true);
+  });
+
+  it("heatmap selection clears any live activation and is idempotent to clear", () => {
+    let state = createLabPresentationState();
+    state = reduceLabPresentation(state, {
+      type: "activate",
+      presetId: "intake-center",
+      now: NOW,
+    });
+    state = reduceLabPresentation(state, { type: "setHeatmap", presetId: "heatmap-moving" });
+    expect(state.activation).toBeNull();
+    expect(state.heatmap).not.toBeNull();
+    // Clearing twice is a no-op the second time.
+    state = reduceLabPresentation(state, { type: "clearHeatmap" });
+    const cleared = reduceLabPresentation(state, { type: "clearHeatmap" });
+    expect(cleared.heatmap).toBeNull();
+  });
+
+  it("declares both heatmap presets with distinct ids", () => {
+    expect(LAB_HEATMAP_PRESETS.map((preset) => preset.id)).toEqual([
+      "heatmap-moving",
+      "heatmap-reduced",
+    ]);
+    const ids = new Set(LAB_HEATMAP_PRESETS.map((preset) => preset.id));
+    expect(ids.size).toBe(LAB_HEATMAP_PRESETS.length);
   });
 });

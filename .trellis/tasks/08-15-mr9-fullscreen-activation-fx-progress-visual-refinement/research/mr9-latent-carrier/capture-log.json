@@ -1,0 +1,71 @@
+{
+  "moving": {
+    "canvasCount": 1,
+    "linked": true,
+    "heatmapMode": 1,
+    "cornerRadius": 0.07999999821186066,
+    "reducedMotion": false,
+    "time": 1.2689000368118286,
+    "boundTexture2D": true,
+    "activeTextureUnit": 33984,
+    "framebufferBound": null
+  },
+  "targets": [
+    {
+      "target": 0.1,
+      "k": 0.0985199928283691,
+      "kAfter": 0.1085200309753418
+    },
+    {
+      "target": 0.18,
+      "k": 0.1785200119018555,
+      "kAfter": 0.18684997558593763
+    },
+    {
+      "target": 0.26,
+      "k": 0.25852003097534193,
+      "kAfter": 0.2685199737548829
+    },
+    {
+      "target": 0.34,
+      "k": 0.3368399620056153,
+      "kAfter": 0.34685001373291025
+    },
+    {
+      "target": 0.14,
+      "k": 0.13680992126464853,
+      "kAfter": 0.14514007568359366
+    },
+    {
+      "target": 0.22,
+      "k": 0.21679992675781268,
+      "kAfter": 0.22679996490478516
+    },
+    {
+      "target": 0.3,
+      "k": 0.2984699249267577,
+      "kAfter": 0.30680999755859384
+    }
+  ],
+  "reduced": {
+    "heatmapMode": 1,
+    "reducedMotion": true,
+    "time": 23.113399505615234
+  },
+  "cleared": {
+    "heatmapMode": 0,
+    "reducedMotion": false,
+    "boundTexture2D": true,
+    "activeTextureUnit": 33984,
+    "framebufferBound": null,
+    "linked": true
+  },
+  "fresh": {
+    "heatmapMode": 0,
+    "boundTexture2D": false,
+    "framebufferBound": null,
+    "linked": true
+  },
+  "uTimeFrozen": true,
+  "pageErrors": []
+}

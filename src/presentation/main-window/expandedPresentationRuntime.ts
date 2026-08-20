@@ -13,6 +13,12 @@ export const ACTIVATION_DURATION_MS = 720;
 export type ExpandedPresentationInputs = Readonly<{
   target: ExpandedPresentationTarget;
   reducedMotion: boolean;
+  /**
+   * Lab-only Heatmap spike: while true the runtime keeps scheduling bounded
+   * frames so the moving scalar heat field animates. Production never sets it;
+   * Reduced Motion renders a static snapshot and schedules no frames.
+   */
+  heatmap?: boolean;
 }>;
 
 export type ExpandedPresentationFrame = Readonly<{
@@ -90,6 +96,7 @@ const inputsEqual = (
   right: ExpandedPresentationInputs,
 ): boolean => (
   left.reducedMotion === right.reducedMotion
+  && (left.heatmap ?? false) === (right.heatmap ?? false)
   && targetEquals(left.target, right.target)
 );
 
@@ -148,7 +155,8 @@ export const createExpandedPresentationRuntime = (dependencies: {
   const needsFrames = (): boolean => (
     !inputs.reducedMotion
     && (
-      (target.kind === "activation" && now() < target.startedAt + ACTIVATION_DURATION_MS)
+      (inputs.heatmap === true)
+      || (target.kind === "activation" && now() < target.startedAt + ACTIVATION_DURATION_MS)
       || (
         progressTarget.kind === "determinate"
         && Math.abs(progressTarget.target - progressLevel) > PROGRESS_SNAP

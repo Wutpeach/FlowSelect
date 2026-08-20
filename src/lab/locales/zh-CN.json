@@ -8,6 +8,7 @@
     "transcode": "转码",
     "mixed": "混合忙碌",
     "reducedMotion": "减弱动态",
+    "heatmapSpike": "热力图实验",
     "reset": "重置",
     "resetHint": "仅重置当前类别的 Lab 预览状态。"
   },
@@ -32,6 +33,10 @@
     "replaceTraceHint": "新 trace 从 50% 开始；绝不继承旧 trace 的量级。",
     "clearProgress": "清除 / 空闲",
     "clearProgressHint": "空闲语义目标；零调度帧。",
+    "heatmapMoving": { "label": "热力图 · 移动场", "description": "覆盖全表面的移动标量热场（clean-room 实验）。" },
+    "heatmapReduced": { "label": "热力图 · 减弱动态", "description": "静态有界场快照；无移动帧。" },
+    "clearHeatmap": "清除热力图",
+    "clearHeatmapHint": "返回常规进度 / 激活表面。",
     "runtimeAutoConfig": { "label": "自动配置", "description": "运行时自动配置中的指示器（不确定进度）。" },
     "runtimeFailed": { "label": "运行失败", "description": "运行时失败后的可操作状态。" },
     "downloadActive": { "label": "下载进行中", "description": "主任务 WebGL 进度弧 + 队列行（速度 / ETA）。" },

@@ -151,4 +151,135 @@ describe("Expanded Presentation graphics host contract", () => {
       expect(paletteSource).toContain(`${role}: "${color}"`);
     }
   });
+
+  it("keeps the Heatmap spike on the one shader with a lab-only gated uniform", () => {
+    // The spike stays inside the single fragment program: one canvas, one
+    // draw call, one `uHeatmapMode` gate that production never sets.
+    expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
+    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
+    expect(hostSource).toContain("uniform int uHeatmapMode;");
+    expect(hostSource).toContain("heatmapOutput(vUv, uTime, uReducedMotion, outColor)");
+    expect(hostSource).toContain("heatmap?: boolean;");
+    // The restored analytic baseline needs NO texture/preprocessing: no
+    // sampler, rasterizer, blur helpers, framebuffer, or second pass.
+    expect(hostSource).not.toContain("u_heatmapBoundary");
+    expect(hostSource).not.toContain("sampler2D");
+    expect(hostSource).not.toContain("blurGray");
+    expect(hostSource).not.toContain("multiPassBlurGray");
+    expect(hostSource).not.toContain("rasterizeHeatmap");
+    expect(hostSource).not.toContain("HEATMAP_CORE_SCALE");
+    expect(hostSource).not.toContain("coreMask");
+    expect(hostSource).not.toMatch(/createTexture|createFramebuffer|framebufferTexture2D/);
+    expect(paletteSource).toContain('thermalVoid: "#201E25"');
+  });
+
+  it("restores the Checkpoint C travelling diagonal band with exact constants", () => {
+    // Selected baseline motion grammar (research/paper-shaders-heatmap-
+    // checkpoint-b.md / checkpoint-c.md): one continuous phase, the
+    // lower-left -> upper-right front, and the exact body/warm/core/energy
+    // constants, over the centered field coordinate q = uv - 0.5.
+    expect(hostSource).toContain("const vec2 DIR = vec2(0.8235, 0.5674);");
+    expect(hostSource).toContain("float k = reducedMotion ? 0.42 : fract(t * 0.13);");
+    expect(hostSource).toContain("float front = mix(-0.58, 1.6, k);");
+    expect(hostSource).toContain("vec2 q = uv - 0.5;");
+    expect(hostSource).toContain("float d = p - front + bend;");
+    expect(hostSource).toContain("float body = exp(-behind * 1.1) * (1.0 - smoothstep(0.0, 0.05, d));");
+    expect(hostSource).toContain("float warm = exp(-abs(d + 0.018) * 30.0);");
+    expect(hostSource).toContain("float core = exp(-alongFront * alongFront * 200.0 - d * d * 200.0);");
+    expect(hostSource).toContain("float energy = smoothstep(0.0, 0.12, k) * (1.0 - smoothstep(0.66, 0.99, k));");
+    // Reduced Motion pins the mid-sweep snapshot and freezes the deformation.
+    expect(hostSource).toContain("float bendTime = reducedMotion ? 0.0 : t;");
+    expect(hostSource).toContain("heatmapBend(q, bendTime)");
+  });
+
+  it("restores the Rounded Boundary Edge Capture contact gate", () => {
+    // Selected baseline contact grammar (research/mr9-rounded-boundary-edge-
+    // capture-spike.md): real 200x200/16px rounded-rect SDF, inward-thick
+    // boundary band, contact-gated localized capture, and the exact heat sum.
+    expect(hostSource).toContain("float boundaryBand = smoothstep(-0.05, 0.0, bd) * step(bd, 0.0);");
+    expect(hostSource).toContain("float capture = boundaryBand * warm * 0.6;");
+    expect(hostSource).toContain("float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;");
+    expect(hostSource).toContain("float bd = roundedBoundary(uv);");
+    expect(hostSource).toContain("vec2 halfSize = vec2(0.5) - uCornerRadius;");
+  });
+
+  it("adds the palette/material/edge repair as a separate color-only layer", () => {
+    const heatmapBlock = hostSource.slice(
+      hostSource.indexOf("void heatmapOutput("),
+      hostSource.lastIndexOf("void main()"),
+    );
+    // Repaired 7-stop ramp: dark/deep blue -> vivid blue -> light blue/cyan ->
+    // yellow -> orange -> red-orange (grey/green/teal reduced, no white core).
+    expect(heatmapBlock).toContain("const vec3 HEAT_STOP[7]");
+    expect(heatmapBlock).toContain("vec3(0.090, 0.400, 0.940)");
+    expect(heatmapBlock).toContain("vec3(1.000, 0.800, 0.200)");
+    expect(heatmapBlock).toContain("vec3(1.000, 0.340, 0.090)");
+    // Material layering consumes the baseline scalars; it never changes the
+    // motion/contact formulas or constants above.
+    expect(heatmapBlock).toContain("float coolLift = body * (1.0 - smoothstep(0.20, 0.85, warm)) * 0.18 * energy;");
+    expect(heatmapBlock).toContain("float hotLift = warm * 0.20 * energy;");
+    expect(heatmapBlock).toContain("float material = clamp(heat + coolLift + hotLift, 0.0, 1.0);");
+    // Clearer yellow transition (green-cast neutralization in the cyan->yellow
+    // zone) and the contact-gated edge halo.
+    expect(heatmapBlock).toContain("float yellowZone");
+    expect(heatmapBlock).toContain("float inwardCool = contact * smoothstep(-0.16, -0.05, bd);");
+    // No perimeter coordinate / Chase / Closure inside the heatmap slice.
+    expect(heatmapBlock).not.toMatch(
+      /perimeterCoordinate|chaseDistance|dualFront|oppositeClosure/i,
+    );
+  });
+
+  it("excludes all rejected candidate grammar and internal geometry", () => {
+    const heatmapBlock = hostSource.slice(
+      hostSource.indexOf("// ---- Heatmap spike (lab-gated)"),
+      hostSource.lastIndexOf("void main()"),
+    );
+    // Rejected literal-fidelity / core-removal / latent-carrier path is gone.
+    expect(hostSource).not.toContain("latentCarrier");
+    expect(hostSource).not.toContain("rimEdgeFade");
+    expect(hostSource).not.toContain("u_heatmapBoundary");
+    expect(hostSource).not.toContain("HEAT_COLOR");
+    expect(hostSource).not.toContain("HEAT_ALPHA");
+    expect(hostSource).not.toContain("MODIFIED DERIVATIVE of Paper Shaders");
+    // No internal object / fixed geometry / inset thermal rectangle.
+    expect(heatmapBlock).not.toMatch(
+      /coreMask|insetRect|diamond|logo|capsule|synthetic core/i,
+    );
+    expect(heatmapBlock).not.toMatch(
+      /coolMask|boundaryArc|nearestBoundaryPoint|capFill|shellDepth|fullCoverage|interiorFade|cavR|windowed|halfW|flow =/i,
+    );
+    // One canvas / one draw / one program / one runtime authority remains.
+    expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
+    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
+    expect(hostSource).toContain("uniform int uHeatmapMode;");
+    // Production activation grammar (Chase etc.) untouched elsewhere.
+    expect(hostSource).toContain("float perimeterCoordinate");
+    expect(hostSource).toContain("float dualFrontDistance");
+  });
+
+  it("keeps the reduced-motion static snapshot and the lab runtime gate", () => {
+    // Reduced Motion: k pinned to 0.42 and bendTime to 0 -> fully static
+    // (zero-frame scheduling is covered by expandedPresentationRuntime.test).
+    expect(hostSource).toContain("reducedMotion ? 0.42 : fract(t * 0.13)");
+    expect(hostSource).toContain("reducedMotion ? 0.0 : t");
+    expect(hostSource).toContain("heatmap?: boolean;");
+  });
+
+  it("documents the license state honestly (no active Paper derivative)", () => {
+    // All Paper-derived shader/preprocessing source was removed with the
+    // rejected literal/latent-carrier path; the notices must distinguish
+    // historical research from shipped/active adapted source and must not
+    // claim active reuse.
+    const notices = readFileSync(resolve(here, "../../../THIRD_PARTY_NOTICES.md"), "utf8");
+    expect(notices).toContain("Paper Shaders");
+    expect(notices).toContain("no active Paper-derived source shipped");
+    expect(notices).toContain("clean-room");
+    expect(notices).not.toMatch(/Modified Derivative Notice/);
+    expect(notices).not.toMatch(/adapted source: `src\/presentation\/main-window\/ExpandedPresentationSurface/);
+    // Historical research evidence is documented as non-shipped.
+    expect(notices).toContain("research evidence");
+    // Root project license remains MIT (not overwritten).
+    const rootLicense = readFileSync(resolve(here, "../../../LICENSE"), "utf8");
+    expect(rootLicense).toContain("MIT License");
+  });
 });

@@ -33,6 +33,14 @@ const activation = (startedAt: number, reducedMotion = false): ExpandedPresentat
   reducedMotion,
 });
 
+const heatmap = (reducedMotion = false): ExpandedPresentationInputs => ({
+  // Settled determinate progress underlay: alone it would schedule zero
+  // frames; the lab-only heatmap flag is what keeps the field animating.
+  target: { kind: "progress", progress: { kind: "determinate", traceId: "a", target: 0.5 } },
+  reducedMotion,
+  heatmap: true,
+});
+
 const createHarness = () => {
   let now = 0;
   let nextHandle = 1;
@@ -200,6 +208,37 @@ describe("Expanded Presentation runtime", () => {
     }
     expect(harness.runtime.getProgressLevel()).toBe(0.5);
     expect(harness.pending()).toBe(0);
+  });
+
+  it("keeps the Heatmap spike animating with one pending frame and stops when the flag is removed", () => {
+    const harness = createHarness();
+    harness.runtime.wake(heatmap());
+    expect(harness.pending()).toBe(1);
+    for (let step = 0; step < 20 && harness.pending() > 0; step += 1) {
+      harness.step(16);
+      expect(harness.pending()).toBeLessThanOrEqual(1);
+    }
+    expect(harness.pending()).toBe(1); // still animating after many frames
+    // Removing the lab-only flag returns to the settled progress baseline with
+    // no heatmap-driven scheduling left behind.
+    harness.runtime.setInputs(progress("a", 0.5));
+    expect(harness.pending()).toBe(0);
+  });
+
+  it("starts animating when the Heatmap flag turns on for an otherwise settled target", () => {
+    const harness = createHarness();
+    harness.runtime.wake(progress("a", 0.5));
+    expect(harness.pending()).toBe(0);
+    harness.runtime.setInputs(heatmap());
+    expect(harness.pending()).toBe(1);
+    expect(harness.render).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders a static Heatmap snapshot under Reduced Motion with zero scheduled frames", () => {
+    const harness = createHarness();
+    harness.runtime.wake(heatmap(true));
+    expect(harness.pending()).toBe(0);
+    expect(harness.render).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed when rendering throws", () => {

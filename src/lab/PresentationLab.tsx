@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../contexts/ThemeContext";
-import { clampNormalizedOrigin, composeLabInput, createLabPresentationState, LAB_ACTIVATION_PRESETS, LAB_PROGRESS_PRESETS, reduceLabPresentation } from "./scenarios";
+import { clampNormalizedOrigin, composeLabInput, createLabPresentationState, LAB_ACTIVATION_PRESETS, LAB_HEATMAP_PRESETS, LAB_PROGRESS_PRESETS, reduceLabPresentation } from "./scenarios";
 import { LabOverlayStage, type WebglReadbackResult } from "./LabOverlayStage";
 import {
   projectLabOverlayFixture,
@@ -47,6 +47,7 @@ type ShaderReadout = {
   activationAge: number;
   activationOrigin: readonly number[];
   reducedMotion: number;
+  heatmapMode: number;
   time: number;
 };
 
@@ -69,6 +70,7 @@ const readShaderReadout = (): ShaderReadout => {
     activationAge: MISSING,
     activationOrigin: [],
     reducedMotion: MISSING,
+    heatmapMode: MISSING,
     time: MISSING,
   };
   const canvas = canvases[0];
@@ -114,6 +116,7 @@ const readShaderReadout = (): ShaderReadout => {
     activationAge: readScalar("uActivationAge"),
     activationOrigin: readVec2("uActivationOrigin"),
     reducedMotion: readScalar("uReducedMotion"),
+    heatmapMode: readScalar("uHeatmapMode"),
     time: readScalar("uTime"),
   };
 };
@@ -290,7 +293,7 @@ const EXPORT_BUTTON_DISABLED_STYLE: CSSProperties = {
   cursor: "default",
 };
 
-type CategoryId = "activation" | "downloadProgress" | "runtime" | "transcode" | "mixed" | "reducedMotion";
+type CategoryId = "activation" | "downloadProgress" | "runtime" | "transcode" | "mixed" | "reducedMotion" | "heatmapSpike";
 
 /** Scenario id -> lab-locale key (ids are kebab-case, locale keys camelCase). */
 const PRESET_LABEL_KEYS: Readonly<Record<string, string>> = {
@@ -304,6 +307,8 @@ const PRESET_LABEL_KEYS: Readonly<Record<string, string>> = {
   "progress-50": "progress50",
   "progress-75": "progress75",
   "progress-100": "progress100",
+  "heatmap-moving": "heatmapMoving",
+  "heatmap-reduced": "heatmapReduced",
   "runtime-auto-config": "runtimeAutoConfig",
   "runtime-failed": "runtimeFailed",
   "download-active": "downloadActive",
@@ -322,6 +327,7 @@ const CATEGORIES: readonly { id: CategoryId; key: string }[] = [
   { id: "transcode", key: "nav.transcode" },
   { id: "mixed", key: "nav.mixed" },
   { id: "reducedMotion", key: "nav.reducedMotion" },
+  { id: "heatmapSpike", key: "nav.heatmapSpike" },
 ];
 
 const fixtureOfCategory = (fixtureId: string): LabOverlayFixture | null =>
@@ -460,6 +466,7 @@ export function PresentationLab() {
     setQueueOpen(false);
     setRuntimeHovered(false);
     dispatch({ type: "clearProgress" });
+    dispatch({ type: "clearHeatmap" });
     dispatch({ type: "setReducedMotion", enabled: prefersReducedMotion() });
   }, []);
 
@@ -823,12 +830,52 @@ export function PresentationLab() {
             })}
           </>
         ) : null}
+
+        {activeCategory === "heatmapSpike" ? (
+          <>
+            {LAB_HEATMAP_PRESETS.map((preset) => {
+              const active = state.heatmap?.presetId === preset.id && activeFixtureId === null;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  data-lab-preset={preset.id}
+                  onClick={() => {
+                    setActiveFixtureId(null);
+                    dispatch({ type: "setHeatmap", presetId: preset.id });
+                  }}
+                  style={active ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE}
+                >
+                  <strong style={{ fontSize: 12 }}>{t(`presets.${presetLabelKey(preset.id)}.label`)}</strong>
+                  <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
+                    {t(`presets.${presetLabelKey(preset.id)}.description`)}
+                  </span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              data-lab-action="clear-heatmap"
+              onClick={() => dispatch({ type: "clearHeatmap" })}
+              disabled={state.heatmap === null}
+              style={state.heatmap === null
+                ? { ...BUTTON_STYLE, opacity: 0.45, cursor: "default" }
+                : BUTTON_STYLE}
+            >
+              <strong style={{ fontSize: 12 }}>{t("presets.clearHeatmap")}</strong>
+              <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
+                {t("presets.clearHeatmapHint")}
+              </span>
+            </button>
+          </>
+        ) : null}
       </aside>
 
       <main style={CENTER_STYLE} aria-label="Live production preview">
         <LabOverlayStage
           target={surfaceTarget}
           reducedMotion={surfaceReducedMotion}
+          heatmapMode={state.heatmap !== null}
           overlayProjection={overlayProjection}
           showQueueOverlay={showQueueOverlay}
           queueOpen={queueOpen}

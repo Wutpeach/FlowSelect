@@ -29,6 +29,11 @@ import { LAB_PREVIEW_SIZE } from "./scenarios";
 export type LabOverlayStageProps = {
   target: ExpandedPresentationTarget;
   reducedMotion: boolean;
+  /**
+   * Lab-only Heatmap spike flag; forwarded to the one production surface so
+   * the single shader draws the moving heat field over the full preview.
+   */
+  heatmapMode: boolean;
   /** Non-null when a seven-scenario overlay fixture is active. */
   overlayProjection: LabOverlayProjection | null;
   /** Show the queue badge/popover inside the preview frame. */
@@ -128,6 +133,7 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
   const {
     target,
     reducedMotion,
+    heatmapMode,
     overlayProjection,
     showQueueOverlay,
     queueOpen,
@@ -194,6 +200,7 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
         reducedMotion={reducedMotion}
         target={target}
         palette={THERMAL_PALETTE}
+        heatmap={heatmapMode}
         backingScale={captureScale}
         redrawEpoch={captureEpoch}
       />
