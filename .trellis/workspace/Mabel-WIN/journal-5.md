@@ -1712,3 +1712,24 @@ Cherry-picked the Architecture-PASS Diagnostics repair onto the authoritative MR
 ### Next Steps
 
 - Resume MR9 Thermal FX Visual Repair only under a separately authorized prompt from this authoritative branch state.
+
+
+## Session 253: MR9 Thermal FX Visual Repair 收尾
+
+**Date**: 2026-08-20
+**Task**: MR9 Thermal FX Visual Repair 收尾
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+完成 MR9 Earlier Motion Baseline + Material / Palette / Edge Repair 验收、提交与归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e01be0157a61b2b8fca3c4d6c96d57dd731227b9` | (see git log) |
+
+### Status
+
+[OK] **Completed**
