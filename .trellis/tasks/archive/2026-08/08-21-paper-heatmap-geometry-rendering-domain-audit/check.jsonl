@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review single-host composition, UI clipping, z-order, and pointer/interaction ownership."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Review shadow coexistence and reject inset, perimeter, or competing visual geometry."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run focused tests, type-check, lint, full tests, and diff checks with explicit evidence."}
+{"file":".trellis/spec/guides/cross-platform-thinking-guide.md","reason":"Separate verified Windows transparent compositing from macOS runtime NOT VERIFIED debt."}
+{"file":".trellis/tasks/08-21-paper-heatmap-geometry-rendering-domain-audit/research/repository-geometry-rendering-domain-audit.md","reason":"Check measured geometry and clipping claims against repository truth."}
+{"file":".trellis/tasks/08-21-paper-heatmap-geometry-rendering-domain-audit/research/paper-heatmap-domain-planning-report.md","reason":"Check every geometry, processed mechanics, resource, fallback, and evidence gate."}
