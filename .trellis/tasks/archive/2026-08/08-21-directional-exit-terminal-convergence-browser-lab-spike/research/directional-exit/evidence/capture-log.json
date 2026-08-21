@@ -1,0 +1,186 @@
+{
+  "pageErrors": [
+    "console: %s a style property during rerender (%s) when a conflicting property is set (%s) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values. Removing borderColor border"
+  ],
+  "captures": [
+    {
+      "name": "developed",
+      "k": 0.55,
+      "canvasCount": 1,
+      "width": 400,
+      "height": 400,
+      "linked": true,
+      "heatmapMode": 1,
+      "refractionMode": 1,
+      "reducedMotion": false,
+      "boundTexture2D": false,
+      "framebufferBound": false,
+      "activePixels": 160000,
+      "activeFraction": 1,
+      "lowerLeftActive": 40000,
+      "upperRightActive": 40000,
+      "activeBounds": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 399,
+        "maxY": 399
+      }
+    },
+    {
+      "name": "convergence-onset",
+      "k": 0.62,
+      "canvasCount": 1,
+      "width": 400,
+      "height": 400,
+      "linked": true,
+      "heatmapMode": 1,
+      "refractionMode": 1,
+      "reducedMotion": false,
+      "boundTexture2D": false,
+      "framebufferBound": false,
+      "activePixels": 160000,
+      "activeFraction": 1,
+      "lowerLeftActive": 40000,
+      "upperRightActive": 40000,
+      "activeBounds": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 399,
+        "maxY": 399
+      }
+    },
+    {
+      "name": "exit-early",
+      "k": 0.7,
+      "canvasCount": 1,
+      "width": 400,
+      "height": 400,
+      "linked": true,
+      "heatmapMode": 1,
+      "refractionMode": 1,
+      "reducedMotion": false,
+      "boundTexture2D": false,
+      "framebufferBound": false,
+      "activePixels": 71324,
+      "activeFraction": 0.445775,
+      "lowerLeftActive": 1087,
+      "upperRightActive": 40000,
+      "activeBounds": {
+        "minX": 134,
+        "minY": 40,
+        "maxX": 399,
+        "maxY": 399
+      }
+    },
+    {
+      "name": "exit-middle",
+      "k": 0.78,
+      "canvasCount": 1,
+      "width": 400,
+      "height": 400,
+      "linked": true,
+      "heatmapMode": 1,
+      "refractionMode": 1,
+      "reducedMotion": false,
+      "boundTexture2D": false,
+      "framebufferBound": false,
+      "activePixels": 30834,
+      "activeFraction": 0.1927125,
+      "lowerLeftActive": 0,
+      "upperRightActive": 29851,
+      "activeBounds": {
+        "minX": 220,
+        "minY": 182,
+        "maxX": 399,
+        "maxY": 399
+      }
+    },
+    {
+      "name": "exit-late",
+      "k": 0.86,
+      "canvasCount": 1,
+      "width": 400,
+      "height": 400,
+      "linked": true,
+      "heatmapMode": 1,
+      "refractionMode": 1,
+      "reducedMotion": false,
+      "boundTexture2D": false,
+      "framebufferBound": false,
+      "activePixels": 15650,
+      "activeFraction": 0.0978125,
+      "lowerLeftActive": 0,
+      "upperRightActive": 15650,
+      "activeBounds": {
+        "minX": 268,
+        "minY": 255,
+        "maxX": 399,
+        "maxY": 399
+      }
+    },
+    {
+      "name": "upper-right-terminal",
+      "k": 0.92,
+      "canvasCount": 1,
+      "width": 400,
+      "height": 400,
+      "linked": true,
+      "heatmapMode": 1,
+      "refractionMode": 1,
+      "reducedMotion": false,
+      "boundTexture2D": false,
+      "framebufferBound": false,
+      "activePixels": 8262,
+      "activeFraction": 0.0516375,
+      "lowerLeftActive": 0,
+      "upperRightActive": 8262,
+      "activeBounds": {
+        "minX": 306,
+        "minY": 297,
+        "maxX": 399,
+        "maxY": 399
+      }
+    },
+    {
+      "name": "terminal-just-before-zero",
+      "k": 0.96,
+      "canvasCount": 1,
+      "width": 400,
+      "height": 400,
+      "linked": true,
+      "heatmapMode": 1,
+      "refractionMode": 1,
+      "reducedMotion": false,
+      "boundTexture2D": false,
+      "framebufferBound": false,
+      "activePixels": 3999,
+      "activeFraction": 0.02499375,
+      "lowerLeftActive": 0,
+      "upperRightActive": 3999,
+      "activeBounds": {
+        "minX": 338,
+        "minY": 327,
+        "maxX": 399,
+        "maxY": 399
+      }
+    },
+    {
+      "name": "zero",
+      "k": 1,
+      "canvasCount": 1,
+      "width": 400,
+      "height": 400,
+      "linked": true,
+      "heatmapMode": 1,
+      "refractionMode": 1,
+      "reducedMotion": false,
+      "boundTexture2D": false,
+      "framebufferBound": false,
+      "activePixels": 0,
+      "activeFraction": 0,
+      "lowerLeftActive": 0,
+      "upperRightActive": 0,
+      "activeBounds": null
+    }
+  ]
+}
