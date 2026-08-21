@@ -1754,3 +1754,35 @@ Implemented and visually validated the Lab-only Thermal Refraction spike with a 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 255: Directional Exit Terminal Convergence spike rejected and abandoned
+
+**Date**: 2026-08-21
+**Task**: Directional Exit Terminal Convergence spike rejected and abandoned
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+GPT Architecture Lead rejected the visual experiment; retained all evidence, restored product/test files to 8a80474, and archived without an implementation commit.
+
+### Main Changes
+
+- Retained planning, implementation report, captures, validation, and failed visual evidence in the rejected task archive.
+- Restored ExpandedPresentationSurface.tsx and expandedPresentationSurface.test.ts exactly to stable checkpoint 8a80474; no Directional Exit implementation commit exists.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Focused Vitest 61/61; type-check and lint passed; full npm test 1773/1774 with the pre-existing browser-extension/architecture-guard.test.js:277 assertion failure; product/test diff after restore is empty.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- No new Thermal Source planning started; stop and await explicit direction.

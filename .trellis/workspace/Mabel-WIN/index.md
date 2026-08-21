@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-5.md`
-- **Total Sessions**: 254
+- **Total Sessions**: 255
 - **Last Active**: 2026-08-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-5.md` | ~1756 | Active |
+| `journal-5.md` | ~1788 | Active |
 | `journal-4.md` | ~1983 | Archived |
 | `journal-3.md` | ~1979 | Archived |
 | `journal-2.md` | ~1993 | Archived |
@@ -33,6 +33,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 255 | 2026-08-21 | Directional Exit Terminal Convergence spike rejected and abandoned | - | `motion/mr9-fullscreen-activation-fx` |
 | 254 | 2026-08-21 | Complete Thermal Refraction 2D Material Model spike | `046f228` | `motion/mr9-fullscreen-activation-fx` |
 | 253 | 2026-08-20 | MR9 Thermal FX Visual Repair 收尾 | `e01be0157a61b2b8fca3c4d6c96d57dd731227b9` | `motion/mr9-fullscreen-activation-fx` |
 | 252 | 2026-08-19 | Diagnostics Readability / Export Cleanup closure | `b9ba027` | `motion/mr9-fullscreen-activation-fx` |
