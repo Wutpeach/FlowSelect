@@ -1,0 +1,82 @@
+{
+  "k010": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      8.519346517626824,
+      15119
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      25.75522606886099,
+      14096
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.029779799069863725,
+      129730
+    ],
+    "cool_luma_stddev_before": 18.68391754721073,
+    "cool_luma_stddev_repaired": 18.866430330983775
+  },
+  "k025": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      7.526871969267607,
+      26465
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      33.9745011619522,
+      62395
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.07408934505490153,
+      67909
+    ],
+    "cool_luma_stddev_before": 18.53680857170497,
+    "cool_luma_stddev_repaired": 17.88087449606336
+  },
+  "k035": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      7.930198910118556,
+      24651
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      21.979006476101752,
+      102222
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.16682043846931438,
+      30348
+    ],
+    "cool_luma_stddev_before": 22.85409830135001,
+    "cool_luma_stddev_repaired": 24.106094168942334
+  },
+  "k050": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      12.560282140779483,
+      9168
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      16.629240144954927,
+      126568
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      2.9259927797834218,
+      34348
+    ],
+    "cool_luma_stddev_before": 23.786359463062755,
+    "cool_luma_stddev_repaired": 27.336575791339516
+  },
+  "reduced": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      10.423258534954549,
+      15954
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      16.912755010406,
+      126204
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.8007851773830684,
+      20887
+    ],
+    "cool_luma_stddev_before": 23.649659486969743,
+    "cool_luma_stddev_repaired": 26.189826922102327
+  }
+}

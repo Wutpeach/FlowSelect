@@ -34,6 +34,12 @@ export type LabOverlayStageProps = {
    * the single shader draws the moving heat field over the full preview.
    */
   heatmapMode: boolean;
+  /**
+   * Lab-only Thermal Refraction spike flag (derived Heatmap mode); forwarded
+   * to the one production surface so the single shader applies the slow local
+   * refraction displacement to the same analytic heat field.
+   */
+  refractionMode: boolean;
   /** Non-null when a seven-scenario overlay fixture is active. */
   overlayProjection: LabOverlayProjection | null;
   /** Show the queue badge/popover inside the preview frame. */
@@ -134,6 +140,7 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
     target,
     reducedMotion,
     heatmapMode,
+    refractionMode,
     overlayProjection,
     showQueueOverlay,
     queueOpen,
@@ -201,6 +208,7 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
         target={target}
         palette={THERMAL_PALETTE}
         heatmap={heatmapMode}
+        refraction={refractionMode}
         backingScale={captureScale}
         redrawEpoch={captureEpoch}
       />

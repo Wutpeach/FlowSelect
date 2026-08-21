@@ -1,0 +1,189 @@
+{
+  "pageErrors": [
+    "console: %s a style property during rerender (%s) when a conflicting property is set (%s) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values. Removing borderColor border"
+  ],
+  "captures": [
+    {
+      "name": "baseline-k010",
+      "k": 0.1,
+      "refraction": false,
+      "reducedMotion": false,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 0.7692307829856873,
+        "reducedMotion": false,
+        "heatmapMode": 1,
+        "refractionMode": 0,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-k010",
+      "k": 0.1,
+      "refraction": true,
+      "reducedMotion": false,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 0.7692307829856873,
+        "reducedMotion": false,
+        "heatmapMode": 1,
+        "refractionMode": 1,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-k025",
+      "k": 0.25,
+      "refraction": false,
+      "reducedMotion": false,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 1.923076868057251,
+        "reducedMotion": false,
+        "heatmapMode": 1,
+        "refractionMode": 0,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-k025",
+      "k": 0.25,
+      "refraction": true,
+      "reducedMotion": false,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 1.923076868057251,
+        "reducedMotion": false,
+        "heatmapMode": 1,
+        "refractionMode": 1,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-k035",
+      "k": 0.35,
+      "refraction": false,
+      "reducedMotion": false,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 2.692307710647583,
+        "reducedMotion": false,
+        "heatmapMode": 1,
+        "refractionMode": 0,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-k035",
+      "k": 0.35,
+      "refraction": true,
+      "reducedMotion": false,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 2.692307710647583,
+        "reducedMotion": false,
+        "heatmapMode": 1,
+        "refractionMode": 1,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-k050",
+      "k": 0.5,
+      "refraction": false,
+      "reducedMotion": false,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 3.846153736114502,
+        "reducedMotion": false,
+        "heatmapMode": 1,
+        "refractionMode": 0,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-k050",
+      "k": 0.5,
+      "refraction": true,
+      "reducedMotion": false,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 3.846153736114502,
+        "reducedMotion": false,
+        "heatmapMode": 1,
+        "refractionMode": 1,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-reduced",
+      "k": 0.42,
+      "refraction": false,
+      "reducedMotion": true,
+      "timeFrozen": true,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 0,
+        "reducedMotion": true,
+        "heatmapMode": 1,
+        "refractionMode": 0,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-reduced",
+      "k": 0.42,
+      "refraction": true,
+      "reducedMotion": true,
+      "timeFrozen": true,
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "time": 0,
+        "reducedMotion": true,
+        "heatmapMode": 1,
+        "refractionMode": 1,
+        "boundTexture2D": false,
+        "framebufferBound": false
+      }
+    }
+  ]
+}

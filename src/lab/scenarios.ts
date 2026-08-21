@@ -93,6 +93,9 @@ export const LAB_PROGRESS_PRESETS: readonly LabProgressPreset[] = [
 export type LabHeatmapPreset = Readonly<{
   id: string;
   forcedReducedMotion: boolean;
+  /** Derived Heatmap mode: while true the single shader also applies the
+   * lab-gated Thermal Refraction displacement to the same analytic field. */
+  refraction: boolean;
   label: string;
   description: string;
 }>;
@@ -101,19 +104,37 @@ export type LabHeatmapPreset = Readonly<{
  * Paper Shaders Heatmap visual spike presets. These drive the lab-only
  * `heatmap` flag on the single production surface; the shader field is a
  * clean-room scalar heat ramp and never a Paper runtime or second canvas.
+ * The two `heatmap-refraction-*` presets are a derived mode: they reuse the
+ * same heatmap state/category and only add the lab-only `refraction` flag.
  */
 export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
   {
     id: "heatmap-moving",
+    refraction: false,
     forcedReducedMotion: false,
     label: "Heatmap · moving field",
     description: "Full-surface moving scalar heat field (clean-room spike).",
   },
   {
     id: "heatmap-reduced",
+    refraction: false,
     forcedReducedMotion: true,
     label: "Heatmap · reduced motion",
     description: "Static bounded field snapshot; no travelling frames.",
+  },
+  {
+    id: "heatmap-refraction-moving",
+    refraction: true,
+    forcedReducedMotion: false,
+    label: "Heatmap · thermal refraction",
+    description: "Moving field with slow local low-frequency refraction (analytic resample).",
+  },
+  {
+    id: "heatmap-refraction-reduced",
+    refraction: true,
+    forcedReducedMotion: true,
+    label: "Heatmap · refraction, reduced motion",
+    description: "Static frozen local refraction; zero travelling frames.",
   },
 ];
 
@@ -129,6 +150,8 @@ export type LabActivationState = Readonly<{
 export type LabHeatmapState = Readonly<{
   presetId: string;
   forcedReducedMotion: boolean;
+  /** Derived Heatmap mode flag; production never sees it. */
+  refraction: boolean;
 }>;
 
 export type LabPresentationState = Readonly<{
@@ -247,6 +270,7 @@ export const reduceLabPresentation = (
         heatmap: {
           presetId: preset.id,
           forcedReducedMotion: preset.forcedReducedMotion,
+          refraction: preset.refraction,
         },
       };
     }

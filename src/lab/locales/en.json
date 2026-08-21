@@ -35,6 +35,8 @@
     "clearProgressHint": "Idle semantic target; zero scheduled frames.",
     "heatmapMoving": { "label": "Heatmap · moving field", "description": "Full-surface moving scalar heat field (clean-room spike)." },
     "heatmapReduced": { "label": "Heatmap · reduced motion", "description": "Static bounded field snapshot; no travelling frames." },
+    "heatmapRefractionMoving": { "label": "Heatmap · thermal refraction", "description": "Moving field with slow local low-frequency refraction (analytic resample)." },
+    "heatmapRefractionReduced": { "label": "Heatmap · refraction, reduced motion", "description": "Static frozen local refraction; zero travelling frames." },
     "clearHeatmap": "Clear heatmap",
     "clearHeatmapHint": "Return to the ordinary progress / activation surface.",
     "runtimeAutoConfig": { "label": "Auto configure", "description": "Runtime auto-configuring indicator (indeterminate progress)." },

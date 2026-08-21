@@ -1,0 +1,82 @@
+{
+  "k010": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      4.561029482377828,
+      13884
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      2.4908465096267087,
+      15495
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.005790176736539291,
+      129760
+    ],
+    "cool_luma_stddev_before": 16.475535679492452,
+    "cool_luma_stddev_repaired": 16.04769616641976
+  },
+  "k025": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      3.685952432277027,
+      23195
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      2.7189216852054194,
+      66437
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.003625854946176434,
+      67938
+    ],
+    "cool_luma_stddev_before": 17.459569264775453,
+    "cool_luma_stddev_repaired": 17.14858101598997
+  },
+  "k035": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      2.698657633923101,
+      21256
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      2.2624231108246735,
+      105509
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.06271164687182179,
+      33763
+    ],
+    "cool_luma_stddev_before": 22.34822143589885,
+    "cool_luma_stddev_repaired": 22.274480764848533
+  },
+  "k050": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      2.3742252066115737,
+      7744
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      1.7741244689404532,
+      116120
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.784401295874995,
+      47021
+    ],
+    "cool_luma_stddev_before": 23.168353068445956,
+    "cool_luma_stddev_repaired": 23.335784771613355
+  },
+  "reduced": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      3.6908244356686906,
+      13674
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      2.339017594270636,
+      122502
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.46898095792924854,
+      29181
+    ],
+    "cool_luma_stddev_before": 23.28689729678121,
+    "cool_luma_stddev_repaired": 23.259774299845763
+  }
+}

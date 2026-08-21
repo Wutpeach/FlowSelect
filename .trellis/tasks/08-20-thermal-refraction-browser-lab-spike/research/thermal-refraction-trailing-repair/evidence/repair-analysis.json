@@ -1,0 +1,82 @@
+{
+  "k010": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      6.31057366170179,
+      13562
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      18.46167964052902,
+      15801
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.004732031382462198,
+      129754
+    ],
+    "cool_luma_stddev_before": 16.04769616641976,
+    "cool_luma_stddev_repaired": 18.68391754721073
+  },
+  "k025": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      6.649289524407173,
+      22309
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      15.91239981420598,
+      67458
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.013295067088576596,
+      67945
+    ],
+    "cool_luma_stddev_before": 17.14858101598997,
+    "cool_luma_stddev_repaired": 18.53680857170497
+  },
+  "k035": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      5.954434945015966,
+      20703
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      12.959717532243367,
+      106018
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      0.8363850519327595,
+      34243
+    ],
+    "cool_luma_stddev_before": 22.274480764848533,
+    "cool_luma_stddev_repaired": 22.85409830135001
+  },
+  "k050": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      5.824927383152892,
+      7574
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      10.432465037177053,
+      113287
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      4.9643789618407075,
+      50429
+    ],
+    "cool_luma_stddev_before": 23.335784771613355,
+    "cool_luma_stddev_repaired": 23.786359463062755
+  },
+  "reduced": {
+    "before_to_repair_warm_mean_rgb_delta": [
+      6.435932477918692,
+      13171
+    ],
+    "before_to_repair_cool_mean_rgb_delta": [
+      11.573032909427194,
+      121961
+    ],
+    "before_to_repair_dark_mean_rgb_delta": [
+      3.662725589008058,
+      30956
+    ],
+    "cool_luma_stddev_before": 23.259774299845763,
+    "cool_luma_stddev_repaired": 23.649659486969743
+  }
+}

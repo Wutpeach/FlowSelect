@@ -48,6 +48,7 @@ type ShaderReadout = {
   activationOrigin: readonly number[];
   reducedMotion: number;
   heatmapMode: number;
+  refractionMode: number;
   time: number;
 };
 
@@ -71,6 +72,7 @@ const readShaderReadout = (): ShaderReadout => {
     activationOrigin: [],
     reducedMotion: MISSING,
     heatmapMode: MISSING,
+    refractionMode: MISSING,
     time: MISSING,
   };
   const canvas = canvases[0];
@@ -117,6 +119,7 @@ const readShaderReadout = (): ShaderReadout => {
     activationOrigin: readVec2("uActivationOrigin"),
     reducedMotion: readScalar("uReducedMotion"),
     heatmapMode: readScalar("uHeatmapMode"),
+    refractionMode: readScalar("uRefractionMode"),
     time: readScalar("uTime"),
   };
 };
@@ -309,6 +312,8 @@ const PRESET_LABEL_KEYS: Readonly<Record<string, string>> = {
   "progress-100": "progress100",
   "heatmap-moving": "heatmapMoving",
   "heatmap-reduced": "heatmapReduced",
+  "heatmap-refraction-moving": "heatmapRefractionMoving",
+  "heatmap-refraction-reduced": "heatmapRefractionReduced",
   "runtime-auto-config": "runtimeAutoConfig",
   "runtime-failed": "runtimeFailed",
   "download-active": "downloadActive",
@@ -876,6 +881,7 @@ export function PresentationLab() {
           target={surfaceTarget}
           reducedMotion={surfaceReducedMotion}
           heatmapMode={state.heatmap !== null}
+          refractionMode={state.heatmap?.refraction === true}
           overlayProjection={overlayProjection}
           showQueueOverlay={showQueueOverlay}
           queueOpen={queueOpen}

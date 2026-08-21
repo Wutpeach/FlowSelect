@@ -265,6 +265,129 @@ describe("Expanded Presentation graphics host contract", () => {
     expect(hostSource).toContain("heatmap?: boolean;");
   });
 
+  it("keeps the Thermal Refraction spike on the one shader with a lab-only gated uniform", () => {
+    // The derived Refraction mode stays inside the single fragment program:
+    // one canvas, one draw, one `uRefractionMode` gate that production never
+    // sets, and no texture/sampler/framebuffer/second pass.
+    expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
+    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
+    expect(hostSource).toContain("uniform int uRefractionMode;");
+    expect(hostSource).toContain("refraction?: boolean;");
+    expect(hostSource).toContain("refractionModeRef.current");
+    expect(hostSource).not.toContain("sampler2D");
+    expect(hostSource).not.toMatch(/createTexture|createFramebuffer|framebufferTexture2D/);
+  });
+
+  it("derives the Refraction displacement from the low-frequency heatmapBend finite difference", () => {
+    // Displacement direction comes from the finite difference of the existing
+    // LOW-frequency heatmapBend (no high-frequency noise), and the local
+    // intensity envelope is warm/frontier strong, cool body weak, and exactly
+    // zero where energy is zero (energy=0 -> refraction off).
+    expect(hostSource).toContain("if (uRefractionMode != 0) {");
+    expect(hostSource).toContain("heatmapBend(q + vec2(REFRACTION_EPS, 0.0), bendTime)");
+    expect(hostSource).toContain("heatmapBend(q + vec2(0.0, REFRACTION_EPS), bendTime)");
+    expect(hostSource).toContain("float covered = 1.0 - smoothstep(0.0, 0.05, d);");
+    expect(hostSource).toContain("float bodyFloor = covered * (1.0 - smoothstep(0.20, 0.85, warm));");
+    expect(hostSource).toContain("float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;");
+    expect(hostSource).toContain("float dShift = s * (dot(grad, DIR) + dot(grad, grad));");
+    expect(hostSource).toContain("float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));");
+    // Displacement keeps the locked env-weighted amplitude; material
+    // visibility is decoupled onto the covered x energy gate.
+    expect(hostSource).toContain("float s = REFRACTION_STRENGTH * env;");
+    expect(hostSource).toContain("rgb = mix(rgb, rgb2, materialMix);");
+    expect(hostSource).toContain("alpha = mix(alpha, alpha2, materialMix);");
+    // Reduced Motion pins bendTime to 0, so the refraction freezes into a
+    // static local snapshot (zero-frame scheduling covered by the runtime).
+    expect(hostSource).toContain("reducedMotion ? 0.0 : t");
+  });
+
+  it("expands the Refraction envelope: contact strongest, front strong, covered body present, energy zero none", () => {
+    const gate = hostSource.slice(
+      hostSource.indexOf("if (uRefractionMode != 0) {"),
+      hostSource.indexOf("// Subtle sine-free grain"),
+    );
+    // Hierarchy: localized boundary contact (boundaryBand*warm) is the
+    // strongest envelope term, the warm frontier is strong, and the cool
+    // covered body has a weaker but clearly present depth-independent floor.
+    expect(gate).toContain("float covered = 1.0 - smoothstep(0.0, 0.05, d);");
+    expect(gate).toContain("float bodyFloor = covered * (1.0 - smoothstep(0.20, 0.85, warm));");
+    expect(gate).toContain("float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;");
+    // The floor is gated away from the warm frontier and the whole envelope
+    // is energy-gated, so energy=0 -> exactly zero; no full-screen wobble and
+    // no perimeter/boundary ring grammar inside the gate.
+    expect(gate).toContain("(1.0 - smoothstep(0.20, 0.85, warm))");
+    expect(gate).toContain("* energy;");
+    expect(gate).not.toMatch(/perimeterCoordinate|chaseDistance|dualFront|oppositeClosure/i);
+  });
+
+  it("builds a broad 2D heatmapBend temperature topology with covered gating", () => {
+    const gate = hostSource.slice(
+      hostSource.indexOf("if (uRefractionMode != 0) {"),
+      hostSource.indexOf("// Subtle sine-free grain"),
+    );
+    // The base temperature topology is 2D: three genuinely distinct
+    // coordinate frames (rotation, shear/axis-mix, anisotropic scale) feeding
+    // heatmapBend at shared bendTime; no behind/depth primary axis remains.
+    expect(gate).toContain("vec2 pa = vec2(0.8 * q.x - 0.6 * q.y, 0.6 * q.x + 0.8 * q.y) * 2.2 + vec2(0.30, -0.20);");
+    expect(gate).toContain("vec2 pb = vec2(q.x + 0.45 * q.y, q.y - 0.35 * q.x) * 2.8 + vec2(-0.25, 0.35);");
+    expect(gate).toContain("vec2 pc = vec2(q.x * 1.7, q.y * 0.9) * 1.6 + vec2(0.10, 0.40);");
+    expect(gate).toContain("float baseA = heatmapBend(pa, bendTime) * 16.0;");
+    expect(gate).toContain("float baseB = heatmapBend(pb, bendTime) * 16.0;");
+    expect(gate).toContain("float baseC = heatmapBend(pc, bendTime) * 16.0;");
+    expect(gate).toContain("float baseT = clamp(baseA * 0.45 + baseB * 0.35 + baseC * 0.20, -1.0, 1.0);");
+    // The negative-biased heatmapBend window is re-centered so the broad
+    // lobes span deep/vivid blue, cyan, yellow and a yellow/orange gradient
+    // with localized red-orange instead of a broad hot board.
+    expect(gate).toContain("float baseTemperature = clamp(0.5 + 0.5 * baseT + 0.24, 0.0, 1.0);");
+    expect(gate).not.toContain("float baseTemperature = 0.5 + 0.5 * baseT;");
+    expect(gate).toContain("mix(0.08, 0.93, baseTemperature)");
+    expect(gate).toContain("float covered2 = 1.0 - smoothstep(0.0, 0.05, d2);");
+    // Material visibility is decoupled from the (weaker) distortion envelope:
+    // a covered x energy gate, not env.
+    expect(gate).toContain("float materialMix = covered2 * energy;");
+    expect(gate).toContain("rgb = mix(rgb, rgb2, materialMix);");
+    expect(gate).toContain("alpha = mix(alpha, alpha2, materialMix);");
+    expect(gate).not.toContain("rgb = mix(rgb, rgb2, env);");
+    expect(gate).not.toContain("alpha = mix(alpha, alpha2, env);");
+    // The rejected behind/depth axis and the sweep-aligned linear nudge are
+    // gone and no longer authoritative.
+    expect(gate).not.toContain("behind2");
+    expect(gate).not.toContain("depthT");
+    expect(gate).not.toContain("along2 * ");
+    expect(gate).not.toContain("trailing");
+    // Frontier/contact are bounded additive biases, not the topology.
+    expect(gate).toContain("warm2 * 0.18");
+    expect(gate).toContain("contact2 * 0.22");
+    expect(gate).toContain("* covered2;");
+    // Locked envelope + strength + displacement stay byte-identical.
+    expect(gate).toContain("const float REFRACTION_EPS = 0.02;");
+    expect(gate).toContain("const float REFRACTION_STRENGTH = 0.16;");
+    expect(gate).toContain("float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;");
+    expect(gate).toContain("float dShift = s * (dot(grad, DIR) + dot(grad, grad));");
+    expect(gate).toContain("float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));");
+    // Prohibited paths absent: no new ramp, no noise/hash, no second
+    // canvas/draw, no forbidden motion/geometry grammar inside the gate.
+    expect(gate).not.toContain("HEAT_STOP2");
+    expect(gate).not.toContain("heatmapNoise(");
+    expect(gate).not.toContain("heatmapGrainHash(");
+    expect(gate).not.toMatch(/perimeterCoordinate|chaseDistance|dualFront|oppositeClosure/i);
+    expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
+    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
+  });
+
+  it("keeps the accepted baseline constants untouched by the Refraction gate", () => {
+    // The refraction block is additive and gated: the accepted motion/contact/
+    // palette/material/edge lines below stay byte-identical (covered by the
+    // dedicated baseline tests above), and Refraction off adds nothing.
+    expect(hostSource).toContain("float d = p - front + bend;");
+    expect(hostSource).toContain("float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;");
+    expect(hostSource).toContain("float material = clamp(heat + coolLift + hotLift, 0.0, 1.0);");
+    // No high-frequency noise lattice or haze primitive is introduced.
+    expect(hostSource).not.toContain("vec2(26.0");
+    expect(hostSource).not.toContain("vec2(34.0");
+    expect(hostSource).not.toContain("haze");
+  });
+
   it("documents the license state honestly (no active Paper derivative)", () => {
     // All Paper-derived shader/preprocessing source was removed with the
     // rejected literal/latent-carrier path; the notices must distinguish

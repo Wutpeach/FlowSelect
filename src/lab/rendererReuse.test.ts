@@ -82,6 +82,9 @@ describe("Browser Presentation Lab production renderer reuse", () => {
     expect(labStage.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
     expect(labStage).toContain("palette={THERMAL_PALETTE}");
     expect(labStage).toContain('eligible');
+    // The derived Refraction mode is forwarded through the one production
+    // surface as a lab-only flag; the Lab never re-implements the shader.
+    expect(labStage).toContain("refraction={refractionMode}");
   });
 
   it("reimplements no renderer, runtime, or shader", () => {

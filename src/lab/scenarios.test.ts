@@ -293,6 +293,7 @@ describe("Lab scenario model", () => {
     expect(state.heatmap).toEqual({
       presetId: "heatmap-moving",
       forcedReducedMotion: false,
+      refraction: false,
     });
     // The spike keeps a valid semantic underlay (progress) and does not force
     // reduced motion for the moving-field preset.
@@ -310,6 +311,7 @@ describe("Lab scenario model", () => {
     expect(state.heatmap).toEqual({
       presetId: "heatmap-reduced",
       forcedReducedMotion: true,
+      refraction: false,
     });
     expect(composeLabInput(state).reducedMotion).toBe(true);
   });
@@ -330,10 +332,45 @@ describe("Lab scenario model", () => {
     expect(cleared.heatmap).toBeNull();
   });
 
-  it("declares both heatmap presets with distinct ids", () => {
+  it("derives the refraction presets from the same heatmap state/category", () => {
+    let state = createLabPresentationState();
+    state = reduceLabPresentation(state, {
+      type: "setHeatmap",
+      presetId: "heatmap-refraction-moving",
+    });
+    expect(state.heatmap).toEqual({
+      presetId: "heatmap-refraction-moving",
+      forcedReducedMotion: false,
+      refraction: true,
+    });
+    // Refraction is a derived Heatmap mode: it still drives the production
+    // heatmap path with a valid progress underlay and no forced RM.
+    const moving = composeLabInput(state);
+    expect(moving.reducedMotion).toBe(false);
+    expect(moving.target).toEqual({
+      kind: "progress",
+      progress: { kind: "determinate", traceId: LAB_PRIMARY_TRACE_ID, target: 0.5 },
+    });
+
+    state = reduceLabPresentation(state, {
+      type: "setHeatmap",
+      presetId: "heatmap-refraction-reduced",
+    });
+    expect(state.heatmap).toEqual({
+      presetId: "heatmap-refraction-reduced",
+      forcedReducedMotion: true,
+      refraction: true,
+    });
+    // Reduced Motion freezes the refraction to a static snapshot.
+    expect(composeLabInput(state).reducedMotion).toBe(true);
+  });
+
+  it("declares all four heatmap presets with distinct ids", () => {
     expect(LAB_HEATMAP_PRESETS.map((preset) => preset.id)).toEqual([
       "heatmap-moving",
       "heatmap-reduced",
+      "heatmap-refraction-moving",
+      "heatmap-refraction-reduced",
     ]);
     const ids = new Set(LAB_HEATMAP_PRESETS.map((preset) => preset.id));
     expect(ids.size).toBe(LAB_HEATMAP_PRESETS.length);

@@ -35,6 +35,8 @@
     "clearProgressHint": "空闲语义目标；零调度帧。",
     "heatmapMoving": { "label": "热力图 · 移动场", "description": "覆盖全表面的移动标量热场（clean-room 实验）。" },
     "heatmapReduced": { "label": "热力图 · 减弱动态", "description": "静态有界场快照；无移动帧。" },
+    "heatmapRefractionMoving": { "label": "热力图 · 热折射", "description": "移动场 + 缓慢局部低频热折射（解析重采样）。" },
+    "heatmapRefractionReduced": { "label": "热力图 · 折射 · 减弱动态", "description": "冻结的静态局部折射；无移动帧。" },
     "clearHeatmap": "清除热力图",
     "clearHeatmapHint": "返回常规进度 / 激活表面。",
     "runtimeAutoConfig": { "label": "自动配置", "description": "运行时自动配置中的指示器（不确定进度）。" },
