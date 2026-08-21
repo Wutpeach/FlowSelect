@@ -1,0 +1,307 @@
+{
+  "pageErrors": [
+    "console: %s a style property during rerender (%s) when a conflicting property is set (%s) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values. Removing borderColor border"
+  ],
+  "captures": [
+    {
+      "name": "baseline-before-entry",
+      "k": 0,
+      "refraction": false,
+      "reducedMotion": false,
+      "sha256": "9a81140b7d7f7dcf83df8a2466248af7b27d98ec558e7c09dcecde31155cea1f",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-first-contact",
+      "k": 0.08,
+      "refraction": false,
+      "reducedMotion": false,
+      "sha256": "8d7d8ae93921d7cf9299d5d23249626dc47d6b884a58d8e09af1d37d44cc7aa4",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-mid-ramp",
+      "k": 0.15,
+      "refraction": false,
+      "reducedMotion": false,
+      "sha256": "5836205ae7ee58fc583a6f76dd06f653e2a98963e59751e95c3a79d72ffe423e",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-developed-early",
+      "k": 0.31,
+      "refraction": false,
+      "reducedMotion": false,
+      "sha256": "e0a2c096b6976a44be1c39e033d74329724223ed251db9e56e8ad88d1ea6f237",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-developed-middle",
+      "k": 0.42,
+      "refraction": false,
+      "reducedMotion": false,
+      "sha256": "27c5eea63ddbab9797420678c9975e37dc24d0482eab554872e06c3706936a3b",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-developed-late",
+      "k": 0.53,
+      "refraction": false,
+      "reducedMotion": false,
+      "sha256": "cf093111dc95dc0bf7ca0d734c856f224dc4154346ef1a5be436ff86e98d81ca",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-near-exit",
+      "k": 0.65,
+      "refraction": false,
+      "reducedMotion": false,
+      "sha256": "865e33200079604e5936b493fa83fc3f77e521edb942c2e1040164cd99be7938",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-post-boundary",
+      "k": 0.84,
+      "refraction": false,
+      "reducedMotion": false,
+      "sha256": "9a81140b7d7f7dcf83df8a2466248af7b27d98ec558e7c09dcecde31155cea1f",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-exact-zero",
+      "k": 0.95,
+      "refraction": false,
+      "reducedMotion": false,
+      "sha256": "9a81140b7d7f7dcf83df8a2466248af7b27d98ec558e7c09dcecde31155cea1f",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "baseline-reduced-motion",
+      "k": 0.42,
+      "refraction": false,
+      "reducedMotion": true,
+      "sha256": "43f5a593bb08d9f733608fb59eedc132cec14eedc8fd4e916ecfbe7f4430ca87",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-before-entry",
+      "k": 0,
+      "refraction": true,
+      "reducedMotion": false,
+      "sha256": "9a81140b7d7f7dcf83df8a2466248af7b27d98ec558e7c09dcecde31155cea1f",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-first-contact",
+      "k": 0.08,
+      "refraction": true,
+      "reducedMotion": false,
+      "sha256": "b6ed19ad3501fc72b9534f9fadb76c24e63bf9dca286531eff96f35345e47b7f",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-mid-ramp",
+      "k": 0.15,
+      "refraction": true,
+      "reducedMotion": false,
+      "sha256": "defe533c90145c0fbdf2b565ef497888d7939cb99a4fde2dfcbbc53ec7cd1c01",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-developed-early",
+      "k": 0.31,
+      "refraction": true,
+      "reducedMotion": false,
+      "sha256": "5e1d40cd9c2e32ff35d880956d1fb455f7c56c68eb149aa6d87992b85c98f0ae",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-developed-middle",
+      "k": 0.42,
+      "refraction": true,
+      "reducedMotion": false,
+      "sha256": "d5cbfab9062ec999daba6cf7b4889382c626833c4f84e3649dc70e2997a80a71",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-developed-late",
+      "k": 0.53,
+      "refraction": true,
+      "reducedMotion": false,
+      "sha256": "cf52c9abf6fb504402e44712176cee2e42a360694b7736050cfef4743adc3680",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-near-exit",
+      "k": 0.65,
+      "refraction": true,
+      "reducedMotion": false,
+      "sha256": "1cd9d697f0eef99395395d78dd5ece2f51560547ffd62d8f06c6573fcbea8865",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-post-boundary",
+      "k": 0.84,
+      "refraction": true,
+      "reducedMotion": false,
+      "sha256": "9a81140b7d7f7dcf83df8a2466248af7b27d98ec558e7c09dcecde31155cea1f",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-exact-zero",
+      "k": 0.95,
+      "refraction": true,
+      "reducedMotion": false,
+      "sha256": "9a81140b7d7f7dcf83df8a2466248af7b27d98ec558e7c09dcecde31155cea1f",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    },
+    {
+      "name": "refraction-reduced-motion",
+      "k": 0.42,
+      "refraction": true,
+      "reducedMotion": true,
+      "sha256": "e6e5bcbe55015dbfa2f8be87db0c5d6153de30032511fba7d779c9df49ec9930",
+      "readout": {
+        "canvasCount": 1,
+        "width": 400,
+        "height": 400,
+        "linked": true,
+        "textureBound": false,
+        "framebufferBound": false
+      }
+    }
+  ]
+}
