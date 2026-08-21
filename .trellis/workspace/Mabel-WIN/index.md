@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-5.md`
-- **Total Sessions**: 253
-- **Last Active**: 2026-08-20
+- **Total Sessions**: 254
+- **Last Active**: 2026-08-21
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-5.md` | ~1735 | Active |
+| `journal-5.md` | ~1756 | Active |
 | `journal-4.md` | ~1983 | Archived |
 | `journal-3.md` | ~1979 | Archived |
 | `journal-2.md` | ~1993 | Archived |
@@ -33,6 +33,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 254 | 2026-08-21 | Complete Thermal Refraction 2D Material Model spike | `046f228` | `motion/mr9-fullscreen-activation-fx` |
 | 253 | 2026-08-20 | MR9 Thermal FX Visual Repair 收尾 | `e01be0157a61b2b8fca3c4d6c96d57dd731227b9` | `motion/mr9-fullscreen-activation-fx` |
 | 252 | 2026-08-19 | Diagnostics Readability / Export Cleanup closure | `b9ba027` | `motion/mr9-fullscreen-activation-fx` |
 | 251 | 2026-08-18 | MR9 Browser Lab consolidation | `30e0e54` | `motion/mr9-fullscreen-activation-fx` |

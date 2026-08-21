@@ -1733,3 +1733,24 @@ Cherry-picked the Architecture-PASS Diagnostics repair onto the authoritative MR
 ### Status
 
 [OK] **Completed**
+
+
+## Session 254: Complete Thermal Refraction 2D Material Model spike
+
+**Date**: 2026-08-21
+**Task**: Complete Thermal Refraction 2D Material Model spike
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+Implemented and visually validated the Lab-only Thermal Refraction spike with a covered-region 2D multi-temperature field, preserved single-renderer and Reduced Motion invariants, retained all matched evidence, and stopped before timing or production work.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `046f228` | (see git log) |
+
+### Status
+
+[OK] **Completed**
