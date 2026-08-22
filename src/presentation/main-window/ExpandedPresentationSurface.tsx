@@ -1,5 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { MAIN_WINDOW_PANEL_SIZE } from "../../constants/windowMetrics";
+import {
+  MAIN_WINDOW_FULL_SHADOW_GUTTER,
+  MAIN_WINDOW_PANEL_SIZE,
+} from "../../constants/windowMetrics";
 import {
   createExpandedPresentationRuntime,
   ACTIVATION_DURATION_MS,
@@ -21,6 +24,13 @@ const MAX_DPR = 2;
  */
 const MAIN_WINDOW_CORNER_RADIUS_NORMALIZED =
   MAIN_WINDOW_FULL_PANEL_RADIUS / MAIN_WINDOW_PANEL_SIZE;
+
+const MAIN_WINDOW_OUTER_SIZE =
+  MAIN_WINDOW_PANEL_SIZE + MAIN_WINDOW_FULL_SHADOW_GUTTER * 2;
+const MAIN_WINDOW_PANEL_ORIGIN_NORMALIZED =
+  MAIN_WINDOW_FULL_SHADOW_GUTTER / MAIN_WINDOW_OUTER_SIZE;
+const MAIN_WINDOW_PANEL_SIZE_NORMALIZED =
+  MAIN_WINDOW_PANEL_SIZE / MAIN_WINDOW_OUTER_SIZE;
 
 const VERTEX_SHADER_SOURCE = `#version 300 es
 precision highp float;
@@ -50,6 +60,9 @@ uniform int uActivationKind;
 uniform vec2 uActivationOrigin;
 uniform int uHeatmapMode;
 uniform int uRefractionMode;
+uniform int uBoundaryHaloMode;
+uniform vec2 uPanelOrigin;
+uniform vec2 uPanelSize;
 // Lab-gated Heatmap spike: the restored baseline field is fully analytic
 // (plane front + value-noise bend + rounded-rect SDF + 2D gaussian core), so
 // it needs NO texture, preprocessing, or framebuffer. See
@@ -155,6 +168,38 @@ float roundedBoundary(vec2 uv) {
   return bd;
 }
 
+// Pure rounded-rectangle geometry projection. This normal never creates or
+// modulates Thermal energy; it only maps an exterior pixel back to the real
+// panel boundary so the already-accepted contact scalar can leak outward.
+vec2 roundedBoundaryNormal(vec2 uv) {
+  vec2 centered = uv - 0.5;
+  vec2 halfSize = vec2(0.5) - uCornerRadius;
+  vec2 outside = max(abs(centered) - halfSize, vec2(0.0));
+  return sign(centered) * outside / max(length(outside), 0.00001);
+}
+
+float heatmapFrontierDistance(
+  vec2 q,
+  vec2 direction,
+  float front,
+  float bendTime
+) {
+  return dot(q, direction) - front + heatmapBend(q, bendTime);
+}
+
+float heatmapFrontierWarm(float distanceToFrontier) {
+  return exp(-abs(distanceToFrontier + 0.018) * 30.0);
+}
+
+float heatmapBoundaryBand(float boundaryDistance) {
+  return smoothstep(-0.05, 0.0, boundaryDistance)
+    * step(boundaryDistance, 0.0);
+}
+
+float heatmapBoundaryContact(float boundaryDistance, float frontierWarm) {
+  return heatmapBoundaryBand(boundaryDistance) * frontierWarm;
+}
+
 void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
   // ============ BASELINE MOTION / CONTACT FIELD (source-asserted) ============
   // Checkpoint C travelling diagonal band + Rounded Boundary Edge Capture.
@@ -165,12 +210,10 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
   float bendTime = reducedMotion ? 0.0 : t;         // RM pins the deformation
   vec2 q = uv - 0.5;                                // centered field coordinate
   const vec2 DIR = vec2(0.8235, 0.5674);            // normalize(0.90, 0.62); lower-left -> upper-right
-  float p = dot(q, DIR);
-  float bend = heatmapBend(q, bendTime);
-  float d = p - front + bend;                       // <0 swept (behind), >0 void ahead
+  float d = heatmapFrontierDistance(q, DIR, front, bendTime); // <0 swept, >0 void
   float behind = max(-d, 0.0);
   float body = exp(-behind * 1.1) * (1.0 - smoothstep(0.0, 0.05, d));
-  float warm = exp(-abs(d + 0.018) * 30.0);
+  float warm = heatmapFrontierWarm(d);
   vec2 frontPoint = DIR * front;
   float alongFront = dot(q - frontPoint, vec2(-DIR.y, DIR.x));
   float core = exp(-alongFront * alongFront * 200.0 - d * d * 200.0);
@@ -178,8 +221,8 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
   // Rounded boundary (real 200x200/16px shell) contact-gated localized
   // capture: nonzero only where the warm frontier meets the boundary.
   float bd = roundedBoundary(uv);
-  float boundaryBand = smoothstep(-0.05, 0.0, bd) * step(bd, 0.0);
-  float capture = boundaryBand * warm * 0.6;
+  float contact = heatmapBoundaryContact(bd, warm);
+  float capture = contact * 0.6;
   float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;
 
   // ============ MATERIAL / PALETTE / EDGE REPAIR (color-only) ============
@@ -209,6 +252,30 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
     float m = clamp(material * 6.0 - float(i - 1), 0.0, 1.0);
     rgb = mix(rgb, HEAT_STOP[i], m);
   }
+
+  // Fixed production exterior response; Lab inspection presets can also gate
+  // it. The rounded SDF normal performs geometry projection only; the
+  // response itself is the SAME accepted warm/contact scalar sampled at the
+  // real boundary foot and gated by the accepted lifecycle energy. Compact
+  // support ends at 12/200 panel units, leaving the final 2px of the real
+  // 14px gutter mathematically transparent.
+  if (uBoundaryHaloMode != 0 && bd > 0.0) {
+    vec2 footUv = uv - roundedBoundaryNormal(uv) * bd;
+    vec2 footQ = footUv - 0.5;
+    float footDistance = heatmapFrontierDistance(footQ, DIR, front, bendTime);
+    float footWarm = heatmapFrontierWarm(footDistance);
+    float boundaryContact = heatmapBoundaryContact(0.0, footWarm) * energy;
+    float haloFalloff = 1.0 - smoothstep(0.0, 0.06, bd);
+    float haloResponse = boundaryContact * haloFalloff;
+    float haloMaterial = clamp(haloResponse * 0.72, 0.0, 1.0);
+    vec3 haloRgb = HEAT_STOP[0];
+    for (int i = 1; i < 7; i++) {
+      float m = clamp(haloMaterial * 6.0 - float(i - 1), 0.0, 1.0);
+      haloRgb = mix(haloRgb, HEAT_STOP[i], m);
+    }
+    color = vec4(haloRgb, haloResponse * 0.28);
+    return;
+  }
   // Clearer yellow transition: in the cyan -> yellow zone, pull the green
   // channel toward the yellow so the band reads cyan -> golden-yellow instead
   // of a muddy olive.
@@ -220,7 +287,6 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
   // capture keeps its inward-thick warm compression (capture already feeds
   // heat) and gains a soft cool halo just inward of the contact, continuous
   // with the surface field. No outline, decorative glow, or perimeter coord.
-  float contact = boundaryBand * warm;
   float inwardCool = contact * smoothstep(-0.16, -0.05, bd);
   rgb = mix(rgb, vec3(0.160, 0.520, 0.900),
     inwardCool * 0.35 * (1.0 - smoothstep(0.45, 0.80, material)));
@@ -264,7 +330,7 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
     float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));
     float d2 = d + dShift;
     float along2 = alongFront + alongShift;
-    float warm2 = exp(-abs(d2 + 0.018) * 30.0);
+    float warm2 = heatmapFrontierWarm(d2);
     float covered2 = 1.0 - smoothstep(0.0, 0.05, d2);
     // 2D temperature topology: three genuinely distinct coordinate frames
     // (rotation, shear/axis-mix, anisotropic scale) at ~1.6-2.8x so the
@@ -284,7 +350,7 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
     // negative tail stays deep/vivid blue, and the positive tail becomes a
     // yellow/orange gradient with localized red-orange (no broad hot board).
     float baseTemperature = clamp(0.5 + 0.5 * baseT + 0.24, 0.0, 1.0);
-    float contact2 = boundaryBand * warm2;
+    float contact2 = heatmapBoundaryContact(bd, warm2);
     // Bounded secondary biases keep frontier/contact hottest without defining
     // topology; covered2 gates material to the active region.
     float material2 = clamp(
@@ -404,7 +470,10 @@ void main() {
   if (uHeatmapMode != 0) {
     // Heatmap spike overrides the whole surface; the palette ramp is
     // self-contained so the production thermal palette stays untouched.
-    heatmapOutput(vUv, uTime, uReducedMotion, outColor);
+    vec2 heatmapUv = uBoundaryHaloMode != 0
+      ? (vUv - uPanelOrigin) / uPanelSize
+      : vUv;
+    heatmapOutput(heatmapUv, uTime, uReducedMotion, outColor);
     return;
   }
   outColor = vec4(color, alpha);
@@ -416,19 +485,28 @@ export type ExpandedPresentationSurfaceProps = {
   target: ExpandedPresentationTarget;
   palette: ThermalPalette;
   /**
-   * Lab-only Heatmap spike flag (default false). Production never sets it.
-   * While true the single shader draws the clean-room analytic heat field over
-   * the whole surface; the spike remains self-contained in the one renderer.
+   * Fixed production renderer capability: the accepted clean-room analytic
+   * Thermal interior, drawn by the single shader over the whole surface and
+   * self-contained in the one renderer. Lab inspection presets can also gate
+   * it; omitting it keeps the legacy shader path.
    */
   heatmap?: boolean;
   /**
-   * Lab-only Thermal Refraction spike flag (default false). Derived mode of
-   * the Heatmap spike: while true the single shader locally resamples the
-   * analytic heat field through a low-frequency displacement (finite
+   * Fixed production renderer capability: the derived Thermal Refraction mode
+   * of the Heatmap interior. While true the single shader locally resamples
+   * the analytic heat field through a low-frequency displacement (finite
    * difference of the existing heatmapBend) gated by the warm/frontier-strong,
-   * cool-body-weak, energy-zero envelope. Production never sets it.
+   * cool-body-weak, energy-zero envelope. Lab inspection presets can also
+   * gate it.
    */
   refraction?: boolean;
+  /**
+   * Fixed production renderer capability: the accepted localized boundary
+   * contact response and its subordinate exterior halo. Enabled at the sole
+   * production mount only where the existing geometry exposes the accepted
+   * 14px outer gutter; Lab inspection presets can also gate it.
+   */
+  boundaryHalo?: boolean;
   /**
    * Optional ABSOLUTE backing pixels-per-CSS-pixel value (dev-only, default
    * undefined = normal clamped devicePixelRatio). The Browser Lab passes 4
@@ -449,9 +527,9 @@ export type ExpandedPresentationSurfaceProps = {
 type GraphicsColors = ThermalPalette;
 
 type GraphicsRenderer = {
-  render: (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean) => void;
+  render: (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean, boundaryHaloMode: boolean) => void;
   resize: (backingScale?: number) => void;
-  redraw: (colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean) => void;
+  redraw: (colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean, boundaryHaloMode: boolean) => void;
   clear: () => void;
   dispose: () => void;
 };
@@ -550,6 +628,9 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
   const activationOriginLocation = gl.getUniformLocation(linkedProgram, "uActivationOrigin");
   const heatmapModeLocation = gl.getUniformLocation(linkedProgram, "uHeatmapMode");
   const refractionModeLocation = gl.getUniformLocation(linkedProgram, "uRefractionMode");
+  const boundaryHaloModeLocation = gl.getUniformLocation(linkedProgram, "uBoundaryHaloMode");
+  const panelOriginLocation = gl.getUniformLocation(linkedProgram, "uPanelOrigin");
+  const panelSizeLocation = gl.getUniformLocation(linkedProgram, "uPanelSize");
   const cornerRadiusLocation = gl.getUniformLocation(linkedProgram, "uCornerRadius");
   const voidLocation = gl.getUniformLocation(linkedProgram, "uThermalVoid");
   const deepLocation = gl.getUniformLocation(linkedProgram, "uThermalDeep");
@@ -583,7 +664,7 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
     gl.viewport(0, 0, width, height);
   };
 
-  const draw = (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean): void => {
+  const draw = (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean, boundaryHaloMode: boolean): void => {
     if (disposed || gl.isContextLost()) return;
     lastFrame = frame;
     let progressMode = 0;
@@ -612,6 +693,17 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
     gl.uniform2f(activationOriginLocation, activation?.origin.x ?? 0.5, activation?.origin.y ?? 0.5);
     gl.uniform1i(heatmapModeLocation, heatmapMode ? 1 : 0);
     gl.uniform1i(refractionModeLocation, refractionMode ? 1 : 0);
+    gl.uniform1i(boundaryHaloModeLocation, boundaryHaloMode ? 1 : 0);
+    gl.uniform2f(
+      panelOriginLocation,
+      MAIN_WINDOW_PANEL_ORIGIN_NORMALIZED,
+      MAIN_WINDOW_PANEL_ORIGIN_NORMALIZED,
+    );
+    gl.uniform2f(
+      panelSizeLocation,
+      MAIN_WINDOW_PANEL_SIZE_NORMALIZED,
+      MAIN_WINDOW_PANEL_SIZE_NORMALIZED,
+    );
     gl.uniform1f(cornerRadiusLocation, MAIN_WINDOW_CORNER_RADIUS_NORMALIZED);
     gl.uniform3fv(voidLocation, parseHexColor(colors.thermalVoid));
     gl.uniform3fv(deepLocation, parseHexColor(colors.thermalDeep));
@@ -633,8 +725,8 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
   return {
     render: draw,
     resize,
-    redraw: (colors, heatmapMode, refractionMode) => {
-      if (lastFrame !== null) draw(lastFrame, colors, heatmapMode, refractionMode);
+    redraw: (colors, heatmapMode, refractionMode, boundaryHaloMode) => {
+      if (lastFrame !== null) draw(lastFrame, colors, heatmapMode, refractionMode, boundaryHaloMode);
     },
     clear,
     dispose: () => {
@@ -657,6 +749,7 @@ export function ExpandedPresentationSurface({
   palette,
   heatmap = false,
   refraction = false,
+  boundaryHalo = false,
   backingScale,
   redrawEpoch = 0,
 }: ExpandedPresentationSurfaceProps) {
@@ -672,6 +765,7 @@ export function ExpandedPresentationSurface({
   const colorsRef = useRef<GraphicsColors>(palette);
   const heatmapModeRef = useRef(heatmap);
   const refractionModeRef = useRef(refraction);
+  const boundaryHaloModeRef = useRef(boundaryHalo);
   const backingScaleRef = useRef<number | undefined>(backingScale);
   const [dprEpoch, setDprEpoch] = useState(0);
 
@@ -681,6 +775,7 @@ export function ExpandedPresentationSurface({
     colorsRef.current = palette;
     heatmapModeRef.current = heatmap;
     refractionModeRef.current = refraction;
+    boundaryHaloModeRef.current = boundaryHalo;
     backingScaleRef.current = backingScale;
   }, [
     eligible,
@@ -690,6 +785,7 @@ export function ExpandedPresentationSurface({
     target,
     heatmap,
     refraction,
+    boundaryHalo,
   ]);
 
   useEffect(() => {
@@ -704,7 +800,13 @@ export function ExpandedPresentationSurface({
         now: () => performance.now(),
         scheduleFrame: (callback) => requestAnimationFrame(callback),
         cancelFrame: (handle) => cancelAnimationFrame(handle),
-        render: (frame) => rendererRef.current?.render(frame, colorsRef.current, heatmapModeRef.current, refractionModeRef.current),
+        render: (frame) => rendererRef.current?.render(
+          frame,
+          colorsRef.current,
+          heatmapModeRef.current,
+          refractionModeRef.current,
+          boundaryHaloModeRef.current,
+        ),
       });
       runtimeRef.current = runtime;
       renderer.resize();
@@ -723,7 +825,7 @@ export function ExpandedPresentationSurface({
     installRenderer();
     const resizeObserver = new ResizeObserver(() => {
       rendererRef.current?.resize(backingScaleRef.current);
-      if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
+      if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, boundaryHaloModeRef.current);
       else rendererRef.current?.clear();
     });
     resizeObserver.observe(canvas);
@@ -758,17 +860,17 @@ export function ExpandedPresentationSurface({
     const renderer = rendererRef.current;
     if (renderer === null) return;
     renderer.resize(backingScaleRef.current);
-    if (eligibleRef.current) renderer.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
+    if (eligibleRef.current) renderer.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, boundaryHaloModeRef.current);
     else renderer.clear();
   }, [backingScale, redrawEpoch]);
 
   useEffect(() => {
-    if (eligible) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
-  }, [eligible, palette, heatmap, refraction]);
+    if (eligible) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, boundaryHaloModeRef.current);
+  }, [eligible, palette, heatmap, refraction, boundaryHalo]);
 
   useEffect(() => {
     rendererRef.current?.resize(backingScaleRef.current);
-    if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
+    if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, boundaryHaloModeRef.current);
     else rendererRef.current?.clear();
     // Observe the raw scale even though the backing store is capped. A query
     // for the capped value would stay false when moving between (for example)

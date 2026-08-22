@@ -15,7 +15,14 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { getPanelShellStyle } from "../components/ui/shared-styles";
+import {
+  MAIN_WINDOW_FULL_SHADOW_GUTTER,
+  MAIN_WINDOW_PANEL_SIZE,
+} from "../constants/windowMetrics";
+import { useTheme } from "../contexts/ThemeContext";
 import { ExpandedPresentationSurface } from "../presentation/main-window/ExpandedPresentationSurface";
+import { MAIN_WINDOW_FULL_PANEL_RADIUS } from "../presentation/main-window/geometry";
 import { THERMAL_PALETTE } from "../presentation/main-window/thermalPalette";
 import { MainWindowCenterOverlay } from "../presentation/main-window/MainWindowCenterOverlay";
 import { MainWindowQueuePopover } from "../presentation/main-window/MainWindowQueuePopover";
@@ -40,6 +47,8 @@ export type LabOverlayStageProps = {
    * refraction displacement to the same analytic heat field.
    */
   refractionMode: boolean;
+  /** Lab-only accepted-contact response plus 14px outer-domain evidence. */
+  boundaryHaloMode: boolean;
   /** Non-null when a seven-scenario overlay fixture is active. */
   overlayProjection: LabOverlayProjection | null;
   /** Show the queue badge/popover inside the preview frame. */
@@ -134,13 +143,18 @@ const PREVIEW_FRAME_STYLE: CSSProperties = {
   flexShrink: 0,
 };
 
+const OUTER_DOMAIN_SIZE =
+  MAIN_WINDOW_PANEL_SIZE + MAIN_WINDOW_FULL_SHADOW_GUTTER * 2;
+
 export function LabOverlayStage(props: LabOverlayStageProps) {
   const { t } = useTranslation("lab");
+  const { colors } = useTheme();
   const {
     target,
     reducedMotion,
     heatmapMode,
     refractionMode,
+    boundaryHaloMode,
     overlayProjection,
     showQueueOverlay,
     queueOpen,
@@ -195,25 +209,8 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
       }
     : null;
 
-  return (
-    <div
-      style={PREVIEW_FRAME_STYLE}
-      data-lab-preview-frame=""
-      onClick={handlePreviewClick}
-      title={t("preview.clickToSetOrigin")}
-    >
-      <ExpandedPresentationSurface
-        eligible
-        reducedMotion={reducedMotion}
-        target={target}
-        palette={THERMAL_PALETTE}
-        heatmap={heatmapMode}
-        refraction={refractionMode}
-        backingScale={captureScale}
-        redrawEpoch={captureEpoch}
-      />
-      <WebglReadback captureEpoch={captureEpoch} onResult={onWebglReadback} />
-
+  const panelContents = (
+    <>
       {overlayProjection !== null && overlayProjection.centerOverlayVisual.kind !== "none" ? (
         <MainWindowCenterOverlay
           centerOverlayVisual={overlayProjection.centerOverlayVisual}
@@ -228,9 +225,7 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
         />
       ) : null}
 
-      {queueOverlayProps !== null ? (
-        <MainWindowQueuePopover {...queueOverlayProps} />
-      ) : null}
+      {queueOverlayProps !== null ? <MainWindowQueuePopover {...queueOverlayProps} /> : null}
 
       {overlayProjection !== null && showRuntimeOverlay ? (
         <MainWindowRuntimeIndicator
@@ -271,6 +266,76 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
         }}
         aria-hidden="true"
       />
+    </>
+  );
+
+  return (
+    <div
+      style={{
+        ...PREVIEW_FRAME_STYLE,
+        width: boundaryHaloMode ? OUTER_DOMAIN_SIZE : LAB_PREVIEW_SIZE,
+        height: boundaryHaloMode ? OUTER_DOMAIN_SIZE : LAB_PREVIEW_SIZE,
+        borderRadius: boundaryHaloMode ? 0 : PREVIEW_FRAME_STYLE.borderRadius,
+        background: boundaryHaloMode ? "transparent" : PREVIEW_FRAME_STYLE.background,
+        boxShadow: boundaryHaloMode ? "none" : PREVIEW_FRAME_STYLE.boxShadow,
+      }}
+      data-lab-preview-frame=""
+      data-lab-outer-domain={boundaryHaloMode ? "true" : "false"}
+      onClick={boundaryHaloMode ? undefined : handlePreviewClick}
+      title={t("preview.clickToSetOrigin")}
+    >
+      {boundaryHaloMode ? (
+        <div
+          data-lab-panel-shell=""
+          style={{
+            position: "absolute",
+            left: MAIN_WINDOW_FULL_SHADOW_GUTTER,
+            top: MAIN_WINDOW_FULL_SHADOW_GUTTER,
+            width: MAIN_WINDOW_PANEL_SIZE,
+            height: MAIN_WINDOW_PANEL_SIZE,
+            zIndex: 0,
+            ...getPanelShellStyle(colors, {
+              radius: MAIN_WINDOW_FULL_PANEL_RADIUS,
+              boxShadow: colors.panelShadow,
+            }),
+          }}
+        />
+      ) : null}
+
+      <ExpandedPresentationSurface
+        eligible
+        reducedMotion={reducedMotion}
+        target={target}
+        palette={THERMAL_PALETTE}
+        heatmap={heatmapMode}
+        refraction={refractionMode}
+        boundaryHalo={boundaryHaloMode}
+        backingScale={captureScale}
+        redrawEpoch={captureEpoch}
+      />
+      <WebglReadback captureEpoch={captureEpoch} onResult={onWebglReadback} />
+
+      {boundaryHaloMode ? (
+        <div
+          data-lab-panel-clip=""
+          onClick={handlePreviewClick}
+          style={{
+            position: "absolute",
+            left: MAIN_WINDOW_FULL_SHADOW_GUTTER,
+            top: MAIN_WINDOW_FULL_SHADOW_GUTTER,
+            width: MAIN_WINDOW_PANEL_SIZE,
+            height: MAIN_WINDOW_PANEL_SIZE,
+            borderRadius: MAIN_WINDOW_FULL_PANEL_RADIUS,
+            overflow: "hidden",
+            background: "none",
+            boxShadow: "none",
+            pointerEvents: "auto",
+            zIndex: 3,
+          }}
+        >
+          {panelContents}
+        </div>
+      ) : panelContents}
     </div>
   );
 }

@@ -37,6 +37,8 @@
     "heatmapReduced": { "label": "Heatmap · reduced motion", "description": "Static bounded field snapshot; no travelling frames." },
     "heatmapRefractionMoving": { "label": "Heatmap · thermal refraction", "description": "Moving field with slow local low-frequency refraction (analytic resample)." },
     "heatmapRefractionReduced": { "label": "Heatmap · refraction, reduced motion", "description": "Static frozen local refraction; zero travelling frames." },
+    "heatmapContactHaloMoving": { "label": "Heatmap · localized boundary contact", "description": "Accepted moving contact drives compact exterior leakage inside the 14px gutter." },
+    "heatmapContactHaloReduced": { "label": "Heatmap · boundary contact, reduced motion", "description": "Static accepted contact and halo; zero continuing frames." },
     "clearHeatmap": "Clear heatmap",
     "clearHeatmapHint": "Return to the ordinary progress / activation surface.",
     "runtimeAutoConfig": { "label": "Auto configure", "description": "Runtime auto-configuring indicator (indeterminate progress)." },

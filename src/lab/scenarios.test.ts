@@ -294,6 +294,7 @@ describe("Lab scenario model", () => {
       presetId: "heatmap-moving",
       forcedReducedMotion: false,
       refraction: false,
+      boundaryHalo: false,
     });
     // The spike keeps a valid semantic underlay (progress) and does not force
     // reduced motion for the moving-field preset.
@@ -312,6 +313,7 @@ describe("Lab scenario model", () => {
       presetId: "heatmap-reduced",
       forcedReducedMotion: true,
       refraction: false,
+      boundaryHalo: false,
     });
     expect(composeLabInput(state).reducedMotion).toBe(true);
   });
@@ -342,6 +344,7 @@ describe("Lab scenario model", () => {
       presetId: "heatmap-refraction-moving",
       forcedReducedMotion: false,
       refraction: true,
+      boundaryHalo: false,
     });
     // Refraction is a derived Heatmap mode: it still drives the production
     // heatmap path with a valid progress underlay and no forced RM.
@@ -360,19 +363,45 @@ describe("Lab scenario model", () => {
       presetId: "heatmap-refraction-reduced",
       forcedReducedMotion: true,
       refraction: true,
+      boundaryHalo: false,
     });
     // Reduced Motion freezes the refraction to a static snapshot.
     expect(composeLabInput(state).reducedMotion).toBe(true);
   });
 
-  it("declares all four heatmap presets with distinct ids", () => {
+  it("declares all heatmap presets with distinct ids", () => {
     expect(LAB_HEATMAP_PRESETS.map((preset) => preset.id)).toEqual([
       "heatmap-moving",
       "heatmap-reduced",
       "heatmap-refraction-moving",
       "heatmap-refraction-reduced",
+      "heatmap-contact-halo-moving",
+      "heatmap-contact-halo-reduced",
     ]);
     const ids = new Set(LAB_HEATMAP_PRESETS.map((preset) => preset.id));
     expect(ids.size).toBe(LAB_HEATMAP_PRESETS.length);
+  });
+
+  it("derives moving and reduced boundary-halo modes from the same heatmap state", () => {
+    let state = createLabPresentationState();
+    state = reduceLabPresentation(state, {
+      type: "setHeatmap",
+      presetId: "heatmap-contact-halo-moving",
+    });
+    expect(state.heatmap).toMatchObject({
+      refraction: true,
+      boundaryHalo: true,
+      forcedReducedMotion: false,
+    });
+    state = reduceLabPresentation(state, {
+      type: "setHeatmap",
+      presetId: "heatmap-contact-halo-reduced",
+    });
+    expect(state.heatmap).toMatchObject({
+      refraction: true,
+      boundaryHalo: true,
+      forcedReducedMotion: true,
+    });
+    expect(composeLabInput(state).reducedMotion).toBe(true);
   });
 });

@@ -563,6 +563,15 @@ export function MainWindowPresentationSurface({
     [environment.platform, projections.visual.mode],
   );
 
+  // Fixed renderer capability, not Product/Application/Presentation/lifecycle
+  // state: the accepted localized boundary contact response and its
+  // subordinate exterior halo are enabled at the sole production mount only
+  // where the existing geometry exposes the accepted 14px outer gutter
+  // (Windows/macOS). A 0-gutter platform keeps the 200-domain
+  // Interior+Refraction fallback. This is a read-only geometry capability;
+  // no target field, lock, callback, feature flag, timer, or scheduler exists.
+  const boundaryHaloCapable = geometry.visualShell.x > 0 && geometry.visualShell.y > 0;
+
   const motionRecipe = useMemo(
     () => resolveMainWindowShellMotionRecipe({
       projection: projections.visual,
@@ -1077,7 +1086,14 @@ export function MainWindowPresentationSurface({
           onDoubleClick={drag.handlePanelDoubleClick}
           onContextMenu={handleContextMenu}
           initial={false}
-          animate={motionRecipe.shellAnimate}
+          animate={{
+            ...motionRecipe.shellAnimate,
+            // The shell no longer owns child clipping: overflow is visible and
+            // clipPath is "none" so the sole 228-domain canvas can paint into
+            // the accepted 14px gutter; the inner 200/r16 clip below restores
+            // the clip for every non-canvas descendant.
+            clipPath: "none",
+          }}
           transition={motionRecipe.shellTransition}
           onAnimationComplete={handleAnimationComplete}
           style={{
@@ -1096,13 +1112,45 @@ export function MainWindowPresentationSurface({
               radius: panelRadius,
               boxShadow: containerBoxShadow,
             }),
-            overflow: "hidden",
+            overflow: "visible",
             transition: instantPanelTransition
               ? undefined
               : `box-shadow 0.18s ${COMPACT_EASE}`,
-            willChange: "transform, clip-path",
+            willChange: "transform",
           }}
         >
+          {/* Outer FX layout host: one non-stacking, pointer-transparent
+              228x228 wrapper offset by the accepted full gutter so the sole
+              canvas paints into the existing outer domain. Its size and
+              offset derive from the existing viewport/panel geometry — never
+              a duplicate size source of truth. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              left: -geometry.visualShell.x,
+              top: -geometry.visualShell.y,
+              width: geometry.viewportSize,
+              height: geometry.viewportSize,
+              pointerEvents: "none",
+            }}
+          >
+            {/* Sole Expanded renderer-local decorative graphics host. */}
+            <ExpandedPresentationSurface
+              eligible={expandedGraphicsEligible}
+              reducedMotion={environment.reducedMotion}
+              target={expandedPresentationTarget}
+              palette={THERMAL_PALETTE}
+              heatmap
+              refraction
+              boundaryHalo={boundaryHaloCapable}
+            />
+          </div>
+
+          {/* Inner panel clip: restores the 200/r16 overflow clip for every
+              non-canvas descendant. Transparent, shadowless, non-stacking,
+              and handler-free — all panel gestures keep bubbling to the
+              original 200px shell. */}
           <div
             style={{
               position: "absolute",
@@ -1112,19 +1160,15 @@ export function MainWindowPresentationSurface({
               justifyContent: "center",
               alignItems: "center",
               gap: 8,
+              borderRadius: panelRadius,
+              overflow: "hidden",
+              background: "none",
+              boxShadow: "none",
               opacity: 1,
               visibility: "visible",
               pointerEvents: "auto",
             }}
           >
-            {/* Sole Expanded renderer-local decorative graphics host. */}
-            <ExpandedPresentationSurface
-              eligible={expandedGraphicsEligible}
-              reducedMotion={environment.reducedMotion}
-              target={expandedPresentationTarget}
-              palette={THERMAL_PALETTE}
-            />
-
             {/* Drag glow layer */}
             <AnimatePresence>
               {shouldShowDragGlow && (

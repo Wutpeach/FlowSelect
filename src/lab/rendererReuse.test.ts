@@ -85,6 +85,19 @@ describe("Browser Presentation Lab production renderer reuse", () => {
     // The derived Refraction mode is forwarded through the one production
     // surface as a lab-only flag; the Lab never re-implements the shader.
     expect(labStage).toContain("refraction={refractionMode}");
+    expect(labStage).toContain("boundaryHalo={boundaryHaloMode}");
+  });
+
+  it("keeps the 228/200/14 Lab layer split interaction-safe with one shadow owner", () => {
+    expect(labStage).toContain("MAIN_WINDOW_PANEL_SIZE + MAIN_WINDOW_FULL_SHADOW_GUTTER * 2");
+    expect(labStage).toContain('data-lab-panel-shell=""');
+    expect(labStage).toContain('data-lab-panel-clip=""');
+    expect(labStage).toContain('pointerEvents: "auto"');
+    expect(labStage).toContain('background: "none"');
+    expect(labStage).toContain('boxShadow: "none"');
+    expect(labStage.match(/boxShadow: colors\.panelShadow/g)).toHaveLength(1);
+    expect(labStage).toContain("onClick={boundaryHaloMode ? undefined : handlePreviewClick}");
+    expect(labStage).toContain("onClick={handlePreviewClick}");
   });
 
   it("reimplements no renderer, runtime, or shader", () => {

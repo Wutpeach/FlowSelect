@@ -96,6 +96,8 @@ export type LabHeatmapPreset = Readonly<{
   /** Derived Heatmap mode: while true the single shader also applies the
    * lab-gated Thermal Refraction displacement to the same analytic field. */
   refraction: boolean;
+  /** Lab-only accepted-contact edge response + compact exterior leakage. */
+  boundaryHalo: boolean;
   label: string;
   description: string;
 }>;
@@ -111,6 +113,7 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
   {
     id: "heatmap-moving",
     refraction: false,
+    boundaryHalo: false,
     forcedReducedMotion: false,
     label: "Heatmap · moving field",
     description: "Full-surface moving scalar heat field (clean-room spike).",
@@ -118,6 +121,7 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
   {
     id: "heatmap-reduced",
     refraction: false,
+    boundaryHalo: false,
     forcedReducedMotion: true,
     label: "Heatmap · reduced motion",
     description: "Static bounded field snapshot; no travelling frames.",
@@ -125,6 +129,7 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
   {
     id: "heatmap-refraction-moving",
     refraction: true,
+    boundaryHalo: false,
     forcedReducedMotion: false,
     label: "Heatmap · thermal refraction",
     description: "Moving field with slow local low-frequency refraction (analytic resample).",
@@ -132,9 +137,26 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
   {
     id: "heatmap-refraction-reduced",
     refraction: true,
+    boundaryHalo: false,
     forcedReducedMotion: true,
     label: "Heatmap · refraction, reduced motion",
     description: "Static frozen local refraction; zero travelling frames.",
+  },
+  {
+    id: "heatmap-contact-halo-moving",
+    refraction: true,
+    boundaryHalo: true,
+    forcedReducedMotion: false,
+    label: "Heatmap · localized boundary contact",
+    description: "Accepted moving contact drives a compact 14px-gutter leakage.",
+  },
+  {
+    id: "heatmap-contact-halo-reduced",
+    refraction: true,
+    boundaryHalo: true,
+    forcedReducedMotion: true,
+    label: "Heatmap · boundary contact, reduced motion",
+    description: "Static accepted contact and halo; zero continuing frames.",
   },
 ];
 
@@ -152,6 +174,8 @@ export type LabHeatmapState = Readonly<{
   forcedReducedMotion: boolean;
   /** Derived Heatmap mode flag; production never sees it. */
   refraction: boolean;
+  /** Lab-only outer-domain accepted-contact response. */
+  boundaryHalo: boolean;
 }>;
 
 export type LabPresentationState = Readonly<{
@@ -271,6 +295,7 @@ export const reduceLabPresentation = (
           presetId: preset.id,
           forcedReducedMotion: preset.forcedReducedMotion,
           refraction: preset.refraction,
+          boundaryHalo: preset.boundaryHalo,
         },
       };
     }

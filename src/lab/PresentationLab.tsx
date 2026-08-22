@@ -49,6 +49,7 @@ type ShaderReadout = {
   reducedMotion: number;
   heatmapMode: number;
   refractionMode: number;
+  boundaryHaloMode: number;
   time: number;
 };
 
@@ -73,6 +74,7 @@ const readShaderReadout = (): ShaderReadout => {
     reducedMotion: MISSING,
     heatmapMode: MISSING,
     refractionMode: MISSING,
+    boundaryHaloMode: MISSING,
     time: MISSING,
   };
   const canvas = canvases[0];
@@ -120,6 +122,7 @@ const readShaderReadout = (): ShaderReadout => {
     reducedMotion: readScalar("uReducedMotion"),
     heatmapMode: readScalar("uHeatmapMode"),
     refractionMode: readScalar("uRefractionMode"),
+    boundaryHaloMode: readScalar("uBoundaryHaloMode"),
     time: readScalar("uTime"),
   };
 };
@@ -314,6 +317,8 @@ const PRESET_LABEL_KEYS: Readonly<Record<string, string>> = {
   "heatmap-reduced": "heatmapReduced",
   "heatmap-refraction-moving": "heatmapRefractionMoving",
   "heatmap-refraction-reduced": "heatmapRefractionReduced",
+  "heatmap-contact-halo-moving": "heatmapContactHaloMoving",
+  "heatmap-contact-halo-reduced": "heatmapContactHaloReduced",
   "runtime-auto-config": "runtimeAutoConfig",
   "runtime-failed": "runtimeFailed",
   "download-active": "downloadActive",
@@ -882,6 +887,7 @@ export function PresentationLab() {
           reducedMotion={surfaceReducedMotion}
           heatmapMode={state.heatmap !== null}
           refractionMode={state.heatmap?.refraction === true}
+          boundaryHaloMode={state.heatmap?.boundaryHalo === true}
           overlayProjection={overlayProjection}
           showQueueOverlay={showQueueOverlay}
           queueOpen={queueOpen}

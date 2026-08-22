@@ -158,7 +158,7 @@ describe("Expanded Presentation graphics host contract", () => {
     expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
     expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
     expect(hostSource).toContain("uniform int uHeatmapMode;");
-    expect(hostSource).toContain("heatmapOutput(vUv, uTime, uReducedMotion, outColor)");
+    expect(hostSource).toContain("heatmapOutput(heatmapUv, uTime, uReducedMotion, outColor)");
     expect(hostSource).toContain("heatmap?: boolean;");
     // The restored analytic baseline needs NO texture/preprocessing: no
     // sampler, rasterizer, blur helpers, framebuffer, or second pass.
@@ -182,9 +182,11 @@ describe("Expanded Presentation graphics host contract", () => {
     expect(hostSource).toContain("float k = reducedMotion ? 0.42 : fract(t * 0.13);");
     expect(hostSource).toContain("float front = mix(-0.58, 1.6, k);");
     expect(hostSource).toContain("vec2 q = uv - 0.5;");
-    expect(hostSource).toContain("float d = p - front + bend;");
+    expect(hostSource).toContain("float d = heatmapFrontierDistance(q, DIR, front, bendTime);");
+    expect(hostSource).toContain("return dot(q, direction) - front + heatmapBend(q, bendTime);");
     expect(hostSource).toContain("float body = exp(-behind * 1.1) * (1.0 - smoothstep(0.0, 0.05, d));");
-    expect(hostSource).toContain("float warm = exp(-abs(d + 0.018) * 30.0);");
+    expect(hostSource).toContain("float warm = heatmapFrontierWarm(d);");
+    expect(hostSource).toContain("return exp(-abs(distanceToFrontier + 0.018) * 30.0);");
     expect(hostSource).toContain("float core = exp(-alongFront * alongFront * 200.0 - d * d * 200.0);");
     expect(hostSource).toContain("float energy = smoothstep(0.0, 0.12, k) * (1.0 - smoothstep(0.66, 0.99, k));");
     // Reduced Motion pins the mid-sweep snapshot and freezes the deformation.
@@ -196,8 +198,10 @@ describe("Expanded Presentation graphics host contract", () => {
     // Selected baseline contact grammar (research/mr9-rounded-boundary-edge-
     // capture-spike.md): real 200x200/16px rounded-rect SDF, inward-thick
     // boundary band, contact-gated localized capture, and the exact heat sum.
-    expect(hostSource).toContain("float boundaryBand = smoothstep(-0.05, 0.0, bd) * step(bd, 0.0);");
-    expect(hostSource).toContain("float capture = boundaryBand * warm * 0.6;");
+    expect(hostSource).toContain("return smoothstep(-0.05, 0.0, boundaryDistance)");
+    expect(hostSource).toContain("* step(boundaryDistance, 0.0);");
+    expect(hostSource).toContain("float contact = heatmapBoundaryContact(bd, warm);");
+    expect(hostSource).toContain("float capture = contact * 0.6;");
     expect(hostSource).toContain("float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;");
     expect(hostSource).toContain("float bd = roundedBoundary(uv);");
     expect(hostSource).toContain("vec2 halfSize = vec2(0.5) - uCornerRadius;");
@@ -379,13 +383,33 @@ describe("Expanded Presentation graphics host contract", () => {
     // The refraction block is additive and gated: the accepted motion/contact/
     // palette/material/edge lines below stay byte-identical (covered by the
     // dedicated baseline tests above), and Refraction off adds nothing.
-    expect(hostSource).toContain("float d = p - front + bend;");
+    expect(hostSource).toContain("return dot(q, direction) - front + heatmapBend(q, bendTime);");
     expect(hostSource).toContain("float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;");
     expect(hostSource).toContain("float material = clamp(heat + coolLift + hotLift, 0.0, 1.0);");
     // No high-frequency noise lattice or haze primitive is introduced.
     expect(hostSource).not.toContain("vec2(26.0");
     expect(hostSource).not.toContain("vec2(34.0");
     expect(hostSource).not.toContain("haze");
+  });
+
+  it("projects the accepted localized contact into a fixed exterior halo", () => {
+    const halo = hostSource.slice(
+      hostSource.indexOf("// Fixed production exterior response"),
+      hostSource.indexOf("// Clearer yellow transition"),
+    );
+    expect(hostSource).toContain("uniform int uBoundaryHaloMode;");
+    expect(hostSource).toContain("boundaryHalo?: boolean;");
+    expect(hostSource).toContain("? (vUv - uPanelOrigin) / uPanelSize");
+    expect(halo).toContain("roundedBoundaryNormal(uv)");
+    expect(halo).toContain("heatmapFrontierDistance(footQ, DIR, front, bendTime)");
+    expect(halo).toContain("heatmapFrontierWarm(footDistance)");
+    expect(halo).toContain("heatmapBoundaryContact(0.0, footWarm) * energy");
+    expect(halo).toContain("1.0 - smoothstep(0.0, 0.06, bd)");
+    expect(halo).toContain("haloResponse * 0.28");
+    expect(halo).toContain("HEAT_STOP[i]");
+    expect(halo).not.toMatch(/heatmapNoise|uTime|phase|clock|HALO_STOP|alphaFloor/i);
+    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
+    expect(hostSource).not.toMatch(/createTexture|createFramebuffer|framebufferTexture2D/);
   });
 
   it("documents the license state honestly (no active Paper derivative)", () => {
@@ -404,5 +428,129 @@ describe("Expanded Presentation graphics host contract", () => {
     // Root project license remains MIT (not overwritten).
     const rootLicense = readFileSync(resolve(here, "../../../LICENSE"), "utf8");
     expect(rootLicense).toContain("MIT License");
+  });
+
+  // ---------------------------------------------------------------------
+  // MR9 production composition: 228 outer FX host + 200/r16 interaction clip
+  // ---------------------------------------------------------------------
+
+  it("derives the 14px gutter and 228 outer FX host from existing geometry only", () => {
+    // The outer FX host is sized to the existing full viewport and offset by
+    // the existing panel origin; no duplicate size constant is introduced.
+    expect(surfaceSource).toContain("left: -geometry.visualShell.x");
+    expect(surfaceSource).toContain("top: -geometry.visualShell.y");
+    expect(surfaceSource).toContain("width: geometry.viewportSize");
+    expect(surfaceSource).toContain("height: geometry.viewportSize");
+    expect(surfaceSource).not.toMatch(/MAIN_WINDOW_FULL_SHADOW_GUTTER|MAIN_WINDOW_PANEL_SIZE/);
+    // The capability gate is read-only geometry, not a new prop or state.
+    expect(surfaceSource).toContain("const boundaryHaloCapable = geometry.visualShell.x > 0 && geometry.visualShell.y > 0");
+    expect(surfaceSource).not.toContain("boundaryHaloCapable?:");
+  });
+
+  it("hosts the sole canvas in one non-stacking, pointer-transparent 228 wrapper", () => {
+    const fxHost = surfaceSource.slice(
+      surfaceSource.indexOf("Outer FX layout host"),
+      surfaceSource.indexOf("Inner panel clip"),
+    );
+    expect(surfaceSource.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
+    expect(fxHost).toContain('aria-hidden="true"');
+    expect(fxHost).toContain('pointerEvents: "none"');
+    expect(fxHost).toContain("width: geometry.viewportSize");
+    expect(fxHost).not.toMatch(/zIndex|transform:|isolation|willChange|filter:|clipPath|mixBlendMode|backdropFilter|boxShadow/);
+    expect(fxHost).not.toContain("opacity: 0");
+  });
+
+  it("enables the accepted Interior/Refraction/boundary capabilities as fixed production gates", () => {
+    const mountStart = surfaceSource.indexOf("<ExpandedPresentationSurface");
+    const mount = surfaceSource.slice(
+      mountStart,
+      surfaceSource.indexOf("/>", mountStart),
+    );
+    expect(mount).toContain("heatmap");
+    expect(mount).toContain("refraction");
+    expect(mount).toContain("boundaryHalo={boundaryHaloCapable}");
+    // No Product/Application/lifecycle authority gains a boundary lane.
+    expect(appSource).not.toContain("boundaryHalo");
+    expect(targetSource).not.toContain("boundary");
+    expect(policySource).not.toContain("boundary");
+    expect(runtimeSource).not.toContain("boundary");
+  });
+
+  it("keeps the 200/r16 panel clip transparent, shadowless, and non-stacking", () => {
+    const clip = surfaceSource.slice(
+      surfaceSource.indexOf("Inner panel clip"),
+      surfaceSource.indexOf("Drag glow layer"),
+    );
+    expect(clip).toContain("position: \"absolute\"");
+    expect(clip).toContain("inset: 0");
+    expect(clip).toContain("borderRadius: panelRadius");
+    expect(clip).toContain('overflow: "hidden"');
+    expect(clip).toContain('background: "none"');
+    expect(clip).toContain('boxShadow: "none"');
+    expect(clip).toContain('pointerEvents: "auto"');
+    expect(clip).not.toMatch(/zIndex|transform:|isolation|willChange|filter:|clipPath|mixBlendMode|backdropFilter/);
+    expect(clip).not.toContain("opacity: 0");
+  });
+
+  it("keeps all panel gestures and the containerRef on the 200px shell only", () => {
+    // Exactly one event-owning shell: every drag/drop/pointer/context handler
+    // stays on the element carrying containerRef, and the FX host mounts only
+    // the canvas (pointer-events:none), so the gutter cannot start a drag or
+    // accept a drop.
+    expect(surfaceSource.match(/ref=\{containerRef\}/g)).toHaveLength(1);
+    expect(surfaceSource.match(/onDrop=/g)).toHaveLength(1);
+    expect(surfaceSource.match(/onPointerDown=/g)).toHaveLength(1);
+    expect(surfaceSource.match(/onDragEnter=/g)).toHaveLength(1);
+    const fxHost = surfaceSource.slice(
+      surfaceSource.indexOf("Outer FX layout host"),
+      surfaceSource.indexOf("Inner panel clip"),
+    );
+    expect(fxHost).not.toMatch(/onDrop|onPointerDown|onDragEnter|onContextMenu|onDoubleClick|onMouseEnter|onMouseLeave/);
+    expect(fxHost).toContain('pointerEvents: "none"');
+    // The inner clip owns no handlers either; events bubble to the shell.
+    const clip = surfaceSource.slice(
+      surfaceSource.indexOf("Inner panel clip"),
+      surfaceSource.indexOf("Drag glow layer"),
+    );
+    expect(clip).not.toMatch(/onDrop|onPointerDown|onDragEnter|onContextMenu|onDoubleClick|onMouseEnter|onMouseLeave|ref=\{containerRef\}/);
+  });
+
+  it("keeps the existing shadow backdrop as the sole exterior CSS shadow owner", () => {
+    expect(surfaceSource.match(/getShadowBackdropStyle\(/g)).toHaveLength(1);
+    expect(surfaceSource).toContain("getShadowBackdropStyle(colors, {");
+    const clip = surfaceSource.slice(
+      surfaceSource.indexOf("Inner panel clip"),
+      surfaceSource.indexOf("Drag glow layer"),
+    );
+    expect(clip).toContain('boxShadow: "none"');
+    const fxHost = surfaceSource.slice(
+      surfaceSource.indexOf("Outer FX layout host"),
+      surfaceSource.indexOf("Inner panel clip"),
+    );
+    expect(fxHost).not.toContain("boxShadow");
+  });
+
+  it("keeps protected z-order: activation canvas z=2 below z=3 controls, wrappers non-stacking", () => {
+    // The canvas z-index contract is unchanged; the FX host and inner clip
+    // create no stacking context, so z=0/z=2 and protected z=3 still resolve
+    // inside the existing shell stacking context.
+    expect(hostSource).toContain('zIndex: target.kind === "activation" && !reducedMotion ? 2 : 0');
+    expect(centerOverlaySource).toContain("style={{ ...CENTER_OVERLAY_CONTENT_STYLE, zIndex: 3 }}");
+    const wrappers = surfaceSource.slice(
+      surfaceSource.indexOf("Outer FX layout host"),
+      surfaceSource.indexOf("Drag glow layer"),
+    );
+    expect(wrappers).not.toMatch(/zIndex|transform:|isolation|willChange|filter:|clipPath|mixBlendMode|backdropFilter/);
+    expect(wrappers).not.toContain("opacity: 0");
+  });
+
+  it("keeps the one-canvas/program/draw/resource and runtime scheduling authority unchanged", () => {
+    expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
+    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
+    expect(hostSource).not.toMatch(/createTexture|createFramebuffer|framebufferTexture2D/);
+    expect(surfaceSource).not.toContain("createExpandedPresentationRuntime(");
+    expect(runtimeSource).toContain("scheduleNextFrame");
+    expect(runtimeSource).toContain("needsFrames");
+    expect(runtimeSource).not.toMatch(/onComplete|onExpire|dispatchLifecycle|requestFull/);
   });
 });
