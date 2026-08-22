@@ -2,6 +2,7 @@
   "appTitle": "Browser Lab",
   "appSubtitle": "MR9 dev-only · production Expanded WebGL2 host · no Electron / downloader",
   "nav": {
+    "scenarioNavigation": "Scenario Navigation",
     "activation": "Fullscreen Activation",
     "downloadProgress": "Download / Progress",
     "runtime": "Runtime",
@@ -9,8 +10,43 @@
     "mixed": "Mixed / Busy",
     "reducedMotion": "Reduced Motion",
     "heatmapSpike": "Heatmap Spike",
+    "compact": "Compact Character",
+    "download": "Download",
+    "fullOnlyTag": "Full only",
+    "compactOnlyTag": "Compact only",
     "reset": "Reset",
     "resetHint": "Resets only the current category's Lab preview state."
+  },
+  "previewTarget": {
+    "full": "Full",
+    "compact": "Compact"
+  },
+  "workspace": {
+    "title": "Preview Workspace",
+    "targetLabel": "Preview Target",
+    "displayScale": "Display scale",
+    "metadataFull": "Full · {{size}}×{{size}} · {{scale}}×",
+    "metadataCompact": "Compact · {{outer}} outer / {{shell}} shell · {{scale}}×"
+  },
+  "compact": {
+    "caption": "Compact renders the current production CompactCatCharacter at 80/60/56 geometry with a Lab-local pointer field; no canvas, no shader, no native window."
+  },
+  "devTools": {
+    "title": "Dev Tools",
+    "target": "Target",
+    "reducedMotion": "Preview reduced motion",
+    "on": "on",
+    "off": "off",
+    "advanced": "Advanced Diagnostics",
+    "scaleFacts": "Scale facts",
+    "fullOnlyDiagnostics": "Composed-input and shader readout are Full-only (the Compact target mounts no canvas).",
+    "compact": {
+      "scenario": "Compact scenario",
+      "mode": "pointer mode",
+      "live": "live attention",
+      "neutral": "pinned neutral",
+      "reducedMotion": "forced reduced motion"
+    }
   },
   "presets": {
     "intakeLocal": { "label": "Intake · local origin", "description": "Ignition from the last preview click point." },
@@ -46,6 +82,9 @@
     "transcodeActive": { "label": "Transcode active", "description": "CircularProgressIndicator ring + queue rows." },
     "transcodeFailed": { "label": "Transcode failed", "description": "Failure center overlay (copy diagnostic) + failed row." },
     "mixedBusy": { "label": "Mixed busy", "description": "Download (WebGL arc) and transcode (DOM ring) concurrency." },
+    "compactNeutral": { "label": "Compact · neutral", "description": "The current Compact character at rest; no pointer attention." },
+    "compactPointer": { "label": "Compact · pointer attention", "description": "The current Compact character tracking the workspace pointer." },
+    "compactReduced": { "label": "Compact · reduced motion", "description": "Reduced Motion: smaller clamped attention, no springs or blink." },
     "rmIntake": { "label": "Reduced motion · Intake", "description": "Static ignition blot audit." },
     "rmFolder": { "label": "Reduced motion · Folder", "description": "Static edge lock audit." }
   },

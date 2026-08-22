@@ -2,6 +2,7 @@
   "appTitle": "浏览器实验台",
   "appSubtitle": "MR9 开发专用 · 生产 WebGL2 主机 · 无 Electron / 下载器",
   "nav": {
+    "scenarioNavigation": "场景导航",
     "activation": "全屏激活",
     "downloadProgress": "下载与进度",
     "runtime": "运行环境",
@@ -9,8 +10,43 @@
     "mixed": "混合忙碌",
     "reducedMotion": "减弱动态",
     "heatmapSpike": "热力图实验",
+    "compact": "紧凑角色",
+    "download": "下载",
+    "fullOnlyTag": "仅全屏",
+    "compactOnlyTag": "仅紧凑",
     "reset": "重置",
     "resetHint": "仅重置当前类别的 Lab 预览状态。"
+  },
+  "previewTarget": {
+    "full": "全屏",
+    "compact": "紧凑"
+  },
+  "workspace": {
+    "title": "预览工作区",
+    "targetLabel": "预览目标",
+    "displayScale": "显示缩放",
+    "metadataFull": "全屏 · {{size}}×{{size}} · {{scale}}×",
+    "metadataCompact": "紧凑 · 外层 {{outer}} / 外壳 {{shell}} · {{scale}}×"
+  },
+  "compact": {
+    "caption": "紧凑目标直接复用生产 CompactCatCharacter 渲染叶（80/60/56 几何）+ Lab 本地指针场；无画布、无着色器、无原生窗口。"
+  },
+  "devTools": {
+    "title": "开发工具",
+    "target": "目标",
+    "reducedMotion": "预览减弱动态",
+    "on": "开",
+    "off": "关",
+    "advanced": "高级诊断",
+    "scaleFacts": "缩放事实",
+    "fullOnlyDiagnostics": "组合输入与着色器读数仅限全屏目标（紧凑目标不挂载画布）。",
+    "compact": {
+      "scenario": "紧凑场景",
+      "mode": "指针模式",
+      "live": "实时注意力",
+      "neutral": "固定中性",
+      "reducedMotion": "强制减弱动态"
+    }
   },
   "presets": {
     "intakeLocal": { "label": "Intake · 本地源点", "description": "从上次预览点击点点燃。" },
@@ -46,6 +82,9 @@
     "transcodeActive": { "label": "转码进行中", "description": "CircularProgressIndicator 转码环 + 队列行。" },
     "transcodeFailed": { "label": "转码失败", "description": "失败中心 overlay（可复制诊断）+ 失败行。" },
     "mixedBusy": { "label": "混合忙碌", "description": "下载（WebGL 弧）与转码（DOM 环）并发。" },
+    "compactNeutral": { "label": "紧凑 · 中性", "description": "当前紧凑角色静止；无指针注意力。" },
+    "compactPointer": { "label": "紧凑 · 指针注意力", "description": "当前紧凑角色追踪工作区指针。" },
+    "compactReduced": { "label": "紧凑 · 减弱动态", "description": "减弱动态：更小的受限注意力，无弹簧 / 眨眼。" },
     "rmIntake": { "label": "减弱动态 · Intake", "description": "静态点燃光斑审计。" },
     "rmFolder": { "label": "减弱动态 · Folder", "description": "静态边缘锁审计。" }
   },

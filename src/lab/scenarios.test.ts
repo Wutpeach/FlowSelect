@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   LAB_ACTIVATION_PRESETS,
+  LAB_CATEGORY_TARGET_AVAILABILITY,
+  LAB_COMPACT_SCENARIOS,
+  LAB_COMPACT_SCENARIO_IDS,
   LAB_HEATMAP_PRESETS,
   LAB_PRIMARY_TRACE_ID,
   LAB_PROGRESS_PRESETS,
@@ -8,6 +11,8 @@ import {
   composeLabInput,
   createLabPresentationState,
   reduceLabPresentation,
+  resolveLabCompactScenario,
+  resolveLabPreviewReducedMotion,
   type LabPresentationState,
 } from "./scenarios";
 
@@ -374,5 +379,79 @@ describe("Lab scenario model", () => {
     ]);
     const ids = new Set(LAB_HEATMAP_PRESETS.map((preset) => preset.id));
     expect(ids.size).toBe(LAB_HEATMAP_PRESETS.length);
+  });
+});
+
+describe("Lab Preview Target compatibility", () => {
+  it("keeps the Compact category Compact-only and every Full category Full-only", () => {
+    expect(LAB_CATEGORY_TARGET_AVAILABILITY.compact).toEqual({ full: false, compact: true });
+    for (const category of [
+      "activation",
+      "downloadProgress",
+      "runtime",
+      "transcode",
+      "mixed",
+      "reducedMotion",
+      "heatmapSpike",
+    ] as const) {
+      expect(LAB_CATEGORY_TARGET_AVAILABILITY[category]).toEqual({ full: true, compact: false });
+    }
+  });
+
+  it("declares the three current-renderer-capability Compact scenarios", () => {
+    expect(LAB_COMPACT_SCENARIO_IDS).toEqual([
+      "compact-neutral",
+      "compact-pointer",
+      "compact-reduced",
+    ]);
+    expect(LAB_COMPACT_SCENARIOS.map((scenario) => scenario.pointerMode)).toEqual([
+      "neutral",
+      "live",
+      "live",
+    ]);
+    expect(LAB_COMPACT_SCENARIOS.map((scenario) => scenario.forcedReducedMotion)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(resolveLabCompactScenario("compact-neutral")?.id).toBe("compact-neutral");
+    expect(resolveLabCompactScenario("nope")).toBeNull();
+  });
+
+  it("resolves ONE reduced-motion preview value for the Full target", () => {
+    let state = createLabPresentationState();
+    expect(resolveLabPreviewReducedMotion(state, "full", null, false)).toBe(false);
+    state = reduceLabPresentation(state, { type: "setReducedMotion", enabled: true });
+    expect(resolveLabPreviewReducedMotion(state, "full", null, false)).toBe(true);
+    // RM presets force it even when the toggle is off.
+    state = reduceLabPresentation(state, { type: "setReducedMotion", enabled: false });
+    state = reduceLabPresentation(state, {
+      type: "activate",
+      presetId: "intake-reduced",
+      now: NOW,
+    });
+    expect(resolveLabPreviewReducedMotion(state, "full", null, false)).toBe(true);
+  });
+
+  it("keeps overlay fixtures toggle-only on the Full target (no forced RM)", () => {
+    let state = createLabPresentationState();
+    state = reduceLabPresentation(state, { type: "setReducedMotion", enabled: false });
+    state = reduceLabPresentation(state, {
+      type: "activate",
+      presetId: "intake-reduced",
+      now: NOW,
+    });
+    // A projected fixture never forces the production Reduced Motion flag.
+    expect(resolveLabPreviewReducedMotion(state, "full", null, true)).toBe(false);
+    state = reduceLabPresentation(state, { type: "setReducedMotion", enabled: true });
+    expect(resolveLabPreviewReducedMotion(state, "full", null, true)).toBe(true);
+  });
+
+  it("resolves ONE reduced-motion preview value for the Compact target", () => {
+    const state = createLabPresentationState();
+    expect(resolveLabPreviewReducedMotion(state, "compact", resolveLabCompactScenario("compact-neutral"), false))
+      .toBe(false);
+    expect(resolveLabPreviewReducedMotion(state, "compact", resolveLabCompactScenario("compact-reduced"), true))
+      .toBe(true);
   });
 });

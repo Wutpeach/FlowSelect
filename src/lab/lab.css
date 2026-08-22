@@ -1,0 +1,12 @@
+/*
+ * Lab-only narrow-window rule (development tool, desktop-focused).
+ *
+ * Below the useful desktop width the Dev Tools pane is collapsed before the
+ * Preview Workspace shrinks below its useful size. This is the one bounded
+ * narrow-window behavior; there is no mobile Lab redesign.
+ */
+@media (max-width: 1080px) {
+  [data-lab-devtools] {
+    display: none !important;
+  }
+}

@@ -17,6 +17,9 @@ const labScenarios = read("./scenarios.ts");
 const labFixtures = read("./stateFixtures.ts");
 const labProjection = read("./overlayProjection.ts");
 const labExport = read("./exportPng.ts");
+const labCompactStage = read("./CompactPreviewStage.tsx");
+const labPreviewTargets = read("./previewTargets.ts");
+const labCompactPointer = read("./compactPointerField.ts");
 const viteConfig = read("../../vite.config.ts");
 const labViteConfig = read("../../vite.lab.config.ts");
 
@@ -28,6 +31,9 @@ const labSources = [
   labFixtures,
   labProjection,
   labExport,
+  labCompactStage,
+  labPreviewTargets,
+  labCompactPointer,
 ];
 
 const importSpecifiers = (source: string): string[] => {
@@ -150,5 +156,33 @@ describe("Browser Presentation Lab production renderer reuse", () => {
     expect(labProjection).not.toContain("dev_ui_lab_apply_scenario");
     expect(labFixtures).not.toContain("ipcRenderer");
     expect(labProjection).not.toContain("ipcRenderer");
+  });
+
+  it("reuses the current production Compact renderer leaf for the Compact target", () => {
+    // The Compact target is a Lab-local UI discriminant wired to the EXISTING
+    // production CompactCatCharacter + production geometry constants. No new
+    // mascot, no second canvas, no native window, no production authority.
+    expect(labCompactStage).toContain('from "../presentation/main-window/CompactCatCharacter"');
+    expect(labCompactStage).not.toContain("MainWindowPresentationSurface");
+    expect(labCompactStage).not.toContain("ExpandedPresentationSurface");
+    expect(labCompactStage).toContain('from "../presentation/main-window/characterRecipe"');
+    expect(labCompactStage).toContain('from "../constants/windowMetrics"');
+    expect(labCompactStage).toContain('from "../presentation/main-window/geometry"');
+    expect(labCompactStage).toContain('from "./compactPointerField"');
+    expect(labCompactStage).not.toContain('from "../presentation/main-window/pointerField"');
+    expect(labCompactStage).not.toContain("updatePointerFieldFromClientPoint(");
+    expect(labCompactStage).not.toContain("resetPointerFieldToCenter(");
+    // The Lab workspace wires BOTH targets to the one preview host decision.
+    expect(labComponent).toContain('from "./CompactPreviewStage"');
+    expect(labComponent).toContain('from "./previewTargets"');
+    expect(labComponent).toContain("<CompactPreviewStage");
+    expect(labComponent).toContain("<LabOverlayStage");
+    // Lab-local pointer + target models derive geometry from production only.
+    expect(labPreviewTargets).toContain('from "../constants/windowMetrics"');
+    expect(labPreviewTargets).toContain('from "../presentation/main-window/characterRecipe"');
+    expect(labPreviewTargets).toContain('from "../presentation/main-window/geometry"');
+    expect(labCompactPointer).not.toContain("MainWindowPresentationSurface");
+    // Exactly ONE production Expanded surface remains across the whole Lab.
+    expect(labStage.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
   });
 });

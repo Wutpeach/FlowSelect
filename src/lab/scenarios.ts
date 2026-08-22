@@ -15,6 +15,7 @@ import type {
   ExpandedPresentationTarget,
 } from "../presentation/main-window/expandedPresentationTargets";
 import { NEUTRAL_PRESENTATION_ORIGIN } from "../presentation/main-window/downloadIntakePresentation";
+import type { LabPreviewTarget } from "./previewTargets";
 
 /** The production preview surface is exactly 200x200 CSS pixels. */
 export const LAB_PREVIEW_SIZE = MAIN_WINDOW_PANEL_SIZE;
@@ -397,4 +398,113 @@ export const composeLabInput = (state: LabPresentationState): LabComposedInput =
     target: { kind: "progress", progress: state.progress },
     reducedMotion: state.reducedMotion,
   };
+};
+
+/**
+ * Lab scenario groups (Scenario Navigation). Full categories drive the one
+ * production Expanded surface; the Compact category drives the current Compact
+ * renderer leaf only.
+ */
+export type LabCategoryId =
+  | "activation"
+  | "downloadProgress"
+  | "runtime"
+  | "transcode"
+  | "mixed"
+  | "reducedMotion"
+  | "heatmapSpike"
+  | "compact";
+
+export type LabTargetAvailability = Readonly<{ full: boolean; compact: boolean }>;
+
+/**
+ * Static scenario-group → Preview Target compatibility. Incompatible groups
+ * stay visible with a clear Full-only / Compact-only indicator; they are
+ * never silently coerced into a fake projection for the other target.
+ */
+export const LAB_CATEGORY_TARGET_AVAILABILITY: Readonly<
+  Record<LabCategoryId, LabTargetAvailability>
+> = {
+  activation: { full: true, compact: false },
+  downloadProgress: { full: true, compact: false },
+  runtime: { full: true, compact: false },
+  transcode: { full: true, compact: false },
+  mixed: { full: true, compact: false },
+  reducedMotion: { full: true, compact: false },
+  heatmapSpike: { full: true, compact: false },
+  compact: { full: false, compact: true },
+};
+
+export type LabCompactScenarioId =
+  | "compact-neutral"
+  | "compact-pointer"
+  | "compact-reduced";
+
+export type LabCompactScenario = Readonly<{
+  id: LabCompactScenarioId;
+  /** Existing renderer capability: live pointer attention or pinned neutral. */
+  pointerMode: "live" | "neutral";
+  forcedReducedMotion: boolean;
+}>;
+
+/**
+ * Compact scenarios express ONLY the current Compact renderer's capability:
+ * neutral, pointer attention, and Reduced Motion. They never fake Full
+ * business scenarios (download / runtime / transcode / activation) for the
+ * Compact target.
+ */
+export const LAB_COMPACT_SCENARIOS: readonly LabCompactScenario[] = [
+  {
+    id: "compact-neutral",
+    pointerMode: "neutral",
+    forcedReducedMotion: false,
+  },
+  {
+    id: "compact-pointer",
+    pointerMode: "live",
+    forcedReducedMotion: false,
+  },
+  {
+    id: "compact-reduced",
+    pointerMode: "live",
+    forcedReducedMotion: true,
+  },
+];
+
+export const LAB_COMPACT_SCENARIO_IDS = LAB_COMPACT_SCENARIOS.map(
+  (scenario) => scenario.id,
+) as readonly LabCompactScenarioId[];
+
+export const resolveLabCompactScenario = (
+  id: string,
+): LabCompactScenario | null =>
+  LAB_COMPACT_SCENARIOS.find((scenario) => scenario.id === id) ?? null;
+
+/**
+ * The ONE Lab reducedMotion preview value that drives both targets and every
+ * scenario preset / control. It is a single derived fact with no competing
+ * mirror state:
+ *   - Compact target: user toggle OR the active Compact scenario's forced flag.
+ *   - Full target without an overlay fixture: toggle OR the active
+ *     activation/heatmap preset's forced flag (same semantics as the composed
+ *     input, so the preview matches what the production surface receives).
+ *   - Full target with an overlay fixture: the toggle only — business-state
+ *     fixtures never force Reduced Motion (same semantics as before the
+ *     Refresh).
+ */
+export const resolveLabPreviewReducedMotion = (
+  state: LabPresentationState,
+  target: LabPreviewTarget,
+  compactScenario: LabCompactScenario | null,
+  projectionActive: boolean,
+): boolean => {
+  if (target === "compact") {
+    return state.reducedMotion || (compactScenario?.forcedReducedMotion ?? false);
+  }
+  if (projectionActive) {
+    return state.reducedMotion;
+  }
+  return state.reducedMotion
+    || (state.activation?.forcedReducedMotion ?? false)
+    || (state.heatmap?.forcedReducedMotion ?? false);
 };

@@ -25,6 +25,7 @@ import type { ExpandedPresentationTarget } from "../presentation/main-window/exp
 import type { ErrorDiagnosticCopyRequest } from "../types/errorDiagnostics";
 import type { LabOverlayProjection } from "./overlayProjection";
 import { LAB_PREVIEW_SIZE } from "./scenarios";
+import { MAIN_WINDOW_FULL_PANEL_RADIUS } from "../presentation/main-window/geometry";
 
 export type LabOverlayStageProps = {
   target: ExpandedPresentationTarget;
@@ -127,7 +128,9 @@ const PREVIEW_FRAME_STYLE: CSSProperties = {
   width: LAB_PREVIEW_SIZE,
   height: LAB_PREVIEW_SIZE,
   overflow: "hidden",
-  borderRadius: 14,
+  // Lab chrome correction only: align the wrapper radius with the production
+  // Full shell radius (16px). This does not change MR9 shader visuals.
+  borderRadius: MAIN_WINDOW_FULL_PANEL_RADIUS,
   background: "#1b1920",
   boxShadow: "0 0 0 1px #332e3f, 0 10px 30px rgba(0,0,0,0.5)",
   cursor: "crosshair",
