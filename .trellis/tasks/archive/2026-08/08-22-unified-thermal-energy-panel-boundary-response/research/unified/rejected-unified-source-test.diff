@@ -1,0 +1,917 @@
+diff --git a/src/lab/LabOverlayStage.tsx b/src/lab/LabOverlayStage.tsx
+index acd0041..782f013 100644
+--- a/src/lab/LabOverlayStage.tsx
++++ b/src/lab/LabOverlayStage.tsx
+@@ -17,6 +17,9 @@ import {
+ import { useTranslation } from "react-i18next";
+ import { ExpandedPresentationSurface } from "../presentation/main-window/ExpandedPresentationSurface";
+ import { THERMAL_PALETTE } from "../presentation/main-window/thermalPalette";
++import { getPanelShellStyle } from "../components/ui/shared-styles";
++import { useTheme } from "../contexts/ThemeContext";
++import { MAIN_WINDOW_FULL_SHADOW_GUTTER, MAIN_WINDOW_PANEL_SIZE } from "../constants/windowMetrics";
+ import { MainWindowCenterOverlay } from "../presentation/main-window/MainWindowCenterOverlay";
+ import { MainWindowQueuePopover } from "../presentation/main-window/MainWindowQueuePopover";
+ import { MainWindowRuntimeIndicator } from "../presentation/main-window/MainWindowRuntimeIndicator";
+@@ -40,6 +43,21 @@ export type LabOverlayStageProps = {
+    * refraction displacement to the same analytic heat field.
+    */
+   refractionMode: boolean;
++  /**
++   * Lab-only Unified Thermal -> Panel Boundary Response flag (derived
++   * Refraction mode); forwarded to the one production surface so the single
++   * shader consumes the shared response energy for Refraction amplitude,
++   * boundary edge, and the exterior halo. Production never sets it.
++   */
++  boundaryMode?: boolean;
++  /**
++   * Lab-only outer-domain 228 composition: while true the preview frame is
++   * 228x228 with the real panel shell at (14,14), a transparent
++   * interaction-safe UI clip above the FX canvas, and the panel-mapped
++   * production surface (panel origin/size uniforms). Used only by the unified
++   * Thermal -> Boundary presets so the 14px gutter halo is observable.
++   */
++  outerDomain?: boolean;
+   /** Non-null when a seven-scenario overlay fixture is active. */
+   overlayProjection: LabOverlayProjection | null;
+   /** Show the queue badge/popover inside the preview frame. */
+@@ -134,13 +152,20 @@ const PREVIEW_FRAME_STYLE: CSSProperties = {
+   flexShrink: 0,
+ };
+ 
++/** Lab-only outer-domain composition: 228 output = 200 panel + 14px gutter x2. */
++const OUTER_DOMAIN_SIZE =
++  MAIN_WINDOW_PANEL_SIZE + MAIN_WINDOW_FULL_SHADOW_GUTTER * 2;
++
+ export function LabOverlayStage(props: LabOverlayStageProps) {
+   const { t } = useTranslation("lab");
++  const { colors } = useTheme();
+   const {
+     target,
+     reducedMotion,
+     heatmapMode,
+     refractionMode,
++    boundaryMode = false,
++    outerDomain = false,
+     overlayProjection,
+     showQueueOverlay,
+     queueOpen,
+@@ -195,13 +220,39 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
+       }
+     : null;
+ 
++  const frameSize = outerDomain ? OUTER_DOMAIN_SIZE : LAB_PREVIEW_SIZE;
++
+   return (
+     <div
+-      style={PREVIEW_FRAME_STYLE}
++      style={{
++        ...PREVIEW_FRAME_STYLE,
++        width: frameSize,
++        height: frameSize,
++        borderRadius: outerDomain ? 18 : 14,
++        background: outerDomain ? "#0d0c12" : "#1b1920",
++      }}
+       data-lab-preview-frame=""
+       onClick={handlePreviewClick}
+       title={t("preview.clickToSetOrigin")}
+     >
++      {outerDomain ? (
++        <div
++          data-lab-panel-shell=""
++          style={{
++            position: "absolute",
++            left: MAIN_WINDOW_FULL_SHADOW_GUTTER,
++            top: MAIN_WINDOW_FULL_SHADOW_GUTTER,
++            width: MAIN_WINDOW_PANEL_SIZE,
++            height: MAIN_WINDOW_PANEL_SIZE,
++            zIndex: 0,
++            ...getPanelShellStyle(colors, {
++              radius: 16,
++              boxShadow: colors.panelShadow,
++            }),
++            overflow: "hidden",
++          }}
++        />
++      ) : null}
+       <ExpandedPresentationSurface
+         eligible
+         reducedMotion={reducedMotion}
+@@ -209,11 +260,64 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
+         palette={THERMAL_PALETTE}
+         heatmap={heatmapMode}
+         refraction={refractionMode}
++        boundary={boundaryMode}
++        panelOrigin={outerDomain
++          ? {
++              x: MAIN_WINDOW_FULL_SHADOW_GUTTER / OUTER_DOMAIN_SIZE,
++              y: MAIN_WINDOW_FULL_SHADOW_GUTTER / OUTER_DOMAIN_SIZE,
++            }
++          : undefined}
++        panelSize={outerDomain
++          ? {
++              x: MAIN_WINDOW_PANEL_SIZE / OUTER_DOMAIN_SIZE,
++              y: MAIN_WINDOW_PANEL_SIZE / OUTER_DOMAIN_SIZE,
++            }
++          : undefined}
+         backingScale={captureScale}
+         redrawEpoch={captureEpoch}
+       />
+       <WebglReadback captureEpoch={captureEpoch} onResult={onWebglReadback} />
+ 
++      {outerDomain ? (
++        <div
++          data-lab-panel-clip=""
++          style={{
++            position: "absolute",
++            left: MAIN_WINDOW_FULL_SHADOW_GUTTER,
++            top: MAIN_WINDOW_FULL_SHADOW_GUTTER,
++            width: MAIN_WINDOW_PANEL_SIZE,
++            height: MAIN_WINDOW_PANEL_SIZE,
++            borderRadius: 16,
++            overflow: "hidden",
++            background: "none",
++            boxShadow: "none",
++            pointerEvents: "auto",
++            zIndex: 3,
++          }}
++        >
++          <div
++            data-lab-ui-pill=""
++            style={{
++              position: "absolute",
++              left: 12,
++              top: 12,
++              padding: "6px 14px",
++              borderRadius: 999,
++              background: "#2a2633",
++              border: "1px solid #3a3547",
++              color: "#ece8f2",
++              fontSize: 11,
++              lineHeight: 1,
++              pointerEvents: "auto",
++              cursor: "default",
++              userSelect: "none",
++            }}
++          >
++            {t("presets.thermalUnifiedMoving.label")}
++          </div>
++        </div>
++      ) : null}
++
+       {overlayProjection !== null && overlayProjection.centerOverlayVisual.kind !== "none" ? (
+         <MainWindowCenterOverlay
+           centerOverlayVisual={overlayProjection.centerOverlayVisual}
+diff --git a/src/lab/PresentationLab.tsx b/src/lab/PresentationLab.tsx
+index 44bcfd5..f4081b6 100644
+--- a/src/lab/PresentationLab.tsx
++++ b/src/lab/PresentationLab.tsx
+@@ -49,6 +49,9 @@ type ShaderReadout = {
+   reducedMotion: number;
+   heatmapMode: number;
+   refractionMode: number;
++  boundaryMode: number;
++  panelOrigin: readonly number[];
++  panelSize: readonly number[];
+   time: number;
+ };
+ 
+@@ -73,6 +76,9 @@ const readShaderReadout = (): ShaderReadout => {
+     reducedMotion: MISSING,
+     heatmapMode: MISSING,
+     refractionMode: MISSING,
++    boundaryMode: MISSING,
++    panelOrigin: [],
++    panelSize: [],
+     time: MISSING,
+   };
+   const canvas = canvases[0];
+@@ -120,6 +126,9 @@ const readShaderReadout = (): ShaderReadout => {
+     reducedMotion: readScalar("uReducedMotion"),
+     heatmapMode: readScalar("uHeatmapMode"),
+     refractionMode: readScalar("uRefractionMode"),
++    boundaryMode: readScalar("uBoundaryMode"),
++    panelOrigin: readVec2("uPanelOrigin"),
++    panelSize: readVec2("uPanelSize"),
+     time: readScalar("uTime"),
+   };
+ };
+@@ -314,6 +323,8 @@ const PRESET_LABEL_KEYS: Readonly<Record<string, string>> = {
+   "heatmap-reduced": "heatmapReduced",
+   "heatmap-refraction-moving": "heatmapRefractionMoving",
+   "heatmap-refraction-reduced": "heatmapRefractionReduced",
++  "thermal-unified-moving": "thermalUnifiedMoving",
++  "thermal-unified-reduced": "thermalUnifiedReduced",
+   "runtime-auto-config": "runtimeAutoConfig",
+   "runtime-failed": "runtimeFailed",
+   "download-active": "downloadActive",
+@@ -882,6 +893,8 @@ export function PresentationLab() {
+           reducedMotion={surfaceReducedMotion}
+           heatmapMode={state.heatmap !== null}
+           refractionMode={state.heatmap?.refraction === true}
++          boundaryMode={state.heatmap?.boundary === true}
++          outerDomain={state.heatmap?.boundary === true}
+           overlayProjection={overlayProjection}
+           showQueueOverlay={showQueueOverlay}
+           queueOpen={queueOpen}
+diff --git a/src/lab/locales/en.json b/src/lab/locales/en.json
+index 23b1409..7f531bb 100644
+--- a/src/lab/locales/en.json
++++ b/src/lab/locales/en.json
+@@ -37,6 +37,8 @@
+     "heatmapReduced": { "label": "Heatmap · reduced motion", "description": "Static bounded field snapshot; no travelling frames." },
+     "heatmapRefractionMoving": { "label": "Heatmap · thermal refraction", "description": "Moving field with slow local low-frequency refraction (analytic resample)." },
+     "heatmapRefractionReduced": { "label": "Heatmap · refraction, reduced motion", "description": "Static frozen local refraction; zero travelling frames." },
++    "thermalUnifiedMoving": { "label": "Thermal · unified boundary", "description": "Moving 2D field: shared E drives Refraction amplitude, localized edge, and 14px-gutter halo." },
++    "thermalUnifiedReduced": { "label": "Thermal · unified, reduced motion", "description": "Static frozen unified boundary response; zero travelling frames." },
+     "clearHeatmap": "Clear heatmap",
+     "clearHeatmapHint": "Return to the ordinary progress / activation surface.",
+     "runtimeAutoConfig": { "label": "Auto configure", "description": "Runtime auto-configuring indicator (indeterminate progress)." },
+diff --git a/src/lab/locales/zh-CN.json b/src/lab/locales/zh-CN.json
+index c03df6a..29c0506 100644
+--- a/src/lab/locales/zh-CN.json
++++ b/src/lab/locales/zh-CN.json
+@@ -37,6 +37,8 @@
+     "heatmapReduced": { "label": "热力图 · 减弱动态", "description": "静态有界场快照；无移动帧。" },
+     "heatmapRefractionMoving": { "label": "热力图 · 热折射", "description": "移动场 + 缓慢局部低频热折射（解析重采样）。" },
+     "heatmapRefractionReduced": { "label": "热力图 · 折射 · 减弱动态", "description": "冻结的静态局部折射；无移动帧。" },
++    "thermalUnifiedMoving": { "label": "热场 · 统一边界", "description": "移动 2D 场：共享 E 驱动折射幅度、局部边缘与 14px 边距光晕。" },
++    "thermalUnifiedReduced": { "label": "热场 · 统一 · 减弱动态", "description": "冻结的静态统一边界响应；无移动帧。" },
+     "clearHeatmap": "清除热力图",
+     "clearHeatmapHint": "返回常规进度 / 激活表面。",
+     "runtimeAutoConfig": { "label": "自动配置", "description": "运行时自动配置中的指示器（不确定进度）。" },
+diff --git a/src/lab/rendererReuse.test.ts b/src/lab/rendererReuse.test.ts
+index 492481c..a1aa35a 100644
+--- a/src/lab/rendererReuse.test.ts
++++ b/src/lab/rendererReuse.test.ts
+@@ -85,6 +85,25 @@ describe("Browser Presentation Lab production renderer reuse", () => {
+     // The derived Refraction mode is forwarded through the one production
+     // surface as a lab-only flag; the Lab never re-implements the shader.
+     expect(labStage).toContain("refraction={refractionMode}");
++    // Unified Thermal -> Boundary Response is forwarded the same way (one
++    // production surface, panel-mapped for the 228 outer-domain composition).
++    expect(labStage).toContain("boundary={boundaryMode}");
++    expect(labStage).toContain("panelOrigin={outerDomain");
++    expect(labStage).toContain("panelSize={outerDomain");
++  });
++
++  it("composes the proven outer-domain 228 layer with one FX canvas and real shell/clip", () => {
++    // The unified presets use the proven Lab-only 228 layer split: real panel
++    // shell below, one FX canvas, transparent interaction-safe UI clip above.
++    expect(labStage).toContain("OUTER_DOMAIN_SIZE");
++    expect(labStage).toContain("MAIN_WINDOW_PANEL_SIZE + MAIN_WINDOW_FULL_SHADOW_GUTTER * 2");
++    expect(labStage).toContain('data-lab-panel-shell');
++    expect(labStage).toContain('data-lab-panel-clip');
++    expect(labStage).toContain('pointerEvents: "auto"');
++    // Still exactly one canvas (the one production surface) — the shell and
++    // clip are plain divs.
++    expect(labStage.match(/<canvas\b/g)).toBeNull();
++    expect(labStage.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
+   });
+ 
+   it("reimplements no renderer, runtime, or shader", () => {
+diff --git a/src/lab/scenarios.test.ts b/src/lab/scenarios.test.ts
+index bd6f79d..02ee85c 100644
+--- a/src/lab/scenarios.test.ts
++++ b/src/lab/scenarios.test.ts
+@@ -294,6 +294,7 @@ describe("Lab scenario model", () => {
+       presetId: "heatmap-moving",
+       forcedReducedMotion: false,
+       refraction: false,
++      boundary: false,
+     });
+     // The spike keeps a valid semantic underlay (progress) and does not force
+     // reduced motion for the moving-field preset.
+@@ -312,6 +313,7 @@ describe("Lab scenario model", () => {
+       presetId: "heatmap-reduced",
+       forcedReducedMotion: true,
+       refraction: false,
++      boundary: false,
+     });
+     expect(composeLabInput(state).reducedMotion).toBe(true);
+   });
+@@ -342,6 +344,7 @@ describe("Lab scenario model", () => {
+       presetId: "heatmap-refraction-moving",
+       forcedReducedMotion: false,
+       refraction: true,
++      boundary: false,
+     });
+     // Refraction is a derived Heatmap mode: it still drives the production
+     // heatmap path with a valid progress underlay and no forced RM.
+@@ -360,19 +363,54 @@ describe("Lab scenario model", () => {
+       presetId: "heatmap-refraction-reduced",
+       forcedReducedMotion: true,
+       refraction: true,
++      boundary: false,
+     });
+     // Reduced Motion freezes the refraction to a static snapshot.
+     expect(composeLabInput(state).reducedMotion).toBe(true);
+   });
+ 
+-  it("declares all four heatmap presets with distinct ids", () => {
++  it("declares all heatmap presets with distinct ids", () => {
+     expect(LAB_HEATMAP_PRESETS.map((preset) => preset.id)).toEqual([
+       "heatmap-moving",
+       "heatmap-reduced",
+       "heatmap-refraction-moving",
+       "heatmap-refraction-reduced",
++      "thermal-unified-moving",
++      "thermal-unified-reduced",
+     ]);
+     const ids = new Set(LAB_HEATMAP_PRESETS.map((preset) => preset.id));
+     expect(ids.size).toBe(LAB_HEATMAP_PRESETS.length);
+   });
++
++  it("derives the unified presets on the accepted refraction interior with the boundary flag", () => {
++    let state = reduceLabPresentation(createLabPresentationState(), {
++      type: "setHeatmap",
++      presetId: "thermal-unified-moving",
++    });
++    expect(state.heatmap).toEqual({
++      presetId: "thermal-unified-moving",
++      forcedReducedMotion: false,
++      refraction: true,
++      boundary: true,
++    });
++    // The unified preset keeps a valid progress underlay and no forced RM.
++    const moving = composeLabInput(state);
++    expect(moving.reducedMotion).toBe(false);
++    expect(moving.target).toEqual({
++      kind: "progress",
++      progress: { kind: "determinate", traceId: LAB_PRIMARY_TRACE_ID, target: 0.5 },
++    });
++    // Reduced Motion freezes the unified boundary response to a static snapshot.
++    state = reduceLabPresentation(state, {
++      type: "setHeatmap",
++      presetId: "thermal-unified-reduced",
++    });
++    expect(state.heatmap).toEqual({
++      presetId: "thermal-unified-reduced",
++      forcedReducedMotion: true,
++      refraction: true,
++      boundary: true,
++    });
++    expect(composeLabInput(state).reducedMotion).toBe(true);
++  });
+ });
+diff --git a/src/lab/scenarios.ts b/src/lab/scenarios.ts
+index b59ef0b..da85df7 100644
+--- a/src/lab/scenarios.ts
++++ b/src/lab/scenarios.ts
+@@ -96,6 +96,11 @@ export type LabHeatmapPreset = Readonly<{
+   /** Derived Heatmap mode: while true the single shader also applies the
+    * lab-gated Thermal Refraction displacement to the same analytic field. */
+   refraction: boolean;
++  /** Unified Thermal -> Panel Boundary Response: while true the single
++   * shader consumes the shared response energy E = A x H for Refraction
++   * amplitude, boundary edge, and the exterior halo, on the 228 outer-domain
++   * Lab composition. */
++  boundary: boolean;
+   label: string;
+   description: string;
+ }>;
+@@ -111,6 +116,7 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
+   {
+     id: "heatmap-moving",
+     refraction: false,
++    boundary: false,
+     forcedReducedMotion: false,
+     label: "Heatmap · moving field",
+     description: "Full-surface moving scalar heat field (clean-room spike).",
+@@ -118,6 +124,7 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
+   {
+     id: "heatmap-reduced",
+     refraction: false,
++    boundary: false,
+     forcedReducedMotion: true,
+     label: "Heatmap · reduced motion",
+     description: "Static bounded field snapshot; no travelling frames.",
+@@ -125,6 +132,7 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
+   {
+     id: "heatmap-refraction-moving",
+     refraction: true,
++    boundary: false,
+     forcedReducedMotion: false,
+     label: "Heatmap · thermal refraction",
+     description: "Moving field with slow local low-frequency refraction (analytic resample).",
+@@ -132,10 +140,27 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
+   {
+     id: "heatmap-refraction-reduced",
+     refraction: true,
++    boundary: false,
+     forcedReducedMotion: true,
+     label: "Heatmap · refraction, reduced motion",
+     description: "Static frozen local refraction; zero travelling frames.",
+   },
++  {
++    id: "thermal-unified-moving",
++    refraction: true,
++    boundary: true,
++    forcedReducedMotion: false,
++    label: "Thermal · unified boundary",
++    description: "Moving 2D field: shared E drives Refraction amplitude, localized edge, and 14px-gutter halo.",
++  },
++  {
++    id: "thermal-unified-reduced",
++    refraction: true,
++    boundary: true,
++    forcedReducedMotion: true,
++    label: "Thermal · unified, reduced motion",
++    description: "Static frozen unified boundary response; zero travelling frames.",
++  },
+ ];
+ 
+ export type LabActivationState = Readonly<{
+@@ -152,6 +177,9 @@ export type LabHeatmapState = Readonly<{
+   forcedReducedMotion: boolean;
+   /** Derived Heatmap mode flag; production never sees it. */
+   refraction: boolean;
++  /** Unified Thermal -> Panel Boundary Response flag; production never sees
++   * it. Implies the 228 outer-domain Lab composition. */
++  boundary: boolean;
+ }>;
+ 
+ export type LabPresentationState = Readonly<{
+@@ -271,6 +299,7 @@ export const reduceLabPresentation = (
+           presetId: preset.id,
+           forcedReducedMotion: preset.forcedReducedMotion,
+           refraction: preset.refraction,
++          boundary: preset.boundary,
+         },
+       };
+     }
+diff --git a/src/presentation/main-window/ExpandedPresentationSurface.tsx b/src/presentation/main-window/ExpandedPresentationSurface.tsx
+index ca230ee..6917b76 100644
+--- a/src/presentation/main-window/ExpandedPresentationSurface.tsx
++++ b/src/presentation/main-window/ExpandedPresentationSurface.tsx
+@@ -50,6 +50,14 @@ uniform int uActivationKind;
+ uniform vec2 uActivationOrigin;
+ uniform int uHeatmapMode;
+ uniform int uRefractionMode;
++uniform int uBoundaryMode;
++// Renderer-local Lab-only panel mapping (default identity = the accepted 200
++// production domain). The 228 Lab outer-domain layer passes the real panel
++// origin (14,14)/228 and size (200,200)/228 so the interior topology stays
++// pixel-identical while bd is measured from the real rounded panel boundary.
++// Production never sets them.
++uniform vec2 uPanelOrigin;
++uniform vec2 uPanelSize;
+ // Lab-gated Heatmap spike: the restored baseline field is fully analytic
+ // (plane front + value-noise bend + rounded-rect SDF + 2D gaussian core), so
+ // it needs NO texture, preprocessing, or framebuffer. See
+@@ -147,7 +155,7 @@ float heatmapGrainHash(vec2 p) {
+ // Rounded Main Window shell (renderer-local projection of the real 200x200 /
+ // 16px boundary): analytic rounded-rect SDF, <= 0 inside, 0 on the shell.
+ // The DOM clips the canvas to this exact rounded rect.
+-float roundedBoundary(vec2 uv) {
++float roundedBoundary(vec2 panelUv) {
+   vec2 halfSize = vec2(0.5) - uCornerRadius;
+   vec2 qb = abs(uv - 0.5) - halfSize;
+   float bd = length(max(qb, vec2(0.0)))
+@@ -163,7 +171,13 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+   float k = reducedMotion ? 0.42 : fract(t * 0.13); // one continuous phase (~7.7s)
+   float front = mix(-0.58, 1.6, k);                 // travelling front position
+   float bendTime = reducedMotion ? 0.0 : t;         // RM pins the deformation
+-  vec2 q = uv - 0.5;                                // centered field coordinate
++  // Panel-local mapping: in the 200 production/Lab domain uPanelOrigin=(0,0)
++  // and uPanelSize=(1,1), so panelUv = uv and q = uv - 0.5 (accepted
++  // identity). In the 228 Lab outer-domain layer the real panel sits at
++  // (14,14)/228; the same panel-centered field keeps the interior topology
++  // pixel-identical while bd is measured from the real rounded boundary.
++  vec2 panelUv = (uv - uPanelOrigin) / uPanelSize;
++  vec2 q = panelUv - 0.5;                           // centered field coordinate
+   const vec2 DIR = vec2(0.8235, 0.5674);            // normalize(0.90, 0.62); lower-left -> upper-right
+   float p = dot(q, DIR);
+   float bend = heatmapBend(q, bendTime);
+@@ -177,7 +191,7 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+   float energy = smoothstep(0.0, 0.12, k) * (1.0 - smoothstep(0.66, 0.99, k));
+   // Rounded boundary (real 200x200/16px shell) contact-gated localized
+   // capture: nonzero only where the warm frontier meets the boundary.
+-  float bd = roundedBoundary(uv);
++  float bd = roundedBoundary(panelUv);
+   float boundaryBand = smoothstep(-0.05, 0.0, bd) * step(bd, 0.0);
+   float capture = boundaryBand * warm * 0.6;
+   float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;
+@@ -256,16 +270,11 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+     // front and dies ahead of it (no full-screen wobble, no boundary ring).
+     float covered = 1.0 - smoothstep(0.0, 0.05, d);
+     float bodyFloor = covered * (1.0 - smoothstep(0.20, 0.85, warm));
+-    float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;
+-    // First-order analytic resample at q + grad*s: the signed distance and
+-    // front-tangent coordinates both shift (d = dot(q, DIR) - front + bend).
+-    float s = REFRACTION_STRENGTH * env;
+-    float dShift = s * (dot(grad, DIR) + dot(grad, grad));
+-    float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));
+-    float d2 = d + dShift;
+-    float along2 = alongFront + alongShift;
+-    float warm2 = exp(-abs(d2 + 0.018) * 30.0);
+-    float covered2 = 1.0 - smoothstep(0.0, 0.05, d2);
++    // T = accepted 2D temperature topology (sole authority). Displacement-
++    // independent (depends only on q and bendTime), so it is hoisted before
++    // the envelope and the resample; the interior material below stays
++    // byte-identical to the accepted refraction material when unified mode
++    // is off.
+     // 2D temperature topology: three genuinely distinct coordinate frames
+     // (rotation, shear/axis-mix, anisotropic scale) at ~1.6-2.8x so the
+     // 200x200 view spans several broad smooth low-frequency lobes instead of
+@@ -284,11 +293,44 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+     // negative tail stays deep/vivid blue, and the positive tail becomes a
+     // yellow/orange gradient with localized red-orange (no broad hot board).
+     float baseTemperature = clamp(0.5 + 0.5 * baseT + 0.24, 0.0, 1.0);
++    // H = monotonic zero-capable response(T): a smoothstep band tied to the
++    // accepted HEAT_STOP mid-ramp transition (material 0.433..0.657, i.e. the
++    // light-blue/cyan -> golden-yellow -> orange range). It is exactly zero
++    // for the cool field (T < 0.38) so low-temperature pixels never
++    // illuminate the whole rounded boundary. No new coordinates/time/phase/
++    // noise/mask/palette/morphology.
++    float H = uBoundaryMode != 0 ? smoothstep(0.38, 0.62, baseTemperature) : 1.0;
++    float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;
++    // Unified: bounded H-derived modulation of the accepted amplitude
++    // envelope (0.35x..1.25x). Direction (grad), base strength, and the
++    // first-order resample stay locked. Unified-off keeps env exactly.
++    if (uBoundaryMode != 0) {
++      env = clamp(env * (0.35 + 0.9 * H), 0.0, 1.0);
++    }
++    // First-order analytic resample at q + grad*s: the signed distance and
++    // front-tangent coordinates both shift (d = dot(q, DIR) - front + bend).
++    float s = REFRACTION_STRENGTH * env;
++    float dShift = s * (dot(grad, DIR) + dot(grad, grad));
++    float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));
++    float d2 = d + dShift;
++    float along2 = alongFront + alongShift;
++    float warm2 = exp(-abs(d2 + 0.018) * 30.0);
++    float covered2 = 1.0 - smoothstep(0.0, 0.05, d2);
++    // E = A * H — the one shared response energy (A = accepted covered2 x
++    // lifecycle energy). Consumed by the Refraction amplitude (above), the
++    // boundary-local edge response, and the exterior halo. Zero when unified
++    // mode is off.
++    float E = uBoundaryMode != 0 ? covered2 * energy * H : 0.0;
++    // Boundary-local edge response at the exact real rounded boundary: E x
++    // the accepted inward-thick boundaryBand; it modifies the SAME material
++    // scalar/ramp (bounded additive term; never a boundary-only color).
++    float edgeEnergy = uBoundaryMode != 0 ? E * boundaryBand : 0.0;
+     float contact2 = boundaryBand * warm2;
+     // Bounded secondary biases keep frontier/contact hottest without defining
+     // topology; covered2 gates material to the active region.
+     float material2 = clamp(
+-      mix(0.08, 0.93, baseTemperature) + warm2 * 0.18 + contact2 * 0.22,
++      mix(0.08, 0.93, baseTemperature) + warm2 * 0.18 + contact2 * 0.22
++        + edgeEnergy * 0.25,
+       0.0, 1.0
+     ) * covered2;
+     vec3 rgb2 = HEAT_STOP[0];
+@@ -312,6 +354,68 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+   }
+   // Subtle sine-free grain so flat gradients read as material.
+   rgb += (heatmapGrainHash(uv * 311.0 + 17.0) - 0.5) * 0.02;
++
++  // ============ UNIFIED THERMAL -> PANEL BOUNDARY RESPONSE (lab-gated) ============
++  // lead-review.md T/A/H/E contract on the accepted 2D interior: T = accepted
++  // baseTemperature (sole topology), A = accepted covered2 x energy (support),
++  // H = monotonic zero-capable response(T), E = A * H = one shared response
++  // energy consumed by Refraction amplitude (inside the refraction gate),
++  // boundary edge (edgeEnergy), and the exterior halo below. The halo carries
++  // the SAME boundary E outward along the analytic outward normal with an
++  // analytic compact-support falloff. All terms derive from accepted scalars;
++  // no new coordinates/time/phase/noise/mask/palette/morphology.
++  if (uBoundaryMode != 0 && uRefractionMode != 0) {
++    // Outward unit normal of the real rounded SDF (analytic, panel-local).
++    vec2 qb = abs(panelUv - 0.5) - (vec2(0.5) - uCornerRadius);
++    vec2 outward = qb.x > 0.0 && qb.y > 0.0
++      ? normalize(qb)
++      : qb.x > 0.0 ? vec2(1.0, 0.0)
++      : qb.y > 0.0 ? vec2(0.0, 1.0)
++      : vec2(0.0, 0.0);
++    // Nearest point on the real rounded boundary (no inset carrier).
++    vec2 panelUvB = panelUv - bd * outward;
++    vec2 qB = panelUvB - 0.5;
++    // Boundary E: H(T) and the accepted coverage sampled AT the boundary
++    // point (same authority as the interior).
++    vec2 paB = vec2(0.8 * qB.x - 0.6 * qB.y, 0.6 * qB.x + 0.8 * qB.y) * 2.2 + vec2(0.30, -0.20);
++    vec2 pbB = vec2(qB.x + 0.45 * qB.y, qB.y - 0.35 * qB.x) * 2.8 + vec2(-0.25, 0.35);
++    vec2 pcB = vec2(qB.x * 1.7, qB.y * 0.9) * 1.6 + vec2(0.10, 0.40);
++    float baseTB = clamp(
++      heatmapBend(paB, bendTime) * 16.0 * 0.45
++        + heatmapBend(pbB, bendTime) * 16.0 * 0.35
++        + heatmapBend(pcB, bendTime) * 16.0 * 0.20,
++      -1.0, 1.0);
++    float TB = clamp(0.5 + 0.5 * baseTB + 0.24, 0.0, 1.0);
++    float HB = smoothstep(0.38, 0.62, TB);
++    float dB = dot(qB, DIR) - front + heatmapBend(qB, bendTime);
++    float coveredB = 1.0 - smoothstep(0.0, 0.05, dB);
++    float EB = coveredB * energy * HB;
++    // Analytic compact-support falloff: support ends at 12 CSS px from the
++    // boundary (12/200 = 0.06 panel units). The final 2px of the real 14px
++    // gutter (bd >= 12/200 = 0.06) are mathematically zero on straight sides,
++    // and the longer corner diagonal reaches zero sooner. A high-energy outer
++    // edge is a falsification, never a repair.
++    float haloFalloff = 1.0 - smoothstep(0.0, 1.0, clamp(bd / 0.06, 0.0, 1.0));
++    float halo = EB * haloFalloff;
++    // Same Thermal palette (HEAT_STOP), subordinate low-alpha projection.
++    float haloMaterial = clamp(halo * 0.55, 0.0, 1.0);
++    vec3 rgbHalo = HEAT_STOP[0];
++    for (int i = 1; i < 7; i++) {
++      float m = clamp(haloMaterial * 6.0 - float(i - 1), 0.0, 1.0);
++      rgbHalo = mix(rgbHalo, HEAT_STOP[i], m);
++    }
++    float alphaHalo = halo * 0.45;
++    // Real panel silhouette gate (Lab outer-domain only): the interior stays
++    // the accepted material inside the rounded panel; the gutter carries ONLY
++    // the subordinate halo (the production DOM clip is absent on the 228 Lab
++    // canvas). Inside the panel the mask is exactly 1.
++    float panelMask = 1.0 - step(0.0, bd);
++    rgb *= panelMask;
++    alpha *= panelMask;
++    float inGutter = 1.0 - panelMask;
++    rgb = mix(rgb, rgbHalo, alphaHalo * inGutter);
++    alpha = max(alpha, alphaHalo * inGutter);
++  }
+   color = vec4(rgb, alpha);
+ }
+ 
+@@ -429,6 +533,24 @@ export type ExpandedPresentationSurfaceProps = {
+    * cool-body-weak, energy-zero envelope. Production never sets it.
+    */
+   refraction?: boolean;
++  /**
++   * Lab-only Unified Thermal -> Panel Boundary Response flag (default false).
++   * Derived mode of the Refraction spike: while true the one shader consumes
++   * the shared response energy E = A x H for Refraction amplitude, the
++   * boundary-local edge response, and the exterior halo, gated to the real
++   * rounded panel silhouette. Production never sets it.
++   */
++  boundary?: boolean;
++  /**
++   * Lab-only outer-domain panel mapping (defaults to identity (0,0)/(1,1) =
++   * the accepted 200 production domain). The 228 Lab outer-domain layer
++   * passes the real panel origin (14,14)/228 and size (200,200)/228 so the
++   * interior topology stays pixel-identical while the boundary SDF and halo
++   * are measured from the real rounded panel boundary. Production never sets
++   * them.
++   */
++  panelOrigin?: { x: number; y: number };
++  panelSize?: { x: number; y: number };
+   /**
+    * Optional ABSOLUTE backing pixels-per-CSS-pixel value (dev-only, default
+    * undefined = normal clamped devicePixelRatio). The Browser Lab passes 4
+@@ -449,9 +571,9 @@ export type ExpandedPresentationSurfaceProps = {
+ type GraphicsColors = ThermalPalette;
+ 
+ type GraphicsRenderer = {
+-  render: (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean) => void;
++  render: (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean, boundaryMode: boolean, panelOrigin: { x: number; y: number }, panelSize: { x: number; y: number }) => void;
+   resize: (backingScale?: number) => void;
+-  redraw: (colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean) => void;
++  redraw: (colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean, boundaryMode: boolean, panelOrigin: { x: number; y: number }, panelSize: { x: number; y: number }) => void;
+   clear: () => void;
+   dispose: () => void;
+ };
+@@ -550,6 +672,9 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+   const activationOriginLocation = gl.getUniformLocation(linkedProgram, "uActivationOrigin");
+   const heatmapModeLocation = gl.getUniformLocation(linkedProgram, "uHeatmapMode");
+   const refractionModeLocation = gl.getUniformLocation(linkedProgram, "uRefractionMode");
++  const boundaryModeLocation = gl.getUniformLocation(linkedProgram, "uBoundaryMode");
++  const panelOriginLocation = gl.getUniformLocation(linkedProgram, "uPanelOrigin");
++  const panelSizeLocation = gl.getUniformLocation(linkedProgram, "uPanelSize");
+   const cornerRadiusLocation = gl.getUniformLocation(linkedProgram, "uCornerRadius");
+   const voidLocation = gl.getUniformLocation(linkedProgram, "uThermalVoid");
+   const deepLocation = gl.getUniformLocation(linkedProgram, "uThermalDeep");
+@@ -583,7 +708,7 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+     gl.viewport(0, 0, width, height);
+   };
+ 
+-  const draw = (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean): void => {
++  const draw = (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean, boundaryMode: boolean, panelOrigin: { x: number; y: number }, panelSize: { x: number; y: number }): void => {
+     if (disposed || gl.isContextLost()) return;
+     lastFrame = frame;
+     let progressMode = 0;
+@@ -612,6 +737,9 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+     gl.uniform2f(activationOriginLocation, activation?.origin.x ?? 0.5, activation?.origin.y ?? 0.5);
+     gl.uniform1i(heatmapModeLocation, heatmapMode ? 1 : 0);
+     gl.uniform1i(refractionModeLocation, refractionMode ? 1 : 0);
++    gl.uniform1i(boundaryModeLocation, boundaryMode ? 1 : 0);
++    gl.uniform2f(panelOriginLocation, panelOrigin.x, panelOrigin.y);
++    gl.uniform2f(panelSizeLocation, panelSize.x, panelSize.y);
+     gl.uniform1f(cornerRadiusLocation, MAIN_WINDOW_CORNER_RADIUS_NORMALIZED);
+     gl.uniform3fv(voidLocation, parseHexColor(colors.thermalVoid));
+     gl.uniform3fv(deepLocation, parseHexColor(colors.thermalDeep));
+@@ -633,8 +761,8 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+   return {
+     render: draw,
+     resize,
+-    redraw: (colors, heatmapMode, refractionMode) => {
+-      if (lastFrame !== null) draw(lastFrame, colors, heatmapMode, refractionMode);
++    redraw: (colors, heatmapMode, refractionMode, boundaryMode, panelOrigin, panelSize) => {
++      if (lastFrame !== null) draw(lastFrame, colors, heatmapMode, refractionMode, boundaryMode, panelOrigin, panelSize);
+     },
+     clear,
+     dispose: () => {
+@@ -657,6 +785,9 @@ export function ExpandedPresentationSurface({
+   palette,
+   heatmap = false,
+   refraction = false,
++  boundary = false,
++  panelOrigin,
++  panelSize,
+   backingScale,
+   redrawEpoch = 0,
+ }: ExpandedPresentationSurfaceProps) {
+@@ -672,6 +803,9 @@ export function ExpandedPresentationSurface({
+   const colorsRef = useRef<GraphicsColors>(palette);
+   const heatmapModeRef = useRef(heatmap);
+   const refractionModeRef = useRef(refraction);
++  const boundaryModeRef = useRef(boundary);
++  const panelOriginRef = useRef<{ x: number; y: number }>(panelOrigin ?? { x: 0, y: 0 });
++  const panelSizeRef = useRef<{ x: number; y: number }>(panelSize ?? { x: 1, y: 1 });
+   const backingScaleRef = useRef<number | undefined>(backingScale);
+   const [dprEpoch, setDprEpoch] = useState(0);
+ 
+@@ -681,6 +815,9 @@ export function ExpandedPresentationSurface({
+     colorsRef.current = palette;
+     heatmapModeRef.current = heatmap;
+     refractionModeRef.current = refraction;
++    boundaryModeRef.current = boundary;
++    panelOriginRef.current = panelOrigin ?? { x: 0, y: 0 };
++    panelSizeRef.current = panelSize ?? { x: 1, y: 1 };
+     backingScaleRef.current = backingScale;
+   }, [
+     eligible,
+@@ -690,6 +827,9 @@ export function ExpandedPresentationSurface({
+     target,
+     heatmap,
+     refraction,
++    boundary,
++    panelOrigin,
++    panelSize,
+   ]);
+ 
+   useEffect(() => {
+@@ -704,7 +844,7 @@ export function ExpandedPresentationSurface({
+         now: () => performance.now(),
+         scheduleFrame: (callback) => requestAnimationFrame(callback),
+         cancelFrame: (handle) => cancelAnimationFrame(handle),
+-        render: (frame) => rendererRef.current?.render(frame, colorsRef.current, heatmapModeRef.current, refractionModeRef.current),
++        render: (frame) => rendererRef.current?.render(frame, colorsRef.current, heatmapModeRef.current, refractionModeRef.current, boundaryModeRef.current, panelOriginRef.current, panelSizeRef.current),
+       });
+       runtimeRef.current = runtime;
+       renderer.resize();
+@@ -723,7 +863,7 @@ export function ExpandedPresentationSurface({
+     installRenderer();
+     const resizeObserver = new ResizeObserver(() => {
+       rendererRef.current?.resize(backingScaleRef.current);
+-      if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
++      if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, boundaryModeRef.current, panelOriginRef.current, panelSizeRef.current);
+       else rendererRef.current?.clear();
+     });
+     resizeObserver.observe(canvas);
+@@ -758,17 +898,17 @@ export function ExpandedPresentationSurface({
+     const renderer = rendererRef.current;
+     if (renderer === null) return;
+     renderer.resize(backingScaleRef.current);
+-    if (eligibleRef.current) renderer.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
++    if (eligibleRef.current) renderer.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, boundaryModeRef.current, panelOriginRef.current, panelSizeRef.current);
+     else renderer.clear();
+   }, [backingScale, redrawEpoch]);
+ 
+   useEffect(() => {
+-    if (eligible) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
+-  }, [eligible, palette, heatmap, refraction]);
++    if (eligible) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, boundaryModeRef.current, panelOriginRef.current, panelSizeRef.current);
++  }, [eligible, palette, heatmap, refraction, boundary, panelOrigin, panelSize]);
+ 
+   useEffect(() => {
+     rendererRef.current?.resize(backingScaleRef.current);
+-    if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
++    if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, boundaryModeRef.current, panelOriginRef.current, panelSizeRef.current);
+     else rendererRef.current?.clear();
+     // Observe the raw scale even though the backing store is capped. A query
+     // for the capped value would stay false when moving between (for example)
+diff --git a/src/presentation/main-window/expandedPresentationSurface.test.ts b/src/presentation/main-window/expandedPresentationSurface.test.ts
+index b77997e..7652c28 100644
+--- a/src/presentation/main-window/expandedPresentationSurface.test.ts
++++ b/src/presentation/main-window/expandedPresentationSurface.test.ts
+@@ -181,7 +181,10 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(hostSource).toContain("const vec2 DIR = vec2(0.8235, 0.5674);");
+     expect(hostSource).toContain("float k = reducedMotion ? 0.42 : fract(t * 0.13);");
+     expect(hostSource).toContain("float front = mix(-0.58, 1.6, k);");
+-    expect(hostSource).toContain("vec2 q = uv - 0.5;");
++    // Panel-local mapping: identity defaults (uPanelOrigin=(0,0),
++    // uPanelSize=(1,1)) reduce to the accepted q = uv - 0.5 in the 200 domain.
++    expect(hostSource).toContain("vec2 panelUv = (uv - uPanelOrigin) / uPanelSize;");
++    expect(hostSource).toContain("vec2 q = panelUv - 0.5;");
+     expect(hostSource).toContain("float d = p - front + bend;");
+     expect(hostSource).toContain("float body = exp(-behind * 1.1) * (1.0 - smoothstep(0.0, 0.05, d));");
+     expect(hostSource).toContain("float warm = exp(-abs(d + 0.018) * 30.0);");
+@@ -199,8 +202,14 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(hostSource).toContain("float boundaryBand = smoothstep(-0.05, 0.0, bd) * step(bd, 0.0);");
+     expect(hostSource).toContain("float capture = boundaryBand * warm * 0.6;");
+     expect(hostSource).toContain("float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;");
+-    expect(hostSource).toContain("float bd = roundedBoundary(uv);");
++    expect(hostSource).toContain("float bd = roundedBoundary(panelUv);");
+     expect(hostSource).toContain("vec2 halfSize = vec2(0.5) - uCornerRadius;");
++    // The renderer projects the real 200x200 panel at (14,14)/228 for the Lab
++    // outer-domain layer and defaults to the accepted identity otherwise.
++    expect(hostSource).toContain("panelOriginRef.current = panelOrigin ?? { x: 0, y: 0 };");
++    expect(hostSource).toContain("panelSizeRef.current = panelSize ?? { x: 1, y: 1 };");
++    expect(hostSource).toContain('gl.uniform2f(panelOriginLocation, panelOrigin.x, panelOrigin.y);');
++    expect(hostSource).toContain('gl.uniform2f(panelSizeLocation, panelSize.x, panelSize.y);');
+   });
+ 
+   it("adds the palette/material/edge repair as a separate color-only layer", () => {
+@@ -388,6 +397,97 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(hostSource).not.toContain("haze");
+   });
+ 
++  it("derives the unified T/A/H/E shared energy with one topology authority", () => {
++    const heatmapBlock = hostSource.slice(
++      hostSource.indexOf("void heatmapOutput("),
++      hostSource.lastIndexOf("void main()"),
++    );
++    // T = accepted baseTemperature remains the only 2D topology authority.
++    expect(heatmapBlock).toContain("float baseTemperature = clamp(0.5 + 0.5 * baseT + 0.24, 0.0, 1.0);");
++    // H = monotonic zero-capable response(T): smoothstep band tied to the
++    // HEAT_STOP mid-ramp transition; exactly zero for the cool field.
++    expect(heatmapBlock).toContain("smoothstep(0.38, 0.62, baseTemperature)");
++    // E = A * H (A = accepted covered2 * energy) — one shared response energy.
++    expect(heatmapBlock).toContain("covered2 * energy * H");
++    // No new coordinates/time/phase/noise/mask/palette/morphology authority.
++    expect(heatmapBlock).not.toContain("uPaperPhase");
++    expect(heatmapBlock).not.toContain("PAPER_STOP");
++    expect(heatmapBlock).not.toMatch(/boundaryTime|boundaryPhase|secondTemperature|T2\b/i);
++    expect(hostSource).toContain("uniform int uBoundaryMode;");
++    expect(hostSource).toContain("boundary?: boolean;");
++  });
++
++  it("keeps the accepted interior formula/constants and locks Refraction identity", () => {
++    const gate = hostSource.slice(
++      hostSource.indexOf("if (uRefractionMode != 0) {"),
++      hostSource.indexOf("// Subtle sine-free grain"),
++    );
++    // Accepted interior formula/constants unchanged (unified adds a bounded
++    // additive edge term only when boundary mode is on).
++    expect(gate).toContain("mix(0.08, 0.93, baseTemperature)");
++    expect(gate).toContain("warm2 * 0.18");
++    expect(gate).toContain("contact2 * 0.22");
++    expect(gate).toContain("* covered2;");
++    expect(gate).toContain("const float REFRACTION_EPS = 0.02;");
++    expect(gate).toContain("const float REFRACTION_STRENGTH = 0.16;");
++    expect(gate).toContain("float s = REFRACTION_STRENGTH * env;");
++    expect(gate).toContain("float dShift = s * (dot(grad, DIR) + dot(grad, grad));");
++    expect(gate).toContain("float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));");
++    expect(gate).toContain("float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;");
++    // Only a bounded H-derived modulation of the accepted envelope is added.
++    expect(gate).toContain("env = clamp(env * (0.35 + 0.9 * H), 0.0, 1.0);");
++    // The boundary edge modifies the same material scalar/ramp (no boundary-
++    // only color, no second palette).
++    expect(gate).toContain("E * boundaryBand");
++    expect(gate).toContain("edgeEnergy * 0.25");
++    expect(gate).not.toContain("HEAT_STOP2");
++  });
++
++  it("feeds the one shared energy E to Refraction amplitude, edge, and halo", () => {
++    const heatmapBlock = hostSource.slice(
++      hostSource.indexOf("void heatmapOutput("),
++      hostSource.lastIndexOf("void main()"),
++    );
++    expect(heatmapBlock).toContain("covered2 * energy * H"); // E = A*H
++    expect(heatmapBlock).toContain("E * boundaryBand"); // edge
++    expect(heatmapBlock).toContain("0.35 + 0.9 * H"); // refraction amplitude
++    // Halo consumes the same boundary E sampled at the boundary point.
++    expect(heatmapBlock).toContain("coveredB * energy * HB"); // boundary E
++    expect(heatmapBlock).toContain("haloFalloff");
++    // One halo authority, same palette, subordinate alpha.
++    expect(heatmapBlock).toContain("alphaHalo = halo * 0.45");
++    expect(heatmapBlock).toContain("HEAT_STOP");
++  });
++
++  it("bounds the halo to <=12px support with a strict final-2px zero guard", () => {
++    const heatmapBlock = hostSource.slice(
++      hostSource.indexOf("void heatmapOutput("),
++      hostSource.lastIndexOf("void main()"),
++    );
++    // Support ends at 12 CSS px (12/200 = 0.06 panel units); the final 2px of
++    // the real 14px gutter (bd >= 12/200) are mathematically zero on straight
++    // sides, and corners (longer bd) reach zero sooner.
++    expect(heatmapBlock).toContain("1.0 - smoothstep(0.0, 1.0, clamp(bd / 0.06, 0.0, 1.0))");
++    // The panel silhouette gate keeps the interior inside the real rounded
++    // panel and the gutter to only the halo.
++    expect(heatmapBlock).toContain("1.0 - step(0.0, bd)");
++    expect(heatmapBlock).toContain("panelMask");
++  });
++
++  it("keeps one canvas/program/draw with no texture/FBO/Paper grammar in unified mode", () => {
++    const heatmapBlock = hostSource.slice(
++      hostSource.indexOf("void heatmapOutput("),
++      hostSource.lastIndexOf("void main()"),
++    );
++    expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
++    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
++    expect(hostSource).not.toContain("sampler2D");
++    expect(hostSource).not.toMatch(/createTexture|createFramebuffer|framebufferTexture2D/);
++    expect(heatmapBlock).not.toContain("paperShadowBlob");
++    expect(heatmapBlock).not.toContain("uPaperBoundary");
++    expect(heatmapBlock).not.toMatch(/sourceInfluence|qExit|trailing|convergence/i);
++  });
++
+   it("documents the license state honestly (no active Paper derivative)", () => {
+     // All Paper-derived shader/preprocessing source was removed with the
+     // rejected literal/latent-carrier path; the notices must distinguish
