@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Main Window composition boundary, decorative pointer transparency, and persistent interaction authority."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Sole concrete Expanded WebGL host and consumer-local module placement rules."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Transparent-window shell, shared surface recipes, and shadow ownership conventions."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Product/Application/Presentation and renderer-local state ownership boundaries."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Focused and full validation expectations."}
+{"file":".trellis/tasks/08-22-localized-boundary-production-integration-planning/research/repository-grounded-planning-report.md","reason":"Authoritative production composition, interaction, validation, and rollback plan."}

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review panel-only interaction and decorative-layer composition."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Review sole host and consumer-local module boundaries."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review automated and actual Windows validation coverage."}
+{"file":".trellis/tasks/08-22-localized-boundary-production-integration-planning/research/repository-grounded-planning-report.md","reason":"Review exact ownership, hit semantics, macOS boundary, and rollback criteria."}
