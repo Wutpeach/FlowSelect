@@ -1620,3 +1620,37 @@ Committed the isolated Paper 0.0.80 selector-inversion Browser Lab checkpoint wi
 ### Status
 
 [OK] **Completed**
+
+
+## Session 250: MR9 Ripple Motion Foundation checkpoint
+
+**Date**: 2026-08-24
+**Task**: MR9 Ripple Motion Foundation checkpoint
+**Branch**: `lab/mr9-ripple-source-fidelity`
+
+### Summary
+
+Closed the isolated Ripple Browser Lab feasibility stage: repaired the WebM frame-0 evidence artifact, verified replay, and retained a clean checkpoint branch.
+
+### Main Changes
+
+- Committed the Lab-only Ripple source-fidelity and single-scene checkpoint.
+- Removed only the encoded white pre-roll frames from the two review WebMs and refreshed embedded review payloads.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `818057f664c7474ec1722b143fcc84dcf3ec67e9` | (see git log) |
+
+### Testing
+
+- [OK] Focused Ripple and rendererReuse tests, type-check, lint, renderer build, decode/playback verification, and isolation scan pass.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- STOP; Color, Hot Edge, Product integration, Electron latency, and first-FX-frame research remain unopened.
