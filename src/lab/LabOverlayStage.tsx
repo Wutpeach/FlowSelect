@@ -58,6 +58,12 @@ export type LabOverlayStageProps = {
   /** Origin marker for activation scenes. */
   pointerOriginX: number;
   pointerOriginY: number;
+  /**
+   * Lab-only origin-marker policy (never production rendering): true while an
+   * origin-relevant Full scenario is active or the user is editing origin;
+   * the marker is hidden for Heatmap / Download / Transcode / Mixed / Compact.
+   */
+  originMarkerVisible: boolean;
   onPreviewClick: (point: { clientX: number; clientY: number; rect: DOMRect }) => void;
   /**
    * Backing-store scale for the ONE production canvas during a PNG export
@@ -156,6 +162,7 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
     onRecheck,
     pointerOriginX,
     pointerOriginY,
+    originMarkerVisible,
     onPreviewClick,
     captureScale,
     captureEpoch,
@@ -256,24 +263,26 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
         />
       ) : null}
 
-      <div
-        data-lab-chrome=""
-        style={{
-          position: "absolute",
-          left: `${pointerOriginX * 100}%`,
-          top: `${pointerOriginY * 100}%`,
-          width: 16,
-          height: 16,
-          marginLeft: -8,
-          marginTop: -8,
-          borderRadius: "50%",
-          border: "1px solid rgba(255,255,255,0.9)",
-          boxShadow: "0 0 0 1px rgba(0,0,0,0.6)",
-          pointerEvents: "none",
-          zIndex: 5,
-        }}
-        aria-hidden="true"
-      />
+      {originMarkerVisible ? (
+        <div
+          data-lab-chrome=""
+          style={{
+            position: "absolute",
+            left: `${pointerOriginX * 100}%`,
+            top: `${pointerOriginY * 100}%`,
+            width: 16,
+            height: 16,
+            marginLeft: -8,
+            marginTop: -8,
+            borderRadius: "50%",
+            border: "1px solid rgba(255,255,255,0.9)",
+            boxShadow: "0 0 0 1px rgba(0,0,0,0.6)",
+            pointerEvents: "none",
+            zIndex: 5,
+          }}
+          aria-hidden="true"
+        />
+      ) : null}
     </div>
   );
 }

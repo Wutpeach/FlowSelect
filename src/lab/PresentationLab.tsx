@@ -1,21 +1,42 @@
 /**
- * Ameow UI Lab — development-only Presentation Playground.
+ * Ameow UI Lab — development-only Presentation Playground (Layout & Interaction
+ * Repair, final Workspace pass).
  *
- * Three explicit responsibilities, left → right:
- *   1. Scenario Navigation (left): category pills + scenario presets. Full
- *      categories drive the ONE production Expanded surface; the Compact
- *      category drives the current Compact renderer leaf.
- *   2. Preview Workspace (center, dominant): the Live target picker (`full |
- *      compact`), workspace display scale, the scaled preview host, and the
- *      Full-only replay/export toolbar.
- *   3. Dev Tools (right): scenario facts + a single Reduced Motion control,
- *      with the raw composed-input / shader readout demoted to a collapsible
- *      Advanced section.
+ * Exactly two first-level surfaces, sharing one surface language:
+ *   1. Workspace Shell (dominant): ONE outer boundary with three internal
+ *      regions — Header (centered, spacious, curated scenario set), Body (the
+ *      dominant Preview on a Preview-local Dark/Light/Checkerboard environment
+ *      layer with comfortable Auto breathing room), and Footer (Target /
+ *      Auto/1x/2x/3x / context actions, separated by hairlines and spacing,
+ *      not three large cards).
+ *   2. Dev Tools (right, persistent): sectioned human-readable facts (target /
+ *      scale / background / reduced motion, origin, scenario facts) with the
+ *      raw composed-input / shader-readout JSON demoted to Advanced
+ *      Diagnostics — same page/surface/background/typography/spacing language.
+ *
+ * Auto semantics: the default adaptive display scale resolves to the largest
+ * comfortable member of {1, 2, 3} from the measured stage — never below 1,
+ * never above 3, and the metadata is always integer (e.g. "自动 · 2×"). The
+ * manual 1x/2x/3x options remain explicit overrides. Logical geometry and the
+ * export backing scale are unchanged.
+ *
+ * Lab-only affordances: a low-weight circular Reset in a Preview corner
+ * restores the current preview/scenario to its baseline (re-apply scenario,
+ * recenter origin, Reduced Motion off) using only the existing reducer
+ * actions; the origin marker is conditional (origin-relevant Full scenarios or
+ * while editing origin) and never part of production rendering; Replay and
+ * Export are secondary quiet controls with short-lived feedback.
+ *
+ * Interaction language: controls reuse the repo shared-styles factories
+ * (getSelectableOptionStyle / getCompactLabelStyle) with a CSS `:focus-visible`
+ * ring distinct from the selected accent. No page title, no left nav, no
+ * shadcn/Radix/Tailwind-in-Lab — all controls are Lab-local.
  *
  * The Lab never creates a renderer, runtime, shader, or native window: it
  * mounts the existing production renderers and inspects what they already
- * draw. Preview Target and display scale are Lab-local UI state only and are
- * never written back into production, scenario, reducer, or Product state.
+ * draw. Preview Target, display scale (Auto is a derived Lab-local scale), and
+ * the preview background are Lab-local UI state only — never written back
+ * into production, scenario, reducer, renderer, or Product state.
  */
 import {
   useCallback,
@@ -27,23 +48,22 @@ import {
   type CSSProperties,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "../contexts/ThemeContext";
+import { useTheme, type ThemeColors } from "../contexts/ThemeContext";
+import {
+  getCompactLabelStyle,
+} from "../components/ui/shared-styles";
 import {
   clampNormalizedOrigin,
   composeLabInput,
   createLabPresentationState,
-  LAB_ACTIVATION_PRESETS,
-  LAB_CATEGORY_TARGET_AVAILABILITY,
   LAB_COMPACT_SCENARIOS,
-  LAB_HEATMAP_PRESETS,
-  LAB_PROGRESS_PRESETS,
   reduceLabPresentation,
   resolveLabCompactScenario,
   resolveLabPreviewReducedMotion,
-  type LabCategoryId,
   type LabCompactScenario,
   type LabComposedInput,
 } from "./scenarios";
+import { NEUTRAL_PRESENTATION_ORIGIN } from "../presentation/main-window/downloadIntakePresentation";
 import { LabOverlayStage, type WebglReadbackResult } from "./LabOverlayStage";
 import { CompactPreviewStage } from "./CompactPreviewStage";
 import {
@@ -63,12 +83,20 @@ import {
 import {
   LAB_DISPLAY_SCALES,
   LAB_DISPLAY_SCALE_DEFAULT,
-  LAB_PREVIEW_TARGET_IDS,
   LAB_PREVIEW_TARGETS,
+  resolveLabAutoDisplayScale,
   resolveLabPreviewScaledSize,
   type LabDisplayScale,
   type LabPreviewTarget,
 } from "./previewTargets";
+import {
+  LAB_PREVIEW_ENVIRONMENT_DEFAULT,
+  resolveLabPreviewEnvironmentStyle,
+  type LabPreviewEnvironment,
+} from "./previewEnvironment";
+import { getLabChipStyle } from "./labControls";
+import { LabSegmentedControl, type LabSegmentedOption } from "./LabSegmentedControl";
+import { PreviewEnvironmentPicker } from "./PreviewEnvironmentPicker";
 
 const prefersReducedMotion = (): boolean => (
   typeof window !== "undefined"
@@ -171,8 +199,8 @@ const readShaderReadout = (): ShaderReadout => {
 };
 
 /* ---------------------------------------------------------------------------
- * Layout styles — three explicit regions:
- * left Scenario Navigation, center Preview Workspace, right Dev Tools.
+ * Layout styles — two macro regions:
+ * left/dominant Main Workspace, right persistent Dev Tools.
  * ------------------------------------------------------------------------- */
 
 const PAGE_STYLE: CSSProperties = {
@@ -184,24 +212,19 @@ const PAGE_STYLE: CSSProperties = {
   background: "#141318",
   color: "#ece8f2",
   fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+  // Dev Tools is ALWAYS visible; a narrow window scrolls the page shell
+  // horizontally instead of hiding the right region.
+  overflowX: "auto",
 };
 
-const NAV_STYLE: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
+const REGION_SURFACE_STYLE: CSSProperties = {
   background: "#1d1b22",
   border: "1px solid #302c3a",
   borderRadius: 12,
-  padding: 14,
-  width: 268,
-  flexShrink: 0,
-  maxHeight: "calc(100vh - 32px)",
-  overflowY: "auto",
-  boxSizing: "border-box",
 };
 
 const WORKSPACE_STYLE: CSSProperties = {
+  ...REGION_SURFACE_STYLE,
   flex: 1,
   minWidth: 0,
   display: "flex",
@@ -209,40 +232,85 @@ const WORKSPACE_STYLE: CSSProperties = {
   alignItems: "center",
   gap: 12,
   boxSizing: "border-box",
-  padding: "14px 10px",
+  padding: 14,
   minHeight: 0,
 };
 
 const DEVTOOLS_STYLE: CSSProperties = {
+  ...REGION_SURFACE_STYLE,
   display: "flex",
   flexDirection: "column",
   gap: 8,
-  background: "#1d1b22",
-  border: "1px solid #302c3a",
-  borderRadius: 12,
   padding: 14,
-  width: 320,
+  // Clamped width: shrinks on narrow windows but is never hidden.
+  width: "clamp(280px, 24vw, 400px)",
   flexShrink: 0,
   maxHeight: "calc(100vh - 32px)",
   overflowY: "auto",
   boxSizing: "border-box",
 };
 
-const WORKSPACE_TOOLBAR_STYLE: CSSProperties = {
+/** Flat scenario strip — the FIRST Main Workspace content. A small, spacious
+    set of representative scenario selectors (target-aware), not a dense cloud. */
+const STRIP_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+  flexWrap: "wrap",
+  overflowX: "auto",
+  width: "100%",
+  maxWidth: 800,
+  padding: "2px 0 8px",
+};
+
+/** Preview stage: a bordered environment panel that fills the workspace. */
+const STAGE_WRAPPER_STYLE: CSSProperties = {
+  position: "relative",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  alignSelf: "stretch",
+  flex: 1,
+  minHeight: 0,
+  overflow: "hidden",
+  borderRadius: 12,
+  border: "1px solid #302c3a",
+};
+
+/** Below-preview controls: three stacked labeled groups (Display mode / Zoom /
+    Actions) separated by hairlines and spacing — lightweight field surfaces,
+    NOT three large cards. Width is governed by the Workspace Shell footer
+    region wrapper. */
+const CONTROLS_STACK_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "stretch",
+  gap: 8,
+  width: "100%",
+};
+
+/** Workspace Shell Footer region: the below-preview controls + caption share
+    one footer boundary (hairline-divided, no per-group card surface). */
+const FOOTER_STYLE: CSSProperties = {
+  width: "100%",
+  maxWidth: 760,
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+};
+
+/** One labeled control group row (quiet label left, controls right). */
+const CONTROL_GROUP_STYLE: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 10,
   flexWrap: "wrap",
-  width: "100%",
-  maxWidth: 900,
 };
 
-const STAGE_WRAPPER_STYLE: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flex: 1,
-  minHeight: 0,
+const CONTROL_GROUP_LABEL_STYLE: CSSProperties = {
+  minWidth: 96,
+  userSelect: "none",
 };
 
 const TITLE_STYLE: CSSProperties = {
@@ -252,134 +320,13 @@ const TITLE_STYLE: CSSProperties = {
   color: "#f2eff7",
 };
 
-const SUBTITLE_STYLE: CSSProperties = {
-  margin: 0,
-  fontSize: 11,
-  lineHeight: 1.4,
-  color: "#8f89a0",
-};
-
-const SECTION_STYLE: CSSProperties = {
-  margin: "10px 0 2px",
-  fontSize: 11,
-  fontWeight: 700,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  color: "#a49eb8",
-};
-
-const BUTTON_STYLE: CSSProperties = {
-  width: "100%",
-  textAlign: "left",
-  border: "1px solid #3a3547",
-  borderRadius: 10,
-  background: "#242129",
-  color: "#ece8f2",
-  padding: "9px 11px",
-  cursor: "pointer",
-  display: "grid",
-  gap: 3,
-  font: "inherit",
-};
-
-const ACTIVE_BUTTON_STYLE: CSSProperties = {
-  ...BUTTON_STYLE,
-  border: "1px solid #b56a4a",
-  boxShadow: "inset 0 0 0 1px #b56a4a",
-};
-
-const CATEGORY_PILL_STYLE: CSSProperties = {
-  border: "1px solid #3a3547",
-  borderRadius: 999,
-  background: "#242129",
-  color: "#ece8f2",
-  padding: "6px 10px",
-  fontSize: 12,
-  cursor: "pointer",
-  font: "inherit",
-};
-
-const ACTIVE_CATEGORY_PILL_STYLE: CSSProperties = {
-  ...CATEGORY_PILL_STYLE,
-  border: "1px solid #b56a4a",
-  background: "#3a2a22",
-  color: "#ffd9b8",
-};
-
-const PRESET_ROW_STYLE: CSSProperties = {
-  display: "flex",
-  gap: 6,
-  flexWrap: "wrap",
-};
-
-const PRESET_BUTTON_STYLE: CSSProperties = {
-  border: "1px solid #3a3547",
-  borderRadius: 8,
-  background: "#242129",
-  color: "#ece8f2",
-  padding: "5px 9px",
-  fontSize: 12,
-  cursor: "pointer",
-  font: "inherit",
-};
-
-const TAB_STYLE: CSSProperties = {
-  border: "1px solid #3a3547",
-  borderRadius: 10,
-  background: "#242129",
-  color: "#ece8f2",
-  padding: "6px 14px",
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: "pointer",
-  font: "inherit",
-};
-
-const ACTIVE_TAB_STYLE: CSSProperties = {
-  ...TAB_STYLE,
-  border: "1px solid #b56a4a",
-  background: "#3a2a22",
-  color: "#ffd9b8",
-};
-
-const SCALE_STYLE: CSSProperties = {
-  border: "1px solid #3a3547",
-  borderRadius: 8,
-  background: "#242129",
-  color: "#ece8f2",
-  padding: "5px 9px",
-  fontSize: 12,
-  cursor: "pointer",
-  font: "inherit",
-};
-
-const ACTIVE_SCALE_STYLE: CSSProperties = {
-  ...SCALE_STYLE,
-  border: "1px solid #b56a4a",
-  background: "#3a2a22",
-  color: "#ffd9b8",
-};
-
 const META_STYLE: CSSProperties = {
   fontSize: 11,
   color: "#8f89a0",
   whiteSpace: "nowrap",
 };
 
-const TAG_STYLE: CSSProperties = {
-  fontSize: 9.5,
-  fontWeight: 700,
-  letterSpacing: "0.05em",
-  textTransform: "uppercase",
-  color: "#8f89a0",
-  border: "1px solid #3a3547",
-  borderRadius: 999,
-  padding: "1px 7px",
-  marginLeft: 8,
-  whiteSpace: "nowrap",
-};
-
-const PREVIEW_CAPTION_STYLE: CSSProperties = {
+const CAPTION_STYLE: CSSProperties = {
   fontSize: 11,
   color: "#8f89a0",
   textAlign: "center",
@@ -428,23 +375,26 @@ const PRE_STYLE: CSSProperties = {
   wordBreak: "break-word",
 };
 
-const EXPORT_BUTTON_STYLE: CSSProperties = {
-  border: "1px solid #b56a4a",
-  borderRadius: 10,
-  background: "#3a2a22",
-  color: "#ffd9b8",
-  padding: "8px 14px",
-  fontSize: 12,
-  fontWeight: 700,
+/**
+ * Low-weight circular Reset affordance in a Preview corner: quiet hairline
+ * ring, subtle surface, native `title` tooltip plus `aria-label`. It only
+ * restores the CURRENT Lab preview/scenario to its baseline via the existing
+ * reducer actions — no new authority, no production command.
+ */
+const getLabResetButtonStyle = (colors: ThemeColors): CSSProperties => ({
+  width: 26,
+  height: 26,
+  borderRadius: "50%",
+  border: `1px solid ${colors.fieldBorder}`,
+  background: "rgba(20, 19, 24, 0.72)",
+  color: colors.controlMuted,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
   cursor: "pointer",
-  font: "inherit",
-};
-
-const EXPORT_BUTTON_DISABLED_STYLE: CSSProperties = {
-  ...EXPORT_BUTTON_STYLE,
-  opacity: 0.45,
-  cursor: "default",
-};
+  fontFamily: "inherit",
+});
 
 const DISCLOSURE_STYLE: CSSProperties = {
   marginTop: 10,
@@ -462,6 +412,13 @@ const DISCLOSURE_SUMMARY_STYLE: CSSProperties = {
   textTransform: "uppercase",
   color: "#a49eb8",
   userSelect: "none",
+};
+
+/** One Dev Tools section: quiet uppercase header + separator, same surface as
+    Main Workspace (shared panel background / border / radius). */
+const DEVTOOLS_SECTION_STYLE: CSSProperties = {
+  display: "grid",
+  gap: 8,
 };
 
 type TranslateFn = (key: string, options?: Record<string, unknown>) => string;
@@ -496,17 +453,6 @@ const PRESET_LABEL_KEYS: Readonly<Record<string, string>> = {
 
 const presetLabelKey = (id: string): string => PRESET_LABEL_KEYS[id] ?? id;
 
-const CATEGORIES: readonly { id: LabCategoryId; key: string }[] = [
-  { id: "activation", key: "nav.activation" },
-  { id: "downloadProgress", key: "nav.downloadProgress" },
-  { id: "runtime", key: "nav.runtime" },
-  { id: "transcode", key: "nav.transcode" },
-  { id: "mixed", key: "nav.mixed" },
-  { id: "reducedMotion", key: "nav.reducedMotion" },
-  { id: "heatmapSpike", key: "nav.heatmapSpike" },
-  { id: "compact", key: "nav.compact" },
-];
-
 const fixtureOfCategory = (fixtureId: string): LabOverlayFixture | null =>
   resolveLabOverlayFixture(fixtureId);
 
@@ -533,31 +479,23 @@ const formatRawFacts = (projection: LabOverlayProjection | null): string => {
   );
 };
 
-/** Disabled-button style for a scenario group incompatible with the target. */
-const scenarioButtonStyle = (disabled: boolean, active: boolean): CSSProperties => {
-  const base = active ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE;
-  return disabled
-    ? { ...base, opacity: 0.45, cursor: "default" }
-    : base;
-};
-
 const formatTargetMeta = (
   t: TranslateFn,
   target: LabPreviewTarget,
-  displayScale: LabDisplayScale,
+  scaleLabel: string,
 ): string => {
   if (target === "compact") {
     const meta = LAB_PREVIEW_TARGETS.compact;
     return t("workspace.metadataCompact", {
       outer: meta.logicalSize,
       shell: meta.shellSize,
-      scale: displayScale,
+      scale: scaleLabel,
     });
   }
   const meta = LAB_PREVIEW_TARGETS.full;
   return t("workspace.metadataFull", {
     size: meta.logicalSize,
-    scale: displayScale,
+    scale: scaleLabel,
   });
 };
 
@@ -566,16 +504,29 @@ export function PresentationLab() {
   const [state, dispatch] = useReducer(
     reduceLabPresentation,
     undefined,
-    () => createLabPresentationState({ reducedMotion: prefersReducedMotion() }),
+    () => reduceLabPresentation(
+      createLabPresentationState({ reducedMotion: prefersReducedMotion() }),
+      { type: "activate", presetId: "intake-local", now: performance.now() },
+    ),
   );
-  const [activeCategory, setActiveCategory] = useState<LabCategoryId>("activation");
   const [activeFixtureId, setActiveFixtureId] = useState<string | null>(null);
+  // Curated scenario-strip radio selection (Lab-local UI only).
+  const [activeScenarioId, setActiveScenarioId] = useState("intake");
   // One Lab-local Preview Target discriminant, separate from scenario state.
   const [target, setTarget] = useState<LabPreviewTarget>("full");
+  // Display scale is Lab-local UI: "auto" (default, derived to 1/2/3) or
+  // the explicit 1x/2x/3x overrides.
   const [displayScale, setDisplayScale] = useState<LabDisplayScale>(LAB_DISPLAY_SCALE_DEFAULT);
   const [compactScenarioId, setCompactScenarioId] = useState<string>(LAB_COMPACT_SCENARIOS[0].id);
+  // Screen-only Preview environment (chrome layer, never renderer/export).
+  const [previewBackground, setPreviewBackground] = useState<LabPreviewEnvironment>(
+    LAB_PREVIEW_ENVIRONMENT_DEFAULT,
+  );
   const [queueOpen, setQueueOpen] = useState(false);
   const [runtimeHovered, setRuntimeHovered] = useState(false);
+  // Origin editing focus drives the conditional origin-marker policy (Lab
+  // chrome only — never production rendering).
+  const [originInputFocused, setOriginInputFocused] = useState(false);
   const [exportState, setExportState] = useState<"idle" | "exporting" | "success" | "failure">("idle");
   const [exportError, setExportError] = useState<string | null>(null);
   const [captureScale, setCaptureScale] = useState<number | undefined>(undefined);
@@ -583,6 +534,24 @@ export function PresentationLab() {
   const webglReadbackRef = useRef<((result: WebglReadbackResult | null) => void) | null>(null);
   const exportResetTimerRef = useRef<number | null>(null);
   const [readout, setReadout] = useState<ShaderReadout>(() => readShaderReadout());
+  // Measured stage size drives the pure Auto resolution (Lab-local only).
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [stageSize, setStageSize] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    const node = stageRef.current;
+    if (node === null || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect !== undefined) {
+        setStageSize({ width: rect.width, height: rect.height });
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const composed = useMemo(() => composeLabInput(state), [state]);
   const overlayProjection = useMemo<LabOverlayProjection | null>(() => {
@@ -604,9 +573,6 @@ export function PresentationLab() {
     activeCompactScenario,
     overlayProjection !== null,
   );
-
-  const fullCategoriesDisabled = target !== "full";
-  const compactDisabled = target !== "compact";
 
   // Shader readout is FULL-only: it must never assume a canvas exists while
   // the Compact target (no canvas) is selected.
@@ -642,6 +608,23 @@ export function PresentationLab() {
   }, []);
 
   const { colors } = useTheme();
+  const controlGroupStyle: CSSProperties = {
+    ...CONTROL_GROUP_STYLE,
+    // Hairline divider + spacing between footer groups — lightweight field
+    // surfaces (the segmented chips carry their own), not three large cards.
+    paddingTop: 10,
+    borderTop: `1px solid ${colors.borderStart}`,
+  };
+  const controlGroupLabelStyle: CSSProperties = {
+    ...CONTROL_GROUP_LABEL_STYLE,
+    ...getCompactLabelStyle(colors),
+  };
+  const devToolsSectionStyle: CSSProperties = {
+    ...DEVTOOLS_SECTION_STYLE,
+    // Same hairline-divided section language as the Workspace Shell footer.
+    paddingTop: 10,
+    borderTop: `1px solid ${colors.borderStart}`,
+  };
 
   const surfaceTarget = overlayProjection !== null
     ? overlayProjection.expandedTarget
@@ -660,55 +643,58 @@ export function PresentationLab() {
     });
   }, [overlayProjection]);
 
-  const selectCategory = useCallback((category: LabCategoryId) => {
-    setActiveCategory(category);
-  }, []);
-
-  const selectOverlayScenario = useCallback((fixtureId: string) => {
-    setActiveFixtureId(fixtureId);
+  /**
+   * Curated single-select scenario radio: selecting one representative
+   * scenario clears the other composed dimensions (fixture / heatmap /
+   * activation / progress) so the strip reads as one calm set of mutually
+   * exclusive scenario selectors, like the reference. Repository authority
+   * (scenarios.ts presets) stays untouched — this only curates the VISIBLE
+   * selection set.
+   */
+  const selectScenario = useCallback((scenarioId: string) => {
+    setActiveFixtureId(null);
     setQueueOpen(false);
-    setActiveCategory(
-      fixtureId === "download-active" || fixtureId === "download-queued"
-        ? "downloadProgress"
-        : fixtureId === "runtime-auto-config" || fixtureId === "runtime-failed"
-          ? "runtime"
-          : fixtureId === "transcode-active" || fixtureId === "transcode-failed"
-            ? "transcode"
-            : "mixed",
-    );
-  }, []);
-
-  const selectActivationPreset = useCallback((presetId: string) => {
-    setActiveFixtureId(null);
-    dispatch({ type: "activate", presetId, now: performance.now() });
-  }, []);
-
-  const selectProgressAction = useCallback((action: Parameters<typeof dispatch>[0]) => {
-    setActiveFixtureId(null);
-    dispatch(action);
+    dispatch({ type: "clearProgress" });
+    dispatch({ type: "clearHeatmap" });
+    setActiveScenarioId(scenarioId);
+    if (scenarioId === "intake") {
+      dispatch({ type: "activate", presetId: "intake-local", now: performance.now() });
+    } else if (scenarioId === "heatmap") {
+      dispatch({ type: "setHeatmap", presetId: "heatmap-moving" });
+    } else if (scenarioId === "download") {
+      setActiveFixtureId("download-active");
+    } else if (scenarioId === "transcode") {
+      setActiveFixtureId("transcode-active");
+    } else if (scenarioId === "mixed") {
+      setActiveFixtureId("mixed-busy");
+    }
   }, []);
 
   const selectCompactScenario = useCallback((scenarioId: string) => {
     setCompactScenarioId(scenarioId);
-    setActiveCategory("compact");
   }, []);
 
   const handleReplay = useCallback(() => {
     dispatch({ type: "replay", now: performance.now() });
   }, []);
 
-  const resetCategory = useCallback(() => {
-    setActiveFixtureId(null);
-    setQueueOpen(false);
-    setRuntimeHovered(false);
-    if (activeCategory === "compact") {
-      setCompactScenarioId(LAB_COMPACT_SCENARIOS[0].id);
-      return;
+  /**
+   * Lab-local Reset (no new authority): restore the CURRENT Lab preview /
+   * scenario to its baseline state — re-apply the active scenario (which
+   * clears fixture / heatmap / activation / progress and re-creates its
+   * baseline), recenter the pointer origin, and turn Reduced Motion off. All
+   * expressed with the existing reducer actions; no new state or command.
+   */
+  const handleReset = useCallback(() => {
+    if (target === "full") {
+      selectScenario(activeScenarioId);
+    } else {
+      selectCompactScenario(compactScenarioId);
     }
-    dispatch({ type: "clearProgress" });
-    dispatch({ type: "clearHeatmap" });
-    dispatch({ type: "setReducedMotion", enabled: prefersReducedMotion() });
-  }, [activeCategory]);
+    dispatch({ type: "setPointerOrigin", origin: NEUTRAL_PRESENTATION_ORIGIN });
+    dispatch({ type: "setReducedMotion", enabled: false });
+    setQueueOpen(false);
+  }, [target, activeScenarioId, compactScenarioId, selectScenario, selectCompactScenario]);
 
   const progressPercent =
     state.progress.kind === "determinate"
@@ -749,7 +735,9 @@ export function PresentationLab() {
    * Lab-local export transaction: raise the production canvas backing scale,
    * capture WebGL (same commit) + DOM (html2canvas at scale) + the shared
    * production shadow, then restore the scale in `finally`. The 200x200 CSS
-   * layout never changes, so export is invariant across display zoom.
+   * layout never changes, so export is invariant across display zoom. The
+   * Preview environment is a sibling chrome layer OUTSIDE the frame and is
+   * never captured.
    */
   const runCapture = useCallback(async (
     scale: number,
@@ -831,435 +819,132 @@ export function PresentationLab() {
   const showRuntimeOverlay = overlayProjection !== null
     && overlayProjection.raw.fixtureKind === "runtime";
 
-  const scaledSize = resolveLabPreviewScaledSize(target, displayScale);
+  // ---- Display scale: Auto is a derived, Lab-local scale from the measured
+  // stage with a proportional breathing margin (comfortable centered preview).
+  // It resolves to the largest member of {1, 2, 3} that fits — never below 1,
+  // never above 3; the manual 1x/2x/3x options pass through unchanged.
+  const targetMeta = LAB_PREVIEW_TARGETS[target];
+  const autoScale = stageSize !== null
+    ? resolveLabAutoDisplayScale(stageSize.width, stageSize.height, targetMeta.logicalSize)
+    : 1;
+  const effectiveScale = displayScale === "auto" ? autoScale : displayScale;
+  const scaledSize = resolveLabPreviewScaledSize(target, effectiveScale);
+  const scaleLabel = displayScale === "auto"
+    ? t("workspace.auto", { scale: autoScale })
+    : `${displayScale}×`;
+
+  const targetOptions: readonly LabSegmentedOption<LabPreviewTarget>[] = [
+    { id: "full", label: t("previewTarget.full") },
+    { id: "compact", label: t("previewTarget.compact") },
+  ];
+  const scaleOptions: readonly LabSegmentedOption<string>[] = LAB_DISPLAY_SCALES.map((scale) => ({
+    id: scale === "auto" ? "auto" : String(scale),
+    label: scale === "auto" ? t("workspace.autoLabel") : `${scale}×`,
+  }));
+  const handleScaleChange = useCallback((id: string) => {
+    setDisplayScale(id === "auto" ? "auto" : (Number(id) as LabDisplayScale));
+  }, []);
+
+  // Origin-marker policy (Lab chrome only, never production): the marker is
+  // visible for the origin-relevant Intake scenario, or while the user is
+  // actively editing the origin fields; hidden for Heatmap / Download /
+  // Transcode / Mixed / Compact.
+  const originMarkerVisible = target === "full"
+    && (activeScenarioId === "intake" || originInputFocused);
 
   return (
     <div style={PAGE_STYLE}>
-      {/* ================= Left: Scenario Navigation ==================== */}
-      <nav aria-label={t("nav.scenarioNavigation")} style={NAV_STYLE}>
-        <h1 style={TITLE_STYLE}>{t("appTitle")}</h1>
-        <p style={SUBTITLE_STYLE}>{t("appSubtitle")}</p>
-
-        <div style={PRESET_ROW_STYLE}>
-          {CATEGORIES.map((category) => {
-            const availability = LAB_CATEGORY_TARGET_AVAILABILITY[category.id];
-            const available = target === "full" ? availability.full : availability.compact;
-            return (
-              <button
-                key={category.id}
-                type="button"
-                onClick={() => selectCategory(category.id)}
-                aria-pressed={activeCategory === category.id}
-                aria-disabled={!available}
-                style={activeCategory === category.id ? ACTIVE_CATEGORY_PILL_STYLE : CATEGORY_PILL_STYLE}
-              >
-                {t(category.key)}
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={SECTION_STYLE}>
-            {t("inspector.scenario")}
-          </h2>
-          <button
-            type="button"
-            onClick={resetCategory}
-            style={{ border: "none", background: "none", color: "#8f89a0", fontSize: 11, cursor: "pointer", font: "inherit" }}
-          >
-            {t("nav.reset")}
-          </button>
-        </div>
-        <span style={{ fontSize: 10.5, color: "#8f89a0" }}>{t("nav.resetHint")}</span>
-
-        {activeCategory === "compact" ? (
-          <>
-            <h2 style={SECTION_STYLE}>
-              {t("nav.compact")}
-              <span style={TAG_STYLE}>{t("nav.compactOnlyTag")}</span>
-            </h2>
-            {LAB_COMPACT_SCENARIOS.map((scenario) => {
-              const active = compactScenarioId === scenario.id;
-              return (
-                <button
-                  key={scenario.id}
-                  type="button"
-                  data-lab-compact-preset={scenario.id}
-                  disabled={compactDisabled}
-                  onClick={() => selectCompactScenario(scenario.id)}
-                  style={scenarioButtonStyle(compactDisabled, active)}
-                >
-                  <strong style={{ fontSize: 12 }}>{t(`presets.${presetLabelKey(scenario.id)}.label`)}</strong>
-                  <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                    {t(`presets.${presetLabelKey(scenario.id)}.description`)}
-                  </span>
-                </button>
-              );
-            })}
-          </>
-        ) : null}
-
-        {activeCategory === "activation" || activeCategory === "reducedMotion" ? (
-          <>
-            <h2 style={SECTION_STYLE}>
-              {t("nav.activation")}
-              <span style={TAG_STYLE}>{t("nav.fullOnlyTag")}</span>
-            </h2>
-            {activeCategory === "reducedMotion"
-              ? (
-                <>
-                  {["intake-reduced", "folder-reduced"].map((presetId) => {
-                    const preset = LAB_ACTIVATION_PRESETS.find((item) => item.id === presetId);
-                    if (!preset) {
-                      return null;
-                    }
-                    const active = state.activation?.presetId === preset.id && activeFixtureId === null;
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        disabled={fullCategoriesDisabled}
-                        onClick={() => selectActivationPreset(preset.id)}
-                        style={scenarioButtonStyle(fullCategoriesDisabled, active)}
-                      >
-                        <strong style={{ fontSize: 12 }}>{t(`presets.${presetLabelKey(preset.id)}.label`)}</strong>
-                        <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                          {t(`presets.${presetLabelKey(preset.id)}.description`)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </>
-              )
-              : (
-                <>
-                  {["intake-local", "intake-center", "folder"].map((presetId) => {
-                    const preset = LAB_ACTIVATION_PRESETS.find((item) => item.id === presetId);
-                    if (!preset) {
-                      return null;
-                    }
-                    const active = state.activation?.presetId === preset.id && activeFixtureId === null;
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        disabled={fullCategoriesDisabled}
-                        onClick={() => selectActivationPreset(preset.id)}
-                        style={scenarioButtonStyle(fullCategoriesDisabled, active)}
-                      >
-                        <strong style={{ fontSize: 12 }}>{t(`presets.${presetLabelKey(preset.id)}.label`)}</strong>
-                        <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                          {t(`presets.${presetLabelKey(preset.id)}.description`)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </>
-              )}
-          </>
-        ) : null}
-
-        {activeCategory === "downloadProgress" ? (
-          <>
-            <h2 style={SECTION_STYLE}>
-              {t("presets.progress0")} → {t("presets.progress100")}
-              <span style={TAG_STYLE}>{t("nav.fullOnlyTag")}</span>
-            </h2>
-            <div style={PRESET_ROW_STYLE}>
-              {LAB_PROGRESS_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  disabled={fullCategoriesDisabled}
-                  onClick={() => selectProgressAction({ type: "progressPreset", presetId: preset.id })}
-                  style={fullCategoriesDisabled
-                    ? { ...PRESET_BUTTON_STYLE, opacity: 0.45, cursor: "default" }
-                    : PRESET_BUTTON_STYLE}
-                >
-                  {t(`presets.${presetLabelKey(preset.id)}`)}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              disabled={fullCategoriesDisabled}
-              onClick={() => selectProgressAction({ type: "progressIndeterminate" })}
-              style={scenarioButtonStyle(fullCategoriesDisabled, false)}
-            >
-              <strong style={{ fontSize: 12 }}>{t("presets.indeterminate")}</strong>
-              <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                {t("presets.indeterminateHint")}
-              </span>
-            </button>
-            <button
-              type="button"
-              disabled={fullCategoriesDisabled || state.progress.kind !== "determinate" || state.progress.target <= 0}
-              onClick={() => selectProgressAction({ type: "downwardRevision" })}
-              style={fullCategoriesDisabled || state.progress.kind !== "determinate" || state.progress.target <= 0
-                ? { ...BUTTON_STYLE, opacity: 0.45, cursor: "default" }
-                : BUTTON_STYLE}
-            >
-              <strong style={{ fontSize: 12 }}>{t("presets.downwardRevision")}</strong>
-              <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                {t("presets.downwardRevisionHint")}
-              </span>
-            </button>
-            <button
-              type="button"
-              disabled={fullCategoriesDisabled}
-              onClick={() => selectProgressAction({ type: "replaceTrace" })}
-              style={scenarioButtonStyle(fullCategoriesDisabled, false)}
-            >
-              <strong style={{ fontSize: 12 }}>{t("presets.replaceTrace")}</strong>
-              <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                {t("presets.replaceTraceHint")}
-              </span>
-            </button>
-            <button
-              type="button"
-              disabled={fullCategoriesDisabled}
-              onClick={() => selectProgressAction({ type: "clearProgress" })}
-              style={scenarioButtonStyle(fullCategoriesDisabled, false)}
-            >
-              <strong style={{ fontSize: 12 }}>{t("presets.clearProgress")}</strong>
-              <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                {t("presets.clearProgressHint")}
-              </span>
-            </button>
-
-            <h2 style={SECTION_STYLE}>
-              {t("nav.download")}
-              <span style={TAG_STYLE}>{t("nav.fullOnlyTag")}</span>
-            </h2>
-            {["download-active", "download-queued"].map((fixtureId) => {
-              const active = activeFixtureId === fixtureId;
-              return (
-                <button
-                  key={fixtureId}
-                  type="button"
-                  disabled={fullCategoriesDisabled}
-                  onClick={() => selectOverlayScenario(fixtureId)}
-                  style={scenarioButtonStyle(fullCategoriesDisabled, active)}
-                >
-                  <strong style={{ fontSize: 12 }}>{t(`presets.${presetLabelKey(fixtureId)}.label`)}</strong>
-                  <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                    {t(`presets.${presetLabelKey(fixtureId)}.description`)}
-                  </span>
-                </button>
-              );
-            })}
-          </>
-        ) : null}
-
-        {activeCategory === "runtime" ? (
-          <>
-            <h2 style={SECTION_STYLE}>
-              {t("nav.runtime")}
-              <span style={TAG_STYLE}>{t("nav.fullOnlyTag")}</span>
-            </h2>
-            {["runtime-auto-config", "runtime-failed"].map((fixtureId) => {
-              const active = activeFixtureId === fixtureId;
-              return (
-                <button
-                  key={fixtureId}
-                  type="button"
-                  disabled={fullCategoriesDisabled}
-                  onClick={() => selectOverlayScenario(fixtureId)}
-                  style={scenarioButtonStyle(fullCategoriesDisabled, active)}
-                >
-                  <strong style={{ fontSize: 12 }}>{t(`presets.${presetLabelKey(fixtureId)}.label`)}</strong>
-                  <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                    {t(`presets.${presetLabelKey(fixtureId)}.description`)}
-                  </span>
-                </button>
-              );
-            })}
-          </>
-        ) : null}
-
-        {activeCategory === "transcode" ? (
-          <>
-            <h2 style={SECTION_STYLE}>
-              {t("nav.transcode")}
-              <span style={TAG_STYLE}>{t("nav.fullOnlyTag")}</span>
-            </h2>
-            {["transcode-active", "transcode-failed"].map((fixtureId) => {
-              const active = activeFixtureId === fixtureId;
-              return (
-                <button
-                  key={fixtureId}
-                  type="button"
-                  disabled={fullCategoriesDisabled}
-                  onClick={() => selectOverlayScenario(fixtureId)}
-                  style={scenarioButtonStyle(fullCategoriesDisabled, active)}
-                >
-                  <strong style={{ fontSize: 12 }}>{t(`presets.${presetLabelKey(fixtureId)}.label`)}</strong>
-                  <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                    {t(`presets.${presetLabelKey(fixtureId)}.description`)}
-                  </span>
-                </button>
-              );
-            })}
-          </>
-        ) : null}
-
-        {activeCategory === "mixed" ? (
-          <>
-            <h2 style={SECTION_STYLE}>
-              {t("nav.mixed")}
-              <span style={TAG_STYLE}>{t("nav.fullOnlyTag")}</span>
-            </h2>
-            {["mixed-busy"].map((fixtureId) => {
-              const active = activeFixtureId === fixtureId;
-              return (
-                <button
-                  key={fixtureId}
-                  type="button"
-                  disabled={fullCategoriesDisabled}
-                  onClick={() => selectOverlayScenario(fixtureId)}
-                  style={scenarioButtonStyle(fullCategoriesDisabled, active)}
-                >
-                  <strong style={{ fontSize: 12 }}>{t(`presets.${presetLabelKey(fixtureId)}.label`)}</strong>
-                  <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                    {t(`presets.${presetLabelKey(fixtureId)}.description`)}
-                  </span>
-                </button>
-              );
-            })}
-          </>
-        ) : null}
-
-        {activeCategory === "heatmapSpike" ? (
-          <>
-            <h2 style={SECTION_STYLE}>
-              {t("nav.heatmapSpike")}
-              <span style={TAG_STYLE}>{t("nav.fullOnlyTag")}</span>
-            </h2>
-            {LAB_HEATMAP_PRESETS.map((preset) => {
-              const active = state.heatmap?.presetId === preset.id && activeFixtureId === null;
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  data-lab-preset={preset.id}
-                  disabled={fullCategoriesDisabled}
-                  onClick={() => {
-                    setActiveFixtureId(null);
-                    dispatch({ type: "setHeatmap", presetId: preset.id });
-                  }}
-                  style={scenarioButtonStyle(fullCategoriesDisabled, active)}
-                >
-                  <strong style={{ fontSize: 12 }}>{t(`presets.${presetLabelKey(preset.id)}.label`)}</strong>
-                  <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                    {t(`presets.${presetLabelKey(preset.id)}.description`)}
-                  </span>
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              data-lab-action="clear-heatmap"
-              disabled={fullCategoriesDisabled || state.heatmap === null}
-              onClick={() => dispatch({ type: "clearHeatmap" })}
-              style={fullCategoriesDisabled || state.heatmap === null
-                ? { ...BUTTON_STYLE, opacity: 0.45, cursor: "default" }
-                : BUTTON_STYLE}
-            >
-              <strong style={{ fontSize: 12 }}>{t("presets.clearHeatmap")}</strong>
-              <span style={{ fontSize: 10.5, color: "#8f89a0", lineHeight: 1.35 }}>
-                {t("presets.clearHeatmapHint")}
-              </span>
-            </button>
-          </>
-        ) : null}
-      </nav>
-      {/* ================= Center: Preview Workspace =================== */}
+      {/* ============ Main Workspace (dominant) ============ */}
       <main aria-label={t("workspace.title")} style={WORKSPACE_STYLE} data-lab-workspace="">
-        <div style={WORKSPACE_TOOLBAR_STYLE}>
-          <div role="group" aria-label={t("workspace.targetLabel")} style={PRESET_ROW_STYLE}>
-            {LAB_PREVIEW_TARGET_IDS.map((targetId) => (
-              <button
-                key={targetId}
-                type="button"
-                aria-pressed={target === targetId}
-                onClick={() => setTarget(targetId)}
-                style={target === targetId ? ACTIVE_TAB_STYLE : TAB_STYLE}
-              >
-                {t(LAB_PREVIEW_TARGETS[targetId].labelKey)}
-              </button>
-            ))}
-          </div>
-
-          <div role="group" aria-label={t("workspace.displayScale")} style={PRESET_ROW_STYLE}>
-            {LAB_DISPLAY_SCALES.map((scale) => (
-              <button
-                key={scale}
-                type="button"
-                aria-pressed={displayScale === scale}
-                onClick={() => setDisplayScale(scale)}
-                style={displayScale === scale ? ACTIVE_SCALE_STYLE : SCALE_STYLE}
-              >
-                {scale}×
-              </button>
-            ))}
-          </div>
-
-          <span style={META_STYLE}>{formatTargetMeta(t, target, displayScale)}</span>
-
-          <div style={{ flex: 1 }} />
-
+        {/* 1. Workspace Shell HEADER — the flat scenario strip, the FIRST
+            Workspace content: centered, spacious, small curated set. */}
+        <div
+          style={STRIP_STYLE}
+          data-lab-workspace-header=""
+          data-lab-scenario-strip=""
+          className="lab-scroll"
+          role="group"
+          aria-label={t("nav.scenarioNavigation")}
+        >
           {target === "full" ? (
             <>
-              <button
-                type="button"
-                data-lab-replay=""
-                onClick={handleReplay}
-                disabled={state.activation === null}
-                style={state.activation === null
-                  ? { ...PRESET_BUTTON_STYLE, opacity: 0.45, cursor: "default" }
-                  : PRESET_BUTTON_STYLE}
-              >
-                {t("presets.replay")}
-              </button>
-              <button
-                type="button"
-                data-lab-export=""
-                onClick={() => {
-                  void handleExport();
-                }}
-                disabled={exportState === "exporting"}
-                style={exportState === "exporting" ? EXPORT_BUTTON_DISABLED_STYLE : EXPORT_BUTTON_STYLE}
-                title={t("preview.exportHint")}
-              >
-                {exportState === "exporting"
-                  ? t("preview.exporting")
-                  : exportState === "success"
-                    ? `${t("preview.exportSuccess", { name: exportFilename })} ✓`
-                    : exportState === "failure"
-                      ? `${t("preview.exportFailure")} ✗`
-                      : t("preview.export")}
-              </button>
-              {exportState === "failure" && exportError !== null ? (
-                <span
-                  style={{ fontSize: 10.5, color: "#f06272", maxWidth: 220, lineHeight: 1.35 }}
-                  role="alert"
-                >
-                  {exportError}
-                </span>
-              ) : null}
+              <LabStripChip
+                label={t("presets.intakeLocal.label")}
+                selected={activeScenarioId === "intake"}
+                onClick={() => selectScenario("intake")}
+                dataAttributes={{ "data-lab-preset": "intake-local" }}
+                title={t("presets.intakeLocal.description")}
+              />
+              <LabStripChip
+                label={t("presets.heatmapMoving.label")}
+                selected={activeScenarioId === "heatmap"}
+                onClick={() => selectScenario("heatmap")}
+                dataAttributes={{ "data-lab-preset": "heatmap-moving" }}
+                title={t("presets.heatmapMoving.description")}
+              />
+              <LabStripChip
+                label={t("presets.downloadActive.label")}
+                selected={activeScenarioId === "download"}
+                onClick={() => selectScenario("download")}
+                dataAttributes={{ "data-lab-preset": "download-active" }}
+                title={t("presets.downloadActive.description")}
+              />
+              <LabStripChip
+                label={t("presets.transcodeActive.label")}
+                selected={activeScenarioId === "transcode"}
+                onClick={() => selectScenario("transcode")}
+                dataAttributes={{ "data-lab-preset": "transcode-active" }}
+                title={t("presets.transcodeActive.description")}
+              />
+              <LabStripChip
+                label={t("presets.mixedBusy.label")}
+                selected={activeScenarioId === "mixed"}
+                onClick={() => selectScenario("mixed")}
+                dataAttributes={{ "data-lab-preset": "mixed-busy" }}
+                title={t("presets.mixedBusy.description")}
+              />
             </>
-          ) : null}
+          ) : (
+            LAB_COMPACT_SCENARIOS.map((scenario) => (
+              <LabStripChip
+                key={scenario.id}
+                label={t(`presets.${presetLabelKey(scenario.id)}.label`)}
+                selected={compactScenarioId === scenario.id}
+                onClick={() => selectCompactScenario(scenario.id)}
+                dataAttributes={{ "data-lab-compact-preset": scenario.id }}
+                title={t(`presets.${presetLabelKey(scenario.id)}.description`)}
+              />
+            ))
+          )}
         </div>
 
-        <div style={STAGE_WRAPPER_STYLE} data-lab-stage-viewport="">
+        {/* 2. Workspace Shell BODY — the dominant Preview stage, on the
+            Preview environment layer. The environment is a chrome sibling
+            OUTSIDE the preview host: it never reaches the renderer and is
+            never captured by the Full PNG export. */}
+        <div
+          ref={stageRef}
+          style={STAGE_WRAPPER_STYLE}
+          data-lab-workspace-body=""
+          data-lab-stage-viewport=""
+        >
+          <div
+            data-lab-env={previewBackground}
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "none",
+              ...resolveLabPreviewEnvironmentStyle(previewBackground),
+            }}
+          />
           <div style={{ width: scaledSize, height: scaledSize, position: "relative" }}>
             <div
               style={{
                 position: "absolute",
                 top: 0,
                 left: 0,
-                transform: `scale(${displayScale})`,
+                transform: `scale(${effectiveScale})`,
                 transformOrigin: "top left",
               }}
             >
@@ -1281,6 +966,7 @@ export function PresentationLab() {
                   onRecheck={() => undefined}
                   pointerOriginX={state.pointerOrigin.x}
                   pointerOriginY={state.pointerOrigin.y}
+                  originMarkerVisible={originMarkerVisible}
                   onPreviewClick={handlePreviewClick}
                   captureScale={captureScale}
                   captureEpoch={captureEpoch}
@@ -1294,43 +980,168 @@ export function PresentationLab() {
               )}
             </div>
           </div>
+          <div style={{ position: "absolute", right: 12, bottom: 12, zIndex: 40 }}>
+            <PreviewEnvironmentPicker
+              value={previewBackground}
+              onChange={setPreviewBackground}
+              t={t}
+            />
+          </div>
+          <div style={{ position: "absolute", left: 12, top: 12, zIndex: 40 }}>
+            <button
+              type="button"
+              data-lab-reset=""
+              onClick={handleReset}
+              title={t("workspace.resetHint")}
+              aria-label={t("workspace.reset")}
+              className="lab-control"
+              style={getLabResetButtonStyle(colors)}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 12a9 9 0 1 0 2.64-6.36" />
+                <path d="M3 4v5h5" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <p style={PREVIEW_CAPTION_STYLE}>
-          {target === "full" ? t("preview.caption") : t("compact.caption")}
-        </p>
+        {/* 3. Workspace Shell FOOTER — the below-preview controls as
+            hairline-divided labeled groups (Display mode / Zoom / Actions) +
+            caption, sharing one footer boundary; no per-group card surface. */}
+        <div style={FOOTER_STYLE} data-lab-workspace-footer="">
+          <div style={CONTROLS_STACK_STYLE} data-lab-control-groups="">
+            <div style={controlGroupStyle} data-lab-control-group="target">
+              <span style={controlGroupLabelStyle}>{t("controls.displayMode")}</span>
+              <LabSegmentedControl<LabPreviewTarget>
+                options={targetOptions}
+                value={target}
+                onChange={setTarget}
+                ariaLabel={t("workspace.targetLabel")}
+              />
+            </div>
+            <div style={controlGroupStyle} data-lab-control-group="scale">
+              <span style={controlGroupLabelStyle}>{t("controls.zoom")}</span>
+              <LabSegmentedControl<string>
+                options={scaleOptions}
+                value={displayScale === "auto" ? "auto" : String(displayScale)}
+                onChange={handleScaleChange}
+                ariaLabel={t("workspace.displayScale")}
+              />
+              <span style={META_STYLE}>{formatTargetMeta(t, target, scaleLabel)}</span>
+            </div>
+            {target === "full" ? (
+              <div style={controlGroupStyle} data-lab-control-group="actions">
+                <span style={controlGroupLabelStyle}>{t("controls.actions")}</span>
+                <>
+                  <button
+                    type="button"
+                    data-lab-replay=""
+                    onClick={handleReplay}
+                    disabled={state.activation === null}
+                    style={state.activation === null
+                      ? getLabChipStyle(colors, { disabled: true })
+                      : getLabChipStyle(colors)}
+                    className="lab-control"
+                  >
+                    {t("presets.replay")}
+                  </button>
+                  <button
+                    type="button"
+                    data-lab-export=""
+                    onClick={() => {
+                      void handleExport();
+                    }}
+                    disabled={exportState === "exporting"}
+                    style={exportState === "exporting"
+                      ? getLabChipStyle(colors, { disabled: true })
+                      : getLabChipStyle(colors)}
+                    className="lab-control"
+                    title={t("preview.exportHint")}
+                  >
+                    {exportState === "exporting"
+                      ? t("preview.exporting")
+                      : exportState === "success"
+                        ? `${t("preview.exportSuccess", { name: exportFilename })} ✓`
+                        : exportState === "failure"
+                          ? `${t("preview.exportFailure")} ✗`
+                          : t("preview.export")}
+                  </button>
+                  {exportState === "failure" && exportError !== null ? (
+                    <span
+                      style={{ fontSize: 10.5, color: "#f06272", maxWidth: 220, lineHeight: 1.35 }}
+                      role="alert"
+                    >
+                      {exportError}
+                    </span>
+                  ) : null}
+                </>
+              </div>
+            ) : null}
+          </div>
+
+          <p style={CAPTION_STYLE}>
+            {target === "full" ? t("preview.caption") : t("compact.caption")}
+          </p>
+        </div>
       </main>
 
-      {/* ================= Right: Dev Tools ============================= */}
+      {/* ============ Right: persistent Dev Tools ============ */}
       <aside aria-label={t("devTools.title")} style={DEVTOOLS_STYLE} data-lab-devtools="">
         <h2 style={TITLE_STYLE}>{t("devTools.title")}</h2>
 
-        <div style={ROW_STYLE}>
-          <span style={{ minWidth: 96 }}>{t("devTools.target")}</span>
-          <span>{t(LAB_PREVIEW_TARGETS[target].labelKey)}</span>
-        </div>
-        <div style={ROW_STYLE}>
-          <span style={{ minWidth: 96 }}>{t("devTools.reducedMotion")}</span>
-          <span>{previewReducedMotion ? t("devTools.on") : t("devTools.off")}</span>
+        <div style={devToolsSectionStyle}>
+          <h3 style={READOUT_LABEL_STYLE}>{t("devTools.target")}</h3>
+          <div style={ROW_STYLE}>
+            <span style={{ minWidth: 96 }}>{t("devTools.target")}</span>
+            <span>{t(LAB_PREVIEW_TARGETS[target].labelKey)}</span>
+          </div>
+          <div style={ROW_STYLE}>
+            <span style={{ minWidth: 96 }}>{t("devTools.scale")}</span>
+            <span>{scaleLabel}</span>
+          </div>
+          <div style={ROW_STYLE}>
+            <span style={{ minWidth: 96 }}>{t("devTools.background")}</span>
+            <span>{t(`environment.${previewBackground}`)}</span>
+          </div>
+          <div style={ROW_STYLE}>
+            <span style={{ minWidth: 96 }}>{t("devTools.reducedMotion")}</span>
+            <span>{previewReducedMotion ? t("devTools.on") : t("devTools.off")}</span>
+          </div>
         </div>
 
-        <label style={ROW_STYLE}>
-          <input
-            type="checkbox"
-            checked={state.reducedMotion}
-            onChange={(event) =>
-              dispatch({ type: "setReducedMotion", enabled: event.target.checked })}
-          />
-          {t("inspector.reducedMotion")}
-        </label>
-        <span style={HINT_STYLE}>
-          {t("inspector.reducedMotionHint")}
-        </span>
+        <div style={devToolsSectionStyle}>
+          <h3 style={READOUT_LABEL_STYLE}>{t("devTools.rmSection")}</h3>
+          <label style={ROW_STYLE}>
+            <input
+              type="checkbox"
+              checked={state.reducedMotion}
+              onChange={(event) =>
+                dispatch({ type: "setReducedMotion", enabled: event.target.checked })}
+            />
+            {t("inspector.reducedMotion")}
+          </label>
+          <span style={HINT_STYLE}>
+            {t("inspector.reducedMotionHint")}
+          </span>
+        </div>
 
         {target === "compact" ? (
-          <CompactFacts activeScenario={activeCompactScenario} t={t} />
+          <div style={devToolsSectionStyle}>
+            <CompactFacts activeScenario={activeCompactScenario} t={t} />
+          </div>
         ) : overlayProjection === null ? (
-          <>
+          <div style={devToolsSectionStyle}>
+            <h3 style={READOUT_LABEL_STYLE}>{t("devTools.originSection")}</h3>
             <div style={ROW_STYLE}>
               <span style={{ minWidth: 74 }}>{t("inspector.originX")}</span>
               <input
@@ -1339,6 +1150,8 @@ export function PresentationLab() {
                 max={1}
                 step={0.01}
                 value={state.pointerOrigin.x}
+                onFocus={() => setOriginInputFocused(true)}
+                onBlur={() => setOriginInputFocused(false)}
                 onChange={(event) =>
                   dispatch({
                     type: "setPointerOrigin",
@@ -1354,6 +1167,8 @@ export function PresentationLab() {
                 max={1}
                 step={0.01}
                 value={state.pointerOrigin.y}
+                onFocus={() => setOriginInputFocused(true)}
+                onBlur={() => setOriginInputFocused(false)}
                 onChange={(event) =>
                   dispatch({
                     type: "setPointerOrigin",
@@ -1382,19 +1197,24 @@ export function PresentationLab() {
             <span style={HINT_STYLE}>
               {t("inspector.determinateHint")}
             </span>
-          </>
+          </div>
         ) : (
-          <ScenarioFacts
-            projection={overlayProjection}
-            t={t}
-            queueOpen={queueOpen}
-            onQueueOpenChange={setQueueOpen}
-          />
+          <div style={devToolsSectionStyle}>
+            <h3 style={READOUT_LABEL_STYLE}>{t("inspector.scenario")}</h3>
+            <ScenarioFacts
+              projection={overlayProjection}
+              t={t}
+              queueOpen={queueOpen}
+              onQueueOpenChange={setQueueOpen}
+            />
+          </div>
         )}
 
         <AdvancedDiagnostics
           target={target}
           displayScale={displayScale}
+          effectiveScale={effectiveScale}
+          previewEnvironment={previewBackground}
           captureScale={captureScale}
           overlayProjection={overlayProjection}
           composed={composed}
@@ -1406,15 +1226,65 @@ export function PresentationLab() {
   );
 }
 
+/** Lab selection/test markers for a chip (data-* keys only, JSX-safe). */
+type LabChipDataAttributes = {
+  "data-lab-preset"?: string;
+  "data-lab-action"?: string;
+  "data-lab-compact-preset"?: string;
+};
+
+function LabStripChip({
+  label,
+  selected,
+  onClick,
+  title,
+  dataAttributes,
+}: {
+  label: string;
+  selected: boolean;
+  onClick: () => void;
+  title?: string;
+  dataAttributes?: LabChipDataAttributes;
+}) {
+  const { colors } = useTheme();
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      className="lab-control"
+      {...(dataAttributes ?? {})}
+      aria-pressed={selected}
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        ...getLabChipStyle(colors, { selected, hovered }),
+        // Comfortably sized scenario selector (spacious, like the reference).
+        minHeight: 36,
+        padding: "8px 16px",
+        fontSize: 12.5,
+        borderRadius: 9,
+        fontWeight: selected ? 700 : 500,
+      }}
+      title={title}
+    >
+      {label}
+    </button>
+  );
+}
+
 /**
  * Advanced Diagnostics — the raw JSON blocks (composed input + live shader
- * readout) demoted behind a collapsible disclosure, plus Lab geometry facts.
+ * readout) demoted behind a collapsible disclosure, plus Lab geometry facts
+ * (including the resolved Auto scale and the screen-only preview environment).
  * Shader readout is FULL-only: on the Compact target it explains why the raw
  * blocks are unavailable instead of rendering stale/empty JSON.
  */
 function AdvancedDiagnostics({
   target,
   displayScale,
+  effectiveScale,
+  previewEnvironment,
   captureScale,
   overlayProjection,
   composed,
@@ -1423,6 +1293,8 @@ function AdvancedDiagnostics({
 }: {
   target: LabPreviewTarget;
   displayScale: LabDisplayScale;
+  effectiveScale: number;
+  previewEnvironment: LabPreviewEnvironment;
   captureScale: number | undefined;
   overlayProjection: LabOverlayProjection | null;
   composed: LabComposedInput;
@@ -1442,6 +1314,8 @@ function AdvancedDiagnostics({
               shellSize: targetMeta.shellSize,
               characterSize: targetMeta.characterSize,
               displayScale,
+              autoScale: displayScale === "auto" ? effectiveScale : null,
+              previewEnvironment,
               backingScale: captureScale ?? null,
             },
             null,

@@ -15,10 +15,12 @@
   "branch": "planning/ui-lab-refresh",
   "base_branch": "motion/mr9-fullscreen-activation-fx",
   "worktree_path": "D:\\Ameow\\.cindy-worktrees\\ui-lab-refresh-planning",
-  "commit": null,
+  "commit": "25040db9ab7887444010a70d43cd537331286721",
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "08-22-ui-lab-layout-interaction-repair-planning"
+  ],
   "parent": null,
   "relatedFiles": [],
   "notes": "",

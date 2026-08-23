@@ -72,19 +72,59 @@ export const LAB_PREVIEW_TARGET_IDS = Object.keys(
   LAB_PREVIEW_TARGETS,
 ) as readonly LabPreviewTarget[];
 
-/** Workspace display magnification options (Lab chrome only, never production). */
-export const LAB_DISPLAY_SCALES = [1, 2, 3] as const;
+/** Workspace-only magnification. Auto is the default adaptive mode and
+    resolves to a member of {1, 2, 3} — never below 1, never above 3. The
+    manual 1x/2x/3x options remain explicit overrides. */
+export const LAB_DISPLAY_SCALES = ["auto", 1, 2, 3] as const;
 
 export type LabDisplayScale = (typeof LAB_DISPLAY_SCALES)[number];
 
-export const LAB_DISPLAY_SCALE_DEFAULT: LabDisplayScale = 1;
+export const LAB_DISPLAY_SCALE_DEFAULT: LabDisplayScale = "auto";
+
+/** The discrete manual magnification members Auto may resolve to. */
+export const LAB_AUTO_SCALE_OPTIONS = [1, 2, 3] as const;
+
+const LAB_AUTO_SAFETY_PADDING = 32;
+
+/** Fraction of the shorter stage edge reserved on each side of the Auto preview. */
+export const LAB_AUTO_BREATHING_RATIO = 0.06;
 
 /**
- * Reserved workspace layout size for one preview target at a display scale:
- * `logicalSize × displayScale`. The stage keeps its logical CSS size; only the
- * Lab workspace wrapper is scaled, so preview content never overlaps the side
- * regions and pointer normalization keeps working through the displayed rect.
+ * Pure Auto resolution: from the measured usable stage (shorter edge after
+ * the proportional breathing margin and the absolute safety floor), pick the
+ * LARGEST comfortable member of {1, 2, 3} that the usable stage can still
+ * accommodate without overflow. Never resolves below 1 or above 3; non-finite
+ * or empty geometry resolves to 1. Logical geometry and the export backing
+ * scale are untouched.
  */
+export const resolveLabAutoDisplayScale = (
+  viewportWidth: number,
+  viewportHeight: number,
+  logicalSize: number,
+): 1 | 2 | 3 => {
+  if (
+    !Number.isFinite(viewportWidth)
+    || !Number.isFinite(viewportHeight)
+    || !Number.isFinite(logicalSize)
+    || logicalSize <= 0
+  ) {
+    return 1;
+  }
+  const raw = Math.min(viewportWidth, viewportHeight);
+  const usable = Math.max(
+    0,
+    raw * (1 - 2 * LAB_AUTO_BREATHING_RATIO) - LAB_AUTO_SAFETY_PADDING,
+  );
+  for (let index = LAB_AUTO_SCALE_OPTIONS.length - 1; index >= 0; index -= 1) {
+    const scale = LAB_AUTO_SCALE_OPTIONS[index];
+    if (logicalSize * scale <= usable) {
+      return scale;
+    }
+  }
+  return 1;
+};
+
+/** Reserve workspace layout size for a concrete resolved display scale. */
 export const resolveLabPreviewScaledSize = (
   target: LabPreviewTarget,
   displayScale: number,

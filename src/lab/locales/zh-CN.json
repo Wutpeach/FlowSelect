@@ -1,21 +1,18 @@
 {
-  "appTitle": "浏览器实验台",
-  "appSubtitle": "MR9 开发专用 · 生产 WebGL2 主机 · 无 Electron / 下载器",
   "nav": {
     "scenarioNavigation": "场景导航",
     "activation": "全屏激活",
     "downloadProgress": "下载与进度",
-    "runtime": "运行环境",
-    "transcode": "转码",
-    "mixed": "混合忙碌",
     "reducedMotion": "减弱动态",
     "heatmapSpike": "热力图实验",
     "compact": "紧凑角色",
-    "download": "下载",
+    "scenes": "业务场景",
     "fullOnlyTag": "仅全屏",
     "compactOnlyTag": "仅紧凑",
-    "reset": "重置",
-    "resetHint": "仅重置当前类别的 Lab 预览状态。"
+    "clear": "清除",
+    "clearHint": "将该组的 Lab 预览状态置为空闲。",
+    "none": "无",
+    "noneHint": "无 overlay 场景；普通进度 / 激活表面。"
   },
   "previewTarget": {
     "full": "全屏",
@@ -25,15 +22,34 @@
     "title": "预览工作区",
     "targetLabel": "预览目标",
     "displayScale": "显示缩放",
-    "metadataFull": "全屏 · {{size}}×{{size}} · {{scale}}×",
-    "metadataCompact": "紧凑 · 外层 {{outer}} / 外壳 {{shell}} · {{scale}}×"
+    "autoLabel": "自动",
+    "auto": "自动 · {{scale}}×",
+    "reset": "重置预览",
+    "resetHint": "将当前 Lab 预览 / 场景恢复到基线状态（重新应用场景、源点居中、关闭减弱动态）。",
+    "metadataFull": "全屏 · {{size}}×{{size}} · {{scale}}",
+    "metadataCompact": "紧凑 · 外层 {{outer}} / 外壳 {{shell}} · {{scale}}"
+  },
+  "controls": {
+    "displayMode": "显示模式",
+    "zoom": "缩放",
+    "actions": "操作"
+  },
+  "environment": {
+    "title": "预览背景",
+    "dark": "深色",
+    "light": "浅色",
+    "checkerboard": "棋盘格"
   },
   "compact": {
     "caption": "紧凑目标直接复用生产 CompactCatCharacter 渲染叶（80/60/56 几何）+ Lab 本地指针场；无画布、无着色器、无原生窗口。"
   },
   "devTools": {
     "title": "开发工具",
+    "originSection": "源点设置",
+    "rmSection": "减弱动态",
     "target": "目标",
+    "scale": "缩放",
+    "background": "背景",
     "reducedMotion": "预览减弱动态",
     "on": "开",
     "off": "关",
@@ -61,6 +77,7 @@
     "progress50": "50%",
     "progress75": "75%",
     "progress100": "100%",
+    "progressHint": "当前 trace 上的确定生产进度目标。",
     "indeterminate": "不确定",
     "indeterminateHint": "诚实的固定非百分比分段；无数字边界。",
     "downwardRevision": "向下修订",

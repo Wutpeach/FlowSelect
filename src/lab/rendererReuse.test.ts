@@ -20,6 +20,11 @@ const labExport = read("./exportPng.ts");
 const labCompactStage = read("./CompactPreviewStage.tsx");
 const labPreviewTargets = read("./previewTargets.ts");
 const labCompactPointer = read("./compactPointerField.ts");
+const labControls = read("./labControls.ts");
+const labEnvironment = read("./previewEnvironment.ts");
+const labSegmented = read("./LabSegmentedControl.tsx");
+const labEnvPicker = read("./PreviewEnvironmentPicker.tsx");
+const labCss = read("./lab.css");
 const viteConfig = read("../../vite.config.ts");
 const labViteConfig = read("../../vite.lab.config.ts");
 
@@ -34,6 +39,10 @@ const labSources = [
   labCompactStage,
   labPreviewTargets,
   labCompactPointer,
+  labControls,
+  labEnvironment,
+  labSegmented,
+  labEnvPicker,
 ];
 
 const importSpecifiers = (source: string): string[] => {
@@ -184,5 +193,122 @@ describe("Browser Presentation Lab production renderer reuse", () => {
     expect(labCompactPointer).not.toContain("MainWindowPresentationSurface");
     // Exactly ONE production Expanded surface remains across the whole Lab.
     expect(labStage.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
+  });
+
+  it("repairs the page into two macro regions with no page heading", () => {
+    // No left Scenario Navigation region and no page title / subtitle.
+    expect(labComponent).not.toContain("<nav");
+    expect(labComponent).not.toContain("appTitle");
+    expect(labComponent).not.toContain("appSubtitle");
+    // Two regions: Main Workspace + persistent Dev Tools.
+    expect(labComponent).toContain("data-lab-workspace");
+    expect(labComponent).toContain("data-lab-devtools");
+    // The flat scenario strip is the FIRST Main Workspace content.
+    expect(labComponent).toContain("data-lab-scenario-strip");
+  });
+
+  it("keeps Dev Tools always visible (no narrow-window hide rule)", () => {
+    expect(labCss).not.toContain("display: none");
+    expect(labCss).not.toContain("1080px");
+    // Dev Tools uses a clamped width instead.
+    expect(labComponent).toContain("clamp(");
+  });
+
+  it("keeps the preview environment a screen-only chrome layer outside export", () => {
+    expect(labComponent).toContain("data-lab-env=");
+    // The environment is a sibling chrome layer behind the preview host, not
+    // the frame's own background, so the Full PNG export (which reads only the
+    // frame element) never captures it and no renderer/theme state sees it.
+    expect(labEnvironment).not.toContain("ExpandedPresentationSurface");
+    expect(labEnvironment).not.toContain("CompactCatCharacter");
+    expect(labEnvironment).not.toContain("<canvas");
+    expect(labEnvPicker).not.toContain("ExpandedPresentationSurface");
+    expect(labEnvPicker).not.toContain("CompactCatCharacter");
+    // The environment layer is explicitly non-interactive chrome.
+    expect(labComponent).toContain("pointerEvents: \"none\"");
+  });
+
+  it("stacks the below-preview controls into labeled groups (not one toolbar)", () => {
+    expect(labComponent).toContain("data-lab-control-groups");
+    expect(labComponent).toContain('data-lab-control-group="target"');
+    expect(labComponent).toContain('data-lab-control-group="scale"');
+    expect(labComponent).toContain('data-lab-control-group="actions"');
+    expect(labComponent).toContain('t("controls.displayMode")');
+    expect(labComponent).toContain('t("controls.zoom")');
+    expect(labComponent).toContain('t("controls.actions")');
+  });
+
+  it("curates the scenario strip to a small representative set", () => {
+    expect(labComponent).toContain("data-lab-scenario-strip");
+    // Curated representative scenarios only (repository authority unchanged).
+    expect(labComponent).toContain('selectScenario("intake")');
+    expect(labComponent).toContain('selectScenario("heatmap")');
+    expect(labComponent).toContain('selectScenario("mixed")');
+    expect(labComponent).toContain('"data-lab-preset": "download-active"');
+    // The dense per-dimension cloud is gone from the visible set.
+    expect(labComponent).not.toContain("selectProgressAction");
+    expect(labComponent).not.toContain("selectActivationPreset");
+    expect(labComponent).not.toContain("selectHeatmapPreset");
+    expect(labComponent).not.toContain("presets.indeterminate");
+    expect(labComponent).not.toContain("presets.progress50");
+  });
+
+  it("uses Lab-local segmented controls for target and scale", () => {
+    expect(labComponent).toContain("<LabSegmentedControl<LabPreviewTarget>");
+    expect(labComponent).toContain("<LabSegmentedControl<string>");
+    expect(labSegmented).toContain('role="group"');
+    expect(labSegmented).toContain("aria-pressed={selected}");
+    // The segmented control and the picker stay inside the Lab entry graph.
+    expect(labComponent).toContain('from "./LabSegmentedControl"');
+    expect(labComponent).toContain('from "./PreviewEnvironmentPicker"');
+  });
+
+  it("marks the unified Workspace Shell into Header / Body / Footer regions", () => {
+    expect(labComponent).toContain("data-lab-workspace-header");
+    expect(labComponent).toContain("data-lab-workspace-body");
+    expect(labComponent).toContain("data-lab-workspace-footer");
+    // The scenario strip is the Header region and stays the FIRST Workspace
+    // content (same element carries both markers).
+    expect(labComponent).toContain('data-lab-workspace-header=""\n          data-lab-scenario-strip=""');
+    // The Body region is the preview stage viewport.
+    expect(labComponent).toContain('data-lab-workspace-body=""\n          data-lab-stage-viewport=""');
+    // The Footer wraps the grouped controls + caption, not a per-group card.
+    const footerIndex = labComponent.indexOf('data-lab-workspace-footer=""');
+    expect(labComponent.indexOf('data-lab-control-groups=""', footerIndex))
+      .toBeGreaterThan(footerIndex);
+  });
+
+  it("renames the adaptive scale to discrete Auto (1/2/3, never below 1 or above 3)", () => {
+    expect(labPreviewTargets).toContain('["auto", 1, 2, 3]');
+    expect(labPreviewTargets).toContain('LAB_DISPLAY_SCALE_DEFAULT: LabDisplayScale = "auto"');
+    expect(labPreviewTargets).toContain("resolveLabAutoDisplayScale");
+    expect(labPreviewTargets).not.toContain("resolveLabPreviewDisplayScale");
+    expect(labPreviewTargets).not.toContain("fit");
+    expect(labComponent).toContain('t("workspace.auto", { scale: autoScale })');
+    expect(labComponent).toContain('t("workspace.autoLabel")');
+    expect(labComponent).not.toContain("workspace.fit");
+    // Auto metadata is integer, never a continuous decimal.
+    expect(labComponent).not.toContain("toFixed(");
+  });
+
+  it("keeps the origin marker Lab-local and conditional", () => {
+    expect(labStage).toContain("originMarkerVisible");
+    expect(labStage).toContain("{originMarkerVisible ? (");
+    expect(labComponent).toContain("originMarkerVisible={originMarkerVisible}");
+    // Visible for the origin-relevant Intake scenario or while editing origin.
+    expect(labComponent).toContain('activeScenarioId === "intake"');
+  });
+
+  it("adds a low-weight circular Reset affordance with tooltip and accessible label", () => {
+    expect(labComponent).toContain('data-lab-reset=""');
+    expect(labComponent).toContain("title={t(\"workspace.resetHint\")}");
+    expect(labComponent).toContain("aria-label={t(\"workspace.reset\")}");
+    expect(labComponent).toContain("handleReset");
+  });
+
+  it("treats Replay and Export as secondary (no persistent orange hierarchy)", () => {
+    expect(labComponent).toContain('data-lab-export=""');
+    expect(labComponent).not.toContain("EXPORT_BUTTON_STYLE");
+    expect(labComponent).not.toContain("#b56a4a");
   });
 });
