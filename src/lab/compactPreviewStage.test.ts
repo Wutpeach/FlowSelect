@@ -13,15 +13,15 @@ describe("Lab Compact Preview Stage", () => {
     expect(source).not.toContain("createExpandedPresentationRuntime(");
   });
 
-  it("reuses the production CompactCatCharacter renderer leaf, never the native surface", () => {
-    expect(source).toContain('from "../presentation/main-window/CompactCatCharacter"');
+  it("reuses the production CompactMascot renderer leaf, never the native surface", () => {
+    expect(source).toContain('from "../presentation/main-window/CompactMascot"');
     expect(source).not.toContain("MainWindowPresentationSurface");
     expect(source).not.toContain("ExpandedPresentationSurface");
   });
 
   it("mounts the production character at production geometry with theme colors", () => {
-    expect(source).toContain("<CompactCatCharacter");
-    expect(source).toContain("size={CHARACTER_VISUAL_SIZE}");
+    expect(source).toContain("<CompactMascot");
+    expect(source).toContain("size={COMPACT_MASCOT_VISUAL_SIZE}");
     expect(source).toContain("bodyColor={colors.characterBody}");
     expect(source).toContain("eyeColor={colors.characterEye}");
     expect(source).toContain("pointerField={pointerField}");

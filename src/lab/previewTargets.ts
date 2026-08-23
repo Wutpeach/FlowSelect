@@ -20,7 +20,7 @@ import {
   MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
   MAIN_WINDOW_PANEL_SIZE,
 } from "../constants/windowMetrics";
-import { CHARACTER_VISUAL_SIZE } from "../presentation/main-window/characterRecipe";
+import { COMPACT_MASCOT_VISUAL_SIZE } from "../presentation/main-window/compactMascotRecipe";
 import {
   MAIN_WINDOW_FULL_PANEL_RADIUS,
   MAIN_WINDOW_MINIMIZED_PANEL_RADIUS,
@@ -61,7 +61,7 @@ export const LAB_PREVIEW_TARGETS: Readonly<Record<LabPreviewTarget, LabPreviewTa
     labelKey: "previewTarget.compact",
     logicalSize: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
     shellSize: MAIN_WINDOW_COMPACT_SHELL_SIZE,
-    characterSize: CHARACTER_VISUAL_SIZE,
+    characterSize: COMPACT_MASCOT_VISUAL_SIZE,
     radius: MAIN_WINDOW_MINIMIZED_PANEL_RADIUS,
     attentionCenterX: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE / 2,
     attentionCenterY: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE / 2,

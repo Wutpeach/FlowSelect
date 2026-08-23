@@ -22,8 +22,8 @@ import {
 } from "../../components/ui/shared-styles";
 import { useTheme } from "../../contexts/ThemeContext";
 import { desktopCurrentWindow, isElectronRenderer } from "../../desktop/runtime";
-import { CompactCatCharacter } from "./CompactCatCharacter";
-import { CHARACTER_VISUAL_SIZE } from "./characterRecipe";
+import { CompactMascot } from "./CompactMascot";
+import { COMPACT_MASCOT_VISUAL_SIZE } from "./compactMascotRecipe";
 import {
   shouldIgnorePanelDoubleClickTarget,
   shouldOpenOutputFolderFromPanelMouseDownDoubleClick,
@@ -1216,8 +1216,8 @@ export function MainWindowPresentationSurface({
                     animate={motionRecipe.icon.settleAnimate}
                     transition={motionRecipe.icon.settleTransition}
                     style={{
-                      width: CHARACTER_VISUAL_SIZE,
-                      height: CHARACTER_VISUAL_SIZE,
+                      width: COMPACT_MASCOT_VISUAL_SIZE,
+                      height: COMPACT_MASCOT_VISUAL_SIZE,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -1229,8 +1229,8 @@ export function MainWindowPresentationSurface({
                       willChange: "transform",
                     }}
                   >
-                    <CompactCatCharacter
-                      size={CHARACTER_VISUAL_SIZE}
+                    <CompactMascot
+                      size={COMPACT_MASCOT_VISUAL_SIZE}
                       bodyColor={colors.characterBody}
                       eyeColor={colors.characterEye}
                       reducedMotion={environment.reducedMotion}

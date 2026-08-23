@@ -41,7 +41,7 @@
     "checkerboard": "Checkerboard"
   },
   "compact": {
-    "caption": "Compact renders the current production CompactCatCharacter at 80/60/56 geometry with a Lab-local pointer field; no canvas, no shader, no native window."
+    "caption": "Compact renders the production Strobi mascot at 80/60/56 geometry with the Lab-local pointer field; no canvas, shader, or native window."
   },
   "devTools": {
     "title": "Dev Tools",

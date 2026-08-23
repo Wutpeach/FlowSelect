@@ -1,7 +1,7 @@
 /**
  * Lab-local Compact preview host.
  *
- * Mounts the EXISTING production CompactCatCharacter renderer leaf directly in
+ * Mounts the existing production CompactMascot renderer leaf directly in
  * the production 80×80 outer / 60×60 shell / 56×56 character geometry with one
  * Lab-local pointer MotionValue pair. It previews the current Compact renderer
  * only (neutral / pointer attention / Reduced Motion) and creates no canvas,
@@ -19,7 +19,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useTheme } from "../contexts/ThemeContext";
-import { CompactCatCharacter } from "../presentation/main-window/CompactCatCharacter";
+import { CompactMascot } from "../presentation/main-window/CompactMascot";
 import {
   getPanelShellStyle,
 } from "../components/ui/shared-styles";
@@ -28,7 +28,7 @@ import {
   MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
 } from "../constants/windowMetrics";
 import { MAIN_WINDOW_MINIMIZED_PANEL_RADIUS } from "../presentation/main-window/geometry";
-import { CHARACTER_VISUAL_SIZE } from "../presentation/main-window/characterRecipe";
+import { COMPACT_MASCOT_VISUAL_SIZE } from "../presentation/main-window/compactMascotRecipe";
 import {
   LAB_COMPACT_ATTENTION_CENTER,
   resetLabCompactPointerToCenter,
@@ -125,8 +125,8 @@ export function CompactPreviewStage({
           justifyContent: "center",
         }}
       >
-        <CompactCatCharacter
-          size={CHARACTER_VISUAL_SIZE}
+        <CompactMascot
+          size={COMPACT_MASCOT_VISUAL_SIZE}
           bodyColor={colors.characterBody}
           eyeColor={colors.characterEye}
           reducedMotion={reducedMotion}

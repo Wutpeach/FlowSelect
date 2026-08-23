@@ -41,7 +41,7 @@
     "checkerboard": "棋盘格"
   },
   "compact": {
-    "caption": "紧凑目标直接复用生产 CompactCatCharacter 渲染叶（80/60/56 几何）+ Lab 本地指针场；无画布、无着色器、无原生窗口。"
+    "caption": "紧凑目标直接复用生产 Strobi Mascot 渲染叶（80/60/56 几何）与 Lab 本地指针场；无画布、着色器或原生窗口。"
   },
   "devTools": {
     "title": "开发工具",

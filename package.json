@@ -45,6 +45,7 @@
     "package:portable:skip-build": "powershell -ExecutionPolicy Bypass -File ./scripts/package-portable.ps1 -SkipBuild"
   },
   "dependencies": {
+    "@bible-strong/avatar-core": "0.1.0",
     "image-max-url": "^2026.2.0",
     "ws": "^8.21.0",
     "zod": "^4.3.6"

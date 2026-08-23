@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const here = import.meta.dirname;
 
 const read = (relativePath: string): string =>
-  readFileSync(resolve(here, relativePath), "utf8");
+  readFileSync(resolve(here, relativePath), "utf8").replace(/\r\n/g, "\n");
 
 const labHtml = read("../../lab.html");
 const indexHtml = read("../../index.html");
@@ -192,12 +192,12 @@ describe("Browser Presentation Lab production renderer reuse", () => {
 
   it("reuses the current production Compact renderer leaf for the Compact target", () => {
     // The Compact target is a Lab-local UI discriminant wired to the EXISTING
-    // production CompactCatCharacter + production geometry constants. No new
-    // mascot, no second canvas, no native window, no production authority.
-    expect(labCompactStage).toContain('from "../presentation/main-window/CompactCatCharacter"');
+    // production CompactMascot + production geometry constants. No second
+    // renderer, canvas, native window, or production authority.
+    expect(labCompactStage).toContain('from "../presentation/main-window/CompactMascot"');
     expect(labCompactStage).not.toContain("MainWindowPresentationSurface");
     expect(labCompactStage).not.toContain("ExpandedPresentationSurface");
-    expect(labCompactStage).toContain('from "../presentation/main-window/characterRecipe"');
+    expect(labCompactStage).toContain('from "../presentation/main-window/compactMascotRecipe"');
     expect(labCompactStage).toContain('from "../constants/windowMetrics"');
     expect(labCompactStage).toContain('from "../presentation/main-window/geometry"');
     expect(labCompactStage).toContain('from "./compactPointerField"');
@@ -211,7 +211,7 @@ describe("Browser Presentation Lab production renderer reuse", () => {
     expect(labComponent).toContain("<LabOverlayStage");
     // Lab-local pointer + target models derive geometry from production only.
     expect(labPreviewTargets).toContain('from "../constants/windowMetrics"');
-    expect(labPreviewTargets).toContain('from "../presentation/main-window/characterRecipe"');
+    expect(labPreviewTargets).toContain('from "../presentation/main-window/compactMascotRecipe"');
     expect(labPreviewTargets).toContain('from "../presentation/main-window/geometry"');
     expect(labCompactPointer).not.toContain("MainWindowPresentationSurface");
     // Exactly ONE production Expanded surface remains across the whole Lab.
@@ -243,10 +243,10 @@ describe("Browser Presentation Lab production renderer reuse", () => {
     // the frame's own background, so the Full PNG export (which reads only the
     // frame element) never captures it and no renderer/theme state sees it.
     expect(labEnvironment).not.toContain("ExpandedPresentationSurface");
-    expect(labEnvironment).not.toContain("CompactCatCharacter");
+    expect(labEnvironment).not.toContain("CompactMascot");
     expect(labEnvironment).not.toContain("<canvas");
     expect(labEnvPicker).not.toContain("ExpandedPresentationSurface");
-    expect(labEnvPicker).not.toContain("CompactCatCharacter");
+    expect(labEnvPicker).not.toContain("CompactMascot");
     // The environment layer is explicitly non-interactive chrome.
     expect(labComponent).toContain("pointerEvents: \"none\"");
   });

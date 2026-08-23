@@ -159,8 +159,8 @@ const themes: Record<Theme, ThemeColors> = {
     transcodeTrack: 'rgba(120,73,18,0.44)',
     successIcon: '#707070',
     errorIcon: '#f87171',
-    characterBody: 'rgba(245,245,245,0.94)',
-    characterEye: 'rgba(32,30,37,0.9)',
+    characterBody: '#5b7fe5',
+    characterEye: '#111316',
   },
   white: {
     bgPrimary: '#E3E3E3',
@@ -230,8 +230,8 @@ const themes: Record<Theme, ThemeColors> = {
     transcodeTrack: 'rgba(251,191,36,0.22)',
     successIcon: '#666666',
     errorIcon: '#ef4444',
-    characterBody: 'rgba(51,51,51,0.92)',
-    characterEye: 'rgba(245,245,245,0.96)',
+    characterBody: '#5b7fe5',
+    characterEye: '#111316',
   },
 };
 

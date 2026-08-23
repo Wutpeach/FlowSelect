@@ -14,7 +14,7 @@ import {
   MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
   MAIN_WINDOW_PANEL_SIZE,
 } from "../constants/windowMetrics";
-import { CHARACTER_VISUAL_SIZE } from "../presentation/main-window/characterRecipe";
+import { COMPACT_MASCOT_VISUAL_SIZE } from "../presentation/main-window/compactMascotRecipe";
 import {
   MAIN_WINDOW_FULL_PANEL_RADIUS,
   MAIN_WINDOW_MINIMIZED_PANEL_RADIUS,
@@ -38,7 +38,7 @@ describe("Lab Preview Target model", () => {
     const meta = LAB_PREVIEW_TARGETS.compact;
     expect(meta.logicalSize).toBe(MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE);
     expect(meta.shellSize).toBe(MAIN_WINDOW_COMPACT_SHELL_SIZE);
-    expect(meta.characterSize).toBe(CHARACTER_VISUAL_SIZE);
+    expect(meta.characterSize).toBe(COMPACT_MASCOT_VISUAL_SIZE);
     expect(meta.radius).toBe(MAIN_WINDOW_MINIMIZED_PANEL_RADIUS);
     // Explicit production geometry (60px shell radius reads as a circle).
     expect(meta.logicalSize).toBe(80);

@@ -623,14 +623,13 @@ const MR0_MOTION_LEAF_MODULES = [
   // (erased at compile time) and never classifies, dispatches, reduces,
   // cancels, retains, or writes lifecycle/native state.
   "src/presentation/main-window/downloadTerminalProjection.ts",
-  // MR2 Compact Flat Blob Cat: pure geometry/attention projection + the
-  // consumer-local blink timer. The SVG host (CompactCatCharacter.tsx) is NOT
-  // in this list: it is a DOM boundary (it reads
-  // `document.hidden` for visibility sleep), so the position-call ban does not
-  // apply to it. Its imports are held to the FULL leaf rule set plus the
-  // Pointer Field writer by the wiring-boundary assertions below.
-  "src/presentation/main-window/characterRecipe.ts",
-  "src/presentation/main-window/characterBlinkRuntime.ts",
+  // Compact Strobi: pinned source definition, pure attention projection, and
+  // source-specific playback scheduler. The SVG host (CompactMascot.tsx) is a
+  // DOM boundary because it reads document visibility; it stays outside this
+  // pure-leaf list and is pinned by the wiring-boundary assertions.
+  "src/presentation/main-window/compactMascotRecipe.ts",
+  "src/presentation/main-window/strobiDefinition.ts",
+  "src/presentation/main-window/strobiPlaybackRuntime.ts",
 ];
 
 const MR0_FORBIDDEN_SRC_PREFIXES = [
@@ -863,10 +862,10 @@ describe("MR0 renderer-local motion guard", () => {
     expect(surfaceSource.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
   });
 
-  it("keeps the Compact Cat SVG host free of Product/lifecycle/effects/desktop/Electron/pointer-authority imports and IPC side channels", () => {
+  it("keeps the Compact Mascot SVG host free of Product/lifecycle/effects/desktop/Electron/pointer-authority imports and IPC side channels", () => {
     const hostFile = path.join(
       repoRoot,
-      "src/presentation/main-window/CompactCatCharacter.tsx",
+      "src/presentation/main-window/CompactMascot.tsx",
     );
     const source = readFileSync(hostFile, "utf8");
 
@@ -891,14 +890,14 @@ describe("MR0 renderer-local motion guard", () => {
       }
     }
     expect(violations, [
-      "CompactCatCharacter must stay a renderer-local visual host: no Product/lifecycle/effects/desktop/Electron or Pointer Field imports; the field arrives as a read-only prop.",
+      "CompactMascot must stay a renderer-local visual host: no Product/lifecycle/effects/desktop/Electron or Pointer Field imports; the field arrives as a read-only prop.",
       ...violations,
     ].join("\n")).toEqual([]);
 
-    // The host schedules one blink timer only — no IPC side channels.
+    // The host schedules source-local playback only — no IPC side channels.
     expect(
       MR0_FORBIDDEN_SIDE_CHANNEL_PATTERN.test(source),
-      "CompactCatCharacter must not open IPC side channels",
+      "CompactMascot must not open IPC side channels",
     ).toBe(false);
   });
 
