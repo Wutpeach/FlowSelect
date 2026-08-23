@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review future source fidelity, cleanup, tests, and build isolation."}
+{"file":".trellis/tasks/08-23-paper-official-source-level-adaptation-planning/research/upstream-paper-heatmap-pipeline.md","reason":"Verify every claimed untouched Paper stage against pinned upstream source."}
+{"file":".trellis/tasks/08-23-paper-official-source-level-adaptation-planning/research/ameow-perimeter-boundary.md","reason":"Verify the implementation does not reintroduce prior rejected renderer work or touch Production."}
+{"file":".trellis/tasks/08-23-paper-official-source-level-adaptation-planning/research/apache-provenance.md","reason":"Verify Apache-2.0 and NOTICE obligations before any distributed derivative."}
+{"file":".trellis/tasks/08-23-paper-official-source-level-adaptation-planning/research/minimum-adaptation-assessment.md","reason":"Enforce the one-candidate falsification and NO-GO stop rule."}

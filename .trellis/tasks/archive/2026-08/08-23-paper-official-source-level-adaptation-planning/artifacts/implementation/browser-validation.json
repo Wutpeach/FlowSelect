@@ -1,0 +1,221 @@
+{
+  "url": "http://127.0.0.1:1433/lab.html",
+  "selectorChange": "float outerBlur = 1. - mix(1., img[1], 1. - shape);",
+  "sampleSeconds": [
+    0,
+    3,
+    6,
+    9,
+    12
+  ],
+  "settledBeforeSamplingMs": 6500,
+  "samples": [
+    {
+      "second": 0,
+      "observedMs": 0,
+      "official": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 6901.799999904633,
+        "centralRgbMean": 41.97,
+        "centralLumaMean": 40.04,
+        "centralHash": "abec4f05"
+      },
+      "derivative": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 6901.700000000001,
+        "centralRgbMean": 182.39,
+        "centralLumaMean": 180.58,
+        "centralHash": "8e662d44"
+      }
+    },
+    {
+      "second": 3,
+      "observedMs": 3013,
+      "official": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 9918.299999904633,
+        "centralRgbMean": 41.97,
+        "centralLumaMean": 40.04,
+        "centralHash": "abec4f05"
+      },
+      "derivative": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 9918.2,
+        "centralRgbMean": 184.98,
+        "centralLumaMean": 184.96,
+        "centralHash": "78c92d75"
+      }
+    },
+    {
+      "second": 6,
+      "observedMs": 6010,
+      "official": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 12918.199999904631,
+        "centralRgbMean": 41.97,
+        "centralLumaMean": 40.04,
+        "centralHash": "abec4f05"
+      },
+      "derivative": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 12918.099999999999,
+        "centralRgbMean": 172.97,
+        "centralLumaMean": 178.33,
+        "centralHash": "ea232ffa"
+      }
+    },
+    {
+      "second": 9,
+      "observedMs": 9016,
+      "official": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 15918.099999904633,
+        "centralRgbMean": 41.97,
+        "centralLumaMean": 40.04,
+        "centralHash": "abec4f05"
+      },
+      "derivative": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 15918,
+        "centralRgbMean": 150.32,
+        "centralLumaMean": 155.06,
+        "centralHash": "1ea4ed9d"
+      }
+    },
+    {
+      "second": 12,
+      "observedMs": 12013,
+      "official": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 18917.999999904634,
+        "centralRgbMean": 41.97,
+        "centralLumaMean": 40.04,
+        "centralHash": "abec4f05"
+      },
+      "derivative": {
+        "cssSize": [
+          200,
+          200
+        ],
+        "backingSize": [
+          400,
+          400
+        ],
+        "currentFrame": 18917.9,
+        "centralRgbMean": 124.94,
+        "centralLumaMean": 128.32,
+        "centralHash": "f2714fff"
+      }
+    }
+  ],
+  "settled": {
+    "paperCellCount": 2,
+    "paperPanelCount": 2,
+    "paperMountCount": 2,
+    "paperCanvasCount": 2,
+    "productionPreviewCount": 0,
+    "visibleSourceImageCount": 0,
+    "viewportSizes": [
+      [
+        200,
+        200
+      ],
+      [
+        200,
+        200
+      ]
+    ],
+    "viewportStyles": [
+      {
+        "borderRadius": "16px",
+        "overflow": "hidden",
+        "filter": "none",
+        "mixBlendMode": "normal",
+        "maskImage": "none"
+      },
+      {
+        "borderRadius": "16px",
+        "overflow": "hidden",
+        "filter": "none",
+        "mixBlendMode": "normal",
+        "maskImage": "none"
+      }
+    ]
+  },
+  "afterSwitchAway": {
+    "officialCanvasConnected": false,
+    "derivativeCanvasConnected": false,
+    "paperMountCount": 0,
+    "documentCanvasCount": 1,
+    "productionPreviewCount": 1
+  },
+  "afterRemount": {
+    "paperMountCount": 2,
+    "paperCanvasCount": 2,
+    "documentCanvasCount": 2,
+    "productionPreviewCount": 0
+  }
+}
