@@ -1821,3 +1821,24 @@ Committed and archived the validated UI Lab Presentation Playground with unified
 ### Next Steps
 
 - Await future work outside this archived task chain; do not add Agentation or Compact Mascot work here.
+
+
+## Session 257: Agentation Integration Final Placement Repair
+
+**Date**: 2026-08-23
+**Task**: Agentation Integration Final Placement Repair
+**Branch**: `planning/ui-lab-refresh`
+
+### Summary
+
+Completed and finalized the UI Lab-only agentation@3.0.2 integration: grouped Background and Reset at Preview lower-left, placed the official toolbar near Preview lower-right through its className escape hatch, revalidated browser interactions/origin guard and production artifact isolation, then archived the spike and parent planning tasks.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6d5b5f3` | (see git log) |
+
+### Status
+
+[OK] **Completed**
