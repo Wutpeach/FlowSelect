@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify cleanup, type-check/lint/build discipline, and absence of forbidden patterns."}
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Check motion/lifecycle authority and Reduced Motion behavior remain outside the visual executor."}
+{"file":".trellis/tasks/08-23-mr9-ripple-motion-foundation-planning/research/planning-report.md","reason":"Authoritative planning scope, decisions, risks, validation matrix, and stop gates."}
+{"file":".trellis/tasks/08-23-mr9-ripple-motion-foundation-planning/research/upstream-ripple-source-analysis.md","reason":"Check exact provenance, formulas, Pinch ON / Strength .14 mapping, prohibition on fictional blend semantics, MIT/GSAP obligations, and source-diff evidence."}
+{"file":".trellis/tasks/08-23-mr9-ripple-motion-foundation-planning/research/ameow-architecture-fit.md","reason":"Check single-host Lab isolation, authority separation, no premature framework, and the unresolved Production scene-source blocker."}

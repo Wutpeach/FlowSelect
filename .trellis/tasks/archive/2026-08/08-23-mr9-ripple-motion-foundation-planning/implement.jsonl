@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Preserve Ameow motion ownership, lifecycle boundaries, Reduced Motion expectations, and compact-surface constraints."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Use the established React/component, continuous-corner, and pointer-transparent surface conventions for the Lab host."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Apply cleanup, type-safety, build isolation, and renderer quality rules."}
+{"file":".trellis/tasks/08-23-mr9-ripple-motion-foundation-planning/research/upstream-ripple-source-analysis.md","reason":"Pinned Ripple revision, real shader/runtime pipeline, control mapping, license, build evidence, and source-fidelity gates."}
+{"file":".trellis/tasks/08-23-mr9-ripple-motion-foundation-planning/research/ameow-architecture-fit.md","reason":"Repository-grounded authority split, Lab isolation boundary, adapter responsibilities, and Production blocker."}
+{"file":".trellis/tasks/archive/2026-08/08-23-paper-official-source-level-adaptation-planning/closure-report.md","reason":"Paper route is a NO-GO research checkpoint and must not be restarted or treated as a reuse baseline."}

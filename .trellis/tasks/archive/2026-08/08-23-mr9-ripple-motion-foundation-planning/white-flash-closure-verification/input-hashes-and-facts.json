@@ -1,0 +1,390 @@
+{
+  "anomalyCriterion": {
+    "isolated_mean_jump": 0.2,
+    "isolated_mean_margin": 0.1,
+    "large_bright90_fraction": 0.5,
+    "large_bright98_fraction": 0.1,
+    "large_bright_margin": 0.05
+  },
+  "reviewHtml": {
+    "path": "D:\\Ameow\\.cindy-worktrees\\mr9-ripple-source-fidelity\\evidence\\mr9-ripple\\single-scene-review.html",
+    "sha256": "dce77a9e008d4f9cca0632ea8fa02906c310590dbbe2d96c64501ac902bd0911",
+    "bytes": 287350
+  },
+  "originals": {
+    "center": {
+      "path": "D:\\Ameow\\.cindy-worktrees\\mr9-ripple-source-fidelity\\evidence\\mr9-ripple\\single-scene-center-full-duration.webm",
+      "sha256": "1820ac97dac4e93ab8d04e50e9f5d4bf85dbf0cc68399f91906ae2438039b0a4",
+      "bytes": 25487,
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "vp8",
+            "codec_long_name": "On2 VP8",
+            "profile": "0",
+            "codec_type": "video",
+            "codec_tag_string": "[0][0][0][0]",
+            "codec_tag": "0x0000",
+            "mime_codec_string": "vp8",
+            "width": 200,
+            "height": 200,
+            "coded_width": 200,
+            "coded_height": 200,
+            "has_b_frames": 0,
+            "sample_aspect_ratio": "1:1",
+            "display_aspect_ratio": "1:1",
+            "pix_fmt": "yuv420p",
+            "level": -99,
+            "color_range": "tv",
+            "color_space": "bt470bg",
+            "chroma_location": "center",
+            "field_order": "progressive",
+            "r_frame_rate": "25/1",
+            "avg_frame_rate": "25/1",
+            "time_base": "1/1000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "disposition": {
+              "default": 0,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0,
+              "non_diegetic": 0,
+              "captions": 0,
+              "descriptions": 0,
+              "metadata": 0,
+              "dependent": 0,
+              "still_image": 0,
+              "multilayer": 0
+            },
+            "tags": {
+              "ENCODER": "Lavc62.28.100 libvpx",
+              "DURATION": "00:00:03.240000000"
+            }
+          }
+        ],
+        "format": {
+          "filename": "D:\\Ameow\\.cindy-worktrees\\mr9-ripple-source-fidelity\\evidence\\mr9-ripple\\single-scene-center-full-duration.webm",
+          "nb_streams": 1,
+          "nb_programs": 0,
+          "nb_stream_groups": 0,
+          "format_name": "matroska,webm",
+          "format_long_name": "Matroska / WebM",
+          "start_time": "0.000000",
+          "duration": "3.240000",
+          "size": "25487",
+          "bit_rate": "62930",
+          "probe_score": 100,
+          "tags": {
+            "ENCODER": "Lavf62.12.100"
+          }
+        }
+      },
+      "decoded": {
+        "width": 200,
+        "height": 200,
+        "frameCount": 81,
+        "rgb24Bytes": 9720000,
+        "timestampFrameCount": 81
+      }
+    },
+    "off-center": {
+      "path": "D:\\Ameow\\.cindy-worktrees\\mr9-ripple-source-fidelity\\evidence\\mr9-ripple\\single-scene-off-center-full-duration.webm",
+      "sha256": "8de3d068f52f97bda16603ab700401b4379b5cb9d8fd917f5892edda77490e95",
+      "bytes": 26227,
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "vp8",
+            "codec_long_name": "On2 VP8",
+            "profile": "0",
+            "codec_type": "video",
+            "codec_tag_string": "[0][0][0][0]",
+            "codec_tag": "0x0000",
+            "mime_codec_string": "vp8",
+            "width": 200,
+            "height": 200,
+            "coded_width": 200,
+            "coded_height": 200,
+            "has_b_frames": 0,
+            "sample_aspect_ratio": "1:1",
+            "display_aspect_ratio": "1:1",
+            "pix_fmt": "yuv420p",
+            "level": -99,
+            "color_range": "tv",
+            "color_space": "bt470bg",
+            "chroma_location": "center",
+            "field_order": "progressive",
+            "r_frame_rate": "25/1",
+            "avg_frame_rate": "25/1",
+            "time_base": "1/1000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "disposition": {
+              "default": 0,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0,
+              "non_diegetic": 0,
+              "captions": 0,
+              "descriptions": 0,
+              "metadata": 0,
+              "dependent": 0,
+              "still_image": 0,
+              "multilayer": 0
+            },
+            "tags": {
+              "ENCODER": "Lavc62.28.100 libvpx",
+              "DURATION": "00:00:03.320000000"
+            }
+          }
+        ],
+        "format": {
+          "filename": "D:\\Ameow\\.cindy-worktrees\\mr9-ripple-source-fidelity\\evidence\\mr9-ripple\\single-scene-off-center-full-duration.webm",
+          "nb_streams": 1,
+          "nb_programs": 0,
+          "nb_stream_groups": 0,
+          "format_name": "matroska,webm",
+          "format_long_name": "Matroska / WebM",
+          "start_time": "0.000000",
+          "duration": "3.320000",
+          "size": "26227",
+          "bit_rate": "63197",
+          "probe_score": 100,
+          "tags": {
+            "ENCODER": "Lavf62.12.100"
+          }
+        }
+      },
+      "decoded": {
+        "width": 200,
+        "height": 200,
+        "frameCount": 83,
+        "rgb24Bytes": 9960000,
+        "timestampFrameCount": 83
+      }
+    }
+  },
+  "embedded": {
+    "video-0": {
+      "index": 0,
+      "sourceHtml": "D:\\Ameow\\.cindy-worktrees\\mr9-ripple-source-fidelity\\evidence\\mr9-ripple\\single-scene-review.html",
+      "encodedBase64Length": 33984,
+      "bytes": 25487,
+      "sha256": "1820ac97dac4e93ab8d04e50e9f5d4bf85dbf0cc68399f91906ae2438039b0a4",
+      "videoAttrs": {},
+      "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\embedded\\video-0.webm",
+      "probeFacts": {
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\embedded\\video-0.webm",
+        "sha256": "1820ac97dac4e93ab8d04e50e9f5d4bf85dbf0cc68399f91906ae2438039b0a4",
+        "bytes": 25487,
+        "probe": {
+          "streams": [
+            {
+              "index": 0,
+              "codec_name": "vp8",
+              "codec_long_name": "On2 VP8",
+              "profile": "0",
+              "codec_type": "video",
+              "codec_tag_string": "[0][0][0][0]",
+              "codec_tag": "0x0000",
+              "mime_codec_string": "vp8",
+              "width": 200,
+              "height": 200,
+              "coded_width": 200,
+              "coded_height": 200,
+              "has_b_frames": 0,
+              "sample_aspect_ratio": "1:1",
+              "display_aspect_ratio": "1:1",
+              "pix_fmt": "yuv420p",
+              "level": -99,
+              "color_range": "tv",
+              "color_space": "bt470bg",
+              "chroma_location": "center",
+              "field_order": "progressive",
+              "r_frame_rate": "25/1",
+              "avg_frame_rate": "25/1",
+              "time_base": "1/1000",
+              "start_pts": 0,
+              "start_time": "0.000000",
+              "disposition": {
+                "default": 0,
+                "dub": 0,
+                "original": 0,
+                "comment": 0,
+                "lyrics": 0,
+                "karaoke": 0,
+                "forced": 0,
+                "hearing_impaired": 0,
+                "visual_impaired": 0,
+                "clean_effects": 0,
+                "attached_pic": 0,
+                "timed_thumbnails": 0,
+                "non_diegetic": 0,
+                "captions": 0,
+                "descriptions": 0,
+                "metadata": 0,
+                "dependent": 0,
+                "still_image": 0,
+                "multilayer": 0
+              },
+              "tags": {
+                "ENCODER": "Lavc62.28.100 libvpx",
+                "DURATION": "00:00:03.240000000"
+              }
+            }
+          ],
+          "format": {
+            "filename": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\embedded\\video-0.webm",
+            "nb_streams": 1,
+            "nb_programs": 0,
+            "nb_stream_groups": 0,
+            "format_name": "matroska,webm",
+            "format_long_name": "Matroska / WebM",
+            "start_time": "0.000000",
+            "duration": "3.240000",
+            "size": "25487",
+            "bit_rate": "62930",
+            "probe_score": 100,
+            "tags": {
+              "ENCODER": "Lavf62.12.100"
+            }
+          }
+        },
+        "decoded": {
+          "width": 200,
+          "height": 200,
+          "frameCount": 81,
+          "rgb24Bytes": 9720000,
+          "timestampFrameCount": 81
+        }
+      },
+      "matchesOriginal": "center"
+    },
+    "video-1": {
+      "index": 1,
+      "sourceHtml": "D:\\Ameow\\.cindy-worktrees\\mr9-ripple-source-fidelity\\evidence\\mr9-ripple\\single-scene-review.html",
+      "encodedBase64Length": 34972,
+      "bytes": 26227,
+      "sha256": "8de3d068f52f97bda16603ab700401b4379b5cb9d8fd917f5892edda77490e95",
+      "videoAttrs": {},
+      "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\embedded\\video-1.webm",
+      "probeFacts": {
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\embedded\\video-1.webm",
+        "sha256": "8de3d068f52f97bda16603ab700401b4379b5cb9d8fd917f5892edda77490e95",
+        "bytes": 26227,
+        "probe": {
+          "streams": [
+            {
+              "index": 0,
+              "codec_name": "vp8",
+              "codec_long_name": "On2 VP8",
+              "profile": "0",
+              "codec_type": "video",
+              "codec_tag_string": "[0][0][0][0]",
+              "codec_tag": "0x0000",
+              "mime_codec_string": "vp8",
+              "width": 200,
+              "height": 200,
+              "coded_width": 200,
+              "coded_height": 200,
+              "has_b_frames": 0,
+              "sample_aspect_ratio": "1:1",
+              "display_aspect_ratio": "1:1",
+              "pix_fmt": "yuv420p",
+              "level": -99,
+              "color_range": "tv",
+              "color_space": "bt470bg",
+              "chroma_location": "center",
+              "field_order": "progressive",
+              "r_frame_rate": "25/1",
+              "avg_frame_rate": "25/1",
+              "time_base": "1/1000",
+              "start_pts": 0,
+              "start_time": "0.000000",
+              "disposition": {
+                "default": 0,
+                "dub": 0,
+                "original": 0,
+                "comment": 0,
+                "lyrics": 0,
+                "karaoke": 0,
+                "forced": 0,
+                "hearing_impaired": 0,
+                "visual_impaired": 0,
+                "clean_effects": 0,
+                "attached_pic": 0,
+                "timed_thumbnails": 0,
+                "non_diegetic": 0,
+                "captions": 0,
+                "descriptions": 0,
+                "metadata": 0,
+                "dependent": 0,
+                "still_image": 0,
+                "multilayer": 0
+              },
+              "tags": {
+                "ENCODER": "Lavc62.28.100 libvpx",
+                "DURATION": "00:00:03.320000000"
+              }
+            }
+          ],
+          "format": {
+            "filename": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\embedded\\video-1.webm",
+            "nb_streams": 1,
+            "nb_programs": 0,
+            "nb_stream_groups": 0,
+            "format_name": "matroska,webm",
+            "format_long_name": "Matroska / WebM",
+            "start_time": "0.000000",
+            "duration": "3.320000",
+            "size": "26227",
+            "bit_rate": "63197",
+            "probe_score": 100,
+            "tags": {
+              "ENCODER": "Lavf62.12.100"
+            }
+          }
+        },
+        "decoded": {
+          "width": 200,
+          "height": 200,
+          "frameCount": 83,
+          "rgb24Bytes": 9960000,
+          "timestampFrameCount": 83
+        }
+      },
+      "matchesOriginal": "off-center"
+    }
+  },
+  "liveCaptureFiles": {
+    "center": {
+      "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live\\center-canvas-capture.webm",
+      "sha256": "5c33fda2f895d69ce39c6e8ac8aaf4c91164aa3c24a12ceebaf6614d427d25a3",
+      "bytes": 120837
+    },
+    "off-center": {
+      "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live\\off-center-canvas-capture.webm",
+      "sha256": "c470d568e0629470eeb736cef38d1b70d14f24cc45c0d9b03386deea1498e7a5",
+      "bytes": 136543
+    }
+  }
+}

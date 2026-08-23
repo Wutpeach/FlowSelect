@@ -1,0 +1,141 @@
+{
+  "environment": {
+    "node": "v22.17.1",
+    "playwright": "package-local",
+    "browser": "151.0.4129.59",
+    "executablePath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+    "baseUrl": "http://127.0.0.1:4173",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+    "viewport": {
+      "width": 960,
+      "height": 900,
+      "deviceScaleFactor": 1
+    }
+  },
+  "captures": {
+    "center": [
+      {
+        "lane": "center",
+        "label": "pre-start",
+        "phaseMs": null,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-pre-start.png"
+      },
+      {
+        "lane": "center",
+        "label": "phase-0000ms",
+        "phaseMs": 0,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-phase-0000ms.png"
+      },
+      {
+        "lane": "center",
+        "label": "phase-0030ms",
+        "phaseMs": 30,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-phase-0030ms.png"
+      },
+      {
+        "lane": "center",
+        "label": "phase-0120ms",
+        "phaseMs": 120,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-phase-0120ms.png"
+      },
+      {
+        "lane": "center",
+        "label": "phase-0300ms",
+        "phaseMs": 300,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-phase-0300ms.png"
+      },
+      {
+        "lane": "center",
+        "label": "phase-0600ms",
+        "phaseMs": 600,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-phase-0600ms.png"
+      },
+      {
+        "lane": "center",
+        "label": "phase-1000ms",
+        "phaseMs": 1000,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-phase-1000ms.png"
+      },
+      {
+        "lane": "center",
+        "label": "phase-1300ms",
+        "phaseMs": 1300,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-phase-1300ms.png"
+      },
+      {
+        "lane": "center",
+        "label": "phase-1450ms",
+        "phaseMs": 1450,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-phase-1450ms.png"
+      },
+      {
+        "lane": "center",
+        "label": "phase-1700ms",
+        "phaseMs": 1700,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\center-phase-1700ms.png"
+      }
+    ],
+    "off-center": [
+      {
+        "lane": "off-center",
+        "label": "pre-start",
+        "phaseMs": null,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-pre-start.png"
+      },
+      {
+        "lane": "off-center",
+        "label": "phase-0000ms",
+        "phaseMs": 0,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-phase-0000ms.png"
+      },
+      {
+        "lane": "off-center",
+        "label": "phase-0030ms",
+        "phaseMs": 30,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-phase-0030ms.png"
+      },
+      {
+        "lane": "off-center",
+        "label": "phase-0120ms",
+        "phaseMs": 120,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-phase-0120ms.png"
+      },
+      {
+        "lane": "off-center",
+        "label": "phase-0300ms",
+        "phaseMs": 300,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-phase-0300ms.png"
+      },
+      {
+        "lane": "off-center",
+        "label": "phase-0600ms",
+        "phaseMs": 600,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-phase-0600ms.png"
+      },
+      {
+        "lane": "off-center",
+        "label": "phase-1000ms",
+        "phaseMs": 1000,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-phase-1000ms.png"
+      },
+      {
+        "lane": "off-center",
+        "label": "phase-1300ms",
+        "phaseMs": 1300,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-phase-1300ms.png"
+      },
+      {
+        "lane": "off-center",
+        "label": "phase-1450ms",
+        "phaseMs": 1450,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-phase-1450ms.png"
+      },
+      {
+        "lane": "off-center",
+        "label": "phase-1700ms",
+        "phaseMs": 1700,
+        "path": "D:\\Ameow\\.trellis\\tasks\\08-23-mr9-ripple-motion-foundation-planning\\white-flash-closure-verification\\live-compositor\\off-center-phase-1700ms.png"
+      }
+    ]
+  }
+}
