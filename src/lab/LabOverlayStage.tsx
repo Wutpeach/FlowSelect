@@ -66,6 +66,11 @@ export type LabOverlayStageProps = {
   /** Origin marker for activation scenes. */
   pointerOriginX: number;
   pointerOriginY: number;
+  /**
+   * Lab-chrome policy: visible only while an origin-relevant Full scenario is
+   * active or the user is editing origin; hidden for all other previews.
+   */
+  originMarkerVisible: boolean;
   onPreviewClick: (point: { clientX: number; clientY: number; rect: DOMRect }) => void;
   /**
    * Backing-store scale for the ONE production canvas during a PNG export
@@ -136,7 +141,7 @@ const PREVIEW_FRAME_STYLE: CSSProperties = {
   width: LAB_PREVIEW_SIZE,
   height: LAB_PREVIEW_SIZE,
   overflow: "hidden",
-  borderRadius: 14,
+  borderRadius: MAIN_WINDOW_FULL_PANEL_RADIUS,
   background: "#1b1920",
   boxShadow: "0 0 0 1px #332e3f, 0 10px 30px rgba(0,0,0,0.5)",
   cursor: "crosshair",
@@ -167,6 +172,7 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
     onRecheck,
     pointerOriginX,
     pointerOriginY,
+    originMarkerVisible,
     onPreviewClick,
     captureScale,
     captureEpoch,
@@ -174,6 +180,9 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
   } = props;
 
   const handlePreviewClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) {
+      return;
+    }
     onPreviewClick({
       clientX: event.clientX,
       clientY: event.clientY,
@@ -248,9 +257,10 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
         />
       ) : null}
 
-      <div
-        data-lab-chrome=""
-        style={{
+      {originMarkerVisible ? (
+        <div
+          data-lab-chrome=""
+          style={{
           position: "absolute",
           left: `${pointerOriginX * 100}%`,
           top: `${pointerOriginY * 100}%`,
@@ -263,9 +273,10 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
           boxShadow: "0 0 0 1px rgba(0,0,0,0.6)",
           pointerEvents: "none",
           zIndex: 5,
-        }}
-        aria-hidden="true"
-      />
+          }}
+          aria-hidden="true"
+        />
+      ) : null}
     </>
   );
 

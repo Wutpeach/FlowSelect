@@ -1,16 +1,68 @@
 {
-  "appTitle": "Browser Lab",
-  "appSubtitle": "MR9 dev-only · production Expanded WebGL2 host · no Electron / downloader",
   "nav": {
+    "scenarioNavigation": "Scenario Navigation",
     "activation": "Fullscreen Activation",
     "downloadProgress": "Download / Progress",
-    "runtime": "Runtime",
-    "transcode": "Transcode",
-    "mixed": "Mixed / Busy",
     "reducedMotion": "Reduced Motion",
     "heatmapSpike": "Heatmap Spike",
-    "reset": "Reset",
-    "resetHint": "Resets only the current category's Lab preview state."
+    "compact": "Compact Character",
+    "scenes": "Scenes",
+    "fullOnlyTag": "Full only",
+    "compactOnlyTag": "Compact only",
+    "clear": "Clear",
+    "clearHint": "Idle this group's Lab preview state.",
+    "none": "None",
+    "noneHint": "No overlay fixture; the plain progress / activation surface."
+  },
+  "previewTarget": {
+    "full": "Full",
+    "compact": "Compact"
+  },
+  "workspace": {
+    "title": "Preview Workspace",
+    "targetLabel": "Preview Target",
+    "displayScale": "Display scale",
+    "autoLabel": "Auto",
+    "auto": "Auto · {{scale}}×",
+    "reset": "Reset preview",
+    "resetHint": "Restore the current Lab preview / scenario to its baseline state (re-apply scenario, recenter origin, Reduced Motion off).",
+    "metadataFull": "Full · {{size}}×{{size}} · {{scale}}",
+    "metadataCompact": "Compact · {{outer}} outer / {{shell}} shell · {{scale}}"
+  },
+  "controls": {
+    "displayMode": "Display mode",
+    "zoom": "Zoom",
+    "actions": "Actions"
+  },
+  "environment": {
+    "title": "Preview background",
+    "dark": "Dark",
+    "light": "Light",
+    "checkerboard": "Checkerboard"
+  },
+  "compact": {
+    "caption": "Compact renders the current production CompactCatCharacter at 80/60/56 geometry with a Lab-local pointer field; no canvas, no shader, no native window."
+  },
+  "devTools": {
+    "title": "Dev Tools",
+    "originSection": "Origin",
+    "rmSection": "Reduced Motion",
+    "target": "Target",
+    "scale": "Scale",
+    "background": "Background",
+    "reducedMotion": "Preview reduced motion",
+    "on": "on",
+    "off": "off",
+    "advanced": "Advanced Diagnostics",
+    "scaleFacts": "Scale facts",
+    "fullOnlyDiagnostics": "Composed-input and shader readout are Full-only (the Compact target mounts no canvas).",
+    "compact": {
+      "scenario": "Compact scenario",
+      "mode": "pointer mode",
+      "live": "live attention",
+      "neutral": "pinned neutral",
+      "reducedMotion": "forced reduced motion"
+    }
   },
   "presets": {
     "intakeLocal": { "label": "Intake · local origin", "description": "Ignition from the last preview click point." },
@@ -25,6 +77,7 @@
     "progress50": "50%",
     "progress75": "75%",
     "progress100": "100%",
+    "progressHint": "Determinate production progress target on the current trace.",
     "indeterminate": "Indeterminate",
     "indeterminateHint": "Honest fixed non-percent segment; no numeric frontier.",
     "downwardRevision": "Downward revision",
@@ -48,6 +101,9 @@
     "transcodeActive": { "label": "Transcode active", "description": "CircularProgressIndicator ring + queue rows." },
     "transcodeFailed": { "label": "Transcode failed", "description": "Failure center overlay (copy diagnostic) + failed row." },
     "mixedBusy": { "label": "Mixed busy", "description": "Download (WebGL arc) and transcode (DOM ring) concurrency." },
+    "compactNeutral": { "label": "Compact · neutral", "description": "The current Compact character at rest; no pointer attention." },
+    "compactPointer": { "label": "Compact · pointer attention", "description": "The current Compact character tracking the workspace pointer." },
+    "compactReduced": { "label": "Compact · reduced motion", "description": "Reduced Motion: smaller clamped attention, no springs or blink." },
     "rmIntake": { "label": "Reduced motion · Intake", "description": "Static ignition blot audit." },
     "rmFolder": { "label": "Reduced motion · Folder", "description": "Static edge lock audit." }
   },

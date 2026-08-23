@@ -1,0 +1,52 @@
+/*
+ * Lab-only chrome styles (development tool, desktop-focused).
+ *
+ * Dev Tools is ALWAYS visible: there is deliberately no narrow-window hide
+ * rule. Below the useful desktop width the page shell scrolls horizontally
+ * (`overflowX: auto` on the Lab page) and Dev Tools uses a clamped width, so
+ * the persistent right region is never hidden or squeezed to nothing.
+ *
+ * `.lab-scroll` thin scrollbars keep the horizontal scenario strip and the
+ * vertical Dev Tools pane visually consistent with the Lab's dark palette.
+ */
+
+.lab-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3547 transparent;
+}
+
+.lab-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.lab-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.lab-scroll::-webkit-scrollbar-thumb {
+  background: #3a3547;
+  border-radius: 8px;
+  border: 2px solid #1d1b22;
+}
+
+.lab-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.lab-control:focus-visible {
+  outline: 2px solid var(--lab-focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * Agentation stays document-level and keeps its official portal / toolbar.
+ * Its supported className escape hatch only moves the fixed toolbar beside
+ * the Preview in the normal desktop Lab viewport. The constants mirror the
+ * stable Lab shell: right Dev Tools rail + shell gaps, and the fixed footer
+ * depth below the Preview. No Preview measurement or Agentation state bridge.
+ */
+.lab-agentation-toolbar {
+  right: calc(clamp(280px, 24vw, 400px) + 67px);
+  bottom: 230px;
+}

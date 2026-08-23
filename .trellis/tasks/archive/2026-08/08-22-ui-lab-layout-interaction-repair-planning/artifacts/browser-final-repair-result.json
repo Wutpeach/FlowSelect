@@ -1,0 +1,156 @@
+{
+  "status": "PASS",
+  "shell": {
+    "bodyText": "\n    Intake · 本地源点热力图 · 移动场下载进行中转码进行中混合忙碌深色显示模式全屏紧凑缩放自动1×2×3×全屏 · 200×200 · 自动 · 2×操作重播导出 4× PNG点击预览可设置归一化本地源点；仅挂载一个生产画布。开发工具目标目标全屏缩放自动 · 2×背景深色预览减弱动态关减弱动态减弱动态驱动生产 reducedMotion 输入；减弱动态预设会强制开启。源点设置源点 X源点 Y激活触发时快照；驱动 uActivationOrigin。确定进度0%驱动当前 trace 上的生产确定目标。高级诊断缩放事实{\n  \"logicalSize\": 200,\n  \"shellSize\": 200,\n  \"characterSize\": null,\n  \"displayScale\": \"auto\",\n  \"autoScale\": 2,\n  \"previewEnvironment\": \"dark\",\n  \"backingScale\": null\n}组合输入{\n  \"target\": {\n    \"kind\": \"activation\",\n    \"source\": \"intake\",\n    \"opportunityId\": 1,\n    \"origin\": {\n      \"x\": 0.5,\n      \"y\": 0.5\n    },\n    \"startedAt\": 1983.4000000953674,\n    \"progress\": {\n      \"kind\": \"idle\"\n    }\n  },\n  \"reducedMotion\": false\n}实时生产着色器读数{\n  \"canvasCount\": 1,\n  \"linked\": true,\n  \"progressMode\": 0,\n  \"progress\": 0,\n  \"activationKind\": 1,\n  \"activationAge\": 0.22374999523162842,\n  \"activationOrigin\": [\n    0.5,\n    0.5\n  ],\n  \"reducedMotion\": 0,\n  \"heatmapMode\": 0,\n  \"refractionMode\": 0,\n  \"time\": 2.1445000171661377\n}\n    \n  \n\n",
+    "headingCount": 0,
+    "navCount": 0,
+    "scenarioFirst": true,
+    "scenarioCount": 5,
+    "scenarioRows": 1,
+    "selectedCount": 1,
+    "workspace": {
+      "x": 24,
+      "y": 24,
+      "width": 1152,
+      "height": 868,
+      "top": 24,
+      "right": 1176,
+      "bottom": 892,
+      "left": 24
+    },
+    "devtools": {
+      "x": 1192,
+      "y": 24,
+      "width": 384,
+      "height": 868,
+      "top": 24,
+      "right": 1576,
+      "bottom": 892,
+      "left": 1192
+    },
+    "header": {
+      "x": 200,
+      "y": 39,
+      "width": 800,
+      "height": 46,
+      "top": 39,
+      "right": 1000,
+      "bottom": 85,
+      "left": 200
+    },
+    "body": {
+      "x": 39,
+      "y": 97,
+      "width": 1122,
+      "height": 584.9375,
+      "top": 97,
+      "right": 1161,
+      "bottom": 681.9375,
+      "left": 39
+    },
+    "footer": {
+      "x": 220,
+      "y": 693.9375,
+      "width": 760,
+      "height": 183.0625,
+      "top": 693.9375,
+      "right": 980,
+      "bottom": 877,
+      "left": 220
+    },
+    "stage": {
+      "x": 39,
+      "y": 97,
+      "width": 1122,
+      "height": 584.9375,
+      "top": 97,
+      "right": 1161,
+      "bottom": 681.9375,
+      "left": 39
+    },
+    "frame": {
+      "x": 400,
+      "y": 189.46875,
+      "width": 400,
+      "height": 400,
+      "top": 189.46875,
+      "right": 800,
+      "bottom": 589.46875,
+      "left": 400
+    },
+    "frameCss": "200px",
+    "fillRatio": 0.6838337429212523,
+    "groupKeys": [
+      "target",
+      "scale",
+      "actions"
+    ],
+    "groupTops": [
+      694,
+      744,
+      794
+    ],
+    "workspaceSurface": "rgb(29, 27, 34)",
+    "devtoolsSurface": "rgb(29, 27, 34)",
+    "advancedOpen": false,
+    "canvasCount": 1,
+    "selectedScale": "自动",
+    "scaleMetaText": "缩放自动1×2×3×全屏 · 200×200 · 自动 · 2×",
+    "hasHeaderOnStrip": true,
+    "bodyIsStage": true,
+    "footerWrapsControls": true,
+    "resetPresent": true,
+    "resetTitle": "将当前 Lab 预览 / 场景恢复到基线状态（重新应用场景、源点居中、关闭减弱动态）。",
+    "resetLabel": "重置预览",
+    "originMarkerVisible": true,
+    "exportOrange": {
+      "color": "rgb(170, 170, 170)",
+      "borderColor": "rgb(75, 73, 81)",
+      "background": "rgba(0, 0, 0, 0)"
+    }
+  },
+  "keyboardFocus": {
+    "isLabControl": true,
+    "focusVisible": true,
+    "outline": "solid"
+  },
+  "environment": {
+    "value": "light",
+    "frameInsideEnvironment": false
+  },
+  "exportSize": {
+    "width": 912,
+    "height": 912
+  },
+  "labelDuring": "已导出 ameow-lab-activation-4x.png ✓",
+  "labelIdle": "导出 4× PNG",
+  "compact": {
+    "host": {
+      "x": 480,
+      "y": 275.5625,
+      "width": 240,
+      "height": 240,
+      "top": 275.5625,
+      "right": 720,
+      "bottom": 515.5625,
+      "left": 480
+    },
+    "stage": {
+      "x": 39,
+      "y": 81,
+      "width": 1122,
+      "height": 629.125,
+      "top": 81,
+      "right": 1161,
+      "bottom": 710.125,
+      "left": 39
+    },
+    "hostCss": "80px",
+    "shellCss": "60px",
+    "canvasCount": 0,
+    "originMarkerVisible": false,
+    "selectedScenarioCount": 1,
+    "selectedTargetCount": 1
+  },
+  "errors": []
+}
