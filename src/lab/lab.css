@@ -38,3 +38,15 @@
   outline: 2px solid var(--lab-focus-ring);
   outline-offset: 2px;
 }
+
+/*
+ * Agentation stays document-level and keeps its official portal / toolbar.
+ * Its supported className escape hatch only moves the fixed toolbar beside
+ * the Preview in the normal desktop Lab viewport. The constants mirror the
+ * stable Lab shell: right Dev Tools rail + shell gaps, and the fixed footer
+ * depth below the Preview. No Preview measurement or Agentation state bridge.
+ */
+.lab-agentation-toolbar {
+  right: calc(clamp(280px, 24vw, 400px) + 67px);
+  bottom: 230px;
+}

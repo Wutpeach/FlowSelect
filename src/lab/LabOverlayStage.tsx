@@ -170,6 +170,9 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
   } = props;
 
   const handlePreviewClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) {
+      return;
+    }
     onPreviewClick({
       clientX: event.clientX,
       clientY: event.clientY,

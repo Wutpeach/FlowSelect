@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
+import { Agentation } from "agentation";
 import { ThemeProvider } from "../contexts/ThemeContext";
 import { PresentationLab } from "./PresentationLab";
 import { initializeLabI18n } from "./i18n";
@@ -15,6 +16,7 @@ async function bootstrap() {
     <StrictMode>
       <ThemeProvider initialTheme="black">
         <PresentationLab />
+        <Agentation className="lab-agentation-toolbar" />
       </ThemeProvider>
     </StrictMode>,
   );

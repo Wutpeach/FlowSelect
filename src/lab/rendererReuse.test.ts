@@ -9,6 +9,7 @@ const read = (relativePath: string): string =>
 
 const labHtml = read("../../lab.html");
 const indexHtml = read("../../index.html");
+const packageJson = read("../../package.json");
 const mainEntry = read("../../src/main.tsx");
 const labMain = read("./lab-main.tsx");
 const labComponent = read("./PresentationLab.tsx");
@@ -56,6 +57,15 @@ const importSpecifiers = (source: string): string[] => {
 };
 
 describe("Browser Presentation Lab build isolation", () => {
+  it("mounts the exact Agentation dev tool from the Lab entry only", () => {
+    expect(packageJson).toContain('"agentation": "3.0.2"');
+    expect(labMain).toContain('from "agentation"');
+    expect(labMain.match(/<Agentation\s+className="lab-agentation-toolbar"\s*\/>/g)).toHaveLength(1);
+    expect(labMain).not.toContain("onAnnotationAdd=");
+    expect(mainEntry).not.toContain("agentation");
+    expect(viteConfig).not.toContain("agentation");
+  });
+
   it("is a dedicated dev-only browser entry never referenced by production", () => {
     expect(labHtml).toContain("/src/lab/lab-main.tsx");
     expect(indexHtml).not.toContain("lab.html");
@@ -299,7 +309,15 @@ describe("Browser Presentation Lab production renderer reuse", () => {
     expect(labComponent).toContain('activeScenarioId === "intake"');
   });
 
-  it("adds a low-weight circular Reset affordance with tooltip and accessible label", () => {
+  it("ignores prevented Full clicks before updating the Lab-local origin", () => {
+    const guardIndex = labStage.indexOf("event.defaultPrevented");
+    const updateIndex = labStage.indexOf("onPreviewClick({");
+    expect(guardIndex).toBeGreaterThan(-1);
+    expect(updateIndex).toBeGreaterThan(guardIndex);
+  });
+
+  it("groups Background and Reset in the Preview lower-left without changing Reset semantics", () => {
+    expect(labComponent).toContain('data-lab-preview-controls=""');
     expect(labComponent).toContain('data-lab-reset=""');
     expect(labComponent).toContain("title={t(\"workspace.resetHint\")}");
     expect(labComponent).toContain("aria-label={t(\"workspace.reset\")}");

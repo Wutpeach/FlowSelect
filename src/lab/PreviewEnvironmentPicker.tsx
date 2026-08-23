@@ -69,7 +69,8 @@ export function PreviewEnvironmentPicker({
     display: "inline-flex",
     alignItems: "center",
     gap: 7,
-    padding: "6px 11px",
+    height: 28,
+    padding: "0 11px",
   };
 
   return (
@@ -115,7 +116,7 @@ export function PreviewEnvironmentPicker({
             style={{
               position: "absolute",
               bottom: "calc(100% + 6px)",
-              right: 0,
+              left: 0,
               minWidth: 150,
               padding: 4,
               zIndex: 30,

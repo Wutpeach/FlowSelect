@@ -20,12 +20,13 @@
  * manual 1x/2x/3x options remain explicit overrides. Logical geometry and the
  * export backing scale are unchanged.
  *
- * Lab-only affordances: a low-weight circular Reset in a Preview corner
- * restores the current preview/scenario to its baseline (re-apply scenario,
- * recenter origin, Reduced Motion off) using only the existing reducer
- * actions; the origin marker is conditional (origin-relevant Full scenarios or
- * while editing origin) and never part of production rendering; Replay and
- * Export are secondary quiet controls with short-lived feedback.
+ * Lab-only affordances: a compact Preview environment / Reset group occupies
+ * the lower-left corner. Reset restores the current preview/scenario to its
+ * baseline (re-apply scenario, recenter origin, Reduced Motion off) using only
+ * the existing reducer actions; the origin marker is conditional
+ * (origin-relevant Full scenarios or while editing origin) and never part of
+ * production rendering; Replay and Export are secondary quiet controls with
+ * short-lived feedback.
  *
  * Interaction language: controls reuse the repo shared-styles factories
  * (getSelectableOptionStyle / getCompactLabelStyle) with a CSS `:focus-visible`
@@ -376,24 +377,22 @@ const PRE_STYLE: CSSProperties = {
 };
 
 /**
- * Low-weight circular Reset affordance in a Preview corner: quiet hairline
- * ring, subtle surface, native `title` tooltip plus `aria-label`. It only
- * restores the CURRENT Lab preview/scenario to its baseline via the existing
- * reducer actions — no new authority, no production command.
+ * Low-weight icon-only Reset affordance in the Preview control group. It
+ * shares the Background trigger's height / radius / surface and keeps the
+ * native `title` tooltip plus `aria-label`. It only restores the CURRENT Lab
+ * preview/scenario to its baseline via the existing reducer actions — no new
+ * authority, no production command.
  */
 const getLabResetButtonStyle = (colors: ThemeColors): CSSProperties => ({
-  width: 26,
-  height: 26,
-  borderRadius: "50%",
-  border: `1px solid ${colors.fieldBorder}`,
-  background: "rgba(20, 19, 24, 0.72)",
+  ...getLabChipStyle(colors),
+  width: 28,
+  height: 28,
+  borderRadius: 8,
   color: colors.controlMuted,
-  display: "flex",
+  display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   padding: 0,
-  cursor: "pointer",
-  fontFamily: "inherit",
 });
 
 const DISCLOSURE_STYLE: CSSProperties = {
@@ -980,14 +979,23 @@ export function PresentationLab() {
               )}
             </div>
           </div>
-          <div style={{ position: "absolute", right: 12, bottom: 12, zIndex: 40 }}>
+          <div
+            data-lab-preview-controls=""
+            style={{
+              position: "absolute",
+              left: 12,
+              bottom: 12,
+              zIndex: 40,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
             <PreviewEnvironmentPicker
               value={previewBackground}
               onChange={setPreviewBackground}
               t={t}
             />
-          </div>
-          <div style={{ position: "absolute", left: 12, top: 12, zIndex: 40 }}>
             <button
               type="button"
               data-lab-reset=""
