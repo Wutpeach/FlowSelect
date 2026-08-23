@@ -1786,3 +1786,38 @@ GPT Architecture Lead rejected the visual experiment; retained all evidence, res
 ### Next Steps
 
 - No new Thermal Source planning started; stop and await explicit direction.
+
+
+## Session 256: Finalize UI Lab Refresh Presentation Playground
+
+**Date**: 2026-08-23
+**Task**: Finalize UI Lab Refresh Presentation Playground
+**Branch**: `planning/ui-lab-refresh`
+
+### Summary
+
+Committed and archived the validated UI Lab Presentation Playground with unified Workspace Shell, Full/Compact Auto previews, Lab-local controls, final browser evidence, and preserved production boundaries.
+
+### Main Changes
+
+- Committed the validated UI Lab implementation and all planning/report/screenshot evidence.
+- Archived the layout-repair child first, then the UI Lab Refresh parent with the existing relationship intact.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `878d868` | (see git log) |
+
+### Testing
+
+- [OK] Lab 118/118, type-check, lint, production build, diff/isolation checks, and real Edge/Playwright validation passed.
+- [OK] Full suite remains 1822/1823 with only the pre-existing Windows CRLF-sensitive browser-extension assertion.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Await future work outside this archived task chain; do not add Agentation or Compact Mascot work here.
