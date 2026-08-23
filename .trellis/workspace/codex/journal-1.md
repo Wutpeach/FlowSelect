@@ -85,3 +85,24 @@ Implemented and architecture-approved MR0 motion/presentation contracts through 
 ### Next Steps
 
 - Keep both Windows risks open; Windows packaged manual validation remains not run and macOS not verified.
+
+
+## Session 4: Compact Mascot Implementation closeout
+
+**Date**: 2026-08-23
+**Task**: Compact Mascot Implementation closeout
+**Branch**: `motion/compact-mascot-visual`
+
+### Summary
+
+Implemented and validated the pinned Strobi derivative Compact mascot, preserved existing lifecycle/pointer/geometry/Reduced Motion authority, recorded GPT Architecture Lead Implementation Architecture Review PASS, and deferred license governance to formal distribution/release.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ea3268f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
