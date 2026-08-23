@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify no production authority change, no missing cleanup/state bridge, and no Agentation code in renderer/package artifacts."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Confirm the official bottom-right UI remains separate from Ameow chrome and no placeholder, duplicate UI, or Dev Tools merger was introduced."}
+{"file":".trellis/tasks/08-23-agentation-integration-planning/research/upstream-agentation.md","reason":"Re-check exact version, license notices, official behavior, and best-effort source-context claims against the retained package."}
+{"file":".trellis/tasks/08-23-agentation-integration-planning/research/repository-compatibility.md","reason":"Check Full/Compact granularity, 1x/Auto/3x marker alignment, pointer-origin isolation, popovers, and bottom-right placement in a real browser."}
