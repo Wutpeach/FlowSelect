@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Keep the package inside the browser-only Lab graph and require actual renderer, Electron, unpacked, and asar isolation evidence."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Use one official React component directly without wrapper, adapter, provider, duplicated UI, or state bridge."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Keep the browser-only Lab entry isolated from Electron, desktop bridge, product state, and production presentation authority."}
+{"file":".trellis/tasks/08-23-agentation-integration-spike/research/approved-planning-basis.md","reason":"Execute the accepted 3.0.2 package, license, granularity, pointer, placement, and browser/package proof boundaries without reopening planning."}

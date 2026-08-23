@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify no production authority change and no Agentation code or identifying resource in actual production artifacts."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Confirm official bottom-right UI remains separate from Ameow chrome with no placeholder, copied UI, Dev Tools merger, or layout change."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Verify the final dependency graph remains Lab-only and no desktop, Electron, production state, or presentation ownership changed."}
+{"file":".trellis/tasks/08-23-agentation-integration-spike/research/approved-planning-basis.md","reason":"Check exact package behavior, measured Full/Compact granularity, source context, pointer isolation, controls, placement, and artifact gates against the approved basis."}
