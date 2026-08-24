@@ -55,6 +55,10 @@ const COMPACT_STAGE_FRAME_STYLE: CSSProperties = {
   flexShrink: 0,
 };
 
+// Browser-only capture room for pre-hotspot approach input. It does not alter
+// the 80px visual frame, shell, production hotspot, or native reachability.
+const COMPACT_APPROACH_CAPTURE_INSET = 16;
+
 export function CompactPreviewStage({
   reducedMotion,
   pointerMode,
@@ -96,44 +100,55 @@ export function CompactPreviewStage({
   const compactShellStyle = getPanelShellStyle(colors, {
     radius: MAIN_WINDOW_MINIMIZED_PANEL_RADIUS,
     boxShadow: colors.panelShadowCompact,
-  }) as CSSProperties & { "-electron-corner-smoothing"?: string };
-  delete compactShellStyle["-electron-corner-smoothing"];
+    shape: "round",
+  });
 
   return (
-    <div
-      ref={frameRef}
-      data-lab-compact-stage=""
-      style={{
-        ...COMPACT_STAGE_FRAME_STYLE,
-        cursor: pointerMode === "live" ? "crosshair" : "default",
-      }}
-      onPointerMove={handlePointerMove}
-      onPointerLeave={handlePointerLeave}
-    >
+    <div style={COMPACT_STAGE_FRAME_STYLE}>
       <div
-        data-lab-compact-shell=""
+        data-lab-compact-approach=""
+        aria-hidden="true"
         style={{
           position: "absolute",
-          left: shellInset,
-          top: shellInset,
-          width: MAIN_WINDOW_COMPACT_SHELL_SIZE,
-          height: MAIN_WINDOW_COMPACT_SHELL_SIZE,
-          ...compactShellStyle,
-          overflow: "hidden",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          inset: -COMPACT_APPROACH_CAPTURE_INSET,
+          cursor: pointerMode === "live" ? "crosshair" : "default",
+        }}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={handlePointerLeave}
+      />
+      <div
+        ref={frameRef}
+        data-lab-compact-stage=""
+        style={{
+          ...COMPACT_STAGE_FRAME_STYLE,
+          pointerEvents: "none",
         }}
       >
-        <CompactMascot
-          size={COMPACT_MASCOT_VISUAL_SIZE}
-          bodyColor={colors.characterBody}
-          eyeColor={colors.characterEye}
-          reducedMotion={reducedMotion}
-          pointerField={pointerField}
-          attentionCenterX={LAB_COMPACT_ATTENTION_CENTER.x}
-          attentionCenterY={LAB_COMPACT_ATTENTION_CENTER.y}
-        />
+        <div
+          data-lab-compact-shell=""
+          style={{
+            position: "absolute",
+            left: shellInset,
+            top: shellInset,
+            width: MAIN_WINDOW_COMPACT_SHELL_SIZE,
+            height: MAIN_WINDOW_COMPACT_SHELL_SIZE,
+            ...compactShellStyle,
+            overflow: "hidden",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <CompactMascot
+            size={COMPACT_MASCOT_VISUAL_SIZE}
+            bodyColor={colors.characterBody}
+            eyeColor={colors.characterEye}
+            reducedMotion={reducedMotion}
+            pointerField={pointerField}
+            attentionCenterX={LAB_COMPACT_ATTENTION_CENTER.x}
+            attentionCenterY={LAB_COMPACT_ATTENTION_CENTER.y}
+          />
+        </div>
       </div>
     </div>
   );

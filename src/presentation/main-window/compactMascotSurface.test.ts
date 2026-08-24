@@ -7,14 +7,15 @@ const read = (relative: string): string => readFileSync(path.join(repoRoot, rela
 
 const SURFACE = "src/presentation/main-window/MainWindowPresentationSurface.tsx";
 const MASCOT = "src/presentation/main-window/CompactMascot.tsx";
-const RUNTIME = "src/presentation/main-window/strobiPlaybackRuntime.ts";
+const RUNTIME = "src/presentation/main-window/compactMascotBehaviorRuntime.ts";
 
-describe("Compact Strobi composition", () => {
+describe("Compact Kirby cat composition", () => {
   it("atomically mounts the one production Mascot leaf at 56px", () => {
     const surface = read(SURFACE);
     expect(surface).toContain('import { CompactMascot } from "./CompactMascot"');
     expect(surface).toContain("<CompactMascot");
     expect(surface).toContain("COMPACT_MASCOT_VISUAL_SIZE");
+    expect(surface).toContain("COMPACT_MASCOT_RENDER_SCALE");
     expect(surface).not.toContain("CompactCatCharacter");
     expect(surface).not.toContain("CatIcon");
   });
@@ -44,6 +45,9 @@ describe("Compact Strobi composition", () => {
     expect(mascot).toContain("runtime.pause()");
     expect(mascot).toContain("runtime.dispose()");
     expect(runtime).toContain("pendingFrame === null ? 0 : 1");
+    expect(runtime).toContain("COMPACT_MASCOT_QUIET_MIN_MS");
+    expect(runtime).not.toContain("setTimeout");
+    expect(runtime).not.toContain("setInterval");
     expect(mascot).not.toMatch(/onComplete|onAnimationComplete|visualTransitionCompleted/);
     expect(mascot).not.toContain("dispatch(");
     expect(runtime).not.toContain("dispatch(");
@@ -59,5 +63,13 @@ describe("Compact Strobi composition", () => {
 
   it("leaves shell presence ownership in the existing surface", () => {
     expect(read(SURFACE)).toContain("compact-icon-settle-");
+  });
+
+  it("uses the shared round-shell mode only while Compact is active", () => {
+    const surface = read(SURFACE);
+    expect(surface).toContain('shape: isCompact ? "round" : "continuous"');
+    const compactHost = surface.slice(surface.indexOf("compact-icon-settle-"));
+    expect(compactHost).toContain('overflow: "visible"');
+    expect(compactHost).not.toContain('getContinuousCornerStyle("50%")');
   });
 });

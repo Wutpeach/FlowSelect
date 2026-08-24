@@ -7,8 +7,9 @@ const source = readFileSync(resolve(here, "./CompactMascot.tsx"), "utf8");
 
 describe("CompactMascot architecture boundary", () => {
   it("is one source-specific avatar-core SVG leaf", () => {
-    expect(source).toContain('data-compact-mascot="strobi"');
-    expect(source).toContain("createStrobiPlaybackRuntime");
+    expect(source).toContain('data-compact-mascot="kirby-cat"');
+    expect(source).toContain("createCompactMascotBehaviorRuntime");
+    expect(source.match(/data-compact-mascot-ear=/g)).toHaveLength(4);
     expect(source).not.toContain("@bible-strong/avatar-react");
     expect(source).not.toContain("CompactCatCharacter");
     expect(source).not.toContain("<canvas");

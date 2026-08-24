@@ -1,4 +1,4 @@
-// Compact-only Strobi SVG host. It consumes the existing Pointer Field and
+// Compact-only Kirby-cat SVG host. It consumes the existing Pointer Field and
 // environment inputs read-only, owns only disposable avatar-core playback,
 // and emits no lifecycle, Product, native-window, IPC, or completion events.
 
@@ -12,10 +12,8 @@ import {
   COMPACT_MASCOT_VIEWBOX,
   resolveCompactMascotAttention,
 } from "./compactMascotRecipe";
-import {
-  createStrobiPlaybackRuntime,
-} from "./strobiPlaybackRuntime";
-import { STROBI_DEFINITION } from "./strobiDefinition";
+import { createCompactMascotBehaviorRuntime } from "./compactMascotBehaviorRuntime";
+import { COMPACT_MASCOT_DEFINITION } from "./compactMascotDefinition";
 
 export type CompactMascotProps = {
   size: number;
@@ -39,14 +37,18 @@ export function CompactMascot({
   attentionCenterX,
   attentionCenterY,
 }: CompactMascotProps) {
-  const clipId = `compact-strobi-${useId().replace(/:/g, "")}`;
+  const clipId = `compact-kirby-cat-${useId().replace(/:/g, "")}`;
   const clipPathRef = useRef<SVGPathElement | null>(null);
+  const backEarARef = useRef<SVGPathElement | null>(null);
+  const backEarBRef = useRef<SVGPathElement | null>(null);
   const headPathRef = useRef<SVGPathElement | null>(null);
   const leftEyePathRef = useRef<SVGPathElement | null>(null);
   const rightEyePathRef = useRef<SVGPathElement | null>(null);
+  const frontEarARef = useRef<SVGPathElement | null>(null);
+  const frontEarBRef = useRef<SVGPathElement | null>(null);
 
   const initialScene = useMemo(() => {
-    const scene = renderAvatarDefinition(STROBI_DEFINITION);
+    const scene = renderAvatarDefinition(COMPACT_MASCOT_DEFINITION);
     return {
       ...scene,
       colors: { body: bodyColor, eyes: eyeColor },
@@ -54,6 +56,14 @@ export function CompactMascot({
   }, [bodyColor, eyeColor]);
 
   const applyScene = useCallback((scene: AvatarScene) => {
+    // These are fixed slots for the two pinned diamond ears, not a body-node renderer.
+    backEarARef.current?.setAttribute("d", scene.geometry.backPaths[0] ?? "");
+    backEarBRef.current?.setAttribute("d", scene.geometry.backPaths[1] ?? "");
+    frontEarARef.current?.setAttribute("d", scene.geometry.frontPaths[0] ?? "");
+    frontEarBRef.current?.setAttribute("d", scene.geometry.frontPaths[1] ?? "");
+    for (const ref of [backEarARef, backEarBRef, frontEarARef, frontEarBRef]) {
+      ref.current?.setAttribute("fill", scene.colors.body);
+    }
     clipPathRef.current?.setAttribute("d", scene.geometry.headPath);
     headPathRef.current?.setAttribute("d", scene.geometry.headPath);
     headPathRef.current?.setAttribute("fill", scene.colors.body);
@@ -72,7 +82,7 @@ export function CompactMascot({
   }, []);
 
   useEffect(() => {
-    const runtime = createStrobiPlaybackRuntime({
+    const runtime = createCompactMascotBehaviorRuntime({
       scheduler: {
         schedule: (callback) => window.requestAnimationFrame(callback),
         cancel: (handle) => window.cancelAnimationFrame(handle),
@@ -128,7 +138,7 @@ export function CompactMascot({
 
   return (
     <svg
-      data-compact-mascot="strobi"
+      data-compact-mascot="kirby-cat"
       viewBox={`${-COMPACT_MASCOT_VIEWBOX / 2} ${-COMPACT_MASCOT_VIEWBOX / 2} ${COMPACT_MASCOT_VIEWBOX} ${COMPACT_MASCOT_VIEWBOX}`}
       width={size}
       height={size}
@@ -145,6 +155,8 @@ export function CompactMascot({
           <path ref={clipPathRef} d={initialScene.geometry.headPath} />
         </clipPath>
       </defs>
+      <path ref={backEarARef} data-compact-mascot-ear="back-0" d={initialScene.geometry.backPaths[0] ?? ""} fill={initialScene.colors.body} />
+      <path ref={backEarBRef} data-compact-mascot-ear="back-1" d={initialScene.geometry.backPaths[1] ?? ""} fill={initialScene.colors.body} />
       <path
         ref={headPathRef}
         d={initialScene.geometry.headPath}
@@ -164,6 +176,8 @@ export function CompactMascot({
           opacity={initialScene.geometry.rightVisible ? 1 : 0}
         />
       </g>
+      <path ref={frontEarARef} data-compact-mascot-ear="front-0" d={initialScene.geometry.frontPaths[0] ?? ""} fill={initialScene.colors.body} />
+      <path ref={frontEarBRef} data-compact-mascot-ear="front-1" d={initialScene.geometry.frontPaths[1] ?? ""} fill={initialScene.colors.body} />
     </svg>
   );
 }

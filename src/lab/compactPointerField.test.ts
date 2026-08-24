@@ -30,6 +30,13 @@ describe("Lab Compact pointer field", () => {
     expect(resolveLabCompactPointerPoint(1000, 10, STAGE_RECT)).toEqual({ x: 80, y: 0 });
   });
 
+  it("maps cardinal and diagonal pre-hotspot approach samples without entering the shell", () => {
+    expect(resolveLabCompactPointerPoint(16, 50, STAGE_RECT)).toEqual({ x: 6, y: 40 });
+    expect(resolveLabCompactPointerPoint(84, 50, STAGE_RECT)).toEqual({ x: 74, y: 40 });
+    expect(resolveLabCompactPointerPoint(22, 22, STAGE_RECT)).toEqual({ x: 12, y: 12 });
+    expect(resolveLabCompactPointerPoint(78, 78, STAGE_RECT)).toEqual({ x: 68, y: 68 });
+  });
+
   it("rejects non-finite input or empty geometry", () => {
     expect(resolveLabCompactPointerPoint(Number.NaN, 50, STAGE_RECT)).toBeNull();
     expect(resolveLabCompactPointerPoint(100, Number.POSITIVE_INFINITY, STAGE_RECT)).toBeNull();

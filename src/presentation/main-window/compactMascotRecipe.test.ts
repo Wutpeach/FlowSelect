@@ -7,6 +7,7 @@ import {
   COMPACT_MASCOT_EYE_MAX_X_REDUCED,
   COMPACT_MASCOT_EYE_MAX_Y,
   COMPACT_MASCOT_EYE_MAX_Y_REDUCED,
+  COMPACT_MASCOT_RENDER_SCALE,
   COMPACT_MASCOT_VIEWBOX,
   COMPACT_MASCOT_VISUAL_SIZE,
   NEUTRAL_COMPACT_MASCOT_ATTENTION,
@@ -15,11 +16,12 @@ import {
 
 const CENTER = { x: 40, y: 40 };
 
-describe("Compact Strobi geometry and attention", () => {
+describe("Compact Kirby cat geometry and attention", () => {
   it("keeps the official 300 viewBox inside the production 56px visual leaf", () => {
     expect(COMPACT_MASCOT_VIEWBOX).toBe(300);
     expect(COMPACT_MASCOT_VISUAL_SIZE).toBe(56);
     expect(COMPACT_MASCOT_VISUAL_SIZE).toBeLessThanOrEqual(60);
+    expect(COMPACT_MASCOT_RENDER_SCALE).toBe(0.95);
   });
 
   it("returns neutral for invalid, center, dead-zone, and outer points", () => {
@@ -61,5 +63,14 @@ describe("Compact Strobi geometry and attention", () => {
     expect(Math.abs(reduced.y)).toBeLessThan(Math.abs(normal.y));
     expect(Math.abs(reduced.x)).toBeLessThanOrEqual(COMPACT_MASCOT_EYE_MAX_X_REDUCED);
     expect(Math.abs(reduced.y)).toBeLessThanOrEqual(COMPACT_MASCOT_EYE_MAX_Y_REDUCED);
+  });
+
+  it("responds before Windows hotspot entry from cardinal and diagonal approach points", () => {
+    const cardinal = resolveCompactMascotAttention({ x: 6, y: 40 }, CENTER, false);
+    const diagonal = resolveCompactMascotAttention({ x: 12, y: 12 }, CENTER, false);
+    expect(cardinal.x).toBeLessThan(0);
+    expect(cardinal.y).toBe(0);
+    expect(diagonal.x).toBeLessThan(0);
+    expect(diagonal.y).toBeLessThan(0);
   });
 });

@@ -23,7 +23,7 @@ import {
 import { useTheme } from "../../contexts/ThemeContext";
 import { desktopCurrentWindow, isElectronRenderer } from "../../desktop/runtime";
 import { CompactMascot } from "./CompactMascot";
-import { COMPACT_MASCOT_VISUAL_SIZE } from "./compactMascotRecipe";
+import { COMPACT_MASCOT_RENDER_SCALE, COMPACT_MASCOT_VISUAL_SIZE } from "./compactMascotRecipe";
 import {
   shouldIgnorePanelDoubleClickTarget,
   shouldOpenOutputFolderFromPanelMouseDownDoubleClick,
@@ -1111,6 +1111,7 @@ export function MainWindowPresentationSurface({
             ...getPanelShellStyle(colors, {
               radius: panelRadius,
               boxShadow: containerBoxShadow,
+              shape: isCompact ? "round" : "continuous",
             }),
             overflow: "visible",
             transition: instantPanelTransition
@@ -1221,16 +1222,18 @@ export function MainWindowPresentationSurface({
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      ...getContinuousCornerStyle("50%"),
                       background: "transparent",
                       boxShadow: "none",
-                      overflow: "hidden",
+                      // The existing 60px Compact inner panel is the sole
+                      // circle clip. A second 56px square clip truncates
+                      // rotated ear poses before they reach that shell.
+                      overflow: "visible",
                       transformOrigin: "center center",
                       willChange: "transform",
                     }}
                   >
                     <CompactMascot
-                      size={COMPACT_MASCOT_VISUAL_SIZE}
+                      size={COMPACT_MASCOT_VISUAL_SIZE * COMPACT_MASCOT_RENDER_SCALE}
                       bodyColor={colors.characterBody}
                       eyeColor={colors.characterEye}
                       reducedMotion={environment.reducedMotion}

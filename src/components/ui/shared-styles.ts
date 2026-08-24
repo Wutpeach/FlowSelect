@@ -23,6 +23,7 @@ export const WINDOW_NO_DRAG_REGION_STYLE = {
 interface PanelShellOptions {
   radius?: number;
   boxShadow?: string;
+  shape?: "continuous" | "round";
 }
 
 interface ShadowBackdropOptions {
@@ -95,9 +96,9 @@ export const getContinuousCornerClipPath = (
 
 export const getPanelShellStyle = (
   colors: ThemeColors,
-  { radius = 16, boxShadow }: PanelShellOptions = {},
+  { radius = 16, boxShadow, shape = "continuous" }: PanelShellOptions = {},
 ): CSSProperties => ({
-  ...getContinuousCornerStyle(radius),
+  ...(shape === "round" ? { borderRadius: radius } : getContinuousCornerStyle(radius)),
   background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
   border: "none",
   boxShadow: boxShadow ?? `inset 0 0 0 1px ${colors.borderStart}, ${colors.panelShadow}`,

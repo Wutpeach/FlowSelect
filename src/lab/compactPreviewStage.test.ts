@@ -35,6 +35,7 @@ describe("Lab Compact Preview Stage", () => {
     expect(source).toContain("MAIN_WINDOW_MINIMIZED_PANEL_RADIUS");
     expect(source).toContain("getPanelShellStyle");
     expect(source).toContain("panelShadowCompact");
+    expect(source).toContain('shape: "round"');
   });
 
   it("uses the Lab-local pointer field, never the production pointer authority", () => {
@@ -46,7 +47,14 @@ describe("Lab Compact Preview Stage", () => {
   });
 
   it("annotates the stage for Lab selection", () => {
+    expect(source).toContain('data-lab-compact-approach=""');
     expect(source).toContain('data-lab-compact-stage=""');
     expect(source).toContain('data-lab-compact-shell=""');
+  });
+
+  it("captures pre-hotspot approach input without enlarging the visual frame", () => {
+    expect(source).toContain("COMPACT_APPROACH_CAPTURE_INSET");
+    expect(source).toContain("inset: -COMPACT_APPROACH_CAPTURE_INSET");
+    expect(source).toContain('pointerEvents: "none"');
   });
 });

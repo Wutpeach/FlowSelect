@@ -623,13 +623,13 @@ const MR0_MOTION_LEAF_MODULES = [
   // (erased at compile time) and never classifies, dispatches, reduces,
   // cancels, retains, or writes lifecycle/native state.
   "src/presentation/main-window/downloadTerminalProjection.ts",
-  // Compact Strobi: pinned source definition, pure attention projection, and
+  // Compact Kirby cat: pinned source definition, pure attention projection, and
   // source-specific playback scheduler. The SVG host (CompactMascot.tsx) is a
   // DOM boundary because it reads document visibility; it stays outside this
   // pure-leaf list and is pinned by the wiring-boundary assertions.
   "src/presentation/main-window/compactMascotRecipe.ts",
-  "src/presentation/main-window/strobiDefinition.ts",
-  "src/presentation/main-window/strobiPlaybackRuntime.ts",
+  "src/presentation/main-window/compactMascotDefinition.ts",
+  "src/presentation/main-window/compactMascotBehaviorRuntime.ts",
 ];
 
 const MR0_FORBIDDEN_SRC_PREFIXES = [

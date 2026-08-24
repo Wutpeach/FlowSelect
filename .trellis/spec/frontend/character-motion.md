@@ -10,7 +10,7 @@ or expression system.
 ## 2. Signatures
 
 ```ts
-type CompactCatCharacterProps = {
+type CompactMascotProps = {
   size: number;
   bodyColor: string;
   eyeColor: string;
@@ -26,22 +26,38 @@ lifecycle, native, or IPC collaborator.
 
 ## 3. Contracts
 
-- Inline SVG Body/Ears/Eyes form a complete Static Mark without animation.
+- `CompactMascot` is a source-specific SVG leaf: pinned Kirby 240-unit sphere,
+  exactly two core-projected diamond-ear nodes, and the upstream eye paths. It
+  paints the two node paths in core back/head/front order; it is not a generic
+  body-node renderer.
 - The Surface remains the sole Pointer Field writer. Windows compact forwarded
   `mousemove` uses the same writer before unchanged hotspot evaluation.
 - Attention has a center dead zone, continuous hotspot-approach peak and
   response-radius decay, elliptical eye clamp, and tiny normal-only squash.
 - Observable window blur/document hidden reset through the Surface writer.
   Unobservable Windows passthrough exit may hold a bounded dormant target.
-- Springs retarget from current values. One deterministic blink timer is
-  canceled on hidden, Reduced Motion, replacement, or disposal; interruptions
-  restore open eyes and stale callbacks cannot continue.
-- Reduced Motion keeps the Static Mark and smaller direct eye attention, with
-  no blink, body deformation, lag, or overshoot. Hidden springs settle.
-- Character owns no rAF, React frame state, lifecycle acknowledgement, native
-  geometry, BrowserWindow/preload call, or IPC frame path.
+- One Compact-local `avatar-core` runtime owns baseline playback, pointer
+  attention, one intermittent action, its deadline, visibility, Reduced
+  Motion, disposal, and stale-generation invalidation. Normal motion uses one
+  rAF as both playback and deadline clock; no timer, queue, priority bus, or
+  second scheduler is allowed.
+- Pointer attention remains read-only and additive during baseline and an
+  action. It never chooses, starts, interrupts, cancels, or extends an action.
+- The fixed visual-only allowlist is `surprised` (03→21), `curious-short`
+  (00→15), and `playful-short` (02→17): each is a local `once` clip preserving
+  2300ms holds, 500ms smooth transitions, and pinned blink data. A visible
+  normal baseline arms one 18–32s quiet deadline; immediate repeats are barred.
+- Hidden pauses exact playback/deadline progress and cancels rAF; visible
+  resumes it. Reduced Motion cancels decorative action/deadline/rAF/blink,
+  renders neutral open eyes plus smaller direct attention, and normal re-entry
+  starts a fresh baseline/deadline. Dispose invalidates callbacks; remount is
+  a fresh visual session.
+- The leaf owns no Product, lifecycle, native geometry, BrowserWindow/preload,
+  IPC, completion callback, or React per-frame state.
 - The 80x80 reachable frame, 60x60 shell, hotspot, passthrough, placement, and
-  reachability policy remain independent and unchanged.
+  reachability policy remain independent and unchanged. A source-specific
+  0.95 mascot render scale may sit centered inside the unchanged 56px holder
+  only when direct full-pose bounds prove it is needed to clear the shell.
 
 > **Motion 12 source warning**: `useSpring(source)` does not rebind when a
 > different MotionValue is supplied later. Never use
@@ -53,12 +69,12 @@ lifecycle, native, or IPC collaborator.
 | Condition | Required result |
 | --- | --- |
 | dead zone or at/outside response radius | neutral eyes; body scale 1 |
-| new normal pointer target | current-condition retarget; no replay |
-| normal -> Reduced Motion | direct smaller attention; springs settle; blink stops open |
-| Reduced Motion -> normal | stable sources resume current target |
-| window blur or document hidden | Surface resets Pointer Field to center |
-| unobservable passthrough exit | bounded target may freeze; zero active work |
-| expanded/replaced/disposed | timer and stale callbacks stop |
+| normal pointer target, including action | additive bounded eye offset; no action policy |
+| quiet deadline | one allowlisted local once action; no queue or immediate repeat |
+| action completion | current-frame return to idle; fresh quiet deadline; no outward callback |
+| normal -> Reduced Motion | neutral open eyes, direct smaller attention, zero rAF/deadline/blink |
+| document hidden -> visible | pause/freeze then exact playback/deadline resume |
+| replaced/disposed/remounted | stale callbacks stop; remount starts fresh baseline |
 
 ## 5. Good / Base / Bad Cases
 
@@ -70,12 +86,12 @@ lifecycle, native, or IPC collaborator.
 
 ## 6. Tests Required
 
-- `characterRecipe.test.ts`: silhouette, attention boundaries/clamps,
-  deformation, Reduced Motion, stable-source gate sequences.
-- `characterBlinkRuntime.test.ts`: one timer, stop/restart, stale generation,
-  permanent disposal.
-- `characterSurface.test.ts`: composition, writer ordering, neutral reset, no
-  rAF/completion escape, stable sources, spring settling, blink-open cleanup.
+- `compactMascotDefinition.test.ts`: pinned Kirby facts, two diamond-ear capacity,
+  action source steps/timings, validation and node layering.
+- `compactMascotBehaviorRuntime.test.ts`: one frame, deadline/action lifecycle,
+  no-repeat, pause/resume, Reduced Motion/static rendering, stale disposal.
+- `compactMascotSurface.test.ts`: composition, Pointer Field writer ordering,
+  visibility and no timer/authority escape.
 - `src/architecture/import-guard.test.ts`: no authority/native/IPC imports or
   side channels; lifecycle and Pointer Field writers stay unique.
 - Existing geometry, hotspot, presentation, Windows-risk, and native-policy
@@ -84,10 +100,9 @@ lifecycle, native, or IPC collaborator.
 ## 7. Wrong vs Correct
 
 ```ts
-// Wrong: Motion 12 does not rebind this source.
-const springX = useSpring(reducedMotion ? frozenZero : targetX);
+// Wrong: a second timer competes with the playback frame clock.
+setTimeout(startRandomAction, delay);
 
-// Correct: stable identity, gated value, explicit Reduced Motion settle.
-const springX = useSpring(stableGatedSourceX, options);
-if (reducedMotion) springX.jump(targetX.get());
+// Correct: the one Compact runtime checks its deadline from its one rAF.
+if (now >= nextActionAt && currentAction === null) startLocalOnceAction();
 ```
