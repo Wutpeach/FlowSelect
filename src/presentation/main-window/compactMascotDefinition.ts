@@ -52,11 +52,11 @@ const compactMascotSourceDefinition: AvatarDefinition = {
   name: "Ameow Kirby Cat",
   body: {
     primary: KIRBY_SOURCE_BODY.primary,
-    // Ameow delta: two separated diamond ears whose lower poles intersect the
-    // sphere and whose full-pose projection remains core-rendered.
+    // Ameow delta: two short, broad diamond ears with deeply embedded roots;
+    // their full-pose projection remains core-rendered.
     nodes: [
-      { surface: { type: "diamond", width: 108, height: 190, depth: 102, roundness: 1 }, position: [-72, -50, -80], rotation: [0, 0, 0] },
-      { surface: { type: "diamond", width: 108, height: 190, depth: 102, roundness: 1 }, position: [72, -50, -80], rotation: [0, 0, 0] },
+      { surface: { type: "diamond", width: 76, height: 135, depth: 78, roundness: 1 }, position: [-70, -76, -82], rotation: [0, -5, -10] },
+      { surface: { type: "diamond", width: 76, height: 135, depth: 78, roundness: 1 }, position: [70, -76, -82], rotation: [0, 5, 10] },
     ],
   },
   colors: { body: "#ffc2e9", eyes: "#3e4e65" },

@@ -1,0 +1,27 @@
+import { mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
+
+const evidence = fileURLToPath(new URL("./evidence/", import.meta.url));
+mkdirSync(evidence, { recursive: true });
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
+await page.goto("http://127.0.0.1:1421/lab.html", { waitUntil: "networkidle", timeout: 60_000 });
+await page.getByRole("button", { name: /紧凑|Compact/i }).click();
+const stage = page.locator("[data-lab-compact-stage]");
+await stage.screenshot({ path: `${evidence}/final-neutral-front-1x.png`, scale: "css" });
+await page.waitForTimeout(800);
+await stage.screenshot({ path: `${evidence}/final-idle-low-amplitude-1x.png`, scale: "css" });
+await page.getByText("紧凑 · 指针").click();
+const approach = page.locator("[data-lab-compact-approach]");
+const box = await approach.boundingBox();
+if (box === null) throw new Error("Compact approach capture is not visible");
+await page.mouse.move(box.x + 78, box.y + 34);
+await stage.screenshot({ path: `${evidence}/final-pointer-approach-1x.png`, scale: "css" });
+await page.getByText("紧凑 · 减弱动态").click();
+await stage.screenshot({ path: `${evidence}/final-reduced-motion-1x.png`, scale: "css" });
+await page.getByRole("button", { name: /全屏|Full/i }).click();
+await page.getByText("热力图 · 移动场").click();
+await page.waitForTimeout(800);
+await page.locator("[data-lab-preview-frame]").screenshot({ path: `${evidence}/final-full-mr9-regression.png`, scale: "css" });
+await browser.close();

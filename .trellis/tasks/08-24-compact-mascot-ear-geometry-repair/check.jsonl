@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/character-motion.md","reason":"Review must preserve the two-node source-specific host, full-pose projection, single local runtime, and all Compact authority exclusions."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review uses its frontend and Motion guardrails to reject new renderers, per-frame React work, schedulers, or native/Product coupling."}
+{"file":".trellis/tasks/archive/2026-08/08-24-compact-mascot-cat-behavior-planning/repair-report.md","reason":"Review compares proposed evidence against the known rejected neutral gate rather than treating the old checkpoint as accepted."}
+{"file":".trellis/tasks/08-24-compact-mascot-ear-geometry-repair/research/ear-geometry-calibration-report.md","reason":"Review the completed task-local research before selecting geometry values or changing the Compact definition."}

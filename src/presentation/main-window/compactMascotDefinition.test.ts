@@ -39,17 +39,21 @@ describe("Pinned Kirby cat Compact definition", () => {
     expect(scene.geometry.frontPaths).toHaveLength(0);
   });
 
-  it("uses two separated maximum-valid-roundness diamond ears embedded in the head sphere", () => {
+  it("uses two short, broad diamond ears embedded in the head sphere", () => {
     const ears = COMPACT_MASCOT_DEFINITION.body.nodes.map((node) => node.surface);
     expect(ears).toEqual([
-      { type: "diamond", width: 108, height: 190, depth: 102, roundness: 1 },
-      { type: "diamond", width: 108, height: 190, depth: 102, roundness: 1 },
+      { type: "diamond", width: 76, height: 135, depth: 78, roundness: 1 },
+      { type: "diamond", width: 76, height: 135, depth: 78, roundness: 1 },
     ]);
     expect(COMPACT_MASCOT_DEFINITION.body.nodes.map((node) => node.position)).toEqual([
-      [-72, -50, -80],
-      [72, -50, -80],
+      [-70, -76, -82],
+      [70, -76, -82],
     ]);
-    expect((COMPACT_MASCOT_DEFINITION.body.nodes[1].position[0] - COMPACT_MASCOT_DEFINITION.body.nodes[0].position[0]) / COMPACT_MASCOT_DEFINITION.body.primary.width).toBeCloseTo(0.6, 6);
+    expect(COMPACT_MASCOT_DEFINITION.body.nodes.map((node) => node.rotation)).toEqual([
+      [0, -5, -10],
+      [0, 5, 10],
+    ]);
+    expect((COMPACT_MASCOT_DEFINITION.body.nodes[1].position[0] - COMPACT_MASCOT_DEFINITION.body.nodes[0].position[0]) / COMPACT_MASCOT_DEFINITION.body.primary.width).toBeCloseTo(140 / 240, 6);
   });
 
   it("projects two nonempty core ear paths from the neutral pinned definition", () => {
