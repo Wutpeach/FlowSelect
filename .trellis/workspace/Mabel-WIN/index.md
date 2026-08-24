@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-5.md`
-- **Total Sessions**: 250
+- **Total Sessions**: 251
 - **Last Active**: 2026-08-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-5.md` | ~1656 | Active |
+| `journal-5.md` | ~1987 | Active |
 | `journal-4.md` | ~1983 | Archived |
 | `journal-3.md` | ~1979 | Archived |
 | `journal-2.md` | ~1993 | Archived |
@@ -33,6 +33,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 251 | 2026-08-24 | Phase 4 Main Integration | `6114f47e446d6d4197f7e1f9d5d9858e7345767a`, `1964668` | `integration/phase4-main` |
 | 250 | 2026-08-24 | MR9 Ripple Motion Foundation checkpoint | `818057f664c7474ec1722b143fcc84dcf3ec67e9` | `lab/mr9-ripple-source-fidelity` |
 | 249 | 2026-08-23 | Close Paper interior adaptation as NO-GO research checkpoint | `77eb561` | `main` |
 | 248 | 2026-08-14 | MR7 Expanded Presentation substrate closure | `48987f7` | `main` |
