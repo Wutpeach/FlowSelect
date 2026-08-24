@@ -20,6 +20,20 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 
 <!-- TRELLIS:END -->
 
+## Orca Worker Collaboration
+
+Collaboration is primarily based on Orca Workers.
+
+On new session start, launch Orca collaboration and ensure a base Develop Worker exists: role=developer, label=develop, agent=Codex, model=gpt-5.6-terra, effort=high, worker_permission_mode=bypassPermissions.
+
+The Lead window is responsible for understanding requirements, planning, task decomposition, coordination, acceptance, and result summary.
+
+- Dispatch coding implementation tasks to the `develop` Worker by default.
+- For independent research into code, conventions, or impact scope, create a `research` Worker (role=researcher, label=research, agent=Codex, model=gpt-5.6-luna, effort=max, worker_permission_mode=bypassPermissions).
+- When multiple tasks can progress independently, additional Workers may be created: each Worker handles exactly one clearly bounded task with a unique label, and no more than 3 active simultaneously; cross-Worker shared conventions are specified by the Lead when dispatching.
+- Workers must not recursively dispatch other Workers; the Lead checks actual changes and verification results before summarizing to the user.
+- If Orca collaboration cannot start, report the situation honestly and ask the user how to proceed.
+
 ## Project Conventions
 
 ### Version Bumps

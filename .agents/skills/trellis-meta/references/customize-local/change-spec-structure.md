@@ -47,14 +47,12 @@ Monorepo example:
 
 ## Update Context
 
-Adding a spec does not mean every task automatically reads it. Read the layer index for discovery, then reference specific leaves in JSONL:
+Adding a spec does not mean every task automatically reads it. The current task must reference it in JSONL:
 
 ```bash
-python ./.trellis/scripts/task.py add-context <task> implement ".trellis/spec/webapp/security/auth.md" "Security conventions"
-python ./.trellis/scripts/task.py add-context <task> check ".trellis/spec/webapp/security/auth.md" "Security review rules"
+python ./.trellis/scripts/task.py add-context <task> implement ".trellis/spec/webapp/security/index.md" "Security conventions"
+python ./.trellis/scripts/task.py add-context <task> check ".trellis/spec/webapp/security/index.md" "Security review rules"
 ```
-
-Keep each leaf within `context_injection.max_file_bytes` (32 KiB by default). Split larger guidance behind compact navigation indexes; indexes and directories cannot be manifest entries.
 
 ## Change Monorepo Packages
 

@@ -44,10 +44,10 @@ In both modes, JSONL files in the task directory are the manifest for spec/resea
 `implement.jsonl` and `check.jsonl` contain one JSON object per line:
 
 ```jsonl
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "Backend error rules"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend rules"}
 ```
 
-Readers should skip seed rows without a `file` field. Real rows must reference non-index Markdown leaves under `.trellis/spec/**` or the current task's `research/**`, within `context_injection.max_file_bytes`. Directories, indexes, and code files are invalid; hooks skip hand-edited invalid rows with a visible notice.
+Readers should skip seed rows without a `file` field. When configuring JSONL, the AI should include only spec/research files, not pre-register code files that will be modified.
 
 ## Active Task And Context Key
 

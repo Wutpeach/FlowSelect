@@ -7,7 +7,6 @@ Usage:
     python task.py create "<title>" [--slug <name>] [--assignee <dev>] [--priority P0|P1|P2|P3] [--parent <dir>] [--package <pkg>] [--no-start]
     python task.py add-context <dir> <file> <path> [reason] # Add jsonl entry
     python task.py validate <dir>              # Validate jsonl files
-    python task.py audit-context               # Audit spec/research document sizes
     python task.py list-context <dir>          # List jsonl entries
     python task.py start <dir>                 # Set active task
     python task.py current [--source] [--json] # Show active task
@@ -62,10 +61,8 @@ from common.task_store import (
 )
 from common.task_context import (
     cmd_add_context,
-    cmd_audit_context,
     cmd_validate,
     cmd_list_context,
-    validate_task_context,
 )
 
 
@@ -85,26 +82,28 @@ def cmd_start(args: argparse.Namespace) -> int:
     # Resolve task directory (supports task name, relative path, or absolute path)
     full_path = resolve_task_dir(task_input, repo_root)
 
-    if not full_path.is_dir():
+    if not full_path or not full_path.is_dir():
         print(colored(f"Error: Task not found: {task_input}", Colors.RED))
         print("Hint: Use task name (e.g., 'my-task') or full path (e.g., '.trellis/tasks/01-31-my-task')")
         return 1
 
-    # Convert to relative path for storage
+    # Convert to relative path for storage. repo_root is resolved because
+    # full_path already is (resolve_task_dir only returns paths inside the
+    # resolved root), so an unresolved repo_root would mismatch under a
+    # symlink (e.g. /tmp on macOS) and reject a perfectly normal task.
     try:
-        task_dir = full_path.relative_to(repo_root).as_posix()
+        task_dir = full_path.relative_to(repo_root.resolve()).as_posix()
     except ValueError:
-        task_dir = str(full_path)
+        # resolve_task_dir already refused everything outside the repo, so
+        # this is unreachable in practice. Refuse rather than fall back to
+        # str(full_path) — that fallback (a lexical relative_to() paired with
+        # an absolute-path fallback) is exactly the pattern that let a `..`
+        # ref escape into storage before this fix.
+        print(colored(f"Error: Task not found: {task_input}", Colors.RED))
+        print("Hint: Use task name (e.g., 'my-task') or full path (e.g., '.trellis/tasks/01-31-my-task')")
+        return 1
 
     task_json_path = full_path / FILE_TASK_JSON
-
-    context_errors = validate_task_context(repo_root, full_path)
-    if context_errors:
-        print(colored(
-            f"Error: Context validation failed ({context_errors} errors); task not started",
-            Colors.RED,
-        ))
-        return 1
 
     if not resolve_context_key():
         # Degraded mode: no session identity available.
@@ -395,7 +394,6 @@ Usage:
   python task.py create <title> --no-start          Create without making it active in this session
   python task.py add-context <dir> <jsonl> <path> [reason]  Add entry to jsonl
   python task.py validate <dir>                     Validate jsonl files
-  python task.py audit-context                      Audit spec/research document sizes
   python task.py list-context <dir>                 List jsonl entries
   python task.py start <dir>                        Set active task
   python task.py current [--source]                 Show active task
@@ -514,9 +512,6 @@ def main() -> int:
     p_validate = subparsers.add_parser("validate", help="Validate context files")
     p_validate.add_argument("dir", help="Task directory")
 
-    # audit-context
-    subparsers.add_parser("audit-context", help="Audit spec/research document sizes")
-
     # list-context
     p_listctx = subparsers.add_parser("list-context", help="List context entries")
     p_listctx.add_argument("dir", help="Task directory")
@@ -591,7 +586,6 @@ def main() -> int:
         "create": cmd_create,
         "add-context": cmd_add_context,
         "validate": cmd_validate,
-        "audit-context": cmd_audit_context,
         "list-context": cmd_list_context,
         "start": cmd_start,
         "current": cmd_current,

@@ -167,7 +167,7 @@ The final planning summary must show Goal, In Scope, Out of Scope, Acceptance Cr
 
 Lightweight tasks may have only `prd.md`. Complex tasks must have `prd.md`, `design.md`, and `implement.md` before `task.py start`.
 
-`implement.md` is not a replacement for `implement.jsonl`. On sub-agent-dispatch workflows, `implement.jsonl` and `check.jsonl` must each contain at least one real spec/research leaf before `task.py start`; the seed `_example` row does not count. Indexes and directories are discovery-only, and injectable leaves must stay within `context_injection.max_file_bytes` (32 KiB by default). Inline workflows skip this JSONL gate because Phase 2 loads context through `trellis-before-dev`.
+`implement.md` is not a replacement for `implement.jsonl`. On sub-agent-dispatch workflows, `implement.jsonl` and `check.jsonl` must each contain at least one real spec/research entry before `task.py start`; the seed `_example` row does not count. Inline workflows skip this JSONL gate because Phase 2 loads context through `trellis-before-dev`.
 
 ## PRD Convergence Pass
 

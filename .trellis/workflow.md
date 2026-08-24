@@ -280,13 +280,13 @@ When a user request matches one of these intents inside an active task, route fi
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
-[codex-inline, Kilo, Antigravity, Devin]
+[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 - Planning or unclear requirements -> `trellis-brainstorm`.
 - Before editing -> `trellis-before-dev`; after editing -> `trellis-check`.
 - Repeated debugging -> `trellis-break-loop`; spec updates -> `trellis-update-spec`.
 
-[/codex-inline, Kilo, Antigravity, Devin]
+[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 ### Guardrails
 
@@ -363,17 +363,16 @@ Spawn the research sub-agent:
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
-[codex-inline, Kilo, Antigravity, Devin]
+[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 Do the research in the main session directly and write findings into `{TASK_DIR}/research/`. `codex-inline` is the explicit mode that keeps work in the main session.
 
-[/codex-inline, Kilo, Antigravity, Devin]
+[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 **Research artifact conventions**:
 - One file per research topic (e.g. `research/auth-library-comparison.md`)
 - Record third-party library usage examples, API references, version constraints in files
 - Note relevant spec file paths you discovered for later reference
-- Keep each injectable research leaf within `context_injection.max_file_bytes` (32 KiB by default). Split larger topics into leaves and use `research/**/index.md` only for navigation.
 
 Brainstorm and research can interleave freely — pause to research a technical question, then return to talk with the user.
 
@@ -390,11 +389,10 @@ Curate `implement.jsonl` and `check.jsonl` so the Phase 2 sub-agents get the rig
 **Format**: one JSON object per line — `{"file": "<path>", "reason": "<why>"}`. Paths are repo-root relative.
 
 **What to put in**:
-- **Spec leaves** — specific non-index Markdown guideline files (`error-handling.md`, scenario leaves, etc.) relevant to this task
-- **Research leaves** — non-index `{TASK_DIR}/research/**/*.md` files the sub-agent will need to consult
+- **Spec files** — `.trellis/spec/<package>/<layer>/index.md` and any specific guideline files (`error-handling.md`, `conventions.md`, etc.) relevant to this task
+- **Research files** — `{TASK_DIR}/research/*.md` that the sub-agent will need to consult
 
 **What NOT to put in**:
-- Navigation nodes (`index.md` or files marked `<!-- trellis-index -->`), directories, non-Markdown files, or leaves above `context_injection.max_file_bytes`
 - Code files (`src/**`, `packages/**/*.ts`, etc.) — those are read by the sub-agent during implementation, not pre-registered here
 - Files you're about to modify — same reason
 
@@ -410,7 +408,7 @@ These manifests do not replace `implement.md`. `implement.md` is the human-reada
 python ./.trellis/scripts/get_context.py --mode packages
 ```
 
-Lists every package + its spec-layer indexes. Read indexes for discovery, then add only the relevant leaf documents to JSONL.
+Lists every package + its spec layers with paths. Pick the entries that match this task's domain.
 
 **How to append entries**:
 
@@ -429,11 +427,11 @@ Skip this step only when both files already have real curated entries.
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
-[codex-inline, Kilo, Antigravity, Devin]
+[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 Skip this step. Context is loaded directly by the `trellis-before-dev` skill in Phase 2.
 
-[/codex-inline, Kilo, Antigravity, Devin]
+[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 #### 1.4 Activate task `[required · once]`
 
@@ -443,7 +441,7 @@ After artifact review, flip the task status to `in_progress`:
 python ./.trellis/scripts/task.py start <task-dir>
 ```
 
-For lightweight tasks, `prd.md` can be enough. For complex tasks, `prd.md`, `design.md`, and `implement.md` must exist and be reviewed before start. On sub-agent-dispatch platforms, `implement.jsonl` and `check.jsonl` must both have real curated leaf entries before start. `task.py start` validates both manifests before changing status or the active-task pointer.
+For lightweight tasks, `prd.md` can be enough. For complex tasks, `prd.md`, `design.md`, and `implement.md` must exist and be reviewed before start. On sub-agent-dispatch platforms, `implement.jsonl` and `check.jsonl` must both have real curated entries before start. Runtime consumers tolerate missing or seed-only manifests for compatibility, but that tolerance is not a planning-ready state.
 
 After this command succeeds, the breadcrumb auto-switches to `[workflow-state:in_progress]`, and the rest of Phase 2 / 3 follows.
 
@@ -517,7 +515,7 @@ The platform prelude auto-handles the context load requirement:
 
 [/Kiro]
 
-[codex-inline, Kilo, Antigravity, Devin]
+[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 1. Load the `trellis-before-dev` skill to read project guidelines
 2. Read `{TASK_DIR}/prd.md`, then `design.md` if present, then `implement.md` if present
@@ -525,7 +523,7 @@ The platform prelude auto-handles the context load requirement:
 4. Implement the code per reviewed artifacts
 5. Run project lint and type-check
 
-[/codex-inline, Kilo, Antigravity, Devin]
+[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 #### 2.2 Quality check `[required · repeatable]`
 
@@ -545,7 +543,7 @@ The check agent's job:
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
-[codex-inline, Kilo, Antigravity, Devin]
+[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 Load the `trellis-check` skill and verify the code per its guidance:
 - Spec compliance
@@ -554,7 +552,7 @@ Load the `trellis-check` skill and verify the code per its guidance:
 
 If issues are found → fix → re-check, until green.
 
-[/codex-inline, Kilo, Antigravity, Devin]
+[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
 
 **Final pass (before Phase 3.4 commit)**: the last 2.2 of a task must run full-scope, not just on the latest implement chunk. List all affected packages with `python ./.trellis/scripts/get_context.py --mode packages`, then load each package's spec index Quality Check section. This catches cross-layer / multi-package issues a mid-iteration local 2.2 cannot.
 

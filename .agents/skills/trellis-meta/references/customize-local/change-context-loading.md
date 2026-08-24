@@ -41,11 +41,11 @@ Context loading determines when AI reads workflow, task, spec, research, workspa
 `implement.jsonl` / `check.jsonl` are the key context loading interface:
 
 ```jsonl
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "Backend error conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend conventions"}
 {"file": ".trellis/tasks/04-28-x/research/api.md", "reason": "API research"}
 ```
 
-Include only non-index Markdown leaves under `.trellis/spec/**` or the current task's `research/**`. Use indexes for discovery only. Directories, code files, and leaves above `context_injection.max_file_bytes` are rejected.
+Include only spec/research files. Do not put code files that will be modified into these manifests; agents read code files themselves during implementation.
 
 ## Change Session Context
 

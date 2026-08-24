@@ -71,12 +71,16 @@ class ContextDocumentPolicyTests(unittest.TestCase):
         (external_task / "research").mkdir(parents=True, exist_ok=True)
         external_leaf = external_task / "research" / "leaf.md"
         external_leaf.write_text("outside", encoding="utf-8")
+        for path in (str(external_leaf), "../external-task/research/leaf.md"):
+            with self.subTest(path=path):
+                _, error = validate_context_document(self.repo, self.task, path, 32768)
+                self.assertIn("path", error or "")
         _, error = validate_context_document(
             self.repo, external_task, str(external_leaf), 32768
         )
         self.assertIn("task directory must be under", error or "")
 
-    def test_hook_skips_index_and_keeps_valid_leaf(self) -> None:
+    def test_hook_supports_index_and_keeps_valid_leaf(self) -> None:
         leaf = ".trellis/spec/backend/leaf.md"
         index = ".trellis/spec/backend/index.md"
         self.check(leaf, "LEAF-CONTENT")
@@ -100,8 +104,7 @@ class ContextDocumentPolicyTests(unittest.TestCase):
             hook._Budget(0),
         )
         joined = "\n".join(blocks)
-        self.assertIn("skipped invalid context entry", joined)
-        self.assertNotIn("INDEX-CONTENT", joined)
+        self.assertIn("INDEX-CONTENT", joined)
         self.assertIn("LEAF-CONTENT", joined)
 
     def test_hook_ignores_malformed_rows_and_keeps_later_valid_leaf(self) -> None:
@@ -124,6 +127,10 @@ class ContextDocumentPolicyTests(unittest.TestCase):
         )
         self.assertIn("LEAF-CONTENT", "\n".join(blocks))
 
+        from common import task_context
+
+        self.assertEqual(task_context._validate_jsonl(manifest, self.repo, self.task), 2)
+
     def test_rejects_research_symlink_that_escapes_task(self) -> None:
         research = self.task / "research"
         research.rmdir()
@@ -143,7 +150,7 @@ class ContextDocumentPolicyTests(unittest.TestCase):
         )
         self.assertIn("research/ must resolve inside", error or "")
 
-    def test_start_does_not_mutate_task_when_context_is_invalid(self) -> None:
+    def test_start_does_not_gate_on_context_entries(self) -> None:
         (self.task / "task.json").write_text(
             json.dumps({"status": "planning"}), encoding="utf-8"
         )
@@ -154,18 +161,26 @@ class ContextDocumentPolicyTests(unittest.TestCase):
         (self.task / "check.jsonl").write_text("", encoding="utf-8")
         self.check(".trellis/spec/backend/index.md", "index")
         task_module = load_module("task_cli_test", SCRIPTS_DIR / "task.py")
+        from common.active_task import ActiveTask
 
         with (
             patch.object(task_module, "get_repo_root", return_value=self.repo),
-            patch.object(task_module, "resolve_task_dir", return_value=self.task),
-            patch.object(task_module, "set_active_task") as set_active,
+            patch.object(task_module, "resolve_task_dir", return_value=self.task.resolve()),
+            patch.object(task_module, "resolve_context_key", return_value="test-context"),
+            patch.object(
+                task_module,
+                "set_active_task",
+                return_value=ActiveTask(
+                    ".trellis/tasks/07-30-test", "session", "test-context"
+                ),
+            ) as set_active,
         ):
             result = task_module.cmd_start(argparse.Namespace(dir=str(self.task)))
 
-        self.assertEqual(result, 1)
-        self.assertFalse(set_active.called)
+        self.assertEqual(result, 0)
+        self.assertTrue(set_active.called)
         data = json.loads((self.task / "task.json").read_text(encoding="utf-8"))
-        self.assertEqual(data["status"], "planning")
+        self.assertEqual(data["status"], "in_progress")
 
 
 if __name__ == "__main__":

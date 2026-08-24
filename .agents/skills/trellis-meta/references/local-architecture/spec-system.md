@@ -39,7 +39,7 @@ A common monorepo structure:
     └── ...
 ```
 
-`index.md` is the navigation entry point for each layer. It should list the Pre-Development Checklist, Quality Check, and links to specific guideline leaves. Indexes are read for discovery and are never task-manifest entries.
+`index.md` is the entry point for each layer. It should list the Pre-Development Checklist and Quality Check. Specific guidelines live in other Markdown files in the same directory.
 
 ## Package Configuration
 
@@ -68,11 +68,11 @@ This command lists packages and spec layers for the current project. Use this ou
 Before a task enters implementation, planning may write relevant specs into `implement.jsonl` / `check.jsonl` when the task needs spec or research context beyond the task artifacts:
 
 ```jsonl
-{"file": ".trellis/spec/cli/backend/error-handling.md", "reason": "CLI backend error conventions"}
+{"file": ".trellis/spec/cli/backend/index.md", "reason": "CLI backend conventions"}
 {"file": ".trellis/spec/cli/unit-test/conventions.md", "reason": "Test expectations"}
 ```
 
-Sub-agents or platform preludes read these JSONL files and load the referenced leaves. JSONL allows only non-index Markdown leaves under `.trellis/spec/**` or the current task's `research/**`, within `context_injection.max_file_bytes`. On platforms without sub-agent support, the AI should read indexes and relevant leaves directly according to the workflow.
+Sub-agents or platform preludes read these JSONL files and load the referenced specs. On platforms without sub-agent support, the AI should read the relevant specs directly according to the workflow.
 
 ## What Specs Should Contain
 

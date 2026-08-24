@@ -92,14 +92,13 @@ If the platform or shell environment has no stable session identity, `task.py st
 Format:
 
 ```jsonl
-{"file": ".trellis/spec/cli/backend/error-handling.md", "reason": "Backend error conventions"}
+{"file": ".trellis/spec/cli/backend/index.md", "reason": "Backend conventions"}
 {"file": ".trellis/tasks/04-28-example/research/api.md", "reason": "API research"}
 ```
 
 Rules:
 
-- Include only non-index Markdown leaves under `.trellis/spec/**` or the current task's `research/**`.
-- Use `index.md` for discovery only; manifests reject indexes, directories, and leaves above `context_injection.max_file_bytes`.
+- Include spec and research files.
 - Do not include code files that are about to be modified.
 - Do not treat temporary conclusions in chat as the only context.
 - Seed rows have no `file` field; they only prompt the AI to fill in real entries.
