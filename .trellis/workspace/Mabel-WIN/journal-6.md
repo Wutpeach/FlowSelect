@@ -60,3 +60,24 @@ Recorded a recoverable Compact cat behavior checkpoint: circular shell and appro
 ### Status
 
 [OK] **Completed**
+
+
+## Session 254: Repair Compact Mascot ear geometry
+
+**Date**: 2026-08-24
+**Task**: Repair Compact Mascot ear geometry
+**Branch**: `main`
+
+### Summary
+
+Calibrated the Compact mascot's two attached avatar-core diamond ears through a bounded production-UI-Lab candidate loop. Selected short broad deep-rooted geometry, captured compact neutral/action/regression evidence, and recorded the known native verification limitation.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c9a79f0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
