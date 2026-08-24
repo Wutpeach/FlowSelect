@@ -50,6 +50,7 @@ import type {
   DownloadTerminalOutcome,
   PastedSelectionPorts,
   QueueDownloadCommand,
+  QueueDownloadPresentationCause,
 } from "../application/download-api.js";
 import { toRawDownloadInput } from "../application/download-api.js";
 import type { RuntimeFailureDiagnostic } from "../types/errorDiagnostics.js";
@@ -421,8 +422,11 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
    * values (cookies, advanced-quality selectors) are added after this mapping
    * by the advanced-quality continuation path.
    */
-  async queueDownload(command: QueueDownloadCommand): Promise<DownloadQueueAck> {
-    return this.queueVideoDownload(toRawDownloadInput(command));
+  async queueDownload(
+    command: QueueDownloadCommand,
+    cause?: QueueDownloadPresentationCause,
+  ): Promise<DownloadQueueAck> {
+    return this.queueVideoDownload(toRawDownloadInput(command), cause);
   }
 
   /**
@@ -433,10 +437,11 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
   async queuePastedDownload(
     command: QueueDownloadCommand,
     ports: PastedSelectionPorts,
+    cause?: QueueDownloadPresentationCause,
   ): Promise<DownloadQueueAck> {
     const siteHint = command.siteHint;
     if (!ports.isEligible(siteHint)) {
-      return this.queueDownload(command);
+      return this.queueDownload(command, cause);
     }
 
     try {
@@ -463,7 +468,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
           ...command,
           ...resolved,
           videoQuality: command.videoQuality ?? resolved.videoQuality,
-        });
+        }, cause);
       }
       this.logger.log(
         `>>> [PastedVideo] Extension-assisted selection was unavailable, falling back to direct queue: ${
@@ -478,16 +483,19 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
       );
     }
 
-    return this.queueDownload(command);
+    return this.queueDownload(command, cause);
   }
 
-  async queueVideoDownload(request: RawDownloadInput): Promise<DownloadQueueAck> {
+  async queueVideoDownload(
+    request: RawDownloadInput,
+    cause?: QueueDownloadPresentationCause,
+  ): Promise<DownloadQueueAck> {
     if (request.advancedQualityRequest === true) {
-      return await this.queueAdvancedQualityDownload(request);
+      return await this.queueAdvancedQualityDownload(request, cause);
     }
 
     const traceId = nextDownloadTraceId();
-    await this.enqueuePendingDownloadTask(traceId, request);
+    await this.enqueuePendingDownloadTask(traceId, request, traceId, cause);
     return {
       accepted: true,
       traceId,
@@ -582,13 +590,15 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
   private async enqueuePendingDownloadTask(
     traceId: string,
     request: RawDownloadInput,
+    acceptedTraceId?: string,
+    cause?: QueueDownloadPresentationCause,
   ): Promise<void> {
     this.pending.push({
       traceId,
       label: queueTaskLabel(request),
       request,
     });
-    await this.emitQueueState();
+    await this.emitQueueState(acceptedTraceId, cause);
     void this.pumpQueue();
   }
 
@@ -616,6 +626,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
 
   private async queueAdvancedQualityDownload(
     request: RawDownloadInput,
+    cause?: QueueDownloadPresentationCause,
   ): Promise<DownloadQueueAck> {
     const dedupeKey = this.buildAdvancedQualityDedupeKey(request);
     const existingTraceId = this.advancedQualityDedupe.get(dedupeKey);
@@ -638,7 +649,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     };
     this.advancedQualityTasks.set(traceId, task);
     this.advancedQualityDedupe.set(dedupeKey, traceId);
-    await this.emitQueueState();
+    await this.emitQueueState(traceId, cause);
     void this.probeAdvancedQualityTask(traceId);
     return {
       accepted: true,
@@ -953,9 +964,25 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     return true;
   }
 
-  private async emitQueueState(): Promise<void> {
-    await this.options.eventSink.emit("video-queue-count", this.getQueueState());
-    await this.options.eventSink.emit("video-queue-detail", this.getQueueDetail());
+  private async emitQueueState(
+    acceptedTraceId?: string,
+    cause?: QueueDownloadPresentationCause,
+  ): Promise<void> {
+    const state = this.getQueueState();
+    const detail = this.getQueueDetail();
+    await this.options.eventSink.emit("video-queue-count", state);
+    await this.options.eventSink.emit(
+      "video-queue-detail",
+      acceptedTraceId === undefined
+        ? detail
+        : {
+            ...detail,
+            acceptedTraceId,
+            ...(cause?.intakeOrigin === undefined
+              ? {}
+              : { acceptedIntakeOrigin: cause.intakeOrigin }),
+          },
+    );
   }
 
   getTranscodeQueueState(): VideoTranscodeQueueStatePayload {

@@ -33,6 +33,7 @@ FlowSelect is an Electron desktop application with a React frontend. The UI is a
 | [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | Done |
 | [Design System](./design-system.md) | Core visual language, semantic tokens, and UI state patterns | Done |
 | [Motion Guidelines](./motion-guidelines.md) | `motion/react` usage, compact surface motion rules, and transparent child-window animation contracts | Done |
+| [Character Motion](./character-motion.md) | Compact Character ownership, attention, lifecycle, Reduced Motion, and Motion 12 stable-source contract | Done |
 | [Hook Guidelines](./hook-guidelines.md) | Custom hooks, Electron bridge event patterns | Done |
 | [State Management](./state-management.md) | Local state, ThemeContext, config flow | Done |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | Done |

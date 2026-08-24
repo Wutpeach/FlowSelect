@@ -19,7 +19,6 @@ describe("centerOverlayState", () => {
     expect(selectCenterOverlayVisual({
       primaryTask: { kind: "download", traceId: "next-download" },
       centerOverlayState: state,
-      visualIsMinimized: false,
     })).toEqual({
       kind: "task-progress",
       key: "progress:download:next-download",
@@ -121,7 +120,7 @@ describe("centerOverlayState", () => {
     };
     const loading = reduceCenterOverlayState(createCenterOverlayState(), {
       type: "beginTaskOutcomeLoading",
-      status: "error",
+      status: "failure",
       message: diagnostic.userMessage,
       durationMs: 5000,
       diagnostic,
@@ -134,12 +133,11 @@ describe("centerOverlayState", () => {
     expect(selectCenterOverlayVisual({
       primaryTask: null,
       centerOverlayState: visible,
-      visualIsMinimized: false,
     })).toEqual({
       kind: "task-outcome",
       key: `task-outcome:${loading.requestId}`,
       requestId: loading.requestId,
-      status: "error",
+      status: "failure",
       message: diagnostic.userMessage,
       outcomeVisible: true,
       source: "download",
@@ -153,7 +151,100 @@ describe("centerOverlayState", () => {
       });
   });
 
-  it("falls back to minimized only when no progress or transient outcome owns the center", () => {
+  it("keeps Folder Confirmation status semantics (success | error) unchanged", () => {
+    const success = reduceCenterOverlayState(createCenterOverlayState(), {
+      type: "showFolderOutcome",
+      status: "success",
+      durationMs: 1400,
+    });
+    expect(selectCenterOverlayVisual({
+      primaryTask: null,
+      centerOverlayState: success,
+    })).toEqual({
+      kind: "folder-outcome",
+      key: `folder-outcome:${success.requestId}`,
+      requestId: success.requestId,
+      status: "success",
+      message: null,
+    });
+
+    const error = reduceCenterOverlayState(createCenterOverlayState(), {
+      type: "showFolderOutcome",
+      status: "error",
+      message: "无法读取文件夹",
+      durationMs: 1800,
+    });
+    expect(selectCenterOverlayVisual({
+      primaryTask: null,
+      centerOverlayState: error,
+    })).toEqual({
+      kind: "folder-outcome",
+      key: `folder-outcome:${error.requestId}`,
+      requestId: error.requestId,
+      status: "error",
+      message: "无法读取文件夹",
+    });
+  });
+
+  it("defaults task outcome origin to foreground; only typed terminals opt in", () => {
+    const generic = reduceCenterOverlayState(createCenterOverlayState(), {
+      type: "beginTaskOutcomeLoading",
+      status: "failure",
+      durationMs: 5000,
+    });
+    expect(generic).toMatchObject({
+      kind: "task-outcome-loading",
+      origin: "foreground",
+    });
+
+    const typed = reduceCenterOverlayState(createCenterOverlayState(), {
+      type: "beginTaskOutcomeLoading",
+      status: "failure",
+      origin: "terminal",
+      durationMs: 5000,
+    });
+    expect(typed).toMatchObject({
+      kind: "task-outcome-loading",
+      origin: "terminal",
+    });
+
+    // The visible phase preserves the origin discriminator.
+    expect(reduceCenterOverlayState(typed, {
+      type: "showTaskOutcome",
+      requestId: typed.requestId,
+    })).toMatchObject({
+      kind: "task-outcome-visible",
+      origin: "terminal",
+    });
+  });
+
+  it("keeps requestId generation guards across invalidation dismissals", () => {
+    const first = reduceCenterOverlayState(createCenterOverlayState(), {
+      type: "beginTaskOutcomeLoading",
+      status: "success",
+      durationMs: 1500,
+    });
+    // MR4 invalidation: dismissTransient clears the old Reveal and bumps the
+    // generation; the old retention timer is now a stale no-op.
+    const dismissed = reduceCenterOverlayState(first, { type: "dismissTransient" });
+    expect(reduceCenterOverlayState(dismissed, {
+      type: "finishTaskOutcome",
+      requestId: first.requestId,
+    })).toBe(dismissed);
+
+    // A newer outcome is equally protected from the stale timer.
+    const newer = reduceCenterOverlayState(dismissed, {
+      type: "beginTaskOutcomeLoading",
+      status: "cancelled",
+      durationMs: 1500,
+    });
+    expect(reduceCenterOverlayState(newer, {
+      type: "finishTaskOutcome",
+      requestId: first.requestId,
+    })).toBe(newer);
+  });
+
+  it("keeps progress and transient outcomes ahead of the idle fallback", () => {
     const state = reduceCenterOverlayState(createCenterOverlayState(), {
       type: "showFolderOutcome",
       status: "success",
@@ -163,16 +254,14 @@ describe("centerOverlayState", () => {
     expect(selectCenterOverlayVisual({
       primaryTask: null,
       centerOverlayState: state,
-      visualIsMinimized: true,
     }).kind).toBe("folder-outcome");
 
     expect(selectCenterOverlayVisual({
       primaryTask: null,
       centerOverlayState: createCenterOverlayState(),
-      visualIsMinimized: true,
     })).toEqual({
-      kind: "minimized",
-      key: "minimized",
+      kind: "none",
+      key: "none",
     });
   });
 });

@@ -1,0 +1,28 @@
+{
+  "id": "ui-lab-refresh-planning",
+  "name": "ui-lab-refresh-planning",
+  "title": "UI Lab Refresh Planning",
+  "description": "Plan the dev-only UI Lab refresh into a Full/Compact Presentation Playground with bounded Agentation feasibility.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "frontend",
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-08-22",
+  "completedAt": "2026-08-23",
+  "branch": "planning/ui-lab-refresh",
+  "base_branch": "motion/mr9-fullscreen-activation-fx",
+  "worktree_path": "D:\\Ameow\\.cindy-worktrees\\ui-lab-refresh-planning",
+  "commit": "25040db9ab7887444010a70d43cd537331286721",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-22-ui-lab-layout-interaction-repair-planning"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

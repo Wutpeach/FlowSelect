@@ -1,0 +1,159 @@
+{
+  "nav": {
+    "scenarioNavigation": "场景导航",
+    "activation": "全屏激活",
+    "downloadProgress": "下载与进度",
+    "reducedMotion": "减弱动态",
+    "heatmapSpike": "热力图实验",
+    "compact": "紧凑角色",
+    "scenes": "业务场景",
+    "fullOnlyTag": "仅全屏",
+    "compactOnlyTag": "仅紧凑",
+    "clear": "清除",
+    "clearHint": "将该组的 Lab 预览状态置为空闲。",
+    "none": "无",
+    "noneHint": "无 overlay 场景；普通进度 / 激活表面。"
+  },
+  "previewTarget": {
+    "full": "全屏",
+    "compact": "紧凑"
+  },
+  "workspace": {
+    "title": "预览工作区",
+    "targetLabel": "预览目标",
+    "displayScale": "显示缩放",
+    "autoLabel": "自动",
+    "auto": "自动 · {{scale}}×",
+    "reset": "重置预览",
+    "resetHint": "将当前 Lab 预览 / 场景恢复到基线状态（重新应用场景、源点居中、关闭减弱动态）。",
+    "metadataFull": "全屏 · {{size}}×{{size}} · {{scale}}",
+    "metadataCompact": "紧凑 · 外层 {{outer}} / 外壳 {{shell}} · {{scale}}"
+  },
+  "controls": {
+    "displayMode": "显示模式",
+    "zoom": "缩放",
+    "actions": "操作"
+  },
+  "environment": {
+    "title": "预览背景",
+    "dark": "深色",
+    "light": "浅色",
+    "checkerboard": "棋盘格"
+  },
+  "compact": {
+    "caption": "紧凑目标直接复用生产 Strobi Mascot 渲染叶（80/60/56 几何）与 Lab 本地指针场；无画布、着色器或原生窗口。"
+  },
+  "devTools": {
+    "title": "开发工具",
+    "originSection": "源点设置",
+    "rmSection": "减弱动态",
+    "target": "目标",
+    "scale": "缩放",
+    "background": "背景",
+    "reducedMotion": "预览减弱动态",
+    "on": "开",
+    "off": "关",
+    "advanced": "高级诊断",
+    "scaleFacts": "缩放事实",
+    "fullOnlyDiagnostics": "组合输入与着色器读数仅限全屏目标（紧凑目标不挂载画布）。",
+    "compact": {
+      "scenario": "紧凑场景",
+      "mode": "指针模式",
+      "live": "实时注意力",
+      "neutral": "固定中性",
+      "reducedMotion": "强制减弱动态"
+    }
+  },
+  "presets": {
+    "intakeLocal": { "label": "Intake · 本地源点", "description": "从上次预览点击点点燃。" },
+    "intakeCenter": { "label": "Intake · 中心", "description": "视口中心（扩展式回退源点）。" },
+    "folder": { "label": "Folder · Anchor / Lock", "description": "更稳的扫掠，强调边缘捕获与闭合。" },
+    "intakeReduced": { "label": "Intake · 减弱动态", "description": "有界静态点燃光斑；无漂移 / 追逐 / 扰动。" },
+    "folderReduced": { "label": "Folder · 减弱动态", "description": "静态边缘锁 + 短暂暖闭合状态。" },
+    "replay": "重播",
+    "replayHint": "以新的 startedAt 重新点燃当前激活。",
+    "progress0": "0%",
+    "progress25": "25%",
+    "progress50": "50%",
+    "progress75": "75%",
+    "progress100": "100%",
+    "progressHint": "当前 trace 上的确定生产进度目标。",
+    "indeterminate": "不确定",
+    "indeterminateHint": "诚实的固定非百分比分段；无数字边界。",
+    "downwardRevision": "向下修订",
+    "downwardRevisionHint": "同 trace 目标 −50 点；生产运行时立即回落。",
+    "replaceTrace": "新 trace 替换",
+    "replaceTraceHint": "新 trace 从 50% 开始；绝不继承旧 trace 的量级。",
+    "clearProgress": "清除 / 空闲",
+    "clearProgressHint": "空闲语义目标；零调度帧。",
+    "heatmapMoving": { "label": "热力图 · 移动场", "description": "覆盖全表面的移动标量热场（clean-room 实验）。" },
+    "heatmapReduced": { "label": "热力图 · 减弱动态", "description": "静态有界场快照；无移动帧。" },
+    "heatmapRefractionMoving": { "label": "热力图 · 热折射", "description": "移动场 + 缓慢局部低频热折射（解析重采样）。" },
+    "heatmapRefractionReduced": { "label": "热力图 · 折射 · 减弱动态", "description": "冻结的静态局部折射；无移动帧。" },
+    "heatmapContactHaloMoving": { "label": "热力图 · 局部边界接触", "description": "既有移动 contact 在 14px gutter 内驱动紧凑外泄。" },
+    "heatmapContactHaloReduced": { "label": "热力图 · 边界接触 · 减弱动态", "description": "静态既有 contact 与 halo；无持续帧。" },
+    "clearHeatmap": "清除热力图",
+    "clearHeatmapHint": "返回常规进度 / 激活表面。",
+    "runtimeAutoConfig": { "label": "自动配置", "description": "运行时自动配置中的指示器（不确定进度）。" },
+    "runtimeFailed": { "label": "运行失败", "description": "运行时失败后的可操作状态。" },
+    "downloadActive": { "label": "下载进行中", "description": "主任务 WebGL 进度弧 + 队列行（速度 / ETA）。" },
+    "downloadQueued": { "label": "下载排队中", "description": "徽章计数 + 排队任务行。" },
+    "transcodeActive": { "label": "转码进行中", "description": "CircularProgressIndicator 转码环 + 队列行。" },
+    "transcodeFailed": { "label": "转码失败", "description": "失败中心 overlay（可复制诊断）+ 失败行。" },
+    "mixedBusy": { "label": "混合忙碌", "description": "下载（WebGL 弧）与转码（DOM 环）并发。" },
+    "compactNeutral": { "label": "紧凑 · 中性", "description": "当前紧凑角色静止；无指针注意力。" },
+    "compactPointer": { "label": "紧凑 · 指针注意力", "description": "当前紧凑角色追踪工作区指针。" },
+    "compactReduced": { "label": "紧凑 · 减弱动态", "description": "减弱动态：更小的受限注意力，无弹簧 / 眨眼。" },
+    "rmIntake": { "label": "减弱动态 · Intake", "description": "静态点燃光斑审计。" },
+    "rmFolder": { "label": "减弱动态 · Folder", "description": "静态边缘锁审计。" }
+  },
+  "preview": {
+    "clickToSetOrigin": "点击预览可设置归一化本地源点",
+    "caption": "点击预览可设置归一化本地源点；仅挂载一个生产画布。",
+    "replay": "重播",
+    "replayHint": "以新的 startedAt 重新点燃当前激活。",
+    "export": "导出 4× PNG",
+    "exportHint": "仅导出中心生产预览：200×200 画布 + 生产阴影边距（每侧 14px）→ 912×912 透明 PNG。",
+    "exporting": "正在导出…",
+    "exportSuccess": "已导出 {{name}}",
+    "exportFailure": "导出失败",
+    "exportErrorWebgl": "WebGL 画面读取失败，未生成不完整的导出。",
+    "exportErrorDom": "界面层截图失败，未生成不完整的导出。",
+    "exportErrorShadow": "无法解析生产阴影样式，未生成不完整的导出。"
+  },
+  "inspector": {
+    "title": "检查器",
+    "reducedMotion": "减弱动态",
+    "reducedMotionHint": "驱动生产 reducedMotion 输入；减弱动态预设会强制开启。",
+    "originX": "源点 X",
+    "originY": "源点 Y",
+    "originHint": "激活触发时快照；驱动 uActivationOrigin。",
+    "determinate": "确定进度",
+    "determinateHint": "驱动当前 trace 上的生产确定目标。",
+    "composedInput": "组合输入",
+    "shaderReadout": "实时生产着色器读数",
+    "scenario": "场景",
+    "download": {
+      "trace": "trace",
+      "stage": "阶段",
+      "percent": "百分比",
+      "count": "计数",
+      "speed": "速度",
+      "eta": "ETA",
+      "primaryTask": "主任务",
+      "rows": "队列行"
+    },
+    "transcode": {
+      "stage": "阶段",
+      "percent": "百分比",
+      "count": "计数",
+      "failure": "失败诊断"
+    },
+    "runtime": {
+      "phase": "阶段",
+      "components": "缺失组件",
+      "progress": "进度",
+      "error": "错误 / 手动操作"
+    }
+  }
+}

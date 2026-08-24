@@ -6,7 +6,12 @@ import {
   type DownloadQueueEvent,
 } from "./client";
 import type { DownloadQueueState, DownloadTask } from "./model";
-import { DownloadQueueController } from "./useDownloadQueue";
+import { selectPrimaryDownloadTask } from "./selectors";
+import {
+  DownloadQueueController,
+  type DownloadIntakeTransition,
+} from "./useDownloadQueue";
+import { shouldShowDownloadTerminalReveal } from "../../presentation/main-window/downloadTerminalProjection";
 
 const deferred = <T>(): {
   promise: Promise<T>;
@@ -30,9 +35,15 @@ const task = (overrides: Partial<DownloadTask> = {}): DownloadTask => ({
   ...overrides,
 });
 
-const detailEvent = (tasks: DownloadTask[]): DownloadQueueEvent => ({
+const detailEvent = (
+  tasks: DownloadTask[],
+  acceptedTraceId?: string,
+  acceptedIntakeOrigin?: { x: number; y: number },
+): DownloadQueueEvent => ({
   type: "queueDetail",
   tasks,
+  acceptedTraceId,
+  ...(acceptedIntakeOrigin === undefined ? {} : { acceptedIntakeOrigin }),
 });
 
 const progressEvent = (traceId = "trace-1", percent = 50): DownloadQueueEvent => ({
@@ -385,5 +396,175 @@ describe("DownloadQueueController", () => {
     await controller.selectQuality("trace-1", "o1");
 
     expect(controller.getState().qualitySelecting).toEqual({});
+  });
+});
+
+describe("MR4 terminal notification seam: exact post-reduction snapshot", () => {
+  it("passes the post-reduction state so a background terminal (another primary remains) is suppressed", () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const decisions: Array<{
+      outcomeTraceId: string;
+      primaryTraceId: string | null;
+      showReveal: boolean;
+    }> = [];
+    controller.subscribeTerminal((outcome, snapshot) => {
+      const primary = selectPrimaryDownloadTask(snapshot);
+      decisions.push({
+        outcomeTraceId: outcome.traceId,
+        primaryTraceId: primary?.traceId ?? null,
+        showReveal: shouldShowDownloadTerminalReveal(primary),
+      });
+    });
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([
+      task({ traceId: "trace-a" }),
+      task({ traceId: "trace-b" }),
+    ]));
+    fake.emit(terminalEvent("trace-a"));
+
+    expect(decisions).toHaveLength(1);
+    // The snapshot is post-reduction: A is pruned and B is the current
+    // primary -> the App decision derived from that exact snapshot suppresses
+    // A (background terminal), without any React commit timing.
+    expect(decisions[0]).toEqual({
+      outcomeTraceId: "trace-a",
+      primaryTraceId: "trace-b",
+      showReveal: false,
+    });
+    expect(selectPrimaryDownloadTask(controller.getState())?.traceId).toBe("trace-b");
+  });
+
+  it("shows the sole terminal when no current primary remains after reduction", () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const decisions: Array<{ outcomeTraceId: string; showReveal: boolean }> = [];
+    controller.subscribeTerminal((outcome, snapshot) => {
+      const primary = selectPrimaryDownloadTask(snapshot);
+      decisions.push({
+        outcomeTraceId: outcome.traceId,
+        showReveal: shouldShowDownloadTerminalReveal(primary),
+      });
+    });
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "trace-1" })]));
+    fake.emit(terminalEvent("trace-1"));
+
+    expect(decisions).toEqual([{ outcomeTraceId: "trace-1", showReveal: true }]);
+  });
+
+  it("synchronous progress/queue changes before a terminal are all present in the listener snapshot", () => {
+    // Queue detail, progress, and a terminal emitted back-to-back with no
+    // React commit in between: a React ref could only hold a stale commit,
+    // but the controller snapshot is exact by construction — it is the
+    // controller state after every prior synchronous reduction.
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const snapshots: DownloadQueueState[] = [];
+    controller.subscribeTerminal((outcome, snapshot) => {
+      snapshots.push(snapshot);
+      expect(outcome.traceId).toBe("trace-a");
+    });
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([
+      task({ traceId: "trace-a" }),
+      task({ traceId: "trace-b" }),
+    ]));
+    fake.emit(progressEvent("trace-b", 77));
+    fake.emit(terminalEvent("trace-a"));
+
+    expect(snapshots).toHaveLength(1);
+    const snapshot = snapshots[0];
+    expect(selectPrimaryDownloadTask(snapshot)?.traceId).toBe("trace-b");
+    expect(snapshot.progressByTrace["trace-b"]?.percent).toBe(77);
+    expect(snapshot.terminalTraceIds).toEqual(["trace-a"]);
+  });
+});
+
+describe("MR8 Intake notification seam: authoritative marked membership", () => {
+  it("reduces first and publishes one marked new membership with exact post state", () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: Array<{ traceId: string; order: string[] }> = [];
+    controller.subscribeIntake((transition, snapshot) => {
+      transitions.push({ traceId: transition.traceId, order: snapshot.order });
+    });
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "accepted" })], "accepted"));
+
+    expect(transitions).toEqual([{ traceId: "accepted", order: ["accepted"] }]);
+  });
+
+  it("forwards an origin only when it is paired with a newly proven membership", () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: Array<{ traceId: string; origin?: { x: number; y: number } }> = [];
+    controller.subscribeIntake((transition) => transitions.push(transition));
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "local" })], "local", { x: 0.2, y: 0.7 }));
+    fake.emit(detailEvent([task({ traceId: "local" })], "local", { x: 0.9, y: 0.1 }));
+
+    expect(transitions).toEqual([{ traceId: "local", origin: { x: 0.2, y: 0.7 } }]);
+  });
+
+  it("rejects an unpaired origin and a marked non-new membership", () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: DownloadIntakeTransition[] = [];
+    controller.subscribeIntake((transition) => transitions.push(transition));
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "existing" })]));
+    fake.emit(detailEvent([task({ traceId: "existing" })], undefined, { x: 0.2, y: 0.7 }));
+    fake.emit(detailEvent([task({ traceId: "existing" })], "existing", { x: 0.2, y: 0.7 }));
+
+    expect(transitions).toEqual([]);
+  });
+
+  it("never fabricates Intake from hydration, replay, an absent marker, or a local ack", async () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: string[] = [];
+    controller.subscribeIntake((transition) => transitions.push(transition.traceId));
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "existing" })]));
+    fake.emit(detailEvent([task({ traceId: "existing" })], "existing"));
+    fake.emit(detailEvent([task({ traceId: "existing" })], "missing"));
+    await controller.queue({ url: "https://example.com/local-command" });
+
+    expect(transitions).toEqual([]);
+  });
+
+  it("publishes both concurrently captured marked post snapshots in order and stops after dispose", async () => {
+    const fake = createFakeClient();
+    const controller = new DownloadQueueController(fake.client);
+    const transitions: string[] = [];
+    controller.subscribeIntake((transition) => transitions.push(transition.traceId));
+    controller.start();
+    fake.resolveRegistration();
+
+    fake.emit(detailEvent([task({ traceId: "first" })], "first"));
+    fake.emit(detailEvent([
+      task({ traceId: "first" }),
+      task({ traceId: "second", status: "pending" }),
+    ], "second"));
+    controller.dispose();
+    await flushMicrotasks();
+    fake.emit(detailEvent([task({ traceId: "third" })], "third"));
+
+    expect(transitions).toEqual(["first", "second"]);
   });
 });

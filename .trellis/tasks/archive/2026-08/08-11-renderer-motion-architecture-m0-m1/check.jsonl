@@ -1,0 +1,7 @@
+{"file":".trellis/tasks/08-11-renderer-motion-architecture-m0-m1/research/current-presentation-audit.md","reason":"Verify every recorded behavior invariant and ownership defect is addressed without scope drift."}
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Verify interruption, hover grace, icon handoff, transparent shell, platform geometry, and reduced motion."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Verify one lifecycle owner, reducer-issued timers, presentation locks, task ordering, and drag guards."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Verify the new feature-scoped presentation boundary is reflected in project organization guidance."}
+{"file":".trellis/spec/frontend/type-safety/07-electron-preload-bridge-contract-for-renderer-migration.md","reason":"Verify the narrowed bridge remains typed and preserves unrelated current-window and UI Lab contracts."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/08-electron-proxy-resolution-contract-part-04.md","reason":"Verify native surface ownership, UI Lab, and runtime behavior remain compatible."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check renderer-preload-main ownership, hot-path IPC avoidance, stale async correction, and transparent-window boundaries."}

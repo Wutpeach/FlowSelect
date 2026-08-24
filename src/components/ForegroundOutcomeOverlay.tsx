@@ -18,12 +18,21 @@ type OutcomeIconProps = SVGProps<SVGSVGElement> & {
   size?: number;
 };
 
+/**
+ * Typed outcome status for the semantic center content. Success, failure, and
+ * cancelled are deliberately three distinct presentation values: the overlay
+ * must never collapse failure and cancellation into one boolean contract
+ * (MR4 typed terminal semantics preserved through the DOM carrier).
+ */
+export type ForegroundOutcomeStatus = "success" | "failure" | "cancelled";
+
 export type ForegroundOutcomeOverlayProps = {
   outcomeVisible: boolean;
-  cancelled: boolean;
+  status: ForegroundOutcomeStatus;
   errorMessage: string | null;
   successColor: string;
   errorColor: string;
+  cancelledColor: string;
   loadingStrokeColor: string;
   loadingTrackColor: string;
   loadingTextColor: string;
@@ -36,10 +45,11 @@ export type ForegroundOutcomeOverlayProps = {
 
 export const ForegroundOutcomeOverlay = ({
   outcomeVisible,
-  cancelled,
+  status,
   errorMessage,
   successColor,
   errorColor,
+  cancelledColor,
   loadingStrokeColor,
   loadingTrackColor,
   loadingTextColor,
@@ -144,14 +154,16 @@ export const ForegroundOutcomeOverlay = ({
             pointerEvents: "none",
           }}
         >
-          {cancelled ? (
+          {status === "success" ? (
+            <SuccessIcon size={48} style={{ color: successColor, pointerEvents: "none" }} strokeWidth={successIconStrokeWidth} />
+          ) : status === "failure" ? (
             <CloseIcon size={48} style={{ color: errorColor, pointerEvents: "none" }} strokeWidth={3} />
           ) : (
-            <SuccessIcon size={48} style={{ color: successColor, pointerEvents: "none" }} strokeWidth={successIconStrokeWidth} />
+            <CloseIcon size={48} style={{ color: cancelledColor, pointerEvents: "none" }} strokeWidth={3} />
           )}
         </motion.div>
       </div>
-      {outcomeVisible && cancelled && errorMessage ? (
+      {outcomeVisible && status !== "success" && errorMessage ? (
         <motion.div
           animate={errorMessageAnimate}
           transition={errorMessageTransition}

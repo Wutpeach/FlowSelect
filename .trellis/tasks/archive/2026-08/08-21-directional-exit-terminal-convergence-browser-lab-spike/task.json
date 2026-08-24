@@ -1,0 +1,31 @@
+{
+  "id": "directional-exit-terminal-convergence-browser-lab-spike",
+  "name": "directional-exit-terminal-convergence-browser-lab-spike",
+  "title": "Directional Exit Terminal Convergence Browser Lab Spike",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-08-21",
+  "completedAt": "2026-08-21",
+  "branch": null,
+  "base_branch": "motion/mr9-fullscreen-activation-fx",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "REJECTED/abandoned visual experiment. GPT Architecture Lead REJECT (authoritative, supersedes the earlier Cindy Lead Visual PASS). Product/test prototype restored to accepted checkpoint 8a80474; no Directional Exit implementation commit exists. All planning, report, captures, capture log, sequence, and validation evidence retained.",
+  "meta": {
+    "outcome": "rejected",
+    "disposition": "abandoned_visual_experiment",
+    "architecture_lead_review": "reject",
+    "restored_checkpoint": "8a80474"
+  }
+}

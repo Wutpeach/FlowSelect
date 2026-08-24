@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify type safety, accessibility, i18n parity, focused tests, and production build isolation."}
+{"file":".trellis/tasks/08-22-ui-lab-refresh-planning/research/repository-baseline.md","reason":"Check one-renderer reuse, browser-safe imports, logical geometry, diagnostics demotion, and no production authority drift."}
+{"file":".trellis/tasks/08-22-ui-lab-refresh-planning/research/agentation-feasibility.md","reason":"Check the optional dependency's license decision, Lab-only bundle boundary, scale alignment, meaningful targets, and click side effects."}
+{"file":".trellis/tasks/08-22-ui-lab-refresh-planning/research/ui-lab-refresh-planning-report.md","reason":"Verify every planning acceptance criterion and stop boundary before Architecture Review."}

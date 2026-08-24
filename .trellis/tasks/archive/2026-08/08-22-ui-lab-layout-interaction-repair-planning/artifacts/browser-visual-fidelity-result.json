@@ -1,0 +1,117 @@
+{
+  "status": "PASS",
+  "full": {
+    "bodyText": "\n    Intake · 本地源点热力图 · 移动场下载进行中转码进行中混合忙碌深色显示模式全屏紧凑缩放适应1×2×3×全屏 · 200×200 · 适应 · 2.1×操作重播导出 4× PNG点击预览可设置归一化本地源点；仅挂载一个生产画布。开发工具目标目标全屏缩放适应 · 2.1×背景深色预览减弱动态关减弱动态减弱动态驱动生产 reducedMotion 输入；减弱动态预设会强制开启。源点设置源点 X源点 Y激活触发时快照；驱动 uActivationOrigin。确定进度0%驱动当前 trace 上的生产确定目标。高级诊断缩放事实{\n  \"logicalSize\": 200,\n  \"shellSize\": 200,\n  \"characterSize\": null,\n  \"displayScale\": \"fit\",\n  \"fitScale\": 2.1258,\n  \"previewEnvironment\": \"dark\",\n  \"backingScale\": null\n}组合输入{\n  \"target\": {\n    \"kind\": \"activation\",\n    \"source\": \"intake\",\n    \"opportunityId\": 1,\n    \"origin\": {\n      \"x\": 0.5,\n      \"y\": 0.5\n    },\n    \"startedAt\": 594.3999998569489,\n    \"progress\": {\n      \"kind\": \"idle\"\n    }\n  },\n  \"reducedMotion\": false\n}实时生产着色器读数{\n  \"canvasCount\": 1,\n  \"linked\": true,\n  \"progressMode\": 0,\n  \"progress\": 0,\n  \"activationKind\": 1,\n  \"activationAge\": 0.20291666686534882,\n  \"activationOrigin\": [\n    0.5,\n    0.5\n  ],\n  \"reducedMotion\": 0,\n  \"heatmapMode\": 0,\n  \"refractionMode\": 0,\n  \"time\": 0.7404999732971191\n}\n    \n  \n\n",
+    "headingCount": 0,
+    "navCount": 0,
+    "scenarioFirst": true,
+    "scenarioCount": 5,
+    "scenarioRows": 1,
+    "scenarioMinHeight": 36,
+    "selectedCount": 1,
+    "workspace": {
+      "x": 24,
+      "y": 24,
+      "width": 1152,
+      "height": 868,
+      "top": 24,
+      "right": 1176,
+      "bottom": 892,
+      "left": 24
+    },
+    "devtools": {
+      "x": 1192,
+      "y": 24,
+      "width": 384,
+      "height": 868,
+      "top": 24,
+      "right": 1576,
+      "bottom": 892,
+      "left": 1192
+    },
+    "stage": {
+      "x": 39,
+      "y": 97,
+      "width": 1122,
+      "height": 521.5,
+      "top": 97,
+      "right": 1161,
+      "bottom": 618.5,
+      "left": 39
+    },
+    "frame": {
+      "x": 387.421875,
+      "y": 145.171875,
+      "width": 425.15997314453125,
+      "height": 425.15997314453125,
+      "top": 145.171875,
+      "right": 812.5818481445312,
+      "bottom": 570.3318481445312,
+      "left": 387.421875
+    },
+    "frameCss": "200px",
+    "fillRatio": 0.8152636110154002,
+    "groupKeys": [
+      "target",
+      "scale",
+      "actions"
+    ],
+    "groupTops": [
+      631,
+      699,
+      767
+    ],
+    "workspaceSurface": "rgb(29, 27, 34)",
+    "devtoolsSurface": "rgb(29, 27, 34)",
+    "advancedOpen": false,
+    "devtoolsSectionCount": 6,
+    "canvasCount": 1
+  },
+  "mouseState": {
+    "focusVisible": false,
+    "selectedInGroup": 1
+  },
+  "keyboardFocus": {
+    "isLabControl": true,
+    "focusVisible": true,
+    "outline": "solid"
+  },
+  "environment": {
+    "value": "light",
+    "frameInsideEnvironment": false,
+    "frameCss": "200px"
+  },
+  "exportSize": {
+    "width": 912,
+    "height": 912
+  },
+  "compact": {
+    "host": {
+      "x": 357.5,
+      "y": 133.25,
+      "width": 485,
+      "height": 485,
+      "top": 133.25,
+      "right": 842.5,
+      "bottom": 618.25,
+      "left": 357.5
+    },
+    "stage": {
+      "x": 39,
+      "y": 81,
+      "width": 1122,
+      "height": 589.5,
+      "top": 81,
+      "right": 1161,
+      "bottom": 670.5,
+      "left": 39
+    },
+    "hostCss": "80px",
+    "shellCss": "60px",
+    "fillRatio": 0.8227311280746396,
+    "canvasCount": 0,
+    "selectedScenarioCount": 1,
+    "selectedTargetCount": 1
+  },
+  "errors": []
+}

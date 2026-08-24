@@ -91,13 +91,11 @@ Do not animate the same property with both CSS and Motion at the same time.
 
 ### Phase Boundary Rule
 
-Shared motion tokens may be used by low-risk UI consumers such as dropdowns, settings page transitions, and center overlays. The main floating-window compact/full morph is a separate high-risk motion area. Do not tune or refactor its Electron `animateBounds(...)` flow, transition-token ownership, hover-collapse timing, or platform-specific compact shell behavior as part of generic motion-token cleanup.
+Shared motion tokens may be used by low-risk UI consumers such as dropdowns, settings page transitions, and center overlays. The main floating-window compact/full morph is a separate high-risk motion area. Do not tune or refactor its lifecycle epoch handling, hover-collapse timing, or platform-specific compact shell behavior as part of generic motion-token cleanup.
 
-Main floating-window geometry and transition planning lives in `src/utils/mainWindowShellGeometry.ts`. New compact/full work should consume that pure contract before adding local `x/y/width/height/radius/hotspot` calculations in `App.tsx`. Geometry remains spatial; transition token, timing, reduced-motion, and executor lifecycle data stay in the separate transition plan.
+Main floating-window presentation is owned by the `src/presentation/main-window/` module. The lifecycle reducer (`lifecycle.ts`) is the only writable full/compact/transition authority; `projections.ts` derives visual/interaction/native facts; `geometry.ts` is spatial only; `motionRecipes.ts` owns renderer choreography (spring/tween/icon-handoff values); `pointerField.ts` is the one continuous pointer coordinate authority (viewport-local MotionValues measured from the stable presentation root); `magnetic.ts` is the full-mode-only Magnetic visual consumer of the Pointer Field (renderer-local displacement, zero in compact/reduced-motion/drag states, no lifecycle or native involvement). Normal full↔compact morphs are renderer-visual-only and never change native width/height or call a renderer-facing bounds animation API. The Magnetic outer layer and the shell morph nodes own transforms on different DOM nodes; no transform is merged, mirrored, or written by two owners.
 
-Renderer-side native bounds orchestration lives in `src/utils/mainWindowNativeBoundsOrchestrator.ts`. Keep startup normalization, compact visibility clamping, transition-token checks, and position-cache writes behind that helper instead of scattering direct `animateBounds(...)` calls in `App.tsx`. Do not add native bounds calls to hover expand/collapse paths unless the verified baseline changes.
-
-Main floating-window visual timing is centralized in `src/utils/mainWindowMotionBaseline.ts`. Phase 2F may tune renderer-only panel spring/tween and minimized-icon handoff values there, but native compact visibility timing, transition-token ownership, hover-collapse state flow, and passthrough timing remain separate contracts.
+Native Main Window surface policy lives in `electron/mainWindowSurfacePolicy.mts` (compact reachability correction, monitor clamp, position-only interpolation). The renderer never requests arbitrary native width/height, target bounds, easing, or duration.
 
 ---
 
@@ -487,53 +485,37 @@ Theme hydration:
 
 ### 2. Signatures
 
-Compact expand morph:
+Lifecycle intent from application code:
 
 ```tsx
-const isExpandMorphVisible = isExpandingFromMinimized && windowResized;
+presentation.dispatch({ type: "requestFull", reason: "task", recipe: "instant" });
 ```
 
-Cancelable leave delay:
+Pointer/drop facts and visual completion flow into the same reducer:
 
 ```tsx
-const pointerLeaveCollapseTimerRef = useRef<number | null>(null);
-```
-
-DOM hover reconciliation:
-
-```tsx
-const isPanelActuallyHovered = containerRef.current?.matches(":hover") ?? false;
-```
-
-Transition-token guard:
-
-```tsx
-const transitionToken = beginMainWindowBoundsTransition("full");
-const result = await currentWindow.animateBounds(bounds, {
-  durationMs: 0,
-  transitionToken,
-});
-if (!isMainWindowBoundsTransitionStillCurrent(result.transitionToken, "full")) return;
+presentation.dispatch({ type: "pointerEnter" });
+presentation.dispatch({ type: "pointerLeave" });
+presentation.dispatch({ type: "dropEnter" });
+// Surface Motion completion reports its transition epoch:
+presentation.dispatch({ type: "visualTransitionCompleted", target: "compact", epoch });
 ```
 
 ### 3. Contracts
 
-- Do not treat `onMouseLeave` as the sole source of truth for compact-window collapse. During icon-to-panel morphs, React hover events can become stale or arrive before the visual state is stable.
-- If pointer exit happens while the expand morph is still running, let the current morph finish and decide the next state in the expand-complete handoff. Do not briefly land on the steady full window for one frame and then immediately collapse.
-- Pointer enter/leave is the primary compact/full contract: entering the compact icon expands immediately, and leaving an unlocked full shell must collapse through the short leave grace window without waiting for a longer idle path. First launch is not exempt from this rule.
-- There is no normal 3-second idle collapse contract for compact/full switching. Keep any remaining idle-like behavior out of the primary enter/leave flow.
-- Collapse checks that happen after a morph, task outcome, or other transient lock release must reconcile hover from the DOM first, for example via `element.matches(":hover")`, before mutating minimized state.
-- External drag-drop hover into the compact shell must participate in the same ownership model as pointer hover. `dragover` alone does not guarantee a matching DOM `:hover` or React `mouseenter`, so compact-window collapse guards must keep an explicit drag-hover ref until `drop` or `dragleave` settles.
-- Compact/full native-bounds requests must have one logical owner. If multiple async callbacks can request `animateBounds(...)`, every request must carry a transition token or epoch and every completion must verify that the token is still current before committing renderer-state follow-up such as `setIsMinimized(false)` or `setWindowResized(true)`.
-- Before the main window settles into compact/icon mode, clamp the compact frame's target position into the current monitor work area. The full shell can be dragged partly outside a display, but the final icon hotspot must remain visible and reachable.
-- On macOS compact-shell flows, do not hand visual ownership from the panel shell to a separate minimized icon plate before the native window is already compact-sized. During full-window -> icon collapse, keep one visible shell surface active through the morph and only enable a standalone minimized plate after `windowResized === true`; otherwise the icon can double-apply compact insets and show end-of-animation drift or a transparent-shell flicker.
-- For Windows compact-shell flows, keep the restore target behind a shared constant such as `INTERMEDIATE_EXPAND_SIZE` instead of scattering raw `200` literals across expand, foreground-task restore, and morph handoff code.
-- Full-mode transparent-window drawing must have native viewport room for shadows and elastic overshoot. Use `getMainWindowFullShadowGutter(...)` / `getMainWindowFullOuterSize(...)` as the source of truth instead of assuming the native full window is exactly the visible `200x200` panel. The visible full panel body remains `200x200`, while the native full viewport may be larger to preserve rounded shadows and renderer-side scale overshoot.
-- Compact icon elasticity must not be applied to the compact panel shell layer that owns the Windows inset outline. Do not overshoot compact shell `width`, `height`, `x`, `y`, `borderRadius`, `clipPath`, or the panel-shell `boxShadow` layer to create icon bounce.
-- If compact icon elasticity is needed, keep the minimized `AnimatePresence` container visually stable during the shell collapse, then trigger a small pulse on the visible inner icon wrapper only after the shell reaches `compact`. This avoids racing the icon animation against the panel shell `clipPath` / radius morph and prevents center-icon flicker frames.
-- Pointer-leave collapse must be guarded while pointer-down, drag-threshold pending, or active drag state exists. Do not allow leave handling to cancel window dragging.
-- If a leave-delay grace window is used, it must be cancelable on re-enter and cleared by shared timer reset helpers. Do not scatter independent leave timers across handlers.
-- Hover response may stay immediate on enter, but leave grace for this compact surface should remain short and intentional. Start in the `0.12s` to `0.18s` range; values around `0.20s` are already noticeably sticky on a 200x200 utility window.
+- The lifecycle reducer (`src/presentation/main-window/lifecycle.ts`) is the only writable compact/full/transition authority. `App.tsx` issues intent-level facts and requests only; it never owns collapse timers, completion handoff, native sequencing, hotspot evaluation, or Motion recipe assembly.
+- Do not treat `onMouseLeave` as the sole source of truth for compact-window collapse. Leave is one signal; the reducer gates it against phase and pointer truth, and the native pointer-boundary subscription (with a listener-generation guard) supplies the same fact channel during transparent-window morphs.
+- If pointer exit happens while the expand morph is still running, the reducer records pointer-outside without interrupting the expand; the matching expand completion starts normal collapse pending. Do not land on a steady full window for one frame and then collapse.
+- Pointer enter/leave is the primary compact/full contract: entering the compact icon expands immediately, and leaving an unlocked full shell must collapse through the short leave grace window (80 ms) without waiting for a longer idle path. First launch is not exempt from this rule.
+- There is no normal 3-second idle collapse contract for compact/full switching.
+- The compact transition has exactly one acknowledgement: the matching Renderer Motion collapse completion, checked against the lifecycle epoch. Stale completions after reversal are ignored. Native compact reachability correction is independent, cancellable OS work; it never completes or gates the lifecycle or passthrough. There is no `nativeSettled` state.
+- Windows compact passthrough activates only after the matching collapse completion (one edge-triggered `native.setInteraction` effect) and never flips during collapse; the pure interaction projection independently reports `compact-passthrough` for settled compact.
+- Before the main window settles into compact/icon mode, the native surface policy (`electron/mainWindowSurfacePolicy.mts`) clamps the compact frame into the current monitor work area with position-only interpolation. Returning to interactive mode cancels any active correction.
+- Normal full↔compact morphs keep one stable BrowserWindow viewport and never send per-frame native bounds updates from the renderer. The renderer cannot request arbitrary native width/height, target bounds, easing, or duration.
+- Keep the minimized `AnimatePresence` container visually stable during the shell collapse, then trigger a small pulse on the visible inner icon wrapper only after the lifecycle reaches `compact` (keyed by the settle epoch). This avoids racing the icon animation against the panel shell `clipPath` / radius morph.
+- Pointer-leave collapse must be guarded while pointer-down, drag-threshold pending, or active drag state exists (the `drag` lock). Do not allow leave handling to cancel window dragging.
+- The leave-delay grace window is one cancelable 80 ms timer owned by the effect executor; re-entry cancels it. Do not scatter independent leave timers across handlers.
+- Hover response may stay immediate on enter, but leave grace for this compact surface should remain short and intentional. Keep the `80 ms` timer value in the lifecycle effect contract.
 
 ### 4. Validation & Error Matrix
 
@@ -544,21 +526,21 @@ if (!isMainWindowBoundsTransitionStillCurrent(result.transitionToken, "full")) r
 | Pointer leaves while drag gesture is starting | Window drag continues; leave handling does not interrupt | Guard leave handling on pointer-down / pending drag / active drag |
 | Post-task unlock runs after hover state drift | Window uses real hover truth, not stale React state | Reconcile with `matches(":hover")` before collapse |
 | External dragover expands the compact shell without firing a real pointer enter | Expand morph stays open through the drop instead of collapsing mid-drag | Hold a dedicated drag-hover ref and treat it as hover ownership until `drop`/`dragleave` |
-| A stale shrink callback resolves after a newer full-mode request | Full panel never renders inside an `80x80` native shell | Guard `animateBounds(...)` completions with the current transition token |
-| Full shell is dragged partly outside the display before collapse | Compact icon remains visible and reachable inside the current work area | Clamp compact target position before the final compact settle |
-| macOS collapse shows icon drift or last-frame flicker | One shell stays visually anchored until native compact bounds settle | Delay standalone minimized plate activation until `windowResized === true` |
+| A stale compact completion resolves after a newer full request | Passthrough and compact state must not apply to a newer full surface | Epoch-check the Renderer Motion completion in the lifecycle; stale completions after reversal are ignored |
+| Full shell is dragged partly outside the display before collapse | Compact icon remains visible and reachable inside the current work area | Native surface policy clamps the compact frame into the monitor work area (position-only) |
+| macOS collapse shows icon drift or last-frame flicker | One shell stays visually anchored through the morph | Keep one shell surface active; the icon plate appears only after lifecycle compact (settle epoch pulse), never tied to native bounds |
 | Full-mode rounded shadow or scale overshoot clips into straight corners | Native full viewport has no gutter for transparent-window drawing | Restore full-mode shadow gutter through `getMainWindowFullOuterSize(...)` while keeping visible panel `200x200` |
 | Compact icon elasticity causes outline shimmer or thickening | Elasticity was applied to the panel shell layer that draws the outline | Move elasticity to a post-collapse inner icon wrapper pulse |
-| Center icon flashes during full -> compact collapse | Icon enter keyframes overlap with shell `clipPath` / radius morph | Keep the outer icon container stable during collapse and pulse only after `shellPhase === "compact"` |
+| Center icon flashes during full -> compact collapse | Icon enter keyframes overlap with shell `clipPath` / radius morph | Keep the outer icon container stable during collapse and pulse only after the lifecycle reaches `compact` (settle epoch) |
 | Enter feels laggy | Window feels sticky or slow | Keep enter immediate; do not mirror leave delay onto enter |
 
 ### 5. Good / Base / Bad Cases
 
 - Good:
   - Rapid icon -> panel -> leave results in one continuous motion path without flashing.
-  - A 140ms leave grace absorbs accidental slips while keeping the panel responsive.
+  - An 80ms leave grace absorbs accidental slips while keeping the panel responsive.
   - Dragging the main window across its edge does not collapse the shell.
-  - On macOS, the cat icon does not jump at the end of full-window -> icon collapse because the minimized plate only appears after the native shell is compact-sized.
+  - On macOS, the cat icon does not jump at the end of full-window -> icon collapse because the icon pulse only appears after the lifecycle reaches compact (settle epoch), independent of native bounds — the BrowserWindow viewport stays stable full.
 - Base:
   - Leave delay exists only on collapse, not on expand.
 - Bad:
@@ -572,7 +554,7 @@ if (!isMainWindowBoundsTransitionStillCurrent(result.transitionToken, "full")) r
 - Repeated icon -> panel -> leave cycles: verify collapse remains consistent after many repetitions.
 - On macOS, verify the cat icon stays centered through the last collapse frames and no extra inset jump appears when the compact shell settles.
 - Drag the full shell against each display edge, then collapse: verify the compact icon remains inside the active monitor work area.
-- Trigger compact -> expand -> compact -> expand stress cycles and verify a late compact callback cannot leave the main panel clipped inside the native `80x80` window.
+- Trigger compact -> expand -> compact -> expand stress cycles and verify a stale compact completion (epoch mismatch) cannot enable passthrough or collapse a newer full surface.
 - Start dragging the main window and cross the panel edge: verify dragging still works and collapse does not interrupt it.
 - Drag a web image or video into icon mode: verify the window expands once, does not bounce back to compact during the drag, and does not end stuck in the full window because of a stale collapse decision.
 - Leave and re-enter within the leave-delay window: verify collapse is canceled.
@@ -599,10 +581,665 @@ Why wrong:
 #### Correct
 
 ```tsx
-onMouseLeave={() => {
-  pointerLeaveCollapseTimerRef.current = window.setTimeout(() => {
-    if (isExpandingFromMinimized || pendingDragStartRef.current) return;
-    collapseMainWindowIfPointerOutside();
-  }, 140);
-}}
+// No App-owned leave timer at all: the lifecycle emits collapseTimer.start /
+// collapseTimer.cancel effects and the effect executor owns the single
+// cancelable 80 ms timer, reporting the timer epoch back. Re-entry cancels
+// it; the drag lock gates collapse inside the reducer.
+```
+## Scenario: MR0 Motion / Presentation Architecture Foundation
+
+MR0 codifies the repository-level contracts that later stages (MR1 Expanded Dot Field, MR2 Character, MR3 Progress Field, MR4 Intake/Confirmation/Terminal Reveal) share. It introduces NO shared animator, global runtime, recipe framework, renderer hierarchy, DSL, or graphics dependency. Execution stays heterogeneous: `motion/react` + DOM/SVG for shell/Character-style work, and renderer-local Canvas 2D + rAF remain available for a future Dot Field if profiling justifies it.
+
+### 1. Authority direction (one-way, unique)
+
+```text
+Download/Application facts
+  -> Download reducer/selectors
+  -> presentation projections (center overlay + main-window projections)
+  -> Presentation Surface wiring/composition
+  -> renderer-local disposable motion
+  -> pixels
+
+Main Window lifecycle authority
+  -> phase/lock/recipe projections
+  -> shell and feature eligibility
+  X no feature-motion completion may write lifecycle progression
+```
+
+- `src/presentation/main-window/lifecycle.ts` is the only writable full/compact/transition authority; `reactAdapter.ts` is the only file that reduces it.
+- `pointerField.ts` is the only continuous pointer-geometry authority; `MainWindowPresentationSurface.tsx` is the only file that writes it (`updatePointerFieldFromClientPoint` / `resetPointerFieldToCenter`).
+- Interaction Origin (`interactionOrigin.ts`) is a discrete snapshot, never a second pointer authority.
+- Motion state is disposable/reconstructible and never gates correctness: losing it cannot change tasks, progress, terminal outcome, lifecycle, or collapse.
+- Shell `visualTransitionCompleted` is a private lifecycle-owned epoch acknowledgement; feature motion must not use it as a collapse gate.
+- Enforced by `src/architecture/import-guard.test.ts` (MR0 renderer-local motion guard).
+
+### 2. Presentation composition: persistent + bounded transient + terminal priority
+
+Projection shape (a contract, not a state machine):
+
+```text
+Authoritative facts
+  -> projected presentation target
+       persistent baseline
+       + bounded transient intent(s)   (consumer-local epoch/generation)
+       + optional terminal-priority target
+  -> consumer-local execution
+```
+
+- Persistent baseline: current projected visual target from authoritative facts (e.g. logical progress). A local runtime may interpolate toward it.
+- Transient response: bounded, event-scoped, additive (e.g. click/intake ripple). Latest-replaces for same-priority ephemeral work; a consumer may coalesce or suppress. NEVER an unbounded FIFO queue.
+- Terminal target: success/failure/cancelled projection with visual priority; may interrupt/absorb/suppress transients without waiting. It is a projection, not a Product or lifecycle authority, and it does not own collapse.
+- When a transient ends it reconverges to the CURRENT persistent baseline — including baseline changes that arrived while the transient ran.
+- No shared type is added for this shape until two real consumers need the exact same data contract; vocabulary lives in specs and tests (see `presentationCompositionContract.test.ts`).
+
+### 3. Renderer-local runtime lifecycle (every consumer, no shared engine)
+
+| Event | Required behavior |
+| --- | --- |
+| mount | construct from the current presentation target; never require historical animation state |
+| target change | accept immediately; for suitable geometry, retarget from the current rendered condition rather than reset/replay |
+| persistent update during transient | update stored/projected baseline; transient remains additive and later returns to the NEW baseline |
+| terminal target | supersede lower-priority transient work from the current visual condition; do not wait |
+| reduced-motion change | resolve deterministically to the reduced semantic target; cancel unnecessary travel; no fake lifecycle completion |
+| collapse / eligibility exit | invalidate the active generation, hard-stop frames/timers/controls, and SLEEP (a still-mounted surface is not permanently disposed) |
+| re-expand / eligibility re-entry | wake or reconstruct from the current projection, never from pre-collapse animation history |
+| surface replacement / unmount / dispose | permanently mark disposed, release rAF/timers/subscriptions/Motion controls, make late callbacks no-op |
+| rebuild after replacement | reconstruct from current projection; brief visual continuity loss is acceptable |
+
+M2 Pointer Field is existing evidence of local `MotionValue` ownership and stable consumption, not a universal template: its event-driven values do not run a permanent frame loop. Future rAF/Canvas consumers add explicit wake/settle/sleep locally.
+
+### 4. Interpolation classes
+
+- Information-bearing geometry (e.g. visual progress): may lag but approaches the latest authoritative value MONOTONICALLY and never visually exceeds it; retargets from the current rendered value. Progress values remain selector authority.
+- Expressive geometry (Character body/ears/eyes/hands, decorative pulses, Magnetic displacement): may spring, lag, overshoot, squash, or settle freely because it carries no authoritative quantity. It may consume the Pointer Field but cannot create another continuous pointer state.
+
+### 5. Reduced motion
+
+Responsibility is split: the presentation projection/recipe boundary selects the deterministic reduced semantic target (fact visible/understandable; travel, deformation, propagation, displacement removed or shortened); the consumer-local renderer executes it immediately or with minimal non-spatial transition and stops obsolete work. Applies at mount AND mid-flight. Product and lifecycle code never receive a fake animation completion.
+
+### 6. Performance: sleep/wake and no cross-layer frame loops
+
+- React publishes target/input changes, never per-frame geometry.
+- Electron Main, BrowserWindow, preload, and IPC never participate in per-frame feature motion.
+- Local runtimes wake on input/target/transient, render/interpolate, detect settlement, cancel scheduling, and hold ZERO scheduled frames while settled (frame-count instrumentation in `presentationCompositionContract.test.ts`).
+- No `setState`/React render loop, Electron Main/BrowserWindow loop, or high-frequency IPC carries frame geometry.
+
+### 7. Windows correctness closures (MR6; not solved by visual replacement)
+
+Both observed issues were reachable on the committed M0–M2/MR0 baseline and
+were not removed by replacing Reveal/Progress visuals. MR6 closes them as two
+independent repairs without changing the existing authority model:
+
+- Native manual-position boundary: `src/App.tsx` -> `src/desktop/runtime.ts` ->
+  `electron/preload.mts` -> the targeted `electron/main.mts` IPC handler ->
+  `electron/mainWindowManualPosition.mts`. Electron Main rejects every
+  non-finite converted coordinate before the single native `win.setPosition`
+  write and preserves finite `Math.round` semantics. Compact reachability and
+  renderer coordinate ownership are unchanged.
+- Terminal retention/lifecycle release: Download's exact post-reduction
+  terminal selection still enters `App.tsx` `showForegroundTaskOutcome`, but
+  Application now publishes the outcome and arms the existing request-id timer
+  without waiting for renderer frames, Motion completion, or visual callbacks.
+  Timer expiry or new-primary invalidation changes only Presentation state;
+  `centerOutcome` projects the final lock release into the unchanged lifecycle
+  reducer, which remains the sole full/compact/transition authority.
+
+Regression gates: `src/architecture/windows-risk-path.test.ts`,
+`electron/mainWindowManualPosition.test.mts`, and
+`src/architecture/windows-terminal-retention.test.ts`.
+
+### 8. Tests required (MR0)
+
+- `src/architecture/import-guard.test.ts` — MR0 renderer-local motion guard: leaf import restrictions, position/IPC side-channel bans, surface wiring boundary, lifecycle/pointer writer uniqueness, M3 candidates not promoted.
+- `src/architecture/windows-risk-path.test.ts` — both repaired Windows chains
+  pinned link-by-link at their existing authority boundaries.
+- `src/presentation/main-window/presentationCompositionContract.test.ts` — NORMATIVE test-only contract model: composition invariants, interpolation classes, sleep/wake harness. It defines the required behavior future consumers must conform to and does NOT certify that any current production module already complies; each MR1/MR2 implementation must add its own conformance tests against these contracts.
+- Existing M0/M1/M2 focused suites remain authoritative (`lifecycle`, `projections`, `effectExecutor`, `geometry`, `pointerField`, `magnetic`, `motionRecipes`, `panelHover`, `presentationCompletion`, `mainWindowSurfacePolicy`, `mainWindowPointerBoundary`, `preloadBridgeContract`).
+
+## Scenario: MR1 Expanded Dot Field Consumer
+
+### 1. Scope / Trigger
+
+This contract applies only to `src/presentation/main-window/DotFieldCanvas.tsx`,
+`dotFieldRuntime.ts`, `dotFieldRecipe.ts`, and their Surface wiring. It is the
+first concrete MR0 consumer, not a renderer or scheduler template for future
+Character, Progress, Intake, or Terminal work.
+
+### 2. Signatures
+
+The Surface supplies coarse inputs and discrete local intents:
+
+```ts
+type DotFieldBaseline = {
+  size: number;
+  dormant: string;
+  ack: string;
+  reducedMotion: boolean;
+};
+
+type DotFieldIntent = {
+  kind: "click" | "context";
+  origin: { u: number; v: number };
+};
+```
+
+The runtime lifecycle is `wake -> submitIntent/setBaseline -> settle/sleep ->
+dispose`; it never publishes a completion or authority write.
+
+### 3. Contracts
+
+- Eligibility is derived by `MainWindowPresentationSurface` from settled full
+  presentation (`mode === "full" && transitionEpoch === null`).
+- The Canvas is a non-interactive, `aria-hidden` background. React publishes
+  baseline revisions and discrete intents only; Canvas 2D + local rAF owns
+  frame geometry.
+- Transient storage is bounded to one active intent plus one fixed-size
+  residual field. On retarget, the currently rendered field is frozen into
+  that single residual and continues its own decay while the new local wave is
+  seeded. This preserves visual continuity without a FIFO or historical replay.
+- Baseline/theme revisions are read on every draw. A live residual must not be
+  replaced by a dormant-only frame and then reappear.
+- A normal-to-reduced-motion change re-times any live residual to at most the
+  reduced duration while preserving its current local brightness and frozen
+  shape. It does not travel and emits no fake completion.
+- Grid population is capped at 400 dots, backing DPR at 2, and pending rAF at
+  one. Settled, sleeping, and disposed runtimes hold zero pending frames.
+- Sleep and dispose clear active/residual state and invalidate queued frames;
+  wake reconstructs from current baseline inputs.
+
+### 4. Validation / Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| rapid click/context retarget | current rendered field decays continuously; latest origin is acknowledged; no queue |
+| baseline changes with residual live | next scheduled draw uses the latest material; no dormant flash |
+| reduced motion turns on mid-response | no propagation; active and residual settle within the reduced bound |
+| eligibility exits | pending frame canceled, transient discarded, runtime remains wakeable |
+| unmount/replacement | permanent dispose; stale callback is a no-op |
+| dormant/settled | no continuing rAF or React frame updates |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a click retarget folds the old rendered values into one local residual,
+  seeds the new origin, and returns to the latest dormant theme with zero frames.
+- Base: wake performs one necessary dormant redraw and schedules nothing else.
+- Bad: reset to dormant then replay; preserve a list of prior origins; let a
+  normal-mode residual continue for 480 ms after reduced motion becomes active.
+
+### 6. Tests Required
+
+- `dotFieldRecipe.test.ts`: deterministic/capped topology, bounded origins,
+  response/material limits, soft front, raw-DPR query and capped backing DPR.
+- `dotFieldRuntime.test.ts`: first-frame retarget continuity, fixed residual
+  replacement, latest-baseline material, reduced-motion retiming, sleep/wake,
+  dispose/stale generation, and zero pending frames at rest.
+- `dotFieldSurface.test.ts`: gesture exclusions and synchronous context origin
+  wiring facts.
+- `dotFieldPerfValidation.test.ts`: peak pending rAF <= 1 and rest pending rAF =
+  0 across normal, burst, theme, reduced-motion, and sleep scenarios.
+- `src/architecture/import-guard.test.ts`: no Product/lifecycle/native/Electron/
+  IPC/Pointer Field authority imports or writes.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+pendingIntents.push(intent); // unbounded history and replay
+dispatch({ type: "visualTransitionCompleted" }); // authority leak
+```
+
+#### Correct
+
+```ts
+residual = foldCurrentRenderedField(); // one bounded local snapshot
+intent = seedLatestIntent(nextIntent); // latest replaces, one rAF path
+```
+
+## Scenario: MR3 Progress Field Consumer
+
+### 1. Scope / Trigger
+
+This contract applies to the MR3 Progress Field:
+`src/presentation/main-window/downloadProgressProjection.ts` (pure projection),
+the progress extension of `dotFieldRecipe.ts` / `dotFieldRuntime.ts`, and their
+Surface wiring. It reuses the MR1 single Canvas/rAF runtime; it adds no new
+Progress system, shared Motion runtime, generic scheduler, dependency, or
+central progress UI rewrite. MR4 (Intake/Confirmation/Terminal Reveal) is out
+of scope.
+
+### 2. Signatures
+
+Data path:
+
+```text
+Download reducer/selectors (authoritative task + percent)
+  -> resolveDownloadProgressTarget(task, progress)   // pure, no authority writes
+  -> DotFieldProgressTarget (idle | determinate | indeterminate)
+  -> Dot Field runtime progress baseline (renderer-local interpolation)
+  -> pixels
+```
+
+```ts
+type DotFieldProgressTarget =
+  | { kind: "idle" }
+  | { kind: "indeterminate"; traceId: string }
+  | { kind: "determinate"; traceId: string; target: number };
+```
+
+### 3. Contracts
+
+- Download authority -> pure projection: the projection maps selector output
+  to a target; it never dispatches, cancels, or writes Product/lifecycle/native
+  state (type-only Download imports, enforced by import-guard).
+- Single Dot Field runtime: progress is one persistent baseline channel on the
+  existing MR1 runtime, not an intent; no new Progress system or abstraction.
+- Determinate rendering: row-major occupancy frontier. The rendered level may
+  lag but approaches the latest authoritative target MONOTONICALLY and never
+  exceeds it; downward authoritative revision clamps immediately (information
+  correctness outranks continuity).
+- Same-trace coalescing: high-frequency updates converge from the current
+  rendered condition to the LATEST target; at most one pending frame.
+- New-trace rebase: a trace replacement rebases immediately; through an
+  indeterminate gap it resets to a safe zero seed — no old-task progress carry.
+- Indeterminate: non-percent states (probing/selecting, non-finite percent)
+  render a soft diagonal sweep band (normal motion) or static centered bloom
+  (Reduced Motion); never read as a determinate frontier.
+- Reduced Motion: the projection selects a static semantic target; the runtime
+  resolves it directly with no travel and stops obsolete work.
+- Acknowledgement transients (clicks) compose additively on the frontier and
+  settle back to the LATEST progress baseline.
+- Terminal/removal: projection -> idle; sleep/wake reconstructs from the
+  current projection; the field returns to dormant.
+- Frame budget: one pending rAF max; ZERO pending frames at idle/settled/
+  sleep/dispose.
+- No completion authority: progress motion never writes lifecycle, Product, or
+  native completion state.
+
+### 4. Validation / Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| trace replacement mid-display | rebase to the new trace's target; old task progress never renders |
+| downward authoritative revision | rendered level clamps at/below the new target immediately |
+| high-frequency percent updates | converge to the latest target from the current condition, one pending frame |
+| indeterminate (probing / non-finite percent) | band or bloom, never a determinate frontier |
+| reduced motion active | static information; no sweep loop |
+| click over the frontier | additive transient; settles to the latest baseline |
+| terminal / removal | idle; reconstruct; dormant draw; zero frames |
+| same-trace determinate -> indeterminate -> determinate | safe seed at/below target, no visual pop |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a new task rebases immediately; a dropped percent is never visually
+  overstated; the indeterminate band runs at low duty.
+- Base: a same-trace upward update converges from the current rendered level.
+- Bad: carrying the replaced trace's numeric progress into a new trace;
+  rendering a percent the authority never reported; keeping a sweep loop
+  running at idle, reduced motion, or sleep.
+
+### 6. Tests Required
+
+- `downloadProgressProjection.test.ts`: idle/determinate/indeterminate
+  mapping, clamping, trace identity, pure current-state projection.
+- `dotFieldRecipe.test.ts`: frontier occupancy, band, and reduced bloom
+  rendering bounds.
+- `dotFieldRuntime.test.ts`: convergence, coalescing, downward clamp, trace
+  rebase including the indeterminate-gap reset, reduced snap, additive
+  acknowledgement settle, sleep/wake/dispose.
+- `dotFieldPerfValidation.test.ts`: peak pending rAF <= 1 and rest pending
+  rAF = 0 across determinate/indeterminate/click/sleep/reduced scenarios.
+- `src/architecture/import-guard.test.ts`: the projection stays free of
+  authority vocabulary.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+progressLevel = Math.min(progressLevel, target); // seeds from the replaced trace
+dispatch({ type: "setProgress", target }); // authority write from motion
+```
+
+#### Correct
+
+```ts
+if (next.kind === "indeterminate" && traceChanged) progressLevel = 0;
+progressLevel = clamp(level + (target - level) * RATE, 0, target); // never overstates
+```
+
+## Scenario: MR4 Terminal Reveal Consumer
+
+### 1. Scope / Trigger
+
+This contract applies to the MR4 Download-only Terminal Reveal:
+`src/presentation/main-window/downloadTerminalProjection.ts` (pure
+center-outcome Presentation -> Dot Field lane projection), the terminal
+extension of `dotFieldRecipe.ts` / `dotFieldRuntime.ts` (one bounded priority
+lane), and their Surface wiring. It reuses the MR1 single Canvas/rAF runtime
+and the MR3 progress baseline; it adds no second canvas, generic animator,
+shared scheduler, state-machine framework, dependency, or central outcome
+rewrite. Intake Reveal, Folder Confirmation, Transcode Reveal, and
+terminal-not-compact repair remain out of scope.
+
+### 2. Signatures
+
+Data path:
+
+```text
+Download feature classifies the FIRST terminal transition (typed outcome)
+  -> Download reducer removes/tombstones the trace (MR3 projection -> next/idle);
+     terminal listeners receive (outcome, postReductionState) — the exact
+     controller state captured synchronously AFTER the reduction, so no React
+     commit timing or ref snapshot can lag it (read-only, never mutated)
+  -> App decides visibility from that snapshot (background terminal while
+     another primary Download remains -> suppress; none remains -> show)
+  -> App center outcome state machine (one bounded Presentation slot, requestId,
+     origin: "terminal" for typed terminals only; generic enqueue/command
+     failures and image/file/transcode outcomes default origin "foreground")
+  -> resolveDotFieldTerminalTarget(overlay, primaryDownloadTask)  // pure, no authority writes
+  -> DotFieldTerminalTarget (none | terminal(success|failure|cancelled))
+  -> Dot Field runtime terminal lane (renderer-local reveal level 0..1)
+  -> pixels
+```
+
+```ts
+type DotFieldTerminalTarget =
+  | { kind: "none" }
+  | { kind: "terminal"; status: "success" | "failure" | "cancelled" };
+```
+
+The center DOM overlay (icon + message + diagnostic copy) remains the
+accessible semantic carrier; the lane is ack-tone decorative presence only.
+
+### 3. Contracts
+
+- Terminal authority -> read-only projection: the projection reuses the
+  already-classified center outcome status; it never classifies, retains a
+  trace, or writes Product/lifecycle/native state (type-only center-overlay
+  imports, enforced by import-guard).
+- Interruption is Download-only: a current primary DOWNLOAD projects `none`
+  immediately and the runtime clears the lane the moment a progress target
+  arrives. A Transcode primary is NOT an MR4 interruption rule — the center
+  overlay selector (`selectCenterOverlayVisual`) may visually prioritize
+  Transcode independently, but MR4 projection/tests/spec never claim
+  Transcode semantics. A background terminal while a primary Download exists
+  is suppressed from the controller's EXACT post-reduction snapshot (the
+  terminal's own trace is already pruned, so any remaining primary is
+  necessarily "another" download). Invalidation is state+timer+lock, not just
+  canvas suppression: a NEW current primary Download dismisses the previous
+  typed terminal Presentation and its retention timer (via the existing
+  `dismissTransient` primitive) immediately, pre-first-progress included,
+  releasing the `centerOutcome` lock; the authoritative typed terminal fact
+  in the Download queue state is untouched, and requestId generation guards
+  make the dismissed timer a stale no-op.
+- Typed-origin discriminator, never inferred: only outcomes carrying
+  `source: "download"` AND `origin: "terminal"` (set by App ONLY from an
+  already-classified Download terminal transition) project to the lane or are
+  invalidated by a new primary Download. Generic download-sourced outcomes —
+  enqueue/command failures, image/file tasks defaulting to source
+  "download" — stay on their existing presentation paths and never seed or
+  invalidate the MR4 lane.
+- Download-only sourcing: transcode/image/folder outcomes stay on their
+  existing presentation paths and never seed the lane.
+- Single bounded lane: one kind slot; a kind change replaces it (no FIFO);
+  same-kind re-application keeps the running reveal (no restart); the lane
+  renders exactly while the projected target is present.
+- Retention is owned by the publishing Presentation (the center overlay
+  requestId/timer policy), never by the runtime: no rAF/timer/completion
+  callback starts, extends, or finishes the retention deadline.
+- Reduced Motion: the lane seeds at the fully revealed semantic level
+  directly (zero frames, no travel); a mid-flight flip resolves immediately;
+  outcome identity, message, and diagnostic action stay in the DOM carrier.
+- Interruption: sleep/dispose clear the lane; wake reconstructs from the
+  current projection; late callbacks are stale no-ops.
+- Acknowledgement transients are absorbed while the lane is active
+  (terminal-priority per the MR0 composition contract).
+- Frame budget: one pending rAF max; a converged lane holds statically with
+  ZERO pending frames; idle/sleep/dispose hold zero.
+- No completion authority: terminal motion never writes lifecycle, Product,
+  or native state; the `centerOutcome` lock is projected by App presentation
+  state only, and the `task` lock comes from Product task facts only.
+
+### 4. Validation / Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| typed success / failure / cancelled outcome | three distinct lane materials + distinct center icons/tone |
+| current primary DOWNLOAD exists while a terminal is stored | lane none immediately; old retention cannot re-lock or replay |
+| Transcode primary with a stored terminal | no MR4 interruption rule; the center overlay may prioritize Transcode visually; the lane follows the Download-only projection |
+| background terminal while a primary Download exists | suppressed from the exact post-reduction snapshot; current progress/cancel affordance unchanged |
+| generic download enqueue/command failure | center overlay shows the failure as before; the MR4 lane NEVER projects it |
+| synchronous progress/queue events before a terminal | all present in the listener snapshot; no stale React ref can miss them |
+| retention expiry | projected target removed -> lane clears, field settles to current baseline |
+| kind change while retained | one slot replaced; no FIFO; no restart for same kind |
+| reduced motion active | semantic target available immediately; static material; zero frames |
+| mid-flight reduced flip | lane resolves to final level without travel |
+| click/context during terminal | absorbed; nothing scheduled or replayed |
+| sleep / dispose / re-entry | lane cleared; wake reconstructs from the current projection |
+| progress target arrives mid-reveal | lane superseded at once; progress convergence only |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a terminal arrives while the window is compact; the semantic outcome
+  and retention are owned by the overlay; on re-expansion the lane
+  reconstructs from the current projection and renders only for the
+  remaining retention.
+- Base: a converged terminal lane holds statically with zero pending frames
+  until the Presentation removes the target.
+- Bad: holding a terminal in the runtime past the Presentation deadline;
+  letting a lane replay after a newer task arrived; deriving terminal kind
+  from progress disappearance, timers, or animation completion; seeding the
+  lane from transcode/image/folder outcomes.
+
+### 6. Tests Required
+
+- `downloadTerminalProjection.test.ts`: three-way mapping, loading/visible
+  phases, source filter, primary-DOWNLOAD invalidation (Transcode is not an
+  MR4 rule), origin discriminator (generic enqueue/command outcomes never
+  project), pure current-state, background-terminal suppression and primary
+  invalidation decisions (download-only, terminal-origin only;
+  transcode/image/folder untouched).
+- `useDownloadQueue.test.ts`: controller terminal-notification seam — the
+  listener receives the exact post-reduction snapshot; background terminal
+  while another primary remains is suppressed, a sole terminal is shown, and
+  synchronous progress/queue changes before a terminal are all reflected in
+  the snapshot (no React commit timing involved).
+- `dotFieldRecipe.test.ts`: terminal material bounds (success occupancy,
+  failure/cancelled bloom), monotonicity, kind amplitude ordering, invalid
+  input guards.
+- `dotFieldRuntime.test.ts`: seed/converge/hold, removal settle, kind
+  replace, same-kind no-restart, reduced snap, mid-flight reduced flip,
+  progress supersede, intent absorption, sleep/wake reconstruction,
+  dispose staleness, one-frame budget.
+- `dotFieldPerfValidation.test.ts`: peak pending rAF <= 1 and rest pending
+  rAF = 0 across reveal/absorb/supersede/reduced/removal scenarios.
+- `src/architecture/import-guard.test.ts`: the projection stays a leaf with
+  no authority vocabulary.
+- `src/architecture/windows-risk-path.test.ts`: the terminal-not-compact
+  chain stays pinned (MR4 does not repair it).
+
+## Scenario: MR7 Expanded Presentation Substrate
+
+MR7 supersedes the MR1 renderer recipe and the Dot Field execution vocabulary
+in the MR3/MR4 scenarios above. Their Product/Application and pure Presentation
+semantics remain normative; their Dot Field module names, grid geometry,
+acknowledgement intents, materials, and Canvas 2D runtime are retired.
+
+Production dependency direction is fixed:
+
+```text
+Download/Application facts
+  -> pure Progress / Terminal Presentation targets
+  -> MainWindowPresentationSurface
+  -> ExpandedPresentationSurface (one concrete WebGL2 host)
+  -> consumer-local frame execution
+  -> pixels
+```
+
+Contracts:
+
+- `expandedPresentationTargets.ts` contains only the current Progress
+  (`idle | determinate | indeterminate`) and Terminal
+  (`none | success | failure | cancelled`) target shapes. It is not a scene,
+  layer, reveal, command, or future-feature API.
+- `downloadProgressProjection.ts` preserves current-primary selection, trace
+  replacement, authoritative downward revision, and quantitative versus
+  non-quantitative progress semantics.
+- `downloadTerminalProjection.ts`, App retention, and `centerOverlayState`
+  preserve bounded retention, primary priority, stale invalidation, and
+  `centerOutcome` lock ownership. The renderer owns none of those facts.
+- `ExpandedPresentationSurface.tsx` is the only production Expanded graphics
+  host. It may own WebGL2 resources, bounded DPR/resize handling, context
+  loss/restoration, and at most one local animation frame. It exposes no
+  completion, lock, Product mutation, lifecycle, IPC, or native callback.
+- Graphics/context failure fails closed to decorative absence. The existing
+  accessible progress, cancel, outcome, and diagnostic DOM remains authority.
+- Sleep and dispose leave zero frame work. Reduced Motion preserves the
+  semantic material while removing nonessential travelling motion.
+- No Canvas fallback, second backend, feature flag, compatibility adapter,
+  shared scheduler/runtime/state machine/priority bus, or speculative Intake /
+  Folder Reveal API is permitted.
+
+Required regression evidence:
+
+- projection tests for MR3/MR4 semantics and existing retention/lock suites;
+- `expandedPresentationRuntime.test.ts` for convergence, downward revision,
+  trace replacement, priority, generation, wake/sleep/dispose, Reduced Motion,
+  frame bounds, and render-failure isolation;
+- `expandedPresentationSurface.test.ts` for the one canvas/WebGL2 host,
+  non-interactivity, resource/context lifecycle, and sole production mount;
+- `src/architecture/import-guard.test.ts` for authority import bans, zero
+  production Dot Field references, deleted legacy modules, and exclusive host;
+- real Windows Electron validation for WebGL2 context creation, semantic
+  target rendering, collapse/expand sleep/wake, and context recovery.
+
+## Scenario: MR8 Download Intake Presentation
+
+### 1. Scope / Trigger
+
+MR8 adds one concrete Download Intake mode without widening the MR7 substrate
+into a generic Reveal system.
+
+Trigger: changes to authoritative Download membership acceptance,
+`video-queue-detail`, Download Intake Presentation lifetime/priority, or the
+MR7 Expanded target/host.
+
+### 2. Signatures
+
+```ts
+type VideoQueueDetailPayload = {
+  tasks: VideoQueueTaskPayload[];
+  acceptedTraceId?: string;
+};
+
+type DownloadIntakeTransition = Readonly<{ traceId: string }>;
+
+type ExpandedPresentationTarget =
+  | { kind: "idle" }
+  | { kind: "progress"; progress: ExpandedPresentationProgressTarget }
+  | { kind: "terminal"; status: "success" | "failure" | "cancelled" }
+  | {
+      kind: "intake";
+      opportunityId: number;
+      traceId: string;
+      progress: ExpandedPresentationProgressTarget;
+    };
+```
+
+Production dependency direction is fixed:
+
+```text
+Application new Download membership
+  -> video-queue-detail + transient acceptedTraceId
+  -> DownloadQueueController normal reduction + pre/post membership guard
+  -> latest bounded Download Intake Presentation opportunity
+  -> pure Terminal / Intake / Progress policy
+  -> one ExpandedPresentationTarget
+  -> the sole ExpandedPresentationSurface
+```
+
+### 3. Contracts
+
+- `acceptedTraceId` exists only on the full queue snapshot caused by actual new
+  membership. It is transient protocol metadata, never Download model state,
+  persistence, hydration, timing inference, local acknowledgement, or a second
+  event channel.
+- The controller reduces the queue snapshot first, then publishes Intake only
+  when the marked trace is present after reduction and absent before it. The
+  listener receives the exact post-reduction state.
+- Intake Presentation owns one latest opportunity, a monotonic opportunity id,
+  one finite deadline, and stale guards. A newer Intake replaces it; there is
+  no Presentation queue or replay.
+- Deadline, trace removal, qualifying foreground terminal, unrelated primary
+  replacement, controller replacement, and unmount invalidate the opportunity.
+  A background terminal remains subject to MR4 suppression. Expiry returns to
+  a fresh MR3 projection, never a stored Progress snapshot.
+- Intake creates no lifecycle lock, phase, full-intent reason, or native
+  request. Download/Application and the Main Window lifecycle reducer retain
+  their existing authority.
+- `expandedPresentationPolicy.ts` resolves MR4 current-primary suppression,
+  Terminal, Intake, then Progress before the host. The host/runtime receives
+  one `idle | progress | terminal | intake` target and never competes lanes or
+  emits semantic completion.
+- The Intake target is concrete to Download Intake. Do not add Folder fields,
+  a scene/layer API, command bus, scheduler, priority number, second host, or
+  second backend.
+- Reduced Motion retains the typed Intake distinction as an immediate/static
+  treatment and schedules no nonessential continuous travelling frames.
+
+### 4. Validation & Error Matrix
+
+| Input / transition | Required result |
+| --- | --- |
+| marked trace absent before and present after normal reduction | publish exactly one Intake with exact post state |
+| unmarked hydration/full snapshot | update Download state; publish no Intake |
+| replayed marker or advanced-quality dedupe | publish no Intake |
+| existing-trace quality selection | preserve membership; publish no Intake |
+| rapid distinct accepted traces | latest opportunity replaces; no delayed queue |
+| deadline or marked trace removal | invalidate; resolve from current MR3 facts |
+| foreground / background terminal | foreground invalidates and Terminal wins; background remains MR4-suppressed |
+| controller replacement / unmount | old opportunity and callbacks are stale |
+| Reduced Motion Intake | one static semantic frame; no continuous frame work |
+
+### 5. Good / Base / Bad Cases
+
+- Good: an extension-origin request and a renderer-origin request both enter
+  the same Application queue path and each new membership carries one marker.
+- Base: an unmarked queue refresh updates current Progress without creating or
+  replaying Intake.
+- Bad: treating an ack, click, first progress, React commit, elapsed guess, or
+  shader completion as acceptance; storing Intake in Download state; adding a
+  Reveal queue or a second host.
+
+### 6. Tests Required
+
+- runtime/protocol/controller tests for marked normal and advanced creation,
+  unmarked hydration/dedupe/existing-trace quality selection, replay guards,
+  renderer and extension paths, exact post state, and rapid event order;
+- `downloadIntakePresentation.test.ts` for latest replacement, guarded expiry,
+  removal, primary change, foreground/background terminal behavior, and reset;
+- `expandedPresentationPolicy.test.ts` for the full priority matrix;
+- Expanded runtime/surface tests for latest target replacement, current
+  Progress reconstruction, Reduced Motion zero continuous frames, one pending
+  frame, failure isolation, and the single WebGL2 canvas boundary.
+
+### 7. Wrong vs Correct
+
+Wrong — infer acceptance from an unmarked snapshot and let the renderer decide:
+
+```ts
+if (nextTasks.length > previousTasks.length) runtime.playReveal();
+```
+
+Correct — validate the Application-authored cause after normal reduction and
+resolve one target before rendering:
+
+```ts
+dispatch({ type: "queueDetailReceived", tasks });
+if (acceptedTraceId && !wasMember && state.tasksById[acceptedTraceId]) {
+  publishIntake({ traceId: acceptedTraceId }, state);
+}
+
+const target = resolveExpandedPresentationTarget({ progress, terminal, intake });
 ```

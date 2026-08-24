@@ -6,15 +6,13 @@ _Part 2 of 4._
 
 - `main` remains the canonical primary window label.
 - `settings` and `context-menu` remain the stable user-facing secondary window labels.
-- `ui-lab` is a development-only secondary window label:
-  - available only when `!app.isPackaged`
-  - not exposed through production UI entry points or packaged runtime flows
+- The dev-only `ui-lab` label is **retired**; dev preview/export tooling now lives in the Browser Lab (plain Vite, no Electron), so there is no dev-only secondary window label.
 - `main` keeps the current compact shell behavior:
   - transparent where the platform compositor can render it reliably
   - always-on-top
   - non-resizable
   - close request hides instead of quitting
-- On Windows, the first startup reveal for `main` must use full native bounds (`200x200`) instead of a cold-start compact native shell.
+- On Windows, the first startup reveal for `main` must use the stable full viewport (`200x200` panel plus shadow gutter) instead of a cold-start compact native shell.
 - The first transition into compact mode after launch must come from the normal idle compact path, not from an immediate startup-only full-to-compact handoff that runs before the window has settled.
 - On packaged Windows builds, compact Ameow windows should preserve transparent parity with development builds by default, including `main` and `settings`. An opaque fallback background is reserved only for explicit diagnostics / escape-hatch runs enabled through the global fallback switch.
 - `main`, `settings`, `context-menu`, and other compact utility windows should default to `show: false` and reveal only after `ready-to-show` or `did-finish-load`, with a bounded timeout fallback for machines that never emit the ideal paint signal.
@@ -58,38 +56,21 @@ _Part 2 of 4._
 
 #### Foreground Task Window Restore Contract
 
-- When a foreground task or direct-processing feedback flow such as download, transcode, image save, or file copy restores `main` from compact icon mode, renderer state must not switch to full-mode visuals before the native BrowserWindow bounds have returned to the full shell size.
-- If `main` is still in compact native bounds (`windowResized === true` or equivalent), restore the native bounds first through `currentWindow.animateBounds(...)` or a shared helper that owns that contract, then clear minimized/full-mode renderer state.
-- If multiple async compact/full requests can overlap, renderer must attach a monotonic transition token to `currentWindow.animateBounds(...)` and must ignore any completion whose echoed token is no longer current before committing `setIsMinimized(false)`, `setWindowResized(false)`, or compact-shrink follow-up.
-- Download, transcode, and direct-processing feedback paths must share the same restore helper so renderer/native ordering cannot drift between task types.
-- If a foreground task forced `main` out of compact mode, completion/cancel settlement should return the shell to compact behavior once the transient success/error indicator finishes and no other foreground-task lock remains.
-- Once `main` is already in full native bounds, repeated progress events must not trigger redundant resize work or re-arm focus/idle side effects unnecessarily.
+- The Main Window keeps one stable full viewport; normal full↔compact morphs are renderer-visual-only and never change native width/height. When a foreground task or direct-processing feedback flow such as download, transcode, image save, or file copy restores `main` from compact icon mode, the renderer issues explicit full intent (`requestFull`) through the presentation lifecycle before the outcome can paint; the lifecycle owns the transition recipe and preserves pointer truth.
+- The lifecycle reducer (`src/presentation/main-window/lifecycle.ts`) is the only writable compact/full/transition authority. There is no renderer-owned `setIsMinimized`/`setWindowResized` follow-up and no generic renderer bounds animation API.
+- Compact placement correction is the semantic `ensureMainWindowCompactReachable(...)` operation owned by `electron/mainWindowSurfacePolicy.mts`: monitor selection, work-area clamping, and position-only interpolation happen in Electron main; the renderer cannot provide arbitrary width/height, target bounds, easing, or duration. The `requestEpoch` guard prevents a stale correction from moving a newer full surface, and returning to interactive mode cancels any active correction.
+- Download, transcode, and direct-processing feedback paths must share the same lifecycle intent entrypoint so renderer/native ordering cannot drift between task types.
+- If a foreground task forced `main` out of compact mode, completion/cancel settlement returns the shell to compact through the normal lock-release collapse path once the transient success/error indicator finishes and no other foreground-task lock remains.
+- Once `main` is already full, repeated progress events must not trigger redundant work or re-arm focus/idle side effects unnecessarily (the lifecycle reducer idempotently settles full intent).
 - User-triggered native repositions such as the global `shortcut-show` path may move the BrowserWindow before renderer expansion logic runs:
-  - Electron main may set the new `main` bounds directly before emitting `shortcut-show`
-  - renderer must treat `shortcut-show` as a synchronization signal and refresh its cached `currentWindow.outerPosition()` before the next compact/full `animateBounds(...)` request
-  - otherwise the next idle compact can shrink back to stale pre-shortcut coordinates instead of the new shortcut anchor point
+  - Electron main may set the new `main` position directly before emitting `shortcut-show`
+  - renderer must treat `shortcut-show` as an explicit full-intent signal through the lifecycle; no cached renderer position is reused for native placement because Electron main owns the corrected position
 
-#### Dev-only UI Lab Contract
+#### Dev-only UI Lab (retired) → Browser Lab Contract
 
-- Electron main may expose a dev-only `ui-lab` window through `window.ameow.windows.openUiLab(...)`.
-- Electron preload/main may expose the dev-only renderer command:
-  - `dev_ui_lab_apply_scenario`
-- Packaged builds must reject UI Lab entry points:
-  - `ameow:window:open-ui-lab`
-  - `dev_ui_lab_apply_scenario`
-- UI Lab must drive the real main window instead of rendering duplicate status widgets:
-  - scenario application may emit the existing queue/transcode/runtime app events
-  - scenario application may temporarily override `get_runtime_dependency_status`, `get_runtime_dependency_gate_state`, `refresh_runtime_dependency_gate_state`, and `start_runtime_dependency_bootstrap`
-- While any UI Lab runtime override is active, emitted `runtime-dependency-gate-state` events must keep reflecting the override payload instead of leaking live bootstrap updates back into the preview.
-- Non-runtime UI Lab scenarios (`download-*`, `transcode-*`, `mixed-*`) must apply a ready runtime override before emitting task progress so missing live runtimes do not pollute those previews with an unrelated runtime indicator.
-- Before each scenario, Electron main must emit `ui-lab-reset` so the main window clears mock progress, queue, and retry/success indicator state before applying new preview data.
-- UI Lab scenario application must not reuse the normal `shortcut-show` renderer event path after `showMainWindow()`:
-  - preview activation is its own contract, not a user shortcut replay
-  - renderer-side shortcut show logic may arm idle/minimize flows that race with preview state application
-- While UI Lab preview mode is active, renderer visual state must be forced to full main-window mode until `ui-lab-reset` restores live state:
-  - minimized shell clip-path, minimized icon branch, and shrink-on-animation-complete paths must stay suppressed even if internal minimize state is still settling
-  - preview tooling must never show task/status content inside the compact circular shell
-- `ui-lab-reset` is a main-to-renderer app event only; renderer must not emit it back over `window.ameow.events.emit(...)`.
+- The Electron UI Lab (`ui-lab` window, `openUiLab`, `dev_ui_lab_apply_scenario`, `ui-lab-reset`) is **retired**. There is no `ui-lab` window label, no `openUiLab` bridge method, and no `dev_ui_lab_apply_scenario` command in the preload/main surface; `AmeowWindowLabel` is `"main" | "settings" | "context-menu"` only.
+- Its replacement is the **Browser Lab** (dev-only, plain Vite on port 1421, `lab.html` + `src/lab/`, no Electron and no desktop bridge). Scenario intent is synthesized through production types/reducers/selectors and renders through the production `ExpandedPresentationSurface`; it never uses Electron scenario overrides and is excluded from production bundles.
+- Settings no longer opens the UI Lab; the dev preview/export surface lives entirely in the Browser Lab.
 
 #### Autostart Contract
 
@@ -154,12 +135,12 @@ _Part 2 of 4._
 - Renderer drag activation may wait for a movement threshold, but once dragging starts it must derive movement from screen-space pointer deltas plus the window's initial outer position.
 - Read `currentWindow.outerPosition()` once when drag becomes active; do not re-query window coordinates on every move.
 - High-frequency movement updates must go through `currentWindow.setPosition({ x, y })`, implemented as fire-and-forget IPC (`ipcRenderer.send(...)` / `ipcMain.on(...)`).
-- Shell paths that are confirmed to change the main window's native size must use `currentWindow.animateBounds({ x, y, width, height }, { durationMs })` against the existing main BrowserWindow. Do not infer that every compact/full visual morph changes native size; first classify the current path as startup normalization, compact visibility clamping, restore synchronization, visual-only renderer morph, or a true native size transition.
+- Normal full↔compact morphs never change the main window's native size and never use a renderer-facing bounds animation API. The only native placement operation is the semantic `ensureMainWindowCompactReachable(...)` compact reachability correction in `electron/mainWindowSurfacePolicy.mts` (monitor clamp + position-only interpolation, cancelable, `requestEpoch`-guarded).
 - Do not reintroduce a dedicated `window-transition-overlay` BrowserWindow for icon-mode expand; Windows DWM cross-window handoff is not the supported contract for Ameow.
 - Renderer may batch window-position writes with `requestAnimationFrame`, but it must not await request/response IPC inside `pointermove`.
 - `currentWindow.startDragging()` is not the hot-path mechanism for Ameow's custom frameless drag contract on Electron.
 - `pointerup`, `pointercancel`, blur-adjacent cleanup, and other drag-end paths must always clear pending drag state so the window cannot get stuck mid-drag.
-- Frameless secondary windows that do not use the main window's manual drag system (for example `ui-lab`) must expose an explicit Chromium drag region on their shell/header and mark interactive controls such as close buttons as `no-drag`.
+- Frameless secondary windows that do not use the main window's manual drag system must expose an explicit Chromium drag region on their shell/header and mark interactive controls such as close buttons as `no-drag`.
 
 #### Managed Runtime Bootstrap Network Contract
 

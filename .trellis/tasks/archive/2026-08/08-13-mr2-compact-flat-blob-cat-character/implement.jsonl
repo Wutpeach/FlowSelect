@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/character-motion.md","reason":"MR2 compact Character ownership, attention, lifecycle, Reduced Motion, and stable-source spring contract."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Ameow compact visual language and semantic theme-token contract."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Functional component, composition, and cleanup conventions for the SVG host."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Effect cleanup, theme, and frontend quality requirements."}
+{"file":".trellis/tasks/08-13-mr2-compact-flat-blob-cat-character/research/repository-baseline.md","reason":"Post-MR1 ownership, Pointer Field, native risk, and renderer evidence curated for MR2."}

@@ -13,7 +13,9 @@ Fast rule: **start with the text you can see, use the error code as supporting e
 
 When a download or transcode fails, Ameow's main window now shows a short plain-language reason first, such as expired login state, network trouble, unavailable save location, or video processing failure. If a copy icon appears next to that message, click it to copy diagnostics for that specific failure.
 
-The copied content is multi-line JSON. It includes the Ameow version, platform, task trace id, a safe link summary (origin only), internal error code, error classification, attempt summary, and a recent runtime-log excerpt. For privacy, the full link and unredacted downloader output are not included in the diagnostics; the runtime-log excerpt is bounded and sanitized, so it may contain limited, redacted downloader evidence. Paste that JSON to the developer when reporting a problem — it is usually more useful than a screenshot of the short message alone.
+The copied content is a readable, sectioned diagnostic report (format version v2) scoped to **this one failure only**. It includes the Ameow version, platform, task trace id, a safe link summary (origin only), internal error code, error classification, diagnostic category, and an ordered attempt summary (engine, cycle, outcome, fallback, auth recovery, and retries are all preserved). Only for Transcode or legacy failures without a structured attempt record does the report attach one bounded, sanitized line of raw process evidence, explicitly labeled as evidence — never as the error classification. The report does **not** include the session runtime-log excerpt or any other task's content.
+
+For privacy, the full link, local paths, cookies, tokens, proxy endpoints, and unredacted downloader output never appear in the diagnostics; a short privacy note is included at the end. Paste the whole readable report to the developer when reporting a problem — it is usually more useful than a screenshot of the short message alone.
 
 The **Export diagnostic log** button in Settings remains available for full environment and settings snapshots. The center-prompt copy icon is the faster path for sending one failed task to the developer.
 
@@ -123,7 +125,7 @@ This is usually not an error-code problem. Open the current output folder from A
 
 Include as much of this as possible:
 
-1. If the center prompt has a copy icon, paste the copied diagnostic JSON first.
+1. If the center prompt has a copy icon, paste the whole copied diagnostic report first.
 2. The full error message or a screenshot with the error code.
 3. Ameow version and operating system.
 4. Site type, such as YouTube, Bilibili, X / Twitter, Douyin, or Xiaohongshu.

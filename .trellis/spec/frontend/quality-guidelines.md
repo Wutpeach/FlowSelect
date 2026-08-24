@@ -172,3 +172,62 @@ Extension background lifecycle contract:
 - [ ] Third-party injected controls derive canonical submission URLs from the local card/dialog/article instead of falling back directly to global page URL
 - [ ] Long-lived browser-extension background caches/registries have an explicit hard limit, not just TTL cleanup
 - [ ] Timers created for early-settling async races are explicitly cleared after the race resolves
+
+## Forbidden Patterns (Motion / Presentation Foundation, MR0)
+
+**1. Feature motion importing Product/lifecycle/native authority**
+```tsx
+// WRONG - a motion module dispatching business or lifecycle work
+import { cancelVideoTask } from "../../features/download/actions";
+import { reduceMainWindowPresentation } from "./lifecycle";
+```
+Feature-motion modules must import no Product dispatch, lifecycle reducer, desktop runtime, Electron, or center-overlay policy (guarded by `src/architecture/import-guard.test.ts`).
+
+**2. Per-frame React state loops**
+```tsx
+// WRONG - re-rendering React every animation frame
+const [frame, setFrame] = useState(0);
+useEffect(() => {
+  const id = requestAnimationFrame(() => setFrame((f) => f + 1));
+  return () => cancelAnimationFrame(id);
+}, []);
+```
+React publishes target/input changes only. Per-frame geometry lives in local MotionValues/rAF runtimes that sleep when settled.
+
+**3. High-frequency IPC / Main-process motion**
+```tsx
+// WRONG - moving a window per pointer event through IPC
+ipcRenderer.send("ameow:current-window:set-position", pos); // per frame
+```
+Electron Main, BrowserWindow, preload, and IPC never participate in per-frame feature motion.
+
+**4. Shared animator / runtime / DSL scaffolding**
+```ts
+// WRONG - a shared engine for future consumers that do not exist yet
+export class MotionRuntime { /* ... */ }
+```
+No shared animator, global runtime, recipe framework, renderer hierarchy, DSL, or graphics dependency without evidence from two real consumers.
+
+**5. Unbounded animation queues**
+```ts
+// WRONG - every event appends; nothing coalesces
+queue.push(event);
+```
+Transient concurrency is bounded per consumer: latest-replaces/coalescing/suppress. No unbounded FIFO animation queue.
+
+**6. Claiming Windows issues solved by visual replacement**
+```
+// WRONG - removing a Reveal visual while the native path stays reachable
+// (comment) "this eliminates the Windows argument conversion problem"
+```
+Both Windows repair dependencies remain open unless their exact paths are changed and validated; MR0 gates them (`src/architecture/windows-risk-path.test.ts`).
+
+## Code Review Checklist (Motion / Presentation additions)
+
+- [ ] No feature-motion module imports Product/lifecycle/desktop/Electron modules
+- [ ] No per-frame React state; no high-frequency IPC/native motion loops
+- [ ] Collapse sleeps/invalidates; replacement/unmount disposes; stale callbacks are no-ops
+- [ ] Reduced motion resolves deterministically without fake lifecycle completion
+- [ ] Transients restore the latest persistent baseline; terminal has priority; no unbounded queue
+- [ ] Information-bearing interpolation never overshoots authoritative values
+- [ ] No shared animator/DSL/framework added for future consumers

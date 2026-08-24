@@ -1,0 +1,235 @@
+MR3_SMOKE_EVIDENCE {
+ "steps": [
+  {
+   "name": "compact-idle",
+   "smoke": {
+    "draws": 4,
+    "arcs": 500,
+    "rafs": 45
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 60,
+    "h": 60
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 0,
+    "100,100": 0,
+    "167,167": 0,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "compact-idle+1.2s",
+   "smoke": {
+    "draws": 4,
+    "arcs": 500,
+    "rafs": 57
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 60,
+    "h": 60
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 0,
+    "100,100": 0,
+    "167,167": 0,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "expanded-settled",
+   "smoke": {
+    "draws": 6,
+    "arcs": 750,
+    "rafs": 115
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 60,
+    "h": 60
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 0,
+    "100,100": 0,
+    "167,167": 0,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "expanded-settled+2s",
+   "smoke": {
+    "draws": 6,
+    "arcs": 750,
+    "rafs": 123
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 60,
+    "h": 60
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 0,
+    "100,100": 0,
+    "167,167": 0,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "determinate-46%",
+   "smoke": {
+    "draws": 21,
+    "arcs": 4125,
+    "rafs": 149
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 200,
+    "h": 200
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 153,
+    "100,100": 41,
+    "167,167": 31,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "determinate-46%+1.5s",
+   "smoke": {
+    "draws": 21,
+    "arcs": 4125,
+    "rafs": 149
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 200,
+    "h": 200
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 153,
+    "100,100": 41,
+    "167,167": 31,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "click-over-progress-peak",
+   "smoke": {
+    "draws": 46,
+    "arcs": 9750,
+    "rafs": 202
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 200,
+    "h": 200
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 153,
+    "100,100": 41,
+    "167,167": 33,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "click-over-progress-settled",
+   "smoke": {
+    "draws": 51,
+    "arcs": 10875,
+    "rafs": 215
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 200,
+    "h": 200
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 153,
+    "100,100": 41,
+    "167,167": 33,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "click-over-progress-settled+1.2s",
+   "smoke": {
+    "draws": 51,
+    "arcs": 10875,
+    "rafs": 215
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 200,
+    "h": 200
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 153,
+    "100,100": 41,
+    "167,167": 33,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "idle-after-removal",
+   "smoke": {
+    "draws": 56,
+    "arcs": 11600,
+    "rafs": 289
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 200,
+    "h": 200
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 34,
+    "100,100": 41,
+    "167,167": 31,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  },
+  {
+   "name": "idle-after-removal+1.2s",
+   "smoke": {
+    "draws": 56,
+    "arcs": 11600,
+    "rafs": 362
+   },
+   "canvasCount": 1,
+   "cssSize": {
+    "w": 200,
+    "h": 200
+   },
+   "dpr": 1,
+   "pixels": {
+    "33,33": 34,
+    "100,100": 41,
+    "167,167": 31,
+    "100,80": 0
+   },
+   "title": "Ameow"
+  }
+ ]
+}

@@ -1,0 +1,5 @@
+{"file":".trellis/tasks/08-13-mr1-expanded-dot-field-substrate/research/approved-contract-summary.md","reason":"Approved MR0/MR1 baseline, authority, lifecycle, rendering, and validation constraints distilled from fully read specs and planning."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Surface composition, theme, and component ownership conventions."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Local runtime state and single-owner interaction/lifecycle boundaries."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Cleanup, strict TypeScript, and test quality constraints."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Presentation module placement and dependency direction."}

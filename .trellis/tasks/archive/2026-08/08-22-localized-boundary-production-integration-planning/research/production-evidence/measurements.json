@@ -1,0 +1,590 @@
+{
+  "capturedAt": "2026-08-22T14:37:48.703Z",
+  "host": {
+    "platform": "win32",
+    "electronRoute": "http://127.0.0.1:4176",
+    "packaged": false
+  },
+  "packageAttempt": {
+    "status": "BLOCKED",
+    "reason": "electron-builder EPERM renaming win-unpacked.tmp to win-unpacked on two attempts"
+  },
+  "initialNative": {
+    "bounds": {
+      "x": 1166,
+      "y": 586,
+      "width": 228,
+      "height": 228
+    },
+    "visible": true,
+    "processId": 83944,
+    "hwnd": 51970656
+  },
+  "ordinary": {
+    "composition": {
+      "devicePixelRatio": 1,
+      "viewport": {
+        "width": 228,
+        "height": 228
+      },
+      "canvasCount": 1,
+      "canvas": {
+        "rect": {
+          "x": -5.656854152679443,
+          "y": -5.656854152679443,
+          "width": 228,
+          "height": 228
+        },
+        "style": {
+          "pointerEvents": "none",
+          "overflow": "clip",
+          "borderRadius": "0px",
+          "background": "rgba(0, 0, 0, 0)",
+          "boxShadow": "none",
+          "zIndex": "0",
+          "transform": "none",
+          "opacity": "1",
+          "filter": "none",
+          "isolation": "auto",
+          "willChange": "auto",
+          "clipPath": "none"
+        }
+      },
+      "outerFx": {
+        "rect": {
+          "x": -5.656854152679443,
+          "y": -5.656854152679443,
+          "width": 228,
+          "height": 228
+        },
+        "style": {
+          "pointerEvents": "none",
+          "overflow": "visible",
+          "borderRadius": "0px",
+          "background": "rgba(0, 0, 0, 0)",
+          "boxShadow": "none",
+          "zIndex": "auto",
+          "transform": "none",
+          "opacity": "1",
+          "filter": "none",
+          "isolation": "auto",
+          "willChange": "auto",
+          "clipPath": "none"
+        }
+      },
+      "panelShell": {
+        "rect": {
+          "x": 8.343145370483398,
+          "y": 8.343145370483398,
+          "width": 200,
+          "height": 200
+        },
+        "style": {
+          "pointerEvents": "auto",
+          "overflow": "visible",
+          "borderRadius": "16px",
+          "background": "rgba(0, 0, 0, 0)",
+          "boxShadow": "rgb(75, 73, 81) 0px 0px 0px 1px inset, rgba(255, 255, 255, 0.05) 0px 1px 0px 0px inset",
+          "zIndex": "1",
+          "transform": "matrix(1, 0, 0, 1, 14, 14)",
+          "opacity": "1",
+          "filter": "none",
+          "isolation": "auto",
+          "willChange": "transform",
+          "clipPath": "none"
+        }
+      },
+      "innerClip": {
+        "rect": {
+          "x": 8.343145370483398,
+          "y": 8.343145370483398,
+          "width": 200,
+          "height": 200
+        },
+        "style": {
+          "pointerEvents": "auto",
+          "overflow": "hidden",
+          "borderRadius": "16px",
+          "background": "rgba(0, 0, 0, 0)",
+          "boxShadow": "none",
+          "zIndex": "auto",
+          "transform": "none",
+          "opacity": "1",
+          "filter": "none",
+          "isolation": "auto",
+          "willChange": "auto",
+          "clipPath": "none"
+        }
+      },
+      "hits": {
+        "center": {
+          "tag": "div",
+          "className": "",
+          "insidePanel": true,
+          "isCanvas": false
+        },
+        "gutter": {
+          "tag": "div",
+          "className": "",
+          "insidePanel": false,
+          "isCanvas": false
+        }
+      },
+      "shadowCandidates": [
+        {
+          "owner": "backdrop",
+          "shadow": "rgba(0, 0, 0, 0.34) 0px 6px 16px -8px, rgba(0, 0, 0, 0.22) 0px 2px 7px -4px, rgba(0, 0, 0, 0.16) 0px 1px 3px -1px"
+        },
+        {
+          "owner": "panelShell",
+          "shadow": "rgb(75, 73, 81) 0px 0px 0px 1px inset, rgba(255, 255, 255, 0.05) 0px 1px 0px 0px inset"
+        },
+        {
+          "owner": "outerFx",
+          "shadow": "none"
+        },
+        {
+          "owner": "innerClip",
+          "shadow": "none"
+        },
+        {
+          "owner": "canvas",
+          "shadow": "none"
+        }
+      ],
+      "exteriorShadowOwners": [
+        {
+          "owner": "backdrop",
+          "shadow": "rgba(0, 0, 0, 0.34) 0px 6px 16px -8px, rgba(0, 0, 0, 0.22) 0px 2px 7px -4px, rgba(0, 0, 0, 0.16) 0px 1px 3px -1px"
+        }
+      ]
+    },
+    "telemetry": {
+      "shaderCreates": 2,
+      "shaderCompiles": 2,
+      "shaderCompilePasses": 2,
+      "shaderLogs": [],
+      "programCreates": 1,
+      "programDeletes": 0,
+      "livePrograms": 1,
+      "validPrograms": 1,
+      "programLinks": 1,
+      "programLinkPasses": 1,
+      "programLogs": [],
+      "textureCreates": 0,
+      "textureDeletes": 0,
+      "liveTextures": 0,
+      "framebufferCreates": 0,
+      "framebufferDeletes": 0,
+      "liveFramebuffers": 0,
+      "drawCalls": 126,
+      "drawCallsByRafMax": 1,
+      "rafRequests": 160,
+      "rafFires": 159,
+      "rafCancels": 0,
+      "rafPending": 1,
+      "rafMaxPending": 3,
+      "readback": {
+        "width": 228,
+        "height": 228,
+        "cssWidth": 228,
+        "cssHeight": 228,
+        "outermost2pxMaxAlpha": 0,
+        "cornerMaxAlpha": 0,
+        "maximumExteriorSupportCssPx": 8.909837414162304,
+        "bestExteriorAlpha": 226
+      }
+    }
+  },
+  "interactions": {
+    "gutterDrag": {
+      "before": {
+        "x": 1166,
+        "y": 586,
+        "width": 228,
+        "height": 228
+      },
+      "after": {
+        "x": 1166,
+        "y": 586,
+        "width": 228,
+        "height": 228
+      },
+      "moved": false
+    },
+    "panelDrag": {
+      "before": {
+        "x": 1166,
+        "y": 586,
+        "width": 228,
+        "height": 228
+      },
+      "after": {
+        "x": 1193,
+        "y": 604,
+        "width": 228,
+        "height": 228
+      },
+      "moved": true
+    },
+    "panelCaptureWhileDown": true,
+    "drop": {
+      "panelDefaultPrevented": true,
+      "gutterDefaultPrevented": false
+    },
+    "collapse": {
+      "expandedBefore": 200,
+      "compact": {
+        "panelRect": {
+          "x": 10.018245697021484,
+          "y": 10.018245697021484,
+          "width": 60.625003814697266,
+          "height": 60.625003814697266
+        },
+        "native": {
+          "bounds": {
+            "x": 1166,
+            "y": 586,
+            "width": 228,
+            "height": 228
+          },
+          "visible": true,
+          "processId": 83944,
+          "hwnd": 51970656
+        },
+        "panelWidth": 60.625003814697266
+      },
+      "reentryInput": "native cursor plus forwarded window mousemove at the derived compact center",
+      "reexpanded": {
+        "panelWidth": 200,
+        "native": {
+          "bounds": {
+            "x": 1166,
+            "y": 586,
+            "width": 228,
+            "height": 228
+          },
+          "visible": true,
+          "processId": 83944,
+          "hwnd": 51970656
+        }
+      }
+    }
+  },
+  "reducedMotion": {
+    "native": {
+      "bounds": {
+        "x": 1166,
+        "y": 586,
+        "width": 228,
+        "height": 228
+      },
+      "visible": true,
+      "processId": 83944,
+      "hwnd": 51970656
+    },
+    "composition": {
+      "devicePixelRatio": 1,
+      "viewport": {
+        "width": 228,
+        "height": 228
+      },
+      "canvasCount": 1,
+      "canvas": {
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 228,
+          "height": 228
+        },
+        "style": {
+          "pointerEvents": "none",
+          "overflow": "clip",
+          "borderRadius": "0px",
+          "background": "rgba(0, 0, 0, 0)",
+          "boxShadow": "none",
+          "zIndex": "0",
+          "transform": "none",
+          "opacity": "1",
+          "filter": "none",
+          "isolation": "auto",
+          "willChange": "auto",
+          "clipPath": "none"
+        }
+      },
+      "outerFx": {
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 228,
+          "height": 228
+        },
+        "style": {
+          "pointerEvents": "none",
+          "overflow": "visible",
+          "borderRadius": "0px",
+          "background": "rgba(0, 0, 0, 0)",
+          "boxShadow": "none",
+          "zIndex": "auto",
+          "transform": "none",
+          "opacity": "1",
+          "filter": "none",
+          "isolation": "auto",
+          "willChange": "auto",
+          "clipPath": "none"
+        }
+      },
+      "panelShell": {
+        "rect": {
+          "x": 14,
+          "y": 14,
+          "width": 200,
+          "height": 200
+        },
+        "style": {
+          "pointerEvents": "auto",
+          "overflow": "visible",
+          "borderRadius": "16px",
+          "background": "rgba(0, 0, 0, 0)",
+          "boxShadow": "rgb(75, 73, 81) 0px 0px 0px 1px inset, rgba(255, 255, 255, 0.05) 0px 1px 0px 0px inset",
+          "zIndex": "1",
+          "transform": "matrix(1, 0, 0, 1, 14, 14)",
+          "opacity": "1",
+          "filter": "none",
+          "isolation": "auto",
+          "willChange": "transform",
+          "clipPath": "none"
+        }
+      },
+      "innerClip": {
+        "rect": {
+          "x": 14,
+          "y": 14,
+          "width": 200,
+          "height": 200
+        },
+        "style": {
+          "pointerEvents": "auto",
+          "overflow": "hidden",
+          "borderRadius": "16px",
+          "background": "rgba(0, 0, 0, 0)",
+          "boxShadow": "none",
+          "zIndex": "auto",
+          "transform": "none",
+          "opacity": "1",
+          "filter": "none",
+          "isolation": "auto",
+          "willChange": "auto",
+          "clipPath": "none"
+        }
+      },
+      "hits": {
+        "center": {
+          "tag": "div",
+          "className": "",
+          "insidePanel": true,
+          "isCanvas": false
+        },
+        "gutter": {
+          "tag": "div",
+          "className": "",
+          "insidePanel": false,
+          "isCanvas": false
+        }
+      },
+      "shadowCandidates": [
+        {
+          "owner": "backdrop",
+          "shadow": "rgba(0, 0, 0, 0.34) 0px 6px 16px -8px, rgba(0, 0, 0, 0.22) 0px 2px 7px -4px, rgba(0, 0, 0, 0.16) 0px 1px 3px -1px"
+        },
+        {
+          "owner": "panelShell",
+          "shadow": "rgb(75, 73, 81) 0px 0px 0px 1px inset, rgba(255, 255, 255, 0.05) 0px 1px 0px 0px inset"
+        },
+        {
+          "owner": "outerFx",
+          "shadow": "none"
+        },
+        {
+          "owner": "innerClip",
+          "shadow": "none"
+        },
+        {
+          "owner": "canvas",
+          "shadow": "none"
+        }
+      ],
+      "exteriorShadowOwners": [
+        {
+          "owner": "backdrop",
+          "shadow": "rgba(0, 0, 0, 0.34) 0px 6px 16px -8px, rgba(0, 0, 0, 0.22) 0px 2px 7px -4px, rgba(0, 0, 0, 0.16) 0px 1px 3px -1px"
+        }
+      ]
+    },
+    "start": {
+      "shaderCreates": 2,
+      "shaderCompiles": 2,
+      "shaderCompilePasses": 2,
+      "shaderLogs": [],
+      "programCreates": 1,
+      "programDeletes": 0,
+      "livePrograms": 1,
+      "validPrograms": 1,
+      "programLinks": 1,
+      "programLinkPasses": 1,
+      "programLogs": [],
+      "textureCreates": 0,
+      "textureDeletes": 0,
+      "liveTextures": 0,
+      "framebufferCreates": 0,
+      "framebufferDeletes": 0,
+      "liveFramebuffers": 0,
+      "drawCalls": 6,
+      "drawCallsByRafMax": 0,
+      "rafRequests": 27,
+      "rafFires": 27,
+      "rafCancels": 0,
+      "rafPending": 0,
+      "rafMaxPending": 2,
+      "readback": {
+        "width": 228,
+        "height": 228,
+        "cssWidth": 228,
+        "cssHeight": 228,
+        "outermost2pxMaxAlpha": 0,
+        "cornerMaxAlpha": 0,
+        "maximumExteriorSupportCssPx": 8.5,
+        "bestExteriorAlpha": 19
+      }
+    },
+    "end": {
+      "shaderCreates": 2,
+      "shaderCompiles": 2,
+      "shaderCompilePasses": 2,
+      "shaderLogs": [],
+      "programCreates": 1,
+      "programDeletes": 0,
+      "livePrograms": 1,
+      "validPrograms": 1,
+      "programLinks": 1,
+      "programLinkPasses": 1,
+      "programLogs": [],
+      "textureCreates": 0,
+      "textureDeletes": 0,
+      "liveTextures": 0,
+      "framebufferCreates": 0,
+      "framebufferDeletes": 0,
+      "liveFramebuffers": 0,
+      "drawCalls": 6,
+      "drawCallsByRafMax": 0,
+      "rafRequests": 27,
+      "rafFires": 27,
+      "rafCancels": 0,
+      "rafPending": 0,
+      "rafMaxPending": 2,
+      "readback": {
+        "width": 228,
+        "height": 228,
+        "cssWidth": 228,
+        "cssHeight": 228,
+        "outermost2pxMaxAlpha": 0,
+        "cornerMaxAlpha": 0,
+        "maximumExteriorSupportCssPx": 8.5,
+        "bestExteriorAlpha": 19
+      }
+    }
+  },
+  "contextRecovery": {
+    "before": {
+      "shaderCreates": 2,
+      "shaderCompiles": 2,
+      "shaderCompilePasses": 2,
+      "shaderLogs": [],
+      "programCreates": 1,
+      "programDeletes": 0,
+      "livePrograms": 1,
+      "validPrograms": 1,
+      "programLinks": 1,
+      "programLinkPasses": 1,
+      "programLogs": [],
+      "textureCreates": 0,
+      "textureDeletes": 0,
+      "liveTextures": 0,
+      "framebufferCreates": 0,
+      "framebufferDeletes": 0,
+      "liveFramebuffers": 0,
+      "drawCalls": 6,
+      "drawCallsByRafMax": 0,
+      "rafRequests": 29,
+      "rafFires": 29,
+      "rafCancels": 0,
+      "rafPending": 0,
+      "rafMaxPending": 2,
+      "readback": {
+        "width": 228,
+        "height": 228,
+        "cssWidth": 228,
+        "cssHeight": 228,
+        "outermost2pxMaxAlpha": 0,
+        "cornerMaxAlpha": 0,
+        "maximumExteriorSupportCssPx": 8.5,
+        "bestExteriorAlpha": 19
+      }
+    },
+    "result": {
+      "supported": true,
+      "contextLostAfterRestore": false
+    },
+    "after": {
+      "shaderCreates": 4,
+      "shaderCompiles": 4,
+      "shaderCompilePasses": 4,
+      "shaderLogs": [],
+      "programCreates": 2,
+      "programDeletes": 0,
+      "livePrograms": 2,
+      "validPrograms": 1,
+      "programLinks": 2,
+      "programLinkPasses": 2,
+      "programLogs": [],
+      "textureCreates": 0,
+      "textureDeletes": 0,
+      "liveTextures": 0,
+      "framebufferCreates": 0,
+      "framebufferDeletes": 0,
+      "liveFramebuffers": 0,
+      "drawCalls": 7,
+      "drawCallsByRafMax": 0,
+      "rafRequests": 29,
+      "rafFires": 29,
+      "rafCancels": 0,
+      "rafPending": 0,
+      "rafMaxPending": 2,
+      "readback": {
+        "width": 228,
+        "height": 228,
+        "cssWidth": 228,
+        "cssHeight": 228,
+        "outermost2pxMaxAlpha": 0,
+        "cornerMaxAlpha": 0,
+        "maximumExteriorSupportCssPx": 8.5,
+        "bestExteriorAlpha": 19
+      }
+    }
+  },
+  "gates": {
+    "geometry": true,
+    "panelClip": true,
+    "shader": true,
+    "outerAlpha": true,
+    "haloSupport": true,
+    "resources": true,
+    "shadow": true,
+    "gutterInteraction": true,
+    "panelInteraction": true,
+    "lifecycle": true,
+    "contextRestore": true,
+    "reducedMotion": true
+  },
+  "macOS": "NOT VERIFIED"
+}

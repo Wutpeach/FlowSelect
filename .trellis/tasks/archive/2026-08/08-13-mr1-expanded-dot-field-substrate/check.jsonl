@@ -1,0 +1,4 @@
+{"file":".trellis/tasks/08-13-mr1-expanded-dot-field-substrate/research/approved-contract-summary.md","reason":"Verify the approved architecture, motion, lifecycle, and performance contract."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify automated checks, cleanup, and forbidden patterns."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Verify local ownership and no lifecycle/Product authority leakage."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Verify renderer leaf placement and dependency direction."}

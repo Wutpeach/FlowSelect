@@ -45,7 +45,6 @@ describe("secondary desktop routes", () => {
   it("recognizes secondary desktop windows", () => {
     expect(isSecondaryDesktopRoute("/settings")).toBe(true);
     expect(isSecondaryDesktopRoute("/context-menu")).toBe(true);
-    expect(isSecondaryDesktopRoute("/ui-lab")).toBe(true);
   });
 
   it("keeps the main route on the slower readiness path", () => {

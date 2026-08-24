@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/state-management.md","reason":"State ownership and projection boundaries for bounded Presentation state."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"React component, props, effect cleanup, accessibility, and Motion composition conventions."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Forbidden feature-motion imports, frame loops, shared animator scaffolding, and review gates."}
+{"file":".trellis/tasks/08-13-mr4-reveal-terminal-presentation/research/repository-grounded-planning-report.md","reason":"Approved MR4 baseline facts, exclusions, and frozen-M3 evidence verdict."}

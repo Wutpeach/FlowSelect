@@ -1,0 +1,159 @@
+{
+  "nav": {
+    "scenarioNavigation": "Scenario Navigation",
+    "activation": "Fullscreen Activation",
+    "downloadProgress": "Download / Progress",
+    "reducedMotion": "Reduced Motion",
+    "heatmapSpike": "Heatmap Spike",
+    "compact": "Compact Character",
+    "scenes": "Scenes",
+    "fullOnlyTag": "Full only",
+    "compactOnlyTag": "Compact only",
+    "clear": "Clear",
+    "clearHint": "Idle this group's Lab preview state.",
+    "none": "None",
+    "noneHint": "No overlay fixture; the plain progress / activation surface."
+  },
+  "previewTarget": {
+    "full": "Full",
+    "compact": "Compact"
+  },
+  "workspace": {
+    "title": "Preview Workspace",
+    "targetLabel": "Preview Target",
+    "displayScale": "Display scale",
+    "autoLabel": "Auto",
+    "auto": "Auto · {{scale}}×",
+    "reset": "Reset preview",
+    "resetHint": "Restore the current Lab preview / scenario to its baseline state (re-apply scenario, recenter origin, Reduced Motion off).",
+    "metadataFull": "Full · {{size}}×{{size}} · {{scale}}",
+    "metadataCompact": "Compact · {{outer}} outer / {{shell}} shell · {{scale}}"
+  },
+  "controls": {
+    "displayMode": "Display mode",
+    "zoom": "Zoom",
+    "actions": "Actions"
+  },
+  "environment": {
+    "title": "Preview background",
+    "dark": "Dark",
+    "light": "Light",
+    "checkerboard": "Checkerboard"
+  },
+  "compact": {
+    "caption": "Compact renders the production Strobi mascot at 80/60/56 geometry with the Lab-local pointer field; no canvas, shader, or native window."
+  },
+  "devTools": {
+    "title": "Dev Tools",
+    "originSection": "Origin",
+    "rmSection": "Reduced Motion",
+    "target": "Target",
+    "scale": "Scale",
+    "background": "Background",
+    "reducedMotion": "Preview reduced motion",
+    "on": "on",
+    "off": "off",
+    "advanced": "Advanced Diagnostics",
+    "scaleFacts": "Scale facts",
+    "fullOnlyDiagnostics": "Composed-input and shader readout are Full-only (the Compact target mounts no canvas).",
+    "compact": {
+      "scenario": "Compact scenario",
+      "mode": "pointer mode",
+      "live": "live attention",
+      "neutral": "pinned neutral",
+      "reducedMotion": "forced reduced motion"
+    }
+  },
+  "presets": {
+    "intakeLocal": { "label": "Intake · local origin", "description": "Ignition from the last preview click point." },
+    "intakeCenter": { "label": "Intake · center", "description": "Neutral viewport center (extension-style fallback origin)." },
+    "folder": { "label": "Folder · Anchor / Lock", "description": "Steadier sweep with emphasized edge capture and closure." },
+    "intakeReduced": { "label": "Intake · reduced motion", "description": "Bounded static ignition blot; no travel, chase, or distortion." },
+    "folderReduced": { "label": "Folder · reduced motion", "description": "Static edge lock plus a short warm closure state." },
+    "replay": "Replay",
+    "replayHint": "Re-ignite the current activation with a fresh startedAt.",
+    "progress0": "0%",
+    "progress25": "25%",
+    "progress50": "50%",
+    "progress75": "75%",
+    "progress100": "100%",
+    "progressHint": "Determinate production progress target on the current trace.",
+    "indeterminate": "Indeterminate",
+    "indeterminateHint": "Honest fixed non-percent segment; no numeric frontier.",
+    "downwardRevision": "Downward revision",
+    "downwardRevisionHint": "Same trace, target −50 pts; production runtime snaps immediately.",
+    "replaceTrace": "New trace replacement",
+    "replaceTraceHint": "New trace at 50%; never inherits the old trace's level.",
+    "clearProgress": "Clear / idle",
+    "clearProgressHint": "Idle semantic target; zero scheduled frames.",
+    "heatmapMoving": { "label": "Heatmap · moving field", "description": "Full-surface moving scalar heat field (clean-room spike)." },
+    "heatmapReduced": { "label": "Heatmap · reduced motion", "description": "Static bounded field snapshot; no travelling frames." },
+    "heatmapRefractionMoving": { "label": "Heatmap · thermal refraction", "description": "Moving field with slow local low-frequency refraction (analytic resample)." },
+    "heatmapRefractionReduced": { "label": "Heatmap · refraction, reduced motion", "description": "Static frozen local refraction; zero travelling frames." },
+    "heatmapContactHaloMoving": { "label": "Heatmap · localized boundary contact", "description": "Accepted moving contact drives compact exterior leakage inside the 14px gutter." },
+    "heatmapContactHaloReduced": { "label": "Heatmap · boundary contact, reduced motion", "description": "Static accepted contact and halo; zero continuing frames." },
+    "clearHeatmap": "Clear heatmap",
+    "clearHeatmapHint": "Return to the ordinary progress / activation surface.",
+    "runtimeAutoConfig": { "label": "Auto configure", "description": "Runtime auto-configuring indicator (indeterminate progress)." },
+    "runtimeFailed": { "label": "Runtime failed", "description": "Actionable state after a runtime failure." },
+    "downloadActive": { "label": "Download active", "description": "Primary-task WebGL progress arc + queue rows (speed / ETA)." },
+    "downloadQueued": { "label": "Download queued", "description": "Badge count + queued task rows." },
+    "transcodeActive": { "label": "Transcode active", "description": "CircularProgressIndicator ring + queue rows." },
+    "transcodeFailed": { "label": "Transcode failed", "description": "Failure center overlay (copy diagnostic) + failed row." },
+    "mixedBusy": { "label": "Mixed busy", "description": "Download (WebGL arc) and transcode (DOM ring) concurrency." },
+    "compactNeutral": { "label": "Compact · neutral", "description": "The current Compact character at rest; no pointer attention." },
+    "compactPointer": { "label": "Compact · pointer attention", "description": "The current Compact character tracking the workspace pointer." },
+    "compactReduced": { "label": "Compact · reduced motion", "description": "Reduced Motion: smaller clamped attention, no springs or blink." },
+    "rmIntake": { "label": "Reduced motion · Intake", "description": "Static ignition blot audit." },
+    "rmFolder": { "label": "Reduced motion · Folder", "description": "Static edge lock audit." }
+  },
+  "preview": {
+    "clickToSetOrigin": "Click inside the preview to set a normalized local origin",
+    "caption": "Click inside the preview to set a normalized local origin; only one production canvas is mounted.",
+    "replay": "Replay",
+    "replayHint": "Re-ignite the current activation with a fresh startedAt.",
+    "export": "Export 4× PNG",
+    "exportHint": "Exports only the center production preview: 200×200 canvas + production shadow gutter (14px per side) → 912×912 transparent PNG.",
+    "exporting": "Exporting…",
+    "exportSuccess": "Exported {{name}}",
+    "exportFailure": "Export failed",
+    "exportErrorWebgl": "WebGL frame readback failed; no partial export was produced.",
+    "exportErrorDom": "DOM layer rasterization failed; no partial export was produced.",
+    "exportErrorShadow": "Unable to resolve the production shadow recipe; no partial export was produced."
+  },
+  "inspector": {
+    "title": "Inspector",
+    "reducedMotion": "Reduced motion",
+    "reducedMotionHint": "Drives the production reducedMotion input; RM presets force it on.",
+    "originX": "Origin X",
+    "originY": "Origin Y",
+    "originHint": "Snapshot at activation trigger; drives uActivationOrigin.",
+    "determinate": "Determinate",
+    "determinateHint": "Drives the production determinate target on the current trace.",
+    "composedInput": "Composed input",
+    "shaderReadout": "Live production shader readout",
+    "scenario": "Scenario",
+    "download": {
+      "trace": "trace",
+      "stage": "stage",
+      "percent": "percent",
+      "count": "count",
+      "speed": "speed",
+      "eta": "ETA",
+      "primaryTask": "primary task",
+      "rows": "queue rows"
+    },
+    "transcode": {
+      "stage": "stage",
+      "percent": "percent",
+      "count": "count",
+      "failure": "failure diagnostic"
+    },
+    "runtime": {
+      "phase": "phase",
+      "components": "missing components",
+      "progress": "progress",
+      "error": "error / manual action"
+    }
+  }
+}

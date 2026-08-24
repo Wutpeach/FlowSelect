@@ -1,0 +1,28 @@
+{
+  "id": "agentation-integration-planning",
+  "name": "agentation-integration-planning",
+  "title": "Agentation Integration Planning",
+  "description": "Plan UI Lab-only Agentation integration from current upstream and final UI Lab architecture evidence.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-08-23",
+  "completedAt": "2026-08-23",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-23-agentation-integration-spike"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

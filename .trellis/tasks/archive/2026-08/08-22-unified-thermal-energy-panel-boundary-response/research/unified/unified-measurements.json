@@ -1,0 +1,107 @@
+{
+  "task": "08-22-unified-thermal-energy-panel-boundary-response",
+  "spike": "Browser Lab falsification spike — Unified Thermal Energy -> Panel Boundary Response",
+  "contract": "lead-review.md T/A/H/E (T = accepted baseTemperature, A = covered2 x energy, H = smoothstep(0.38,0.62,T) zero-capable, E = A x H shared response energy)",
+  "harness": "research/unified/capture-unified.html (faithful copy of the production unified heatmap slice; 228 outer domain, panel origin/size mapping)",
+  "platform": "Windows, Edge (headless=false), WebGL2",
+  "states": [
+    { "id": "S1_k010", "k": 0.10, "rm": false },
+    { "id": "S2_k025", "k": 0.25, "rm": false },
+    { "id": "S3_k035", "k": 0.35, "rm": false },
+    { "id": "S4_k050", "k": 0.50, "rm": false },
+    { "id": "S5_rm", "k": 0.42, "rm": true }
+  ],
+  "resources": {
+    "shaderLinked": true,
+    "drawArraysPerProbeRender": 1,
+    "createTextureCount": 0,
+    "framebuffers": 0
+  },
+  "interiorEquivalence": {
+    "preGrainInterior_view5": { "diffPixels": 1, "total": 40000, "maxChannelDelta": 1, "note": "200-identity accepted interior vs 228 panel-mapped interior (RM static); single 1-level rounding pixel. Effectively identical." },
+    "finalCompositeWithGrain": { "diffPixels": 35613, "total": 40000, "maxChannelDelta": 5, "note": "Only difference is the canvas-space grain (heatmapGrainHash(uv*311+17)); the 228 Lab canvas necessarily has different grain positions than the 200 production canvas at the same panel pixel. Lab-only domain; production never renders 228. Pre-grain material projection is identical." }
+  },
+  "edgeGlow_view8": {
+    "S1_k010": { "top": 0.5, "bottom": 0.0, "left": 0.767, "right": 0.0, "overallFraction": 0.317 },
+    "S2_k025": { "top": 0.967, "bottom": 0.2, "left": 1.0, "right": 0.0, "overallFraction": 0.542 },
+    "S3_k035": { "top": 1.0, "bottom": 0.517, "left": 1.0, "right": 0.233, "overallFraction": 0.688 },
+    "S4_k050": { "top": 1.0, "bottom": 0.983, "left": 1.0, "right": 0.933, "overallFraction": 0.979, "note": "dark runs on bottom+right = real far-corner gaps (p > noisy front); NOT a closed ring" },
+    "S5_rm": { "top": 1.0, "bottom": 0.733, "left": 1.0, "right": 0.567, "overallFraction": 0.825 },
+    "verdict": "Field-gated; substantial gaps at trailing/right and bottom edges. FG1 (continuous full-boundary ring) NOT falsified."
+  },
+  "halo_gutterAlpha": {
+    "S1_k010": { "maxAlpha": 0, "avgAlpha": 0 },
+    "S2_k025": { "maxAlpha": 0, "avgAlpha": 0 },
+    "S3_k035": { "maxAlpha": 0, "avgAlpha": 0 },
+    "S4_k050": { "maxAlpha": 105, "avgAlpha": 37.3, "interiorMaxAlpha": 239, "edgeMaxAlpha": 255 },
+    "S5_rm": { "maxAlpha": 92, "avgAlpha": 17.3, "interiorMaxAlpha": 248, "edgeMaxAlpha": 255 },
+    "verdict": "Halo strictly subordinate to interior/edge; only appears in late phases (front inside + warm field at boundary)."
+  },
+  "finalTwoPixels_228": {
+    "S1_k010": { "sidesMaxAlpha": { "top": 0, "bottom": 0, "left": 0, "right": 0 }, "corners": "all [0,0,0,0]" },
+    "S5_rm": { "sidesMaxAlpha": { "top": 0, "bottom": 0, "left": 0, "right": 0 }, "corners": "all [0,0,0,0]" },
+    "verdict": "Final 2 CSS px (8 backing px at 4x) strictly zero on all four sides AND corners. PASS."
+  },
+  "rmStatic": { "diffBytes": 0, "identical": true },
+  "scalarRanges_S5": {
+    "T": { "min": 0.239, "max": 0.929, "note": "accepted baseTemperature with the deliberate 0.24 minimum floor" },
+    "H": { "min": 0, "max": 1, "note": "zero-capable; 24.1% of the panel has H=0 (cool end never lights the boundary)" },
+    "envMultiplier": { "byConstruction": "(0.35 + 0.9*H) in [0.35, 1.25]", "measuredRatioRange": [0.30, 1.263], "note": "measured ratio = envU/env0 of two 8-bit channels; extremes within quantization of the construction bound" }
+  },
+  "layerComposition_228": {
+    "canvasCountInFrame": 1,
+    "zIndex": { "shell": 0, "clip": 3, "chrome": 5 },
+    "pointerEvents": { "fxCanvas": "none", "clip": "auto", "pill": "auto", "chrome": "none" },
+    "boxShadows": { "frame": "1px ring + 0 10px 30px", "shell": "DARK_PANEL_SHADOW (3-layer)", "clip": "none" },
+    "hitTest": {
+      "gutterTopLeft(5,5)": "layerFrame",
+      "leftGutter(10,114)": "layerFrame",
+      "rightGutter(218,114)": "layerFrame",
+      "topGutter(114,10)": "layerFrame",
+      "bottomGutter(114,218)": "layerFrame",
+      "cornerGutter(6,6)": "layerFrame",
+      "panelInterior(150,150)": "layerClip",
+      "lowerPanel(180,60)": "layerClip",
+      "centerChrome(114,114)": "layerClip",
+      "pillCenter": "layerPill",
+      "pillEdgeInside": "layerPill",
+      "panelEdgeNearPill(30,30)": "layerPill"
+    },
+    "verdict": "Gutter is frame surface only (FX canvas pointer-events none passes through); panel interior hit-tests to the transparent interaction-safe clip; pill receives its own events; chrome passes through. Singular shadows per layer (no double-stacking)."
+  },
+  "montageSignatures_S5": [
+    { "view": "T", "meanGrayscale": 152, "nonzeroFrac": 1.0 },
+    { "view": "A", "meanGrayscale": 226, "nonzeroFrac": 0.9 },
+    { "view": "H", "meanGrayscale": 163, "nonzeroFrac": 0.759 },
+    { "view": "E", "meanGrayscale": 157, "nonzeroFrac": 0.698 },
+    { "view": "interior", "meanRGB": [146, 111, 95], "nonzeroFrac": 1.0 },
+    { "view": "env", "meanRG": [73, 70], "nonzeroFrac": 0.92 },
+    { "view": "band", "meanGrayscale": 19, "nonzeroFrac": 0.129 },
+    { "view": "edge", "meanGrayscale": 14, "nonzeroFrac": 0.103 },
+    { "view": "halo", "meanGrayscale": 130, "nonzeroFrac": 0.647 },
+    { "view": "final ON", "meanRGB": [103, 85, 92], "nonzeroFrac": 0.861 },
+    { "view": "OFF", "meanRGB": [145, 115, 98], "nonzeroFrac": 1.0 }
+  ],
+  "visualJudgments": {
+    "probe_final_unified": "Faint warm halo in the gutter (left/bottom strongest, right largely dark), 2-4 CSS px wide, outer 1-2px black. Boundary shows a segmented warm edge with dark blue interruptions at the upper-right/diagonal - NOT a continuous ring. Interior = accepted front sweep (cool dark-blue core biased upper-right, warm on left/top/bottom, bottom-right cooler).",
+    "layer_228_composition": "Coherent rounded-panel UI with integrated thermal effect; shell gradient + subtle shadow visible below the FX canvas; pill label visible; halo contained; no garish outline."
+  },
+  "screenshots": [
+    { "path": "C:/Users/Administrator/AppData/Roaming/CindyGlobal/browser-runtime/media/browser/57d9bd6064fc1b04.jpg", "note": "page with probe/probeOff/probe200 + 4x3 montage (RM static)" },
+    { "path": "C:/Users/Administrator/AppData/Roaming/CindyGlobal/browser-runtime/media/browser/bfb8f5690b92e75c.jpg", "note": "zoomed probe (unified ON) + montage - boundary segmented, halo contained, outer 1-2px black" },
+    { "path": "C:/Users/Administrator/AppData/Roaming/CindyGlobal/browser-runtime/media/browser/8cc817b443588f24.jpg", "note": "Lab 228 layer composition: frame + shell below + FX canvas + clip/pill above + chrome; gutter halo, shell shadow, pill visible" }
+  ],
+  "hostValidations": {
+    "bashUnavailable": true,
+    "note": "Worker bash is broken ('Cindy isolated Pi package home is unavailable'); all git/node/test commands must be run by the Host.",
+    "commands": [
+      "npx vitest run src/presentation/main-window/expandedPresentationSurface.test.ts src/lab/scenarios.test.ts src/lab/rendererReuse.test.ts",
+      "npm run type-check",
+      "npm run lint -- --quiet",
+      "npm test",
+      "git diff --check"
+    ],
+    "expectedBaseline": "Prior full suite 1773/1774 with the sole pre-existing failure browser-extension/architecture-guard.test.js:277."
+  },
+  "macOS": "NOT VERIFIED (no macOS host available)."
+}

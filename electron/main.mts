@@ -82,9 +82,9 @@ import {
   shouldUsePackagedWindowsOpaqueWindow,
 } from "./windowVisibility.mjs";
 import {
-  buildStartupWindowModeArgument,
-  resolveMainWindowStartupMode,
-} from "./startupWindowMode.mjs";
+  cancelMainWindowCompactReachability,
+  ensureMainWindowCompactReachable,
+} from "./mainWindowSurfacePolicy.mjs";
 import {
   applyManualProxyToSession,
   applySystemProxyToSession,
@@ -97,13 +97,11 @@ import {
   createMainWindowPointerBoundaryController,
   MAIN_WINDOW_POINTER_BOUNDARY_CHANNEL,
 } from "./mainWindowPointerBoundary.mjs";
+import { resolveMainWindowManualPosition } from "./mainWindowManualPosition.mjs";
 import {
   SETTINGS_WINDOW_CONTENT_HEIGHT,
   SETTINGS_WINDOW_CONTENT_WIDTH,
-  UI_LAB_WINDOW_CONTENT_HEIGHT,
-  UI_LAB_WINDOW_CONTENT_WIDTH,
   getMainWindowFullOuterSize,
-  getMainWindowOuterSize,
   getSecondaryWindowOuterSize,
 } from "../src/constants/windowMetrics.js";
 import { createExtensionRequestBridge } from "./extensionRequestBridge.mjs";
@@ -158,7 +156,6 @@ import {
   resolveSecondaryWindowOpenOptions as resolveAnchoredSecondaryWindowOpenOptions,
   secondaryWindowRoute as resolveSecondaryWindowRoute,
 } from "./windowRouting.mjs";
-import { createUiLabScenariosController } from "./uiLabScenarios.mjs";
 import {
   downloadImage as saveDownloadedImage,
   ensureExtension,
@@ -178,7 +175,6 @@ const WINDOW_LABELS = {
   main: "main",
   settings: "settings",
   contextMenu: "context-menu",
-  uiLab: "ui-lab",
 };
 
 const FALLBACK_LANGUAGE = "en";
@@ -190,7 +186,6 @@ const SHORTCUT_SHOW_EVENT = "shortcut-show";
 const SHORTCUT_TOGGLE_COOLDOWN_MS = 420;
 const CONTEXT_MENU_CLOSED_EVENT = "context-menu-closed";
 const LANGUAGE_CHANGED_EVENT = "language-changed";
-const UI_LAB_RESET_EVENT = "ui-lab-reset";
 const LOG_DIR_NAME = "logs";
 const RUNTIME_LOG_FILE_NAME = "runtime-latest.log";
 const RUNTIME_LOG_BUFFER_LIMIT = 1500;
@@ -198,13 +193,9 @@ const EXPORTED_RUNTIME_LOG_LINE_LIMIT = 800;
 const SETTINGS_WINDOW_WIDTH = SETTINGS_WINDOW_CONTENT_WIDTH;
 const SETTINGS_WINDOW_HEIGHT = SETTINGS_WINDOW_CONTENT_HEIGHT;
 const SETTINGS_WINDOW_GAP = 16;
-const UI_LAB_WINDOW_WIDTH = UI_LAB_WINDOW_CONTENT_WIDTH;
-const UI_LAB_WINDOW_HEIGHT = UI_LAB_WINDOW_CONTENT_HEIGHT;
-const UI_LAB_WINDOW_GAP = 16;
 const WINDOW_EDGE_PADDING = 8;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15_000;
 const XIAOHONGSHU_DRAG_RESOLUTION_TIMEOUT_MS = 30_000;
-const UI_LAB_VIDEO_QUEUE_MAX_CONCURRENT = 3;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
 const WINDOW_STARTUP_CAPTURE_DELAY_MS = 180;
 const STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS = 1_500;
@@ -216,7 +207,6 @@ const DOCS_SCREENSHOT_USER_DATA_ENV = "AMEOW_DOCS_SCREENSHOT_USER_DATA";
 const DOCS_SCREENSHOT_CAPTURE_DELAY_MS = 600;
 const DOCS_SCREENSHOT_EXPANDED_CAPTURE_DELAY_MS = 1_000;
 const DOCS_SCREENSHOT_SETTINGS_CAPTURE_DELAY_MS = 900;
-const DOCS_SCREENSHOT_UI_LAB_APPLY_DELAY_MS = 800;
 let registeredShortcut = "";
 let lastShortcutTriggerMs = 0;
 let electronDownloadRuntime = null;
@@ -241,7 +231,6 @@ const wsClients = new Set();
 const pendingProtectedImageRequests = new Map();
 const pendingXiaohongshuDragRequests = new Map();
 let wsServer = null;
-let uiLabRuntimeStatusOverride = null;
 const runtimeDependencyGateController = createRuntimeDependencyGateController({
   emitAppEvent,
   getRuntimeDependencyStatus,
@@ -251,8 +240,6 @@ const runtimeDependencyGateController = createRuntimeDependencyGateController({
   ensureManagedFfmpegRuntimeReady,
   ensureManagedDenoRuntimeReady,
 });
-let uiLabScenarioActive = false;
-const activeWindowBoundsAnimations = new Map();
 
 const startupDiagnosticsEnabled = shouldEnablePackagedStartupDiagnostics({
   platform: process.platform,
@@ -458,17 +445,6 @@ function resolveDocsScreenshotSettingsPage(target: string): string | null {
   return match?.[1] ?? null;
 }
 
-function resolveDocsScreenshotUiLabScenario(target: string): string | null {
-  switch (target) {
-    case "desktop-download-active":
-      return "download-active";
-    case "desktop-transcode-active":
-      return "transcode-active";
-    default:
-      return null;
-  }
-}
-
 async function writeDocsScreenshot(win: BrowserWindow, request: {
   target: string;
   outputPath: string;
@@ -492,27 +468,18 @@ async function writeDocsScreenshot(win: BrowserWindow, request: {
   }, null, 2));
 }
 
-async function applyDocsScreenshotUiLabScenario(win: BrowserWindow, scenario: string) {
-  await win.webContents.executeJavaScript(`
-    window.ameow.commands.invoke("dev_ui_lab_apply_scenario", ${JSON.stringify({ scenario })})
-  `);
-}
-
 async function captureDocsScreenshotAndQuit(win: BrowserWindow, request: {
   target: string;
   outputPath: string;
 }) {
-  const uiLabScenario = resolveDocsScreenshotUiLabScenario(request.target);
   if (![
     "desktop-floating-window-idle",
     "desktop-main-window-expanded",
-    "desktop-download-active",
-    "desktop-transcode-active",
   ].includes(request.target)) {
     throw new Error(`Unsupported docs screenshot target: ${request.target}`);
   }
 
-  if (request.target === "desktop-main-window-expanded" || uiLabScenario) {
+  if (request.target === "desktop-main-window-expanded") {
     mainWindowPointerBoundaryController?.stop();
     win.webContents.sendInputEvent({
       type: "mouseMove",
@@ -524,17 +491,10 @@ async function captureDocsScreenshotAndQuit(win: BrowserWindow, request: {
     win.webContents.send(MAIN_WINDOW_POINTER_BOUNDARY_CHANNEL, { inside: true });
   }
 
-  if (uiLabScenario) {
-    await new Promise((resolveDelay) => {
-      setTimeout(resolveDelay, DOCS_SCREENSHOT_UI_LAB_APPLY_DELAY_MS);
-    });
-    await applyDocsScreenshotUiLabScenario(win, uiLabScenario);
-  }
-
   await new Promise((resolveDelay) => {
     setTimeout(
       resolveDelay,
-      request.target === "desktop-main-window-expanded" || uiLabScenario
+      request.target === "desktop-main-window-expanded"
         ? DOCS_SCREENSHOT_EXPANDED_CAPTURE_DELAY_MS
         : DOCS_SCREENSHOT_CAPTURE_DELAY_MS,
     );
@@ -632,7 +592,6 @@ type AmeowBrowserWindowCreationOptions = {
   routePath: string;
   width: number;
   height: number;
-  startupWindowMode?: "compact" | "full";
   x?: number;
   y?: number;
   center?: boolean;
@@ -672,7 +631,6 @@ async function createAmeowBrowserWindow(label: string, {
   routePath,
   width,
   height,
-  startupWindowMode = "full",
   x,
   y,
   center = false,
@@ -722,9 +680,6 @@ async function createAmeowBrowserWindow(label: string, {
       contextIsolation: true,
       sandbox: false,
       nodeIntegration: false,
-      additionalArguments: [
-        buildStartupWindowModeArgument(startupWindowMode),
-      ],
     },
   });
 
@@ -807,136 +762,6 @@ function keepMainWindowOffWindowsTaskbar(win: BrowserWindow) {
 
 function shouldToggleFocusabilityForInteractionMode() {
   return process.platform !== "win32";
-}
-
-function clampWindowBoundsValue(value: unknown, fallback: number) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return fallback;
-  }
-  return Math.round(numeric);
-}
-
-function easeInOutCubic(progress: number) {
-  const clamped = Math.min(1, Math.max(0, progress));
-  if (clamped < 0.5) {
-    return 4 * (clamped ** 3);
-  }
-  return 1 - (((-2 * clamped) + 2) ** 3) / 2;
-}
-
-function stopWindowBoundsAnimation(win: BrowserWindow) {
-  const activeAnimation = activeWindowBoundsAnimations.get(win.id);
-  if (!activeAnimation) {
-    return;
-  }
-  activeAnimation.stop();
-  activeWindowBoundsAnimations.delete(win.id);
-}
-
-async function animateBrowserWindowBounds(
-  win: BrowserWindow,
-  targetBounds: { x: number; y: number; width: number; height: number },
-  {
-    durationMs = 280,
-  }: {
-    durationMs?: number;
-  } = {},
-) {
-  if (win.isDestroyed()) {
-    return;
-  }
-
-  stopWindowBoundsAnimation(win);
-
-  const from = win.getBounds();
-  const to = {
-    x: clampWindowBoundsValue(targetBounds.x, from.x),
-    y: clampWindowBoundsValue(targetBounds.y, from.y),
-    width: Math.max(1, clampWindowBoundsValue(targetBounds.width, from.width)),
-    height: Math.max(1, clampWindowBoundsValue(targetBounds.height, from.height)),
-  };
-  const effectiveDurationMs = Math.max(0, Number(durationMs) || 0);
-
-  if (
-    effectiveDurationMs === 0
-    || (
-      from.x === to.x
-      && from.y === to.y
-      && from.width === to.width
-      && from.height === to.height
-    )
-  ) {
-    win.setBounds(to, false);
-    return;
-  }
-
-  await new Promise<void>((resolve) => {
-    const startedAtMs = Date.now();
-    let frameTimer: NodeJS.Timeout | null = null;
-    let stopped = false;
-
-    const finish = () => {
-      if (frameTimer !== null) {
-        clearTimeout(frameTimer);
-        frameTimer = null;
-      }
-      if (activeWindowBoundsAnimations.get(win.id)?.stop === stop) {
-        activeWindowBoundsAnimations.delete(win.id);
-      }
-      if (!win.isDestroyed()) {
-        win.setBounds(to, false);
-      }
-      resolve();
-    };
-
-    const step = () => {
-      if (stopped) {
-        resolve();
-        return;
-      }
-      if (win.isDestroyed()) {
-        if (frameTimer !== null) {
-          clearTimeout(frameTimer);
-          frameTimer = null;
-        }
-        if (activeWindowBoundsAnimations.get(win.id)?.stop === stop) {
-          activeWindowBoundsAnimations.delete(win.id);
-        }
-        resolve();
-        return;
-      }
-
-      const elapsedMs = Date.now() - startedAtMs;
-      const progress = Math.min(1, elapsedMs / effectiveDurationMs);
-      const easedProgress = easeInOutCubic(progress);
-      win.setBounds({
-        x: Math.round(from.x + ((to.x - from.x) * easedProgress)),
-        y: Math.round(from.y + ((to.y - from.y) * easedProgress)),
-        width: Math.round(from.width + ((to.width - from.width) * easedProgress)),
-        height: Math.round(from.height + ((to.height - from.height) * easedProgress)),
-      }, false);
-
-      if (progress >= 1) {
-        finish();
-        return;
-      }
-
-      frameTimer = setTimeout(step, 1000 / 60);
-    };
-
-    const stop = () => {
-      stopped = true;
-      if (frameTimer !== null) {
-        clearTimeout(frameTimer);
-        frameTimer = null;
-      }
-      resolve();
-    };
-
-    activeWindowBoundsAnimations.set(win.id, { stop });
-    step();
-  });
 }
 
 function getDesktopNetworkSession() {
@@ -1419,6 +1244,7 @@ async function exportSupportLog() {
       appVersion: app.getVersion(),
       platform: process.platform,
       arch: process.arch,
+      isPackaged: app.isPackaged,
       configPath: getConfigPath(),
       logDir: getLogsDir(),
       runtimeLogPath: getRuntimeLogPath(),
@@ -1900,7 +1726,6 @@ function getErrorDiagnosticCommandController() {
     appVersion: app.getVersion(),
     platform: process.platform,
     arch: process.arch,
-    readRecentRuntimeLogLines,
     writeClipboardText(text) {
       clipboard.writeText(text);
     },
@@ -1937,72 +1762,7 @@ function missingRuntimeEntry(error) {
   };
 }
 
-function isUiLabEnabled() {
-  return !app.isPackaged;
-}
-
-function assertUiLabEnabled() {
-  if (!isUiLabEnabled()) {
-    throw new Error("UI Lab is only available in development builds.");
-  }
-}
-
-function cloneRuntimeStatusSnapshot(snapshot) {
-  return {
-    python: { ...snapshot.python },
-    ytDlp: { ...snapshot.ytDlp },
-    galleryDl: { ...snapshot.galleryDl },
-    ffmpeg: { ...snapshot.ffmpeg },
-    deno: { ...snapshot.deno },
-  };
-}
-
-function cloneRuntimeDependencyGateState(state) {
-  return {
-    phase: state.phase,
-    missingComponents: [...(state.missingComponents ?? [])],
-    lastError: state.lastError ?? null,
-    updatedAtMs: state.updatedAtMs ?? nowTimestampMs(),
-    currentComponent: state.currentComponent ?? null,
-    currentStage: state.currentStage ?? null,
-    progressPercent: state.progressPercent ?? null,
-    downloadedBytes: state.downloadedBytes ?? null,
-    totalBytes: state.totalBytes ?? null,
-    nextComponent: state.nextComponent ?? null,
-  };
-}
-
-function clearUiLabRuntimeOverrides() {
-  uiLabRuntimeStatusOverride = null;
-  runtimeDependencyGateController.clearUiLabRuntimeGateOverride();
-}
-
-function setUiLabRuntimeOverrides(runtimeStatus, gateState) {
-  uiLabRuntimeStatusOverride = cloneRuntimeStatusSnapshot(runtimeStatus);
-  runtimeDependencyGateController.setUiLabRuntimeGateOverride(
-    cloneRuntimeDependencyGateState(gateState),
-  );
-}
-
-const uiLabScenariosController = createUiLabScenariosController({
-  emitAppEvent,
-  setRuntimeOverrides: setUiLabRuntimeOverrides,
-  clearRuntimeOverrides: clearUiLabRuntimeOverrides,
-  getRuntimeMaxConcurrent() {
-    return getElectronDownloadRuntime().maxConcurrent;
-  },
-  emitLiveVideoQueueState,
-  getRuntimeDependencyGateState,
-  nowTimestampMs,
-  uiLabResetEvent: UI_LAB_RESET_EVENT,
-  fallbackVideoQueueMaxConcurrent: UI_LAB_VIDEO_QUEUE_MAX_CONCURRENT,
-});
-
 async function getRuntimeDependencyStatus() {
-  if (uiLabRuntimeStatusOverride) {
-    return cloneRuntimeStatusSnapshot(uiLabRuntimeStatusOverride);
-  }
-
   return inspectRuntimeDependencyStatus(buildElectronRuntimeEnvironment());
 }
 
@@ -2140,24 +1900,6 @@ function emitLiveVideoQueueState() {
   const runtime = getElectronDownloadRuntime();
   emitAppEvent("video-queue-count", runtime.getQueueState());
   emitAppEvent("video-queue-detail", runtime.getQueueDetail());
-}
-
-async function restoreUiLabLiveState() {
-  uiLabScenarioActive = false;
-  await uiLabScenariosController.restoreLiveState();
-}
-
-async function applyUiLabScenario(scenario) {
-  assertUiLabEnabled();
-  await showMainWindow();
-
-  if (scenario === "reset") {
-    await restoreUiLabLiveState();
-    return;
-  }
-
-  uiLabScenarioActive = true;
-  uiLabScenariosController.applyScenarioPreview(scenario);
 }
 
 function broadcastWsMessage(message) {
@@ -2355,11 +2097,6 @@ function registerWindow(label, win) {
     if (label === WINDOW_LABELS.contextMenu) {
       emitAppEvent(CONTEXT_MENU_CLOSED_EVENT, undefined);
     }
-    if (label === WINDOW_LABELS.uiLab && uiLabScenarioActive) {
-      void restoreUiLabLiveState().catch((error) => {
-        console.error("Failed to restore live state after UI Lab close:", error);
-      });
-    }
   });
 }
 
@@ -2369,11 +2106,10 @@ async function createMainWindow(startupConfigSnapshot = null) {
     return existing;
   }
 
-  const startupWindowMode = resolveMainWindowStartupMode({
-    platform: process.platform,
-    hasShownMainWindowOnce,
-  });
-  const initialWindowSize = getMainWindowOuterSize(process.platform, startupWindowMode);
+  // The Main Window keeps one stable full viewport for the visible 200 px
+  // panel, shadow gutter, and overshoot; full/compact presentation never
+  // changes native width/height.
+  const initialWindowSize = getMainWindowFullOuterSize(process.platform);
 
   const {
     browserWindow: mainWindow,
@@ -2382,7 +2118,6 @@ async function createMainWindow(startupConfigSnapshot = null) {
     routePath: "/",
     width: initialWindowSize,
     height: initialWindowSize,
-    startupWindowMode,
     title: app.getName(),
     alwaysOnTop: true,
     skipTaskbar: process.platform === "win32",
@@ -2575,7 +2310,7 @@ async function openSecondaryWindow(label, options, internalOptions = {}) {
 
   const routePath = internalOptions.routePath ?? secondaryWindowRoute(label);
   const secondaryWindowOuterSize = (
-    label === WINDOW_LABELS.settings || label === WINDOW_LABELS.uiLab
+    label === WINDOW_LABELS.settings
   )
     ? getSecondaryWindowOuterSize(process.platform, resolvedOptions.width, resolvedOptions.height)
     : null;
@@ -2597,7 +2332,7 @@ async function openSecondaryWindow(label, options, internalOptions = {}) {
     skipTaskbar: resolvedOptions.skipTaskbar ?? process.platform === "win32",
     parentLabel: resolvedOptions.parent === "main" ? WINDOW_LABELS.main : undefined,
     preferZeroAlphaTransparentBackground: (
-      label === WINDOW_LABELS.settings || label === WINDOW_LABELS.uiLab
+      label === WINDOW_LABELS.settings
     ) && resolvedOptions.transparent !== false,
   });
 
@@ -2631,7 +2366,6 @@ function resolveSecondaryWindowOpenOptions(label, options) {
       return screen.getDisplayMatching(anchorBounds).workArea;
     },
     settingsGap: SETTINGS_WINDOW_GAP,
-    uiLabGap: UI_LAB_WINDOW_GAP,
     edgePadding: WINDOW_EDGE_PADDING,
   });
 }
@@ -3243,9 +2977,6 @@ async function handleCommand(command, payload = {}) {
         },
         imageDownloadDependencies,
       );
-    case "dev_ui_lab_apply_scenario":
-      await applyUiLabScenario(String(payload.scenario ?? ""));
-      return;
     case "save_data_url":
       return saveImageDataUrl(
         String(payload.dataUrl ?? ""),
@@ -3474,11 +3205,6 @@ function registerIpcHandlers() {
     await openSecondaryWindow(WINDOW_LABELS.contextMenu, request.options);
   });
 
-  ipcMain.handle("ameow:window:open-ui-lab", async (_event, request) => {
-    assertUiLabEnabled();
-    await openSecondaryWindow(WINDOW_LABELS.uiLab, request.options);
-  });
-
   ipcMain.handle("ameow:current-window:outer-position", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) {
@@ -3527,13 +3253,12 @@ function registerIpcHandlers() {
       return;
     }
 
-    const x = Number(payload?.x);
-    const y = Number(payload?.y);
-    if (Number.isNaN(x) || Number.isNaN(y)) {
+    const position = resolveMainWindowManualPosition(payload);
+    if (!position) {
       return;
     }
 
-    win.setPosition(Math.round(x), Math.round(y));
+    win.setPosition(position.x, position.y);
   });
 
   ipcMain.on("ameow:current-window:set-interaction-mode", (event, payload) => {
@@ -3553,6 +3278,9 @@ function registerIpcHandlers() {
       return;
     }
 
+    // Returning to interactive mode cancels any active compact placement
+    // correction so a stale correction cannot move a newer full surface.
+    cancelMainWindowCompactReachability(win);
     win.setIgnoreMouseEvents(false);
     if (shouldToggleFocusabilityForInteractionMode()) {
       win.setFocusable(true);
@@ -3563,28 +3291,32 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle("ameow:current-window:animate-bounds", async (event, request) => {
+  ipcMain.handle("ameow:current-window:ensure-compact-reachable", async (event, request) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) {
       throw new Error("Current window not found");
     }
 
-    const currentBounds = win.getBounds();
-    await animateBrowserWindowBounds(win, {
-      x: request?.bounds?.x ?? currentBounds.x,
-      y: request?.bounds?.y ?? currentBounds.y,
-      width: request?.bounds?.width ?? currentBounds.width,
-      height: request?.bounds?.height ?? currentBounds.height,
-    }, {
-      durationMs: request?.options?.durationMs,
-    });
+    const requestEpoch = typeof request?.requestEpoch === "number"
+      ? request.requestEpoch
+      : 0;
+    const reachableFrameSize = Number(request?.reachableFrameSize);
+    const edgePadding = Number(request?.edgePadding);
 
-    return {
-      transitionToken:
-        typeof request?.options?.transitionToken === "number"
-          ? request.options.transitionToken
-          : null,
-    };
+    return ensureMainWindowCompactReachable(win, {
+      reachableFrameSize: Number.isFinite(reachableFrameSize) ? reachableFrameSize : 80,
+      edgePadding: Number.isFinite(edgePadding) ? edgePadding : 8,
+      reducedMotion: request?.reducedMotion === true,
+      requestEpoch,
+    });
+  });
+
+  ipcMain.on("ameow:current-window:cancel-compact-reachability", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) {
+      return;
+    }
+    cancelMainWindowCompactReachability(win);
   });
 
   ipcMain.handle("ameow:current-window:close", (event) => {

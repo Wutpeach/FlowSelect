@@ -1,0 +1,6 @@
+{"file":".trellis/tasks/08-11-renderer-motion-architecture-m0-m1/research/current-presentation-audit.md","reason":"Current ownership map, behavior baseline, bridge evidence, and test gaps for the reconstruction."}
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Existing compact-window interruption, collapse grace, transparent-shell, icon handoff, and reduced-motion contracts."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Current single-controller, reducer timer, lock, task outcome, pointer-boundary, and drag-state contracts."}
+{"file":".trellis/spec/frontend/type-safety/07-electron-preload-bridge-contract-for-renderer-migration.md","reason":"Typed renderer/preload boundary that must be narrowed without breaking unrelated current-window APIs or UI Lab."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/08-electron-proxy-resolution-contract-part-02.md","reason":"Electron renderer command and native window boundary contract containing stale generic bounds assumptions to reconcile."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/08-electron-proxy-resolution-contract-part-04.md","reason":"UI Lab and desktop behavior contract that must remain externally equivalent during the presentation cutover."}

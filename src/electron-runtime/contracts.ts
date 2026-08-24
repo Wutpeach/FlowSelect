@@ -16,6 +16,7 @@ import type {
   DownloadQueueAck,
   PastedSelectionPorts,
   QueueDownloadCommand,
+  QueueDownloadPresentationCause,
 } from "../application/download-api.js";
 import type {
   DownloadRuntimeError,
@@ -216,15 +217,20 @@ export interface ElectronDownloadRuntime extends DownloadApplicationApi {
   startRuntimeDependencyBootstrap(
     reason?: string,
   ): Promise<RuntimeDependencyGateStatePayload>;
-  queueDownload(command: QueueDownloadCommand): Promise<DownloadQueueAck>;
+  queueDownload(
+    command: QueueDownloadCommand,
+    cause?: QueueDownloadPresentationCause,
+  ): Promise<DownloadQueueAck>;
   queuePastedDownload(
     command: QueueDownloadCommand,
     ports: PastedSelectionPorts,
+    cause?: QueueDownloadPresentationCause,
   ): Promise<DownloadQueueAck>;
   /** Internal raw-input queue path used by the Application API and advanced
    * quality continuation; transport adapters call `queueDownload`. */
   queueVideoDownload(
     request: RawDownloadInput,
+    cause?: QueueDownloadPresentationCause,
   ): Promise<DownloadQueueAck>;
   selectAdvancedQualityOption(traceId: string, optionId: string): Promise<boolean>;
   cancelDownload(traceId: string): Promise<boolean>;

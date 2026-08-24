@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Unified Thermal → Panel Boundary — GPU Evidence Harness</title>
+<style>
+  body { background:#111016; color:#dcd7e6; font: 12px/1.5 system-ui, sans-serif; margin:16px; }
+  h1 { font-size:15px; }
+  h2 { font-size:12px; margin:14px 0 6px; }
+  canvas { background:#000; image-rendering: pixelated; border:1px solid #3a3547; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .col { display:flex; flex-direction:column; gap:4px; }
+  pre { background:#191722; border:1px solid #332e3f; padding:8px; border-radius:8px; white-space:pre-wrap; font-size:10.5px; max-width:860px; }
+  .label { color:#8f89a0; font-size:10.5px; }
+</style>
+</head>
+<body>
+<h1>Unified Thermal → Panel Boundary Response · GPU evidence harness</h1>
+<p class="label">Probe: 912×912 backing (4× of 228 CSS), single draw per frame · Montage: debug views (diagnostic multi-draw). Phase pins via k = fract(t·0.13).</p>
+<div class="row">
+  <div class="col"><h2>Probe · unified ON (228 composite)</h2><canvas id="probe" width="912" height="912" style="width:228px;height:228px"></canvas></div>
+  <div class="col"><h2>Probe · unified OFF (refraction only)</h2><canvas id="probeOff" width="912" height="912" style="width:228px;height:228px"></canvas></div>
+  <div class="col"><h2>Probe · accepted 200 reference</h2><canvas id="probe200" width="800" height="800" style="width:200px;height:200px"></canvas></div>
+  <div class="col"><h2>Montage · debug views</h2><canvas id="montage" width="912" height="684" style="width:456px;height:342px"></canvas></div>
+</div>
+<pre id="out">running…</pre>
+<script>
+"use strict";
+const VS = `#version 300 es
+precision highp float;
+const vec2 POSITIONS[3] = vec2[3](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+out vec2 vUv;
+void main(){ vec2 p = POSITIONS[gl_VertexID]; vUv = p*0.5+0.5; gl_Position = vec4(p,0.0,1.0); }`;
+
+const FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform float uTime;
+uniform bool uReducedMotion;
+uniform int uHeatmapMode;
+uniform int uRefractionMode;
+uniform int uBoundaryMode;
+uniform vec2 uPanelOrigin;
+uniform vec2 uPanelSize;
+uniform float uCornerRadius;
+uniform int uView;
+uniform vec2 uResolution;
+
+float heatmapNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = abs(fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453123));
+  float b = abs(fract(sin(dot(i + vec2(1.0, 0.0), vec2(127.1, 311.7))) * 43758.5453123));
+  float c = abs(fract(sin(dot(i + vec2(0.0, 1.0), vec2(127.1, 311.7))) * 43758.5453123));
+  float d = abs(fract(sin(dot(i + vec2(1.0, 1.0), vec2(127.1, 311.7))) * 43758.5453123));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float heatmapBend(vec2 pos, float time) {
+  float swell = heatmapNoise(pos * 0.8 + vec2(time * 0.09, -time * 0.05)) - 0.5;
+  float curl  = heatmapNoise(pos * 1.6 + vec2(-time * 0.04, time * 0.07)) - 0.5;
+  return swell * 0.13 + curl * 0.05;
+}
+float heatmapGrainHash(vec2 p) {
+  vec3 q = fract(p.xyx * vec3(0.1031, 0.1030, 0.0973));
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+float roundedBoundary(vec2 panelUv) {
+  vec2 halfSize = vec2(0.5) - uCornerRadius;
+  vec2 qb = abs(panelUv - 0.5) - halfSize;
+  float bd = length(max(qb, vec2(0.0)))
+    + min(max(qb.x, qb.y), 0.0) - uCornerRadius;
+  return bd;
+}
+
+// debug scalars (harness only; production heatmapOutput computes these locally)
+float gT=0.0, gA=0.0, gH=0.0, gE=0.0, gEnv0=0.0, gEnvU=0.0, gBd=0.0, gBand=0.0, gEdge=0.0, gHalo=0.0;
+vec3 gInterior = vec3(0.0);
+
+void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+  float k = reducedMotion ? 0.42 : fract(t * 0.13);
+  float front = mix(-0.58, 1.6, k);
+  float bendTime = reducedMotion ? 0.0 : t;
+  vec2 panelUv = (uv - uPanelOrigin) / uPanelSize;
+  vec2 q = panelUv - 0.5;
+  const vec2 DIR = vec2(0.8235, 0.5674);
+  float p = dot(q, DIR);
+  float bend = heatmapBend(q, bendTime);
+  float d = p - front + bend;
+  float behind = max(-d, 0.0);
+  float body = exp(-behind * 1.1) * (1.0 - smoothstep(0.0, 0.05, d));
+  float warm = exp(-abs(d + 0.018) * 30.0);
+  vec2 frontPoint = DIR * front;
+  float alongFront = dot(q - frontPoint, vec2(-DIR.y, DIR.x));
+  float core = exp(-alongFront * alongFront * 200.0 - d * d * 200.0);
+  float energy = smoothstep(0.0, 0.12, k) * (1.0 - smoothstep(0.66, 0.99, k));
+  float bd = roundedBoundary(panelUv);
+  gBd = bd;
+  float boundaryBand = smoothstep(-0.05, 0.0, bd) * step(bd, 0.0);
+  gBand = boundaryBand;
+  float capture = boundaryBand * warm * 0.6;
+  float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;
+  float coolLift = body * (1.0 - smoothstep(0.20, 0.85, warm)) * 0.18 * energy;
+  float hotLift = warm * 0.20 * energy;
+  float material = clamp(heat + coolLift + hotLift, 0.0, 1.0);
+  const vec3 HEAT_STOP[7] = vec3[7](
+    vec3(0.010, 0.014, 0.045), vec3(0.035, 0.090, 0.360), vec3(0.080, 0.220, 0.680),
+    vec3(0.090, 0.400, 0.940), vec3(1.000, 0.800, 0.200), vec3(1.000, 0.540, 0.140),
+    vec3(1.000, 0.340, 0.090));
+  vec3 rgb = HEAT_STOP[0];
+  for (int i = 1; i < 7; i++) {
+    float m = clamp(material * 6.0 - float(i - 1), 0.0, 1.0);
+    rgb = mix(rgb, HEAT_STOP[i], m);
+  }
+  float yellowZone = smoothstep(0.40, 0.52, material)
+    * (1.0 - smoothstep(0.62, 0.76, material));
+  rgb.g = mix(rgb.g, rgb.r * 0.78 + rgb.b * 0.10, yellowZone * 0.9);
+  float contact = boundaryBand * warm;
+  float inwardCool = contact * smoothstep(-0.16, -0.05, bd);
+  rgb = mix(rgb, vec3(0.160, 0.520, 0.900),
+    inwardCool * 0.35 * (1.0 - smoothstep(0.45, 0.80, material)));
+  float alpha = mix(0.55, 1.0, smoothstep(0.0, 0.5, material));
+
+  if (uRefractionMode != 0) {
+    const float REFRACTION_EPS = 0.02;
+    const float REFRACTION_STRENGTH = 0.16;
+    vec2 grad = vec2(
+      heatmapBend(q + vec2(REFRACTION_EPS, 0.0), bendTime)
+        - heatmapBend(q - vec2(REFRACTION_EPS, 0.0), bendTime),
+      heatmapBend(q + vec2(0.0, REFRACTION_EPS), bendTime)
+        - heatmapBend(q - vec2(0.0, REFRACTION_EPS), bendTime)
+    ) * (0.5 / REFRACTION_EPS);
+    float covered = 1.0 - smoothstep(0.0, 0.05, d);
+    float bodyFloor = covered * (1.0 - smoothstep(0.20, 0.85, warm));
+    vec2 pa = vec2(0.8 * q.x - 0.6 * q.y, 0.6 * q.x + 0.8 * q.y) * 2.2 + vec2(0.30, -0.20);
+    vec2 pb = vec2(q.x + 0.45 * q.y, q.y - 0.35 * q.x) * 2.8 + vec2(-0.25, 0.35);
+    vec2 pc = vec2(q.x * 1.7, q.y * 0.9) * 1.6 + vec2(0.10, 0.40);
+    float baseA = heatmapBend(pa, bendTime) * 16.0;
+    float baseB = heatmapBend(pb, bendTime) * 16.0;
+    float baseC = heatmapBend(pc, bendTime) * 16.0;
+    float baseT = clamp(baseA * 0.45 + baseB * 0.35 + baseC * 0.20, -1.0, 1.0);
+    float baseTemperature = clamp(0.5 + 0.5 * baseT + 0.24, 0.0, 1.0);
+    gT = baseTemperature;
+    float H = uBoundaryMode != 0 ? smoothstep(0.38, 0.62, baseTemperature) : 1.0;
+    gH = H;
+    float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;
+    gEnv0 = env;
+    if (uBoundaryMode != 0) {
+      env = clamp(env * (0.35 + 0.9 * H), 0.0, 1.0);
+    }
+    gEnvU = env;
+    float s = REFRACTION_STRENGTH * env;
+    float dShift = s * (dot(grad, DIR) + dot(grad, grad));
+    float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));
+    float d2 = d + dShift;
+    float along2 = alongFront + alongShift;
+    float warm2 = exp(-abs(d2 + 0.018) * 30.0);
+    float covered2 = 1.0 - smoothstep(0.0, 0.05, d2);
+    gA = covered2 * energy;
+    float E = uBoundaryMode != 0 ? covered2 * energy * H : 0.0;
+    gE = E;
+    float edgeEnergy = uBoundaryMode != 0 ? E * boundaryBand : 0.0;
+    gEdge = edgeEnergy;
+    float contact2 = boundaryBand * warm2;
+    float material2 = clamp(
+      mix(0.08, 0.93, baseTemperature) + warm2 * 0.18 + contact2 * 0.22
+        + edgeEnergy * 0.25,
+      0.0, 1.0
+    ) * covered2;
+    vec3 rgb2 = HEAT_STOP[0];
+    for (int i = 1; i < 7; i++) {
+      float m = clamp(material2 * 6.0 - float(i - 1), 0.0, 1.0);
+      rgb2 = mix(rgb2, HEAT_STOP[i], m);
+    }
+    float yellowZone2 = smoothstep(0.40, 0.52, material2)
+      * (1.0 - smoothstep(0.62, 0.76, material2));
+    rgb2.g = mix(rgb2.g, rgb2.r * 0.78 + rgb2.b * 0.10, yellowZone2 * 0.9);
+    float inwardCool2 = contact2 * smoothstep(-0.16, -0.05, bd);
+    rgb2 = mix(rgb2, vec3(0.160, 0.520, 0.900),
+      inwardCool2 * 0.35 * (1.0 - smoothstep(0.45, 0.80, material2)));
+    float alpha2 = mix(0.55, 1.0, smoothstep(0.0, 0.5, material2));
+    gInterior = rgb2;
+    float materialMix = covered2 * energy;
+    rgb = mix(rgb, rgb2, materialMix);
+    alpha = mix(alpha, alpha2, materialMix);
+  }
+  rgb += (heatmapGrainHash(uv * 311.0 + 17.0) - 0.5) * 0.02;
+
+  if (uBoundaryMode != 0 && uRefractionMode != 0) {
+    vec2 qb = abs(panelUv - 0.5) - (vec2(0.5) - uCornerRadius);
+    vec2 outward = qb.x > 0.0 && qb.y > 0.0
+      ? normalize(qb)
+      : qb.x > 0.0 ? vec2(1.0, 0.0)
+      : qb.y > 0.0 ? vec2(0.0, 1.0)
+      : vec2(0.0, 0.0);
+    vec2 panelUvB = panelUv - bd * outward;
+    vec2 qB = panelUvB - 0.5;
+    vec2 paB = vec2(0.8 * qB.x - 0.6 * qB.y, 0.6 * qB.x + 0.8 * qB.y) * 2.2 + vec2(0.30, -0.20);
+    vec2 pbB = vec2(qB.x + 0.45 * qB.y, qB.y - 0.35 * qB.x) * 2.8 + vec2(-0.25, 0.35);
+    vec2 pcB = vec2(qB.x * 1.7, qB.y * 0.9) * 1.6 + vec2(0.10, 0.40);
+    float baseTB = clamp(
+      heatmapBend(paB, bendTime) * 16.0 * 0.45
+        + heatmapBend(pbB, bendTime) * 16.0 * 0.35
+        + heatmapBend(pcB, bendTime) * 16.0 * 0.20,
+      -1.0, 1.0);
+    float TB = clamp(0.5 + 0.5 * baseTB + 0.24, 0.0, 1.0);
+    float HB = smoothstep(0.38, 0.62, TB);
+    float dB = dot(qB, DIR) - front + heatmapBend(qB, bendTime);
+    float coveredB = 1.0 - smoothstep(0.0, 0.05, dB);
+    float EB = coveredB * energy * HB;
+    float haloFalloff = 1.0 - smoothstep(0.0, 1.0, clamp(bd / 0.06, 0.0, 1.0));
+    float halo = EB * haloFalloff;
+    gHalo = halo;
+    float haloMaterial = clamp(halo * 0.55, 0.0, 1.0);
+    vec3 rgbHalo = HEAT_STOP[0];
+    for (int i = 1; i < 7; i++) {
+      float m = clamp(haloMaterial * 6.0 - float(i - 1), 0.0, 1.0);
+      rgbHalo = mix(rgbHalo, HEAT_STOP[i], m);
+    }
+    float alphaHalo = halo * 0.45;
+    float panelMask = 1.0 - step(0.0, bd);
+    rgb *= panelMask;
+    alpha *= panelMask;
+    float inGutter = 1.0 - panelMask;
+    rgb = mix(rgb, rgbHalo, alphaHalo * inGutter);
+    alpha = max(alpha, alphaHalo * inGutter);
+  }
+  color = vec4(rgb, alpha);
+}
+
+void main() {
+  if (uHeatmapMode == 0) {
+    outColor = vec4(0.051, 0.051, 0.098, 1.0);
+    return;
+  }
+  vec4 c;
+  heatmapOutput(vUv, uTime, uReducedMotion, c);
+  if (uView == 1) outColor = vec4(vec3(gT), 1.0);
+  else if (uView == 2) outColor = vec4(vec3(gA), 1.0);
+  else if (uView == 3) outColor = vec4(vec3(gH), 1.0);
+  else if (uView == 4) outColor = vec4(vec3(gE), 1.0);
+  else if (uView == 5) outColor = vec4(gInterior, 1.0);
+  else if (uView == 6) outColor = vec4(gEnv0, gEnvU, 0.0, 1.0);
+  else if (uView == 7) outColor = vec4(vec3(gBand), 1.0);
+  else if (uView == 8) outColor = vec4(vec3(gEdge), 1.0);
+  else if (uView == 9) outColor = vec4(vec3(gHalo), 1.0);
+  else outColor = c;
+}`;
+
+function compile(gl, type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    throw new Error(gl.getShaderInfoLog(sh));
+  }
+  return sh;
+}
+
+function makeProgram(gl) {
+  const vs = compile(gl, gl.VERTEX_SHADER, VS);
+  const fs = compile(gl, gl.FRAGMENT_SHADER, FS);
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    throw new Error(gl.getProgramInfoLog(prog));
+  }
+  gl.deleteShader(vs);
+  gl.deleteShader(fs);
+  return prog;
+}
+
+const probe = document.getElementById("probe");
+const probeOff = document.getElementById("probeOff");
+const probe200 = document.getElementById("probe200");
+const montage = document.getElementById("montage");
+
+const gl = probe.getContext("webgl2");
+const glOff = probeOff.getContext("webgl2");
+const gl200 = probe200.getContext("webgl2");
+const glM = montage.getContext("webgl2");
+
+const program = makeProgram(gl);
+const programOff = makeProgram(glOff);
+const program200 = makeProgram(gl200);
+const programM = makeProgram(glM);
+
+// counters (harness diagnostics — the production renderer is source-asserted)
+let createTextureCount = 0;
+const origCreateTexture = WebGL2RenderingContext.prototype.createTexture;
+WebGL2RenderingContext.prototype.createTexture = function () { createTextureCount += 1; return origCreateTexture.call(this); };
+
+function setUniforms(ctx, prog, opts) {
+  const u = (n) => ctx.getUniformLocation(prog, n);
+  ctx.useProgram(prog);
+  ctx.uniform1f(u("uTime"), opts.t);
+  ctx.uniform1i(u("uReducedMotion"), opts.rm ? 1 : 0);
+  ctx.uniform1i(u("uHeatmapMode"), 1);
+  ctx.uniform1i(u("uRefractionMode"), opts.refraction ? 1 : 0);
+  ctx.uniform1i(u("uBoundaryMode"), opts.boundary ? 1 : 0);
+  ctx.uniform2f(u("uPanelOrigin"), opts.origin[0], opts.origin[1]);
+  ctx.uniform2f(u("uPanelSize"), opts.size[0], opts.size[1]);
+  ctx.uniform1f(u("uCornerRadius"), opts.radius);
+  ctx.uniform1i(u("uView"), opts.view ?? 0);
+  ctx.uniform2f(u("uResolution"), opts.res[0], opts.res[1]);
+}
+
+function render(ctx, prog, opts, w, h, vpX, vpY, vpW, vpH) {
+  ctx.viewport(vpX, vpY, vpW, vpH);
+  ctx.scissor(vpX, vpY, vpW, vpH);
+  ctx.enable(ctx.SCISSOR_TEST);
+  ctx.clearColor(0, 0, 0, 0);
+  ctx.clear(ctx.COLOR_BUFFER_BIT);
+  setUniforms(ctx, prog, opts);
+  ctx.drawArrays(ctx.TRIANGLES, 0, 3);
+  ctx.disable(ctx.SCISSOR_TEST);
+}
+
+function readback(ctx, w, h) {
+  const px = new Uint8Array(w * h * 4);
+  ctx.readPixels(0, 0, w, h, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
+  return px;
+}
+
+// ---- observation states (pinned accepted Thermal states) ----
+const STATES = [
+  { id: "S1_k010", k: 0.10, t: 0.10 / 0.13, rm: false },
+  { id: "S2_k025", k: 0.25, t: 0.25 / 0.13, rm: false },
+  { id: "S3_k035", k: 0.35, t: 0.35 / 0.13, rm: false },
+  { id: "S4_k050", k: 0.50, t: 0.50 / 0.13, rm: false },
+  { id: "S5_rm", k: 0.42, t: 0.0, rm: true },
+];
+
+const P200 = [0.0, 0.0];
+const S200 = [1.0, 1.0];
+const ORIGIN228 = [14 / 228, 14 / 228];
+const SIZE228 = [200 / 228, 200 / 228];
+
+function pixelAt(px, w, x, y) {
+  const i = (y * w + x) * 4;
+  return [px[i], px[i + 1], px[i + 2], px[i + 3]];
+}
+
+// interior equivalence: 200 accepted reference vs 228 panel-mapped interior
+function interiorEquivalence() {
+  const S = STATES[4]; // RM static (most reproducible)
+  render(gl200, program200, { t: S.t, rm: true, refraction: true, boundary: false, origin: P200, size: S200, radius: 16 / 200, res: [800, 800] }, 800, 800, 0, 0, 800, 800);
+  const ref = readback(gl200, 800, 800);
+  render(glOff, programOff, { t: S.t, rm: true, refraction: true, boundary: false, origin: ORIGIN228, size: SIZE228, radius: 16 / 200, res: [912, 912] }, 912, 912, 0, 0, 912, 912);
+  const off = readback(glOff, 912, 912);
+  let diff = 0;
+  let total = 0;
+  let maxDelta = 0;
+  for (let y = 0; y < 200; y++) {
+    for (let x = 0; x < 200; x++) {
+      const r = pixelAt(ref, 800, x, y);
+      const o = pixelAt(off, 912, x + 56, y + 56);
+      total++;
+      let delta = 0;
+      for (let c = 0; c < 4; c++) delta = Math.max(delta, Math.abs(r[c] - o[c]));
+      if (delta > 0) diff++;
+      maxDelta = Math.max(maxDelta, delta);
+    }
+  }
+  return { diffPixels: diff, total, maxChannelDelta: maxDelta, identical: diff === 0 };
+}
+
+// boundary-lit fraction + edge gaps on the 228 unified probe
+function boundaryLit(state) {
+  render(gl, program, { t: state.t, rm: state.rm, refraction: true, boundary: true, origin: ORIGIN228, size: SIZE228, radius: 16 / 200, res: [912, 912] }, 912, 912, 0, 0, 912, 912);
+  const px = readback(gl, 912, 912);
+  const W = 912;
+  let lit = 0;
+  let total = 0;
+  const ring = [];
+  for (let e = 0; e < 4; e++) {
+    let xs, ys;
+    if (e === 0) { xs = rng(56 + 64, 856 - 64); ys = () => 56 + 6; }
+    else if (e === 1) { xs = rng(56 + 64, 856 - 64); ys = () => 856 - 6; }
+    else if (e === 2) { xs = () => 56 + 6; ys = rng(56 + 64, 856 - 64); }
+    else { xs = () => 856 - 6; ys = rng(56 + 64, 856 - 64); }
+    for (let i = 0; i < 60; i++) {
+      const x = typeof xs === "function" ? xs() : xs[i];
+      const y = typeof ys === "function" ? ys() : ys[i];
+      const a = px[(y * W + x) * 4 + 3];
+      if (a > 128) lit++;
+      total++;
+      ring.push(a);
+    }
+  }
+  return { lit, total, fraction: +(lit / total).toFixed(3), ringAlpha: ring };
+}
+
+function rng(a, b) { const out = []; for (let i = 0; i < b - a; i++) out.push(a + i); return out; }
+
+// final-2px strips + corners on the 228 unified probe
+function finalTwoPixels(state) {
+  render(gl, program, { t: state.t, rm: state.rm, refraction: true, boundary: true, origin: ORIGIN228, size: SIZE228, radius: 16 / 200, res: [912, 912] }, 912, 912, 0, 0, 912, 912);
+  const px = readback(gl, 912, 912);
+  const W = 912;
+  const H = 912;
+  const result = { sides: {}, corners: {} };
+  result.sides.bottom = { maxAlpha: 0 };
+  for (let x = 0; x < W; x++) {
+    for (let y = 0; y < 8; y++) {
+      const a = pixelAt(px, W, x, y)[3];
+      result.sides.bottom.maxAlpha = Math.max(result.sides.bottom.maxAlpha, a);
+    }
+  }
+  result.sides.top = { maxAlpha: 0 };
+  for (let x = 0; x < W; x++) {
+    for (let y = H - 8; y < H; y++) {
+      const a = pixelAt(px, W, x, y)[3];
+      result.sides.top.maxAlpha = Math.max(result.sides.top.maxAlpha, a);
+    }
+  }
+  result.sides.left = { maxAlpha: 0 };
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < 8; x++) {
+      const a = pixelAt(px, W, x, y)[3];
+      result.sides.left.maxAlpha = Math.max(result.sides.left.maxAlpha, a);
+    }
+  }
+  result.sides.right = { maxAlpha: 0 };
+  for (let y = 0; y < H; y++) {
+    for (let x = W - 8; x < W; x++) {
+      const a = pixelAt(px, W, x, y)[3];
+      result.sides.right.maxAlpha = Math.max(result.sides.right.maxAlpha, a);
+    }
+  }
+  const corners = [[0, 0], [0, 8], [8, 0], [0, H - 8], [8, H - 8], [W - 8, 0], [W - 8, H - 8], [W - 1, H - 1]];
+  for (const [x, y] of corners) {
+    result.corners[`${x},${y}`] = pixelAt(px, W, x, y);
+  }
+  return result;
+}
+
+// halo vs interior/edge strength
+function haloStrength(state) {
+  render(gl, program, { t: state.t, rm: state.rm, refraction: true, boundary: true, origin: ORIGIN228, size: SIZE228, radius: 16 / 200, res: [912, 912] }, 912, 912, 0, 0, 912, 912);
+  const px = readback(gl, 912, 912);
+  const W = 912;
+  let haloMax = 0, haloSum = 0, haloN = 0;
+  for (let x = 856 + 8; x < 856 + 44; x += 2) {
+    for (let y = 300; y < 600; y += 8) {
+      const a = px[(y * W + x) * 4 + 3];
+      haloMax = Math.max(haloMax, a);
+      haloSum += a; haloN++;
+    }
+  }
+  let intMax = 0;
+  for (let x = 400; x < 520; x += 4) for (let y = 400; y < 520; y += 4) {
+    intMax = Math.max(intMax, px[(y * W + x) * 4 + 3]);
+  }
+  let edgeMax = 0;
+  for (let x = 56 + 4; x < 856 - 4; x += 4) {
+    const a = px[((56 + 4) * W + x) * 4 + 3];
+    edgeMax = Math.max(edgeMax, a);
+  }
+  return { haloMaxAlpha: haloMax, interiorMaxAlpha: intMax, edgeMaxAlpha: edgeMax, haloAvgAlpha: +(haloSum / haloN).toFixed(1) };
+}
+
+// RM static: two renders byte-identical
+function rmStatic() {
+  const o = { t: 0, rm: true, refraction: true, boundary: true, origin: ORIGIN228, size: SIZE228, radius: 16 / 200, res: [912, 912] };
+  render(gl, program, o, 912, 912, 0, 0, 912, 912);
+  const a = readback(gl, 912, 912);
+  render(gl, program, o, 912, 912, 0, 0, 912, 912);
+  const b = readback(gl, 912, 912);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
+  return { diffBytes: diff, identical: diff === 0 };
+}
+
+// ---- run measurements ----
+function run() {
+  const out = {};
+  out.resources = {
+    linked: gl.getProgramParameter(program, gl.LINK_STATUS) === true,
+    drawArraysPerProbeRender: (() => {
+      let n = 0;
+      const orig = gl.drawArrays;
+      gl.drawArrays = function (...args) { n++; return orig.apply(this, args); };
+      render(gl, program, { t: 0, rm: true, refraction: true, boundary: true, origin: ORIGIN228, size: SIZE228, radius: 16 / 200, res: [912, 912] }, 912, 912, 0, 0, 912, 912);
+      gl.drawArrays = orig;
+      return n;
+    })(),
+    createTextureCount,
+  };
+  out.interiorEquivalence = interiorEquivalence();
+  out.boundaryLit = {};
+  out.finalTwoPixels = {};
+  out.halo = {};
+  for (const S of STATES) {
+    out.boundaryLit[S.id] = boundaryLit(S);
+    out.finalTwoPixels[S.id] = finalTwoPixels(S);
+    out.halo[S.id] = haloStrength(S);
+  }
+  out.rmStatic = rmStatic();
+  out.states = STATES.map((s) => ({ id: s.id, k: s.k, rm: s.rm }));
+
+  // ---- montage (diagnostic multi-draw) ----
+  const VIEWS = [
+    [1, "T (baseTemperature)"], [2, "A (covered2*energy)"], [3, "H (response)"], [4, "E (A*H)"],
+    [5, "interior rgb2"], [6, "env0 / envU"], [7, "boundaryBand"], [8, "edge (E*boundaryBand)"],
+    [9, "halo"], [0, "final unified"], [10, "unified OFF"], [11, "final (repeat)"],
+  ];
+  const S = STATES[4]; // RM static for the montage
+  const cells = [];
+  for (let i = 0; i < VIEWS.length; i++) {
+    const view = VIEWS[i][0];
+    const opts = { t: S.t, rm: true, refraction: true, boundary: view === 10 ? false : true, origin: ORIGIN228, size: SIZE228, radius: 16 / 200, view, res: [912, 684] };
+    const col = i % 4;
+    const row = Math.floor(i / 4);
+    render(glM, programM, opts, 912, 684, col * 228, row * 228, 228, 228);
+    cells.push({ col, row, label: VIEWS[i][1], view });
+  }
+  out.montage = { cells, stateId: S.id };
+  window.__u = out;
+  return out;
+}
+
+try {
+  const out = run();
+  document.getElementById("out").textContent = JSON.stringify(out, null, 2);
+} catch (err) {
+  document.getElementById("out").textContent = "ERROR: " + (err && err.message ? err.message : String(err));
+}
+</script>
+</body>
+</html>

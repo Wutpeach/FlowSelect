@@ -1,0 +1,98 @@
+{
+  "status": "PASS",
+  "initial": {
+    "bodyText": "\n    Intake · 本地源点Folder · Anchor / Lock50%不确定热力图 · 移动场下载进行中运行失败转码进行中混合忙碌紧凑 · 中性仅紧凑紧凑 · 指针注意力仅紧凑紧凑 · 减弱动态仅紧凑深色全屏紧凑适应1×2×3×全屏 · 200×200 · 适应 · 3.7×重播导出 4× PNG点击预览可设置归一化本地源点；仅挂载一个生产画布。开发工具目标全屏缩放适应 · 3.7×背景深色预览减弱动态关减弱动态驱动生产 reducedMotion 输入；减弱动态预设会强制开启。源点 X源点 Y激活触发时快照；驱动 uActivationOrigin。确定进度50%驱动当前 trace 上的生产确定目标。高级诊断缩放事实{\n  \"logicalSize\": 200,\n  \"shellSize\": 200,\n  \"characterSize\": null,\n  \"displayScale\": \"fit\",\n  \"fitScale\": 3.665625,\n  \"previewEnvironment\": \"dark\",\n  \"backingScale\": null\n}组合输入{\n  \"target\": {\n    \"kind\": \"progress\",\n    \"progress\": {\n      \"kind\": \"determinate\",\n      \"traceId\": \"lab-primary-trace\",\n      \"target\": 0.5\n    }\n  },\n  \"reducedMotion\": false\n}实时生产着色器读数{\n  \"canvasCount\": 1,\n  \"linked\": true,\n  \"progressMode\": 1,\n  \"progress\": 0.5,\n  \"activationKind\": 0,\n  \"activationAge\": 1,\n  \"activationOrigin\": [\n    0.5,\n    0.5\n  ],\n  \"reducedMotion\": 0,\n  \"heatmapMode\": 0,\n  \"refractionMode\": 0,\n  \"time\": 0.28679999709129333\n}\n    \n  \n\n",
+    "headingCount": 0,
+    "navCount": 0,
+    "scenarioFirst": true,
+    "workspace": {
+      "x": 24,
+      "y": 24,
+      "width": 1216,
+      "height": 968,
+      "top": 24,
+      "right": 1240,
+      "bottom": 992,
+      "left": 24
+    },
+    "devtools": {
+      "x": 1256,
+      "y": 24,
+      "width": 320,
+      "height": 968,
+      "top": 24,
+      "right": 1576,
+      "bottom": 992,
+      "left": 1256
+    },
+    "stage": {
+      "x": 35,
+      "y": 109.375,
+      "width": 1194,
+      "height": 767.125,
+      "top": 109.375,
+      "right": 1229,
+      "bottom": 876.5,
+      "left": 35
+    },
+    "frame": {
+      "x": 265.4375,
+      "y": 126.375,
+      "width": 733.125,
+      "height": 733.125,
+      "top": 126.375,
+      "right": 998.5625,
+      "bottom": 859.5,
+      "left": 265.4375
+    },
+    "frameCss": "200px",
+    "fitLabel": "适应",
+    "workspaceSurface": "rgb(29, 27, 34)",
+    "devtoolsSurface": "rgb(29, 27, 34)",
+    "advancedOpen": false,
+    "canvasCount": 1
+  },
+  "mouseState": {
+    "pressed": "true",
+    "focusVisible": false,
+    "selectedInGroup": 1
+  },
+  "keyboardFocus": {
+    "isLabControl": true,
+    "focusVisible": true,
+    "outline": "solid"
+  },
+  "environment": {
+    "value": "light",
+    "background": "rgb(233, 230, 239)",
+    "frameInsideEnvironment": false,
+    "frameCss": "200px"
+  },
+  "exportSize": {
+    "width": 912,
+    "height": 912
+  },
+  "compact": {
+    "stage": {
+      "x": 262.03125,
+      "y": 110.375,
+      "width": 739.9375,
+      "height": 739.9375,
+      "top": 110.375,
+      "right": 1001.96875,
+      "bottom": 850.3125,
+      "left": 262.03125
+    },
+    "stageCss": "80px",
+    "shellCss": "60px",
+    "canvasCount": 0,
+    "fitPressed": "适应"
+  },
+  "narrow": {
+    "display": "flex",
+    "width": 240,
+    "bodyScrollWidth": 884,
+    "viewportWidth": 900
+  },
+  "errors": []
+}

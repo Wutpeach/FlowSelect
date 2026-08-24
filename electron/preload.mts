@@ -6,13 +6,11 @@ import {
   resolveLocalFilePathsFromDataTransfer,
   resolvePendingFolderDrop,
 } from "./preloadDrop.mjs";
-import { parseStartupWindowModeArgument } from "./startupWindowMode.mjs";
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload);
 const eventChannel = (event) => `ameow:event:${event}`;
 let pendingFolderDropPromise = null;
 let pendingFileDropPaths = [];
-const startupWindowMode = parseStartupWindowModeArgument(process.argv);
 
 const resolvePathFromFile = (file) => {
   try {
@@ -74,9 +72,6 @@ contextBridge.exposeInMainWorld("ameow", {
     openContextMenu(options) {
       return invoke("ameow:window:open-context-menu", { options });
     },
-    openUiLab(options) {
-      return invoke("ameow:window:open-ui-lab", { options });
-    },
   },
   currentWindow: {
     outerPosition() {
@@ -88,9 +83,6 @@ contextBridge.exposeInMainWorld("ameow", {
     scaleFactor() {
       return invoke("ameow:current-window:scale-factor");
     },
-    startupWindowMode() {
-      return startupWindowMode;
-    },
     startDragging() {
       return invoke("ameow:current-window:start-dragging");
     },
@@ -100,8 +92,11 @@ contextBridge.exposeInMainWorld("ameow", {
     setInteractionMode(mode) {
       ipcRenderer.send("ameow:current-window:set-interaction-mode", { mode });
     },
-    animateBounds(bounds, options) {
-      return invoke("ameow:current-window:animate-bounds", { bounds, options });
+    ensureMainWindowCompactReachable(options) {
+      return invoke("ameow:current-window:ensure-compact-reachable", options);
+    },
+    cancelCompactReachability() {
+      ipcRenderer.send("ameow:current-window:cancel-compact-reachability");
     },
     rendererReady() {
       return invoke("ameow:current-window:renderer-ready");

@@ -10,6 +10,7 @@ import type {
   DownloadQueueAck,
   PastedSelectionPorts,
   PastedSelectionResolution,
+  QueueDownloadPresentationCause,
   QueueDownloadCommand,
 } from "../src/application/download-api.js";
 import type { AmeowRendererCommand } from "../src/types/electronBridge.js";
@@ -68,6 +69,26 @@ const normalizeOptionalString = (value: unknown): string | undefined => {
   }
   const trimmed = value.trim();
   return trimmed || undefined;
+};
+
+// The canonical command decoder deliberately never sees this transient UI
+// cause. Renderer IPC is untrusted, so only finite normalized coordinates are
+// allowed to accompany the same accepted-membership emission.
+const decodePresentationCause = (
+  payload: Record<string, unknown>,
+): QueueDownloadPresentationCause | undefined => {
+  const value = payload.intakeOrigin;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const { x, y } = value as Record<string, unknown>;
+  if (
+    typeof x !== "number" || !Number.isFinite(x) || x < 0 || x > 1
+    || typeof y !== "number" || !Number.isFinite(y) || y < 0 || y > 1
+  ) {
+    return undefined;
+  }
+  return { intakeOrigin: { x, y } };
 };
 
 /**
@@ -183,12 +204,15 @@ export const createDownloadIpcAdapter = (
         case "queue_video_download": {
           const request = asObject(payload);
           const { command: decoded, config } = await decodeQueueCommand(request);
+          const cause = decodePresentationCause(request);
           options.logInjectedDebug?.(
             config,
             "Normalized injected download request",
             summarizeQueuePayload(request),
           );
-          const ack = await options.runtime.queueDownload(decoded) as DownloadQueueAck;
+          const ack = await (cause === undefined
+            ? options.runtime.queueDownload(decoded)
+            : options.runtime.queueDownload(decoded, cause)) as DownloadQueueAck;
           options.logInjectedDebug?.(config, "Queued injected download request", {
             traceId: ack.traceId,
             accepted: ack.accepted,
@@ -199,10 +223,11 @@ export const createDownloadIpcAdapter = (
         case "queue_pasted_video_download": {
           const request = asObject(payload);
           const { command: decoded, config } = await decodeQueueCommand(request);
-          const ack = await options.runtime.queuePastedDownload(
-            decoded,
-            buildPastedSelectionPorts(),
-          ) as DownloadQueueAck;
+          const cause = decodePresentationCause(request);
+          const ports = buildPastedSelectionPorts();
+          const ack = await (cause === undefined
+            ? options.runtime.queuePastedDownload(decoded, ports)
+            : options.runtime.queuePastedDownload(decoded, ports, cause)) as DownloadQueueAck;
           options.logInjectedDebug?.(config, "Queued pasted download request", {
             traceId: ack.traceId,
             accepted: ack.accepted,

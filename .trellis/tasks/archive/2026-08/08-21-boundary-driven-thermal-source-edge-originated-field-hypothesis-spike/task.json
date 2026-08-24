@@ -1,0 +1,30 @@
+{
+  "id": "boundary-driven-thermal-source-edge-originated-field-hypothesis-spike",
+  "name": "boundary-driven-thermal-source-edge-originated-field-hypothesis-spike",
+  "title": "Boundary-Driven Thermal Source / Edge-Originated Field Hypothesis Spike",
+  "description": "Plan a boundary-entering travelling thermal source that drives the accepted 2D multi-temperature material and refraction through entry, developed presence, and exit without material-owned lifecycle choreography.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "src/presentation/main-window/ExpandedPresentationSurface.tsx",
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-08-21",
+  "completedAt": "2026-08-22",
+  "branch": "motion/mr9-fullscreen-activation-fx",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase_gate": "planning_review",
+    "production_checkpoint": "8a80474",
+    "implementation_authorized": "false"
+  }
+}

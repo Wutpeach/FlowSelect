@@ -1,30 +1,11 @@
-import { startTransition, useState, useEffect, useMemo, useRef, useCallback, type CSSProperties } from "react";
+import { startTransition, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
-import { CatIcon } from "./components/CatIcon";
-import { CircularProgressIndicator } from "./components/CircularProgressIndicator";
-import {
-  CENTER_OVERLAY_CONTENT_STYLE,
-  CENTER_OVERLAY_PRESENCE_MOTION,
-} from "./components/foregroundOverlayShared";
-import {
-  ForegroundOutcomeOverlay,
-} from "./components/ForegroundOutcomeOverlay";
-import { FolderCheckIcon } from "./components/icons/AppIcons";
 import { NeonIconButton } from "./components/ui";
 import {
   COMPACT_EASE,
-  getContinuousCornerStyle,
-  getInsetCardStyle,
-  getShadowBackdropStyle,
-  getPanelShellStyle,
-  getStatusDotStyle,
 } from "./components/ui/shared-styles";
 import type { AppUpdateInfo, AppUpdatePhase, AppUpdateStatePayload } from "./types/appUpdate";
-import type {
-  AmeowCurrentWindowInteractionMode,
-  AmeowStartupWindowMode,
-} from "./types/electronBridge";
 import type { ProcessFilesResult } from "./types/fileIntake";
 import {
   desktopClipboard,
@@ -35,6 +16,7 @@ import {
   desktopSystem,
   desktopUpdater,
   desktopWindows,
+  isElectronRenderer,
 } from "./desktop/runtime";
 import type {
   RuntimeDependencyGatePhase,
@@ -71,13 +53,6 @@ import {
 import { parseLocalFileUrl } from "./utils/localFileUrl";
 import { canonicalizeTwitterXPageUrl, shouldPreferTwitterXImageDrop } from "./utils/twitterX";
 import {
-  resolvePanelPointerCaptureId,
-  shouldIgnorePanelDoubleClickTarget,
-  shouldPreventPanelNativeDragStart,
-  shouldOpenOutputFolderFromPanelMouseDownDoubleClick,
-  WINDOW_DRAG_START_THRESHOLD,
-} from "./utils/mainPanelInteractions";
-import {
   getDroppedFolderErrorTranslationKey,
   shouldHandleDroppedFolderResult,
 } from "./utils/folderDrop";
@@ -87,8 +62,6 @@ import {
   getDownloadStatusText,
   getTranscodeStageLabel,
   getTranscodeTaskStatusText,
-  getVideoTranscodeFormatLabel,
-  getVideoTranscodeTaskProgressPercent,
   mergeVideoTranscodeTask,
   normalizeVideoTranscodeQueueDetail,
   normalizeVideoTranscodeTask,
@@ -104,7 +77,7 @@ import {
   summarizeDownloadError,
   upsertTranscodeTaskToDetail,
 } from "./utils/downloadEventReducers";
-import type { DownloadQueueAck } from "./application/download-api";
+import type { DownloadQueueAck, LocalIntakeOrigin } from "./application/download-api";
 import {
   createDownloadQueueClient,
   type DownloadQueueRequest,
@@ -117,8 +90,6 @@ import {
   selectPrimaryDownloadStage,
   selectPrimaryDownloadTask,
   selectRemainingDownloadCount,
-  selectTaskProgress,
-  selectTaskProgressPercent,
   selectVisibleTaskCount,
 } from "./features/download/selectors";
 import { useDownloadQueue } from "./features/download/useDownloadQueue";
@@ -130,19 +101,15 @@ import { extractEmbeddedProtectedImageDragPayload } from "./utils/protectedImage
 import {
   DEFERRED_STARTUP_IDLE_CALLBACK_TIMEOUT_MS,
   getDeferredStartupInitializationDelayMs,
-  getStartupAutoMinimizeGraceMs,
   STARTUP_AUTO_RUNTIME_BOOTSTRAP_DELAY_MS,
-  shouldUseNativeCompactStartupWindow,
   shouldStartExpandedOnLaunch,
 } from "./utils/startupWindowState";
-import {
-  resolveMainWindowModeLock,
-} from "./utils/mainWindowMode";
 import {
   createCenterOverlayState,
   isCenterOverlayLockActive,
   reduceCenterOverlayState,
   selectCenterOverlayVisual,
+  type CenterOverlayOutcomeOrigin,
   type CenterOverlayOutcomeSource,
   type CenterOverlayOutcomeStatus,
   type CenterOverlayState,
@@ -151,60 +118,37 @@ import {
   errorDiagnosticCategoryTranslationKey,
   resolveErrorDiagnosticCategory,
 } from "./utils/errorDiagnosticCategories";
-import {
-  createMainWindowShellState,
-  reduceMainWindowShell,
-  type MainWindowShellEvent,
-  type MainWindowShellModeEffect,
-  type MainWindowShellState,
-} from "./utils/mainWindowShellMachine";
-import {
-  type MainWindowBoundsTransitionState,
-} from "./utils/mainWindowTransitionToken";
-import {
-  beginMainWindowNativeBoundsTransition,
-  ensureMainWindowCompactTargetVisible as ensureMainWindowNativeCompactTargetVisible,
-  isMainWindowNativeBoundsTransitionStillCurrent,
-  resizeMainWindowPreservingPosition as resizeMainWindowNativeBoundsPreservingPosition,
-  syncMainWindowCurrentPositionCache as syncMainWindowNativePositionCache,
-} from "./utils/mainWindowNativeBoundsOrchestrator";
-import {
-  MAIN_WINDOW_INITIAL_PANEL_SCALE,
-  MAIN_WINDOW_MINIMIZED_ICON_ENTER_TRANSITION,
-  MAIN_WINDOW_MINIMIZED_ICON_EXIT_TRANSITION,
-  MAIN_WINDOW_MINIMIZED_ICON_LEAVE_TRANSITION,
-  MAIN_WINDOW_MINIMIZED_ICON_REDUCED_EXIT_TRANSITION,
-  MAIN_WINDOW_MINIMIZED_ICON_REDUCED_MOTION_TRANSITION,
-  MAIN_WINDOW_MINIMIZED_ICON_SIZE,
-  MAIN_WINDOW_MINIMIZED_ICON_SETTLE_SCALE_KEYFRAMES,
-  MAIN_WINDOW_MINIMIZED_ICON_SETTLE_SCALE_TIMES,
-  MAIN_WINDOW_MINIMIZED_ICON_SETTLE_TRANSITION,
-  MAIN_WINDOW_MINIMIZED_PANEL_SCALE,
-  MAIN_WINDOW_PANEL_COMPACT_TWEEN_TRANSITION,
-  MAIN_WINDOW_PANEL_FULL_ELASTIC_SCALE_KEYFRAMES,
-  MAIN_WINDOW_PANEL_FULL_ELASTIC_SCALE_TIMES,
-  MAIN_WINDOW_PANEL_FULL_SPRING_TRANSITION,
-  MAIN_WINDOW_PANEL_INITIAL_TWEEN_TRANSITION,
-  MAIN_WINDOW_PANEL_INSTANT_TRANSITION,
-} from "./utils/mainWindowMotionBaseline";
-import {
-  resolveMainWindowShellGeometryPlan,
-} from "./utils/mainWindowShellGeometry";
-import { resolveMainWindowEdgeGlowPoint } from "./utils/mainWindowEdgeGlowPosition";
-import { isPointInsideCompactPointerHotspot } from "./utils/compactPointerHotspot";
 import { parseDesktopAppConfig } from "./updates/appUpdatePreferences";
 import { isVideoUrl } from "./utils/videoUrl";
 import { saveOutputPath } from "./utils/outputPath";
 import { useTheme } from "./contexts/ThemeContext";
 import { isLikelyShortLinkUrl } from "./core/short-links";
 import {
-  MAIN_WINDOW_COMPACT_SHELL_SIZE,
   getMainWindowCompactOuterSize,
-  getMainWindowFullShadowGutter,
-  MAIN_WINDOW_PANEL_SIZE,
   SETTINGS_WINDOW_CONTENT_HEIGHT,
   SETTINGS_WINDOW_CONTENT_WIDTH,
 } from "./constants/windowMetrics";
+import {
+  useMainWindowPresentation,
+  type MainWindowPresentationDependencies,
+} from "./presentation/main-window/reactAdapter";
+import {
+  MainWindowPresentationSurface,
+  type MainWindowApplicationLock,
+} from "./presentation/main-window/MainWindowPresentationSurface";
+import { resolveDownloadProgressTarget } from "./presentation/main-window/downloadProgressProjection";
+import {
+  shouldInvalidateTerminalRevealForPrimaryDownload,
+  shouldShowDownloadTerminalReveal,
+} from "./presentation/main-window/downloadTerminalProjection";
+import { useDownloadIntakePresentation } from "./presentation/main-window/downloadIntakePresentation";
+import { resolveFolderActivationPresentation } from "./presentation/main-window/folderActivationPresentation";
+import { resolveExpandedPresentationTarget } from "./presentation/main-window/expandedPresentationPolicy";
+import { snapshotClientPointOrigin } from "./presentation/main-window/pointerField";
+import { isMainWindowFullContentVisible } from "./presentation/main-window/projections";
+import { MainWindowQueuePopover } from "./presentation/main-window/MainWindowQueuePopover";
+import { MainWindowCenterOverlay } from "./presentation/main-window/MainWindowCenterOverlay";
+import { MainWindowRuntimeIndicator } from "./presentation/main-window/MainWindowRuntimeIndicator";
 import i18n from "./i18n";
 import {
   getMissingRuntimeComponentsFromStatus,
@@ -402,36 +346,9 @@ const mergeVideoCandidatesByUrl = <TCandidate extends { url: string }>(
   return merged;
 };
 
-type PendingWindowDragStart = {
-  pointerId: number;
-  clientX: number;
-  clientY: number;
-  screenX: number;
-  screenY: number;
-  windowPositionPromise: Promise<{ x: number; y: number }>;
-};
-
-type ActiveWindowDragState = {
-  pointerId: number;
-  startScreenX: number;
-  startScreenY: number;
-  windowX: number;
-  windowY: number;
-  nextX: number;
-  nextY: number;
-  lastAppliedX: number;
-  lastAppliedY: number;
-  applyInFlight: boolean;
-};
-type AppProps = {
-  initialStartupWindowMode?: AmeowStartupWindowMode;
-};
-
-function App({
-  initialStartupWindowMode = "full",
-}: AppProps) {
+function App() {
   const { t } = useTranslation("desktop");
-  const { theme, colors } = useTheme();
+  const { colors } = useTheme();
   const shouldReduceMotion = useReducedMotion();
   const userAgent = navigator.userAgent.toLowerCase();
   const isMacOS = userAgent.includes("mac");
@@ -446,30 +363,55 @@ function App({
     protocol: window.location.protocol,
     userAgent: navigator.userAgent,
   };
-  const startupAutoMinimizeGraceMs =
-    getStartupAutoMinimizeGraceMs(startupWindowEnvironment);
   const deferredStartupInitializationDelayMs =
     getDeferredStartupInitializationDelayMs(startupWindowEnvironment);
   const startsExpandedOnLaunch =
     shouldStartExpandedOnLaunch(startupWindowEnvironment);
-  const FULL_SIZE = MAIN_WINDOW_PANEL_SIZE;
-  const FULL_WINDOW_SHADOW_GUTTER = getMainWindowFullShadowGutter(currentMainWindowPlatform);
-  const INTERMEDIATE_EXPAND_SIZE = FULL_SIZE + FULL_WINDOW_SHADOW_GUTTER * 2;
-  const ICON_SIZE = getMainWindowCompactOuterSize(currentMainWindowPlatform);
-  const MINIMIZED_SHELL_SIZE = MAIN_WINDOW_COMPACT_SHELL_SIZE;
-  const MINIMIZED_ICON_SIZE = MAIN_WINDOW_MINIMIZED_ICON_SIZE;
-  const COMPACT_HOTSPOT_FRAME_SIZE = isMacOS ? MINIMIZED_SHELL_SIZE : MINIMIZED_ICON_SIZE;
-  const startsInNativeCompactStartupWindow = shouldUseNativeCompactStartupWindow({
-    startupWindowMode: initialStartupWindowMode,
-    startsExpandedOnLaunch,
-    isMacOS,
+  const presentationDependencies = useMemo<MainWindowPresentationDependencies>(() => {
+    const nativeSurfaceAvailable = isElectronRenderer();
+    return {
+      scheduleTimer: (handler, delayMs) => window.setTimeout(handler, delayMs),
+      cancelTimer: (handle) => window.clearTimeout(handle),
+      setInteractionMode: (mode) => {
+        if (nativeSurfaceAvailable) {
+          desktopCurrentWindow.setInteractionMode(mode);
+        }
+      },
+      beginCompactReachability: (requestEpoch) => {
+        if (!nativeSurfaceAvailable) {
+          return;
+        }
+        void desktopCurrentWindow.ensureMainWindowCompactReachable({
+          reachableFrameSize: getMainWindowCompactOuterSize(currentMainWindowPlatform),
+          edgePadding: WINDOW_EDGE_PADDING,
+          reducedMotion: Boolean(shouldReduceMotion),
+          requestEpoch,
+        }).catch((err) => {
+          console.error("Failed to keep compact main window reachable:", err);
+        });
+      },
+      cancelCompactReachability: () => {
+        if (nativeSurfaceAvailable) {
+          desktopCurrentWindow.cancelCompactReachability();
+        }
+      },
+      focusContainer: () => {
+        window.setTimeout(() => {
+          const container = document.querySelector('[tabIndex="0"]') as HTMLElement | null;
+          container?.focus();
+        }, 100);
+      },
+      supportsCompactPassthrough: supportsCompactPassthroughHotspot,
+    };
+  }, [currentMainWindowPlatform, shouldReduceMotion, supportsCompactPassthroughHotspot]);
+  const presentation = useMainWindowPresentation({
+    startsCompact: !startsExpandedOnLaunch,
+    dependencies: presentationDependencies,
   });
-  const [isHovering, setIsHovering] = useState(false);
   const [hoveredAdvancedQualityOptionId, setHoveredAdvancedQualityOptionId] = useState<string | null>(null);
   const [centerOverlayState, setCenterOverlayState] = useState<CenterOverlayState>(() => createCenterOverlayState());
   const [outputPath, setOutputPath] = useState("");
   const [renameMediaOnDownload, setRenameMediaOnDownload] = useState(false);
-  const [isPanelHovered, setIsPanelHovered] = useState(false);
   const [videoTranscodeQueueState, setVideoTranscodeQueueState] = useState<VideoTranscodeQueueStatePayload>(EMPTY_VIDEO_TRANSCODE_QUEUE_STATE);
   const [videoTranscodeQueueDetail, setVideoTranscodeQueueDetail] = useState<VideoTranscodeQueueDetailPayload>(EMPTY_VIDEO_TRANSCODE_QUEUE_DETAIL);
   const [transcodeProgressByTrace, setTranscodeProgressByTrace] = useState<Record<string, VideoTranscodeTaskPayload>>({});
@@ -481,8 +423,14 @@ function App({
   const {
     state: downloadState,
     actions: downloadActions,
+    onIntake: onDownloadIntake,
     onTerminal: onDownloadTerminal,
   } = useDownloadQueue(downloadClient);
+  const downloadIntakePresentation = useDownloadIntakePresentation({
+    downloadState,
+    onIntake: onDownloadIntake,
+    onTerminal: onDownloadTerminal,
+  });
   const [queueNoticeMessage, setQueueNoticeMessage] = useState<string | null>(null);
   const [isQueuePopoverOpen, setIsQueuePopoverOpen] = useState(false);
   const [appUpdateInfo, setAppUpdateInfo] = useState<AppUpdateInfo | null>(null);
@@ -495,84 +443,44 @@ function App({
   const [isRuntimeRetryFeedbackVisible, setIsRuntimeRetryFeedbackVisible] = useState(false);
   const [isRuntimeRetryInFlight, setIsRuntimeRetryInFlight] = useState(false);
   const [showRuntimeSuccessIndicator, setShowRuntimeSuccessIndicator] = useState(false);
-  const [isUiLabPreviewActive, setIsUiLabPreviewActive] = useState(false);
   const [devMode, setDevMode] = useState(false);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [isMinimized, setIsMinimized] = useState(!startsExpandedOnLaunch);
-  const [panelTransitionMode, setPanelTransitionMode] = useState<"animated" | "instant">("animated");
-  const [shellPhase, setShellPhase] = useState<"full" | "collapsing" | "compact" | "expanding">(
-    startsInNativeCompactStartupWindow ? "compact" : "full",
-  );
-  const [compactIconSettlePulseKey, setCompactIconSettlePulseKey] = useState(0);
-  const [showEdgeGlow, setShowEdgeGlow] = useState(true);
-  const [isInitialMount, setIsInitialMount] = useState(!startsInNativeCompactStartupWindow);
   const [isDeferredStartupInitializationReady, setIsDeferredStartupInitializationReady] =
     useState(deferredStartupInitializationDelayMs <= 0);
+  // App-side startup gate: runtime bootstrap waits for the first settle frame.
+  const [isInitialMount, setIsInitialMount] = useState(true);
+  // Ordinary local UI state: panel hover reported by the surface for
+  // application content (mini controls). Full-content visibility is derived
+  // directly from the lifecycle projection, never mirrored here.
+  const [isPanelHovered, setIsPanelHovered] = useState(false);
   const [isResetCounterActive, setIsResetCounterActive] = useState(false);
-  const [isProgressCancelHovered, setIsProgressCancelHovered] = useState(false);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
-  const pointerLeaveCollapseTimerRef = useRef<number | null>(null);
   const resetCounterFeedbackTimerRef = useRef<number | null>(null);
   const queueNoticeTimerRef = useRef<number | null>(null);
   const runtimeRetryFeedbackTimerRef = useRef<number | null>(null);
   const runtimeSuccessTimerRef = useRef<number | null>(null);
   const runtimeBootstrapAfterVisibleTimerRef = useRef<number | null>(null);
-  const startupAutoMinimizeReleaseTimerRef = useRef<number | null>(null);
   const deferredStartupInitializationTimerRef = useRef<number | null>(null);
   const deferredStartupInitializationIdleRef = useRef<number | null>(null);
   const foregroundTaskOutcomeTimerRef = useRef<number | null>(null);
   const centerOutcomeTimerRef = useRef<number | null>(null);
-  const edgeGlowRevealTimerRef = useRef<number | null>(null);
   const centerOverlayStateRef = useRef<CenterOverlayState>(centerOverlayState);
-  const panelTransitionModeResetFrameRef = useRef<number | null>(null);
   const isContextMenuOpenRef = useRef(false);
-  const isDraggingRef = useRef(false);
   const pendingTranscodeActionTraceIdsRef = useRef<Set<string>>(new Set());
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isPanelHoveredRef = useRef(false);
-  const isPointerInsidePanelRef = useRef(false);
-  const pasteHandlerRef = useRef<(event: ClipboardEvent) => void>(() => undefined);
+  const pasteHandlerRef = useRef<(
+    clipboardData: DataTransfer | null,
+    origin?: LocalIntakeOrigin,
+  ) => void>(() => undefined);
+  const handleSurfacePaste = useCallback((
+    clipboardData: DataTransfer | null,
+    origin?: LocalIntakeOrigin,
+  ) => {
+    pasteHandlerRef.current(clipboardData, origin);
+  }, []);
   const queueBadgeButtonRef = useRef<HTMLButtonElement>(null);
-  const pendingDragStartRef = useRef<PendingWindowDragStart | null>(null);
-  const activeWindowDragRef = useRef<ActiveWindowDragState | null>(null);
-  const isWindowPointerDownRef = useRef(false);
-  const windowDragFrameRef = useRef<number | null>(null);
-  const lastKnownWindowPositionRef = useRef<{ x: number; y: number } | null>(null);
-  const lastKnownPointerScreenPointRef = useRef<{ x: number; y: number } | null>(null);
-  const lastPanelOutputFolderShortcutAtRef = useRef(0);
-  const isDropHoveringRef = useRef(false);
-  const suppressNextPanelDragLeaveRef = useRef(false);
-  const shellPhaseRef = useRef(shellPhase);
-  const shellMachineRef = useRef<MainWindowShellState>(createMainWindowShellState({
-    startsCompact: startsInNativeCompactStartupWindow,
-    startupLocked: startupAutoMinimizeGraceMs > 0,
-  }));
-  const interactionModeRef = useRef<AmeowCurrentWindowInteractionMode>("interactive");
-  const compactHotspotInsideRef = useRef(false);
-  const compactHotspotFrameRef = useRef<number | null>(null);
-  const compactNativeSettledRef = useRef(startsInNativeCompactStartupWindow);
-  const mainWindowBoundsTransitionRef = useRef<MainWindowBoundsTransitionState>({
-    token: 0,
-    target: startsInNativeCompactStartupWindow ? "compact" : "full",
-  });
-  const pendingCompactResizeTokenRef = useRef<number | null>(
-    startsInNativeCompactStartupWindow ? 0 : null,
-  );
-  const isMinimizedRef = useRef(isMinimized);
-  const isInitialMountRef = useRef(isInitialMount);
-  const isUiLabPreviewActiveRef = useRef(isUiLabPreviewActive);
-  const shouldReturnToCompactAfterForegroundTaskRef = useRef(false);
   const previousTaskCountRef = useRef(0);
   const previousRuntimeGatePhaseRef = useRef<RuntimeDependencyGatePhase>("idle");
   const hasTriggeredStartupRuntimeBootstrapRef = useRef(false);
-  const startupAutoMinimizeUnlockedRef = useRef(startupAutoMinimizeGraceMs === 0);
-  const EDGE_GLOW_TRIGGER_DISTANCE = 126;
-  const EDGE_GLOW_RADIUS = 248;
-  const EDGE_GLOW_BORDER_WIDTH = 2.2;
-  const EDGE_GLOW_FALLOFF_EXPONENT = 0.58;
-  const DRAG_GLOW_BORDER_WIDTH = 2.4;
   const WINDOW_EDGE_PADDING = 8;
-  const PANEL_OUTPUT_FOLDER_SHORTCUT_DEDUP_MS = 400;
   const CONTEXT_MENU_WIDTH = 176;
   const CONTEXT_MENU_HEIGHT = 80;
   const SETTINGS_WINDOW_WIDTH = SETTINGS_WINDOW_CONTENT_WIDTH;
@@ -581,6 +489,12 @@ function App({
   const downloadQueueTasks = selectDownloadQueueRows(downloadState);
   const primaryDownloadTask = selectPrimaryDownloadTask(downloadState);
   const downloadProgress = selectPrimaryDownloadProgress(downloadState);
+  // MR3 pure projection: current primary Download selector result -> neutral
+  // Expanded Presentation target (idle/determinate/indeterminate).
+  const expandedPresentationProgress = resolveDownloadProgressTarget(
+    primaryDownloadTask,
+    downloadProgress,
+  );
   const downloadStage = selectPrimaryDownloadStage(downloadState);
   const transcodeQueueTasks = videoTranscodeQueueDetail.tasks.map((task) =>
     mergeVideoTranscodeTask(task, transcodeProgressByTrace[task.traceId]),
@@ -594,10 +508,9 @@ function App({
   const totalTaskCount = totalDownloadTaskCount + totalTranscodeTaskCount;
   const runtimeGatePhase = runtimeDependencyGateState?.phase ?? "idle";
   const runtimeGateIsBusy = runtimeGateIsActive(runtimeGatePhase);
-  const isPreviewForcedFullMode = isUiLabPreviewActive;
-  const visualIsMinimized = isPreviewForcedFullMode ? false : isMinimized;
-  const isWindowReadyForStartupRuntimeBootstrap =
-    !visualIsMinimized;
+  // Direct pure projection from the lifecycle state — no mirrored copy.
+  const mainWindowFullContentVisible = isMainWindowFullContentVisible(presentation.state);
+  const isWindowReadyForStartupRuntimeBootstrap = mainWindowFullContentVisible;
   const shouldEvaluateDeferredStartupIndicators =
     isDeferredStartupInitializationReady
     || runtimeDependencyStatus !== null
@@ -632,6 +545,18 @@ function App({
   const hasOngoingTask = ongoingTaskCount > 0;
   const centerOverlayLockActive = isCenterOverlayLockActive(centerOverlayState);
   const isProcessing = centerOverlayLockActive;
+  // Product activity (foreground file/image processing) is a task fact; the
+  // typed outcome presentations (task/folder outcome) are terminal
+  // Presentation facts. MR4 separates the two lifecycle lock projections so
+  // the same Reveal fact never activates both the `task` and `centerOutcome`
+  // locks.
+  const isTaskProcessing = centerOverlayState.kind === "task-processing";
+  const folderActivationPresentation = resolveFolderActivationPresentation(centerOverlayState);
+  const expandedPresentationTarget = resolveExpandedPresentationTarget({
+    progress: expandedPresentationProgress,
+    intake: downloadIntakePresentation,
+    folder: folderActivationPresentation,
+  });
   const centerOverlayVisual = selectCenterOverlayVisual({
     primaryTask: primaryTask
       ? {
@@ -640,15 +565,6 @@ function App({
         }
       : null,
     centerOverlayState,
-    visualIsMinimized,
-  });
-  const isMainWindowModeLocked = resolveMainWindowModeLock({
-    hasOngoingTask,
-    runtimeGateIsBusy,
-    isProcessing,
-    showRuntimeSuccessIndicator,
-    isUiLabPreviewActive,
-    appUpdatePhase,
   });
   const remainingDownloadCount = selectRemainingDownloadCount(
     downloadState,
@@ -658,7 +574,33 @@ function App({
     0,
     totalTranscodeTaskCount - (primaryTask?.kind === "transcode" ? 1 : 0),
   );
-  const isMainWindowModeLockedRef = useRef(isMainWindowModeLocked);
+
+  // Only Application-owned lock facts are mirrored into the lifecycle. `drag`
+  // and `drop` are Surface-owned facts written at the gesture boundary, so App
+  // must not publish constant values that could overwrite an active lock.
+  const presentationLocks = useMemo<Record<MainWindowApplicationLock, boolean>>(() => ({
+    contextMenu: isContextMenuOpen,
+    task: hasOngoingTask || isTaskProcessing,
+    centerOutcome: centerOverlayLockActive,
+    appUpdate: appUpdatePhase === "downloading" || appUpdatePhase === "installing" || runtimeGateIsBusy,
+  }), [
+    appUpdatePhase,
+    centerOverlayLockActive,
+    hasOngoingTask,
+    isContextMenuOpen,
+    isTaskProcessing,
+    runtimeGateIsBusy,
+  ]);
+
+  const requestFullIntent = useCallback((
+    reason: "task" | "runtimeGate" | "shortcut" | "foreground",
+    recipe: "animated" | "instant" = "animated",
+  ) => {
+    presentation.dispatch({ type: "requestFull", reason, recipe });
+    // presentation.dispatch is stable; the binding object identity changes per
+    // render and must not be a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presentation.dispatch]);
 
   const clearForegroundTaskOutcomeTimer = useCallback(() => {
     if (foregroundTaskOutcomeTimerRef.current !== null) {
@@ -679,15 +621,6 @@ function App({
     centerOverlayStateRef.current = nextState;
     setCenterOverlayState(nextState);
     return nextState;
-  }, []);
-
-  const waitForForegroundOutcomeStableFrame = useCallback(async () => {
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    });
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    });
   }, []);
 
   const resetDownloadOutcome = useCallback(() => {
@@ -722,62 +655,8 @@ function App({
   }, [clearDeferredStartupInitializationIdle]);
 
   useEffect(() => {
-    isMinimizedRef.current = isMinimized;
-  }, [isMinimized]);
-
-  useEffect(() => {
-    isInitialMountRef.current = isInitialMount;
-  }, [isInitialMount]);
-
-  useEffect(() => {
-    isUiLabPreviewActiveRef.current = isUiLabPreviewActive;
-  }, [isUiLabPreviewActive]);
-
-  useEffect(() => {
-    isMainWindowModeLockedRef.current = isMainWindowModeLocked;
-  }, [isMainWindowModeLocked]);
-
-  useEffect(() => {
     centerOverlayStateRef.current = centerOverlayState;
   }, [centerOverlayState]);
-
-  const restoreAnimatedPanelTransitions = useCallback(() => {
-    if (panelTransitionModeResetFrameRef.current !== null) {
-      cancelAnimationFrame(panelTransitionModeResetFrameRef.current);
-    }
-    panelTransitionModeResetFrameRef.current = requestAnimationFrame(() => {
-      panelTransitionModeResetFrameRef.current = null;
-      setPanelTransitionMode("animated");
-    });
-  }, []);
-
-  const updateShellPhase = useCallback((
-    nextPhase: "full" | "collapsing" | "compact" | "expanding",
-  ) => {
-    shellPhaseRef.current = nextPhase;
-    setShellPhase(nextPhase);
-  }, []);
-
-  const applyCurrentWindowInteractionMode = useCallback((
-    nextMode: AmeowCurrentWindowInteractionMode,
-  ) => {
-    if (interactionModeRef.current === nextMode) {
-      return;
-    }
-    interactionModeRef.current = nextMode;
-    desktopCurrentWindow.setInteractionMode(nextMode);
-  }, []);
-
-  useEffect(() => {
-    if (!startsInNativeCompactStartupWindow || !supportsCompactPassthroughHotspot) {
-      return;
-    }
-    applyCurrentWindowInteractionMode("compact-passthrough");
-  }, [
-    applyCurrentWindowInteractionMode,
-    startsInNativeCompactStartupWindow,
-    supportsCompactPassthroughHotspot,
-  ]);
 
   const showQueueNotice = useCallback((message: string) => {
     setQueueNoticeMessage(message);
@@ -825,303 +704,9 @@ function App({
     }
   }, []);
 
-  const clearPointerLeaveCollapseTimer = useCallback(() => {
-    if (pointerLeaveCollapseTimerRef.current !== null) {
-      clearTimeout(pointerLeaveCollapseTimerRef.current);
-      pointerLeaveCollapseTimerRef.current = null;
-    }
-  }, []);
-
-  const clearEdgeGlowRevealTimer = useCallback(() => {
-    if (edgeGlowRevealTimerRef.current !== null) {
-      clearTimeout(edgeGlowRevealTimerRef.current);
-      edgeGlowRevealTimerRef.current = null;
-    }
-  }, []);
-
-  const clearMainWindowInteractionTimer = useCallback(() => {
-    clearPointerLeaveCollapseTimer();
-  }, [clearPointerLeaveCollapseTimer]);
-
-  const syncEdgeGlowMousePositionFromLastPointer = useCallback(() => {
-    const cursorScreenPoint = lastKnownPointerScreenPointRef.current;
-    const container = containerRef.current;
-    if (!cursorScreenPoint || !container) {
-      return false;
-    }
-
-    const rect = container.getBoundingClientRect();
-    const point = resolveMainWindowEdgeGlowPoint({
-      cursorScreenPoint,
-      windowScreenPoint: {
-        x: window.screenX,
-        y: window.screenY,
-      },
-      panelRect: {
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
-      },
-      panelSize: FULL_SIZE,
-    });
-    if (!point) {
-      return false;
-    }
-
-    setMousePos(point);
-    return true;
-  }, [
-    FULL_SIZE,
-  ]);
-
-  const scheduleEdgeGlowReveal = useCallback((delayMs = 160) => {
-    clearEdgeGlowRevealTimer();
-    edgeGlowRevealTimerRef.current = window.setTimeout(() => {
-      edgeGlowRevealTimerRef.current = null;
-      syncEdgeGlowMousePositionFromLastPointer();
-      setShowEdgeGlow(true);
-    }, delayMs);
-  }, [
-    clearEdgeGlowRevealTimer,
-    syncEdgeGlowMousePositionFromLastPointer,
-  ]);
-
-  const revealEdgeGlowNow = useCallback(() => {
-    clearEdgeGlowRevealTimer();
-    syncEdgeGlowMousePositionFromLastPointer();
-    setShowEdgeGlow(true);
-  }, [
-    clearEdgeGlowRevealTimer,
-    syncEdgeGlowMousePositionFromLastPointer,
-  ]);
-
-  const suppressEdgeGlowUntilReveal = useCallback((delayMs = 160) => {
-    clearEdgeGlowRevealTimer();
-    syncEdgeGlowMousePositionFromLastPointer();
-    setShowEdgeGlow(false);
-    scheduleEdgeGlowReveal(delayMs);
-  }, [
-    clearEdgeGlowRevealTimer,
-    scheduleEdgeGlowReveal,
-    syncEdgeGlowMousePositionFromLastPointer,
-  ]);
-
-  const updateLastKnownPointerScreenPoint = useCallback((screenX: number, screenY: number) => {
-    if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) {
-      return;
-    }
-    lastKnownPointerScreenPointRef.current = {
-      x: screenX,
-      y: screenY,
-    };
-  }, []);
-
-  const syncCurrentWindowPositionCache = useCallback(async () => {
-    return syncMainWindowNativePositionCache({
-      currentWindow: desktopCurrentWindow,
-      positionCacheRef: lastKnownWindowPositionRef,
-    });
-  }, []);
-
-  const beginMainWindowBoundsTransition = useCallback((
-    target: "compact" | "full",
-  ) => {
-    return beginMainWindowNativeBoundsTransition({
-      transitionRef: mainWindowBoundsTransitionRef,
-      pendingCompactTokenRef: pendingCompactResizeTokenRef,
-      target,
-    });
-  }, []);
-
-  const isMainWindowBoundsTransitionStillCurrent = useCallback((
-    expectedToken: number | null | undefined,
-    expectedTarget?: "compact" | "full",
-  ) => (
-    isMainWindowNativeBoundsTransitionStillCurrent({
-      transitionRef: mainWindowBoundsTransitionRef,
-      expectedToken,
-      expectedTarget,
-    })
-  ), []);
-
-  const resizeMainWindowPreservingPosition = useCallback(async (
-    width: number,
-    height: number,
-    {
-      transitionToken,
-    }: {
-      transitionToken?: number;
-    } = {},
-  ) => {
-    return resizeMainWindowNativeBoundsPreservingPosition({
-      currentWindow: desktopCurrentWindow,
-      positionCacheRef: lastKnownWindowPositionRef,
-      size: {
-        width,
-        height,
-      },
-      transitionToken,
-    });
-  }, []);
-
-  const ensureMainWindowCompactTargetVisible = useCallback(async (
-    transitionToken: number,
-  ) => {
-    await ensureMainWindowNativeCompactTargetVisible({
-      currentWindow: desktopCurrentWindow,
-      system: desktopSystem,
-      positionCacheRef: lastKnownWindowPositionRef,
-      transitionRef: mainWindowBoundsTransitionRef,
-      transitionToken,
-      platform: currentMainWindowPlatform,
-      edgePadding: WINDOW_EDGE_PADDING,
-      reducedMotion: Boolean(shouldReduceMotion),
-      onMonitorError: (err) => {
-        console.error("Failed to resolve current monitor for compact window placement:", err);
-      },
-    });
-  }, [
-    currentMainWindowPlatform,
-    WINDOW_EDGE_PADDING,
-    shouldReduceMotion,
-  ]);
-
-  const dispatchShellEventRef = useRef<((event: MainWindowShellEvent) => void) | null>(null);
-
-  const runShellEffects = useCallback((effects: MainWindowShellModeEffect[]) => {
-    for (const effect of effects) {
-      switch (effect.type) {
-        case "cancelCollapseTimer":
-          clearMainWindowInteractionTimer();
-          break;
-        case "startCollapseTimer":
-          clearMainWindowInteractionTimer();
-          pointerLeaveCollapseTimerRef.current = window.setTimeout(() => {
-            pointerLeaveCollapseTimerRef.current = null;
-            dispatchShellEventRef.current?.({
-              type: "collapseTimerFired",
-              token: effect.token,
-            });
-          }, 80);
-          break;
-        case "setInteractionMode":
-          if (effect.mode === "compact-passthrough" && !supportsCompactPassthroughHotspot) {
-            break;
-          }
-          applyCurrentWindowInteractionMode(effect.mode);
-          break;
-        case "requestExpand": {
-          compactNativeSettledRef.current = false;
-          compactHotspotInsideRef.current = false;
-          beginMainWindowBoundsTransition("full");
-          updateShellPhase("expanding");
-          setPanelTransitionMode("animated");
-          setIsMinimized(false);
-          suppressEdgeGlowUntilReveal();
-          break;
-        }
-        case "requestCollapse":
-          compactHotspotInsideRef.current = false;
-          compactNativeSettledRef.current = false;
-          pendingCompactResizeTokenRef.current = beginMainWindowBoundsTransition("compact");
-          void ensureMainWindowCompactTargetVisible(pendingCompactResizeTokenRef.current)
-            .catch((err) => {
-              console.error("Failed to keep compact main window visible:", err);
-            });
-          updateShellPhase("collapsing");
-          isPanelHoveredRef.current = false;
-          setIsPanelHovered(false);
-          setIsMinimized(true);
-          clearEdgeGlowRevealTimer();
-          setShowEdgeGlow(false);
-          break;
-      }
-    }
-  }, [
-    applyCurrentWindowInteractionMode,
-    beginMainWindowBoundsTransition,
-    clearEdgeGlowRevealTimer,
-    clearMainWindowInteractionTimer,
-    ensureMainWindowCompactTargetVisible,
-    supportsCompactPassthroughHotspot,
-    suppressEdgeGlowUntilReveal,
-    updateShellPhase,
-  ]);
-
-  const dispatchShellEvent = useCallback((event: MainWindowShellEvent) => {
-    const result = reduceMainWindowShell(shellMachineRef.current, event);
-    shellMachineRef.current = result.state;
-    runShellEffects(result.effects);
-  }, [runShellEffects]);
-
-  dispatchShellEventRef.current = dispatchShellEvent;
-
-  const updateDropHoverState = useCallback((isDropHovering: boolean) => {
-    isDropHoveringRef.current = isDropHovering;
-    if (isDropHovering) {
-      if (!isPanelHoveredRef.current) {
-        isPanelHoveredRef.current = true;
-        setIsPanelHovered(true);
-      }
-      return;
-    }
-
-    isPanelHoveredRef.current = isPointerInsidePanelRef.current;
-    setIsPanelHovered(isPointerInsidePanelRef.current);
-  }, []);
-
-  const clearPanelDropInteractionState = useCallback(({
-    pointerInside = false,
-  }: {
-    pointerInside?: boolean;
-  } = {}) => {
-    setIsHovering(false);
-    isPointerInsidePanelRef.current = pointerInside;
-    updateDropHoverState(false);
-    dispatchShellEvent(pointerInside
-      ? { type: "setLock", lock: "drop", active: false }
-      : { type: "dropLeave" });
-  }, [dispatchShellEvent, updateDropHoverState]);
-
-  const isPointInsidePanel = useCallback((clientX: number, clientY: number) => {
-    const container = containerRef.current;
-    if (!container) {
-      return false;
-    }
-    const elementAtPoint = document.elementFromPoint(clientX, clientY);
-    if (elementAtPoint && container.contains(elementAtPoint)) {
-      return true;
-    }
-    const rect = container.getBoundingClientRect();
-    return (
-      clientX >= rect.left
-      && clientX <= rect.right
-      && clientY >= rect.top
-      && clientY <= rect.bottom
-    );
-  }, []);
-
-  const suppressNextPanelDragLeave = useCallback(() => {
-    suppressNextPanelDragLeaveRef.current = true;
-    window.setTimeout(() => {
-      suppressNextPanelDragLeaveRef.current = false;
-    }, 100);
-  }, []);
-
-  const scheduleMainWindowPointerLeaveCollapse = useCallback(() => {
-    isPointerInsidePanelRef.current = false;
-    isPanelHoveredRef.current = false;
-    setIsPanelHovered(false);
-    dispatchShellEvent({ type: "pointerLeave" });
-  }, [dispatchShellEvent]);
-
-  const scheduleMainWindowPointerEnterExpand = useCallback(() => {
-    isPointerInsidePanelRef.current = true;
-    isPanelHoveredRef.current = true;
-    setIsPanelHovered(true);
-    dispatchShellEvent({ type: "pointerEnter" });
-  }, [dispatchShellEvent]);
+  const handleOutputFolderShortcut = useCallback(async () => {
+    await openCurrentOutputFolder();
+  }, [openCurrentOutputFolder]);
 
   const closeContextMenuWindow = useCallback(async () => {
     if (await desktopWindows.has("context-menu")) {
@@ -1130,50 +715,12 @@ function App({
     updateContextMenuOpen(false);
   }, [updateContextMenuOpen]);
 
-  const scheduleContainerFocus = useCallback(() => {
-    window.setTimeout(() => {
-      const container = document.querySelector('[tabIndex="0"]') as HTMLElement | null;
-      container?.focus();
-    }, 100);
-  }, []);
-
-  const ensureMainWindowFullMode = useCallback(async ({
-    focusContainer = true,
-  }: {
-    focusContainer?: boolean;
-  } = {}) => {
-    dispatchShellEvent({ type: "forceFull" });
-    setPanelTransitionMode("instant");
-    restoreAnimatedPanelTransitions();
-    suppressEdgeGlowUntilReveal();
-
-    if (focusContainer) {
-      scheduleContainerFocus();
-    }
-  }, [
-    dispatchShellEvent,
-    restoreAnimatedPanelTransitions,
-    scheduleContainerFocus,
-    suppressEdgeGlowUntilReveal,
-  ]);
-
   const prepareMainWindowForForegroundTask = useCallback(async () => {
-    dispatchShellEvent({ type: "forceFull" });
-
-    if (!isMinimizedRef.current) {
-      return;
-    }
-
-    if (shellPhaseRef.current === "expanding") {
-      shouldReturnToCompactAfterForegroundTaskRef.current = true;
-      return;
-    }
-
-    shouldReturnToCompactAfterForegroundTaskRef.current = true;
-    await ensureMainWindowFullMode({
-      focusContainer: false,
-    });
-  }, [dispatchShellEvent, ensureMainWindowFullMode]);
+    // Full intent is explicit lifecycle input; the lifecycle owns the
+    // transition recipe and keeps pointer truth. The task lock lands through
+    // the presentation lock facts before the overlay can paint.
+    requestFullIntent("foreground", "instant");
+  }, [requestFullIntent]);
 
   const buildErrorDiagnosticRequest = useCallback(({
     surface,
@@ -1227,59 +774,57 @@ function App({
 
   const showForegroundTaskOutcome = useCallback(({
     status,
-    cancelled,
     error,
     durationMs,
     source,
+    origin,
     diagnostic,
   }: {
-    status?: CenterOverlayOutcomeStatus;
-    cancelled?: boolean;
+    status: CenterOverlayOutcomeStatus;
     error: string | null;
     durationMs: number;
     source?: Exclude<CenterOverlayOutcomeSource, "folder">;
+    origin?: CenterOverlayOutcomeOrigin;
     diagnostic?: ErrorDiagnosticCopyRequest | null;
   }) => {
     clearForegroundTaskOutcomeTimer();
-    const outcomeStatus = status ?? (cancelled ? "cancelled" : "success");
     const loadingState = updateCenterOverlayState({
       type: "beginTaskOutcomeLoading",
       source: source ?? diagnostic?.surface ?? "download",
-      status: outcomeStatus,
-      message: outcomeStatus === "success" ? null : error,
+      status,
+      origin,
+      message: status === "success" ? null : error,
       durationMs,
-      diagnostic: outcomeStatus === "error" ? diagnostic ?? null : null,
+      diagnostic: status === "failure" ? diagnostic ?? null : null,
     });
     const requestId = loadingState.requestId;
-    void (async () => {
-      await prepareMainWindowForForegroundTask();
-      await waitForForegroundOutcomeStableFrame();
+    void prepareMainWindowForForegroundTask();
+    if (centerOverlayStateRef.current.requestId !== requestId) {
+      return;
+    }
+    updateCenterOverlayState({ type: "showTaskOutcome", requestId });
+    foregroundTaskOutcomeTimerRef.current = window.setTimeout(() => {
       if (centerOverlayStateRef.current.requestId !== requestId) {
         return;
       }
-      updateCenterOverlayState({ type: "showTaskOutcome", requestId });
-      foregroundTaskOutcomeTimerRef.current = window.setTimeout(() => {
-        if (centerOverlayStateRef.current.requestId !== requestId) {
-          return;
-        }
-        foregroundTaskOutcomeTimerRef.current = null;
-        updateCenterOverlayState({ type: "finishTaskOutcome", requestId });
-      }, durationMs);
-    })();
+      foregroundTaskOutcomeTimerRef.current = null;
+      updateCenterOverlayState({ type: "finishTaskOutcome", requestId });
+    }, durationMs);
   }, [
     clearForegroundTaskOutcomeTimer,
     prepareMainWindowForForegroundTask,
     updateCenterOverlayState,
-    waitForForegroundOutcomeStableFrame,
   ]);
 
-  const showFolderDropOutcome = useCallback(() => {
+  const showFolderDropOutcome = useCallback((origin?: LocalIntakeOrigin) => {
     clearForegroundTaskOutcomeTimer();
     clearCenterOutcomeTimer();
     const outcomeState = updateCenterOverlayState({
       type: "showFolderOutcome",
       status: "success",
       durationMs: 1400,
+      origin,
+      startedAt: performance.now(),
     });
     const requestId = outcomeState.requestId;
     centerOutcomeTimerRef.current = window.setTimeout(() => {
@@ -1359,7 +904,7 @@ function App({
       console.error(failureLogLabel, error);
       await prepareMainWindowForForegroundTask();
       showForegroundTaskOutcome({
-        status: "error",
+        status: "failure",
         error: summarizeForegroundTaskError(error),
         durationMs: 1800,
       });
@@ -1373,266 +918,10 @@ function App({
   ]);
 
   useEffect(() => {
-    if (!hasOngoingTask) {
-      return;
+    if (hasOngoingTask) {
+      requestFullIntent("task", "instant");
     }
-
-    if (isMinimized) {
-      void prepareMainWindowForForegroundTask();
-      return;
-    }
-    dispatchShellEvent({ type: "forceFull" });
-  }, [
-    dispatchShellEvent,
-    hasOngoingTask,
-    isMinimized,
-    prepareMainWindowForForegroundTask,
-  ]);
-
-  // Shrink window after minimize animation completes
-  const handleAnimationComplete = async () => {
-    if (isUiLabPreviewActiveRef.current) {
-      return;
-    }
-    if (
-      shellPhaseRef.current === "collapsing"
-      && isMinimizedRef.current
-      && !isInitialMountRef.current
-    ) {
-      const compactResizeToken = pendingCompactResizeTokenRef.current;
-      if (!isMainWindowBoundsTransitionStillCurrent(compactResizeToken, "compact")) {
-        return;
-      }
-      setPanelTransitionMode("instant");
-      dispatchShellEvent({ type: "collapseAnimationComplete" });
-      updateShellPhase("compact");
-      setCompactIconSettlePulseKey((key) => key + 1);
-      pendingCompactResizeTokenRef.current = null;
-      compactHotspotInsideRef.current = false;
-      isPanelHoveredRef.current = false;
-      setIsPanelHovered(false);
-      if (isMainWindowBoundsTransitionStillCurrent(compactResizeToken, "compact")) {
-        compactNativeSettledRef.current = true;
-        if (supportsCompactPassthroughHotspot) {
-          applyCurrentWindowInteractionMode("compact-passthrough");
-        }
-      }
-      restoreAnimatedPanelTransitions();
-      return;
-    }
-
-    if (
-      shellPhaseRef.current === "expanding"
-      && !isMinimizedRef.current
-    ) {
-      dispatchShellEvent({ type: "expandAnimationComplete" });
-      if (shellMachineRef.current.phase !== "full") {
-        return;
-      }
-      updateShellPhase("full");
-      revealEdgeGlowNow();
-      scheduleContainerFocus();
-    }
-  };
-
-  const shouldShowEdgeGlow =
-    isPanelHovered && !isHovering && !primaryTask && !visualIsMinimized && showEdgeGlow;
-  const shouldShowDragGlow = isHovering && !primaryTask && !visualIsMinimized;
-  const shellGeometryPlan = resolveMainWindowShellGeometryPlan({
-    mode: visualIsMinimized ? "compact" : "full",
-    platform: currentMainWindowPlatform,
-    windowPosition: lastKnownWindowPositionRef.current ?? { x: 0, y: 0 },
-    currentNativeSize: {
-      width: INTERMEDIATE_EXPAND_SIZE,
-      height: INTERMEDIATE_EXPAND_SIZE,
-    },
-    nativeSizeStrategy: "preserve-current",
-  });
-  const visualShellFrame = shellGeometryPlan.visualShell;
-  const shadowShellFrame = shellGeometryPlan.shadowShell;
-  const panelRenderSize = visualShellFrame.width;
-  const panelOffsetX = visualShellFrame.x;
-  const panelOffsetY = visualShellFrame.y;
-  const shadowRenderSize = shadowShellFrame.width;
-  const shadowOffsetX = shadowShellFrame.x;
-  const shadowOffsetY = shadowShellFrame.y;
-  const minimizedPanelScale = MAIN_WINDOW_MINIMIZED_PANEL_SCALE;
-  const minimizedIconSize = isMacOS ? MINIMIZED_ICON_SIZE - 2 : MINIMIZED_ICON_SIZE;
-  const minimizedIconFrameSize = isMacOS ? MINIMIZED_SHELL_SIZE : minimizedIconSize;
-  const minimizedIconWrapperScale = 1;
-  const shouldUseInstantPanelTransition = panelTransitionMode === "instant";
-  const minimizedIconAnimate = shouldReduceMotion
-    ? (visualIsMinimized
-        ? { opacity: 1, scale: 1 }
-        : { opacity: 0, scale: 1 })
-    : (visualIsMinimized
-        ? { scale: 1, opacity: 1 }
-        : { scale: [1, 1.015, 0.9], opacity: [1, 1, 0] });
-  const minimizedIconTransition = shouldReduceMotion
-    ? MAIN_WINDOW_MINIMIZED_ICON_REDUCED_MOTION_TRANSITION
-    : visualIsMinimized
-      ? MAIN_WINDOW_MINIMIZED_ICON_ENTER_TRANSITION
-      : MAIN_WINDOW_MINIMIZED_ICON_LEAVE_TRANSITION;
-  const minimizedIconSettleAnimate = !shouldReduceMotion && shellPhase === "compact"
-    ? { scale: [...MAIN_WINDOW_MINIMIZED_ICON_SETTLE_SCALE_KEYFRAMES] }
-    : { scale: 1 };
-  const minimizedIconSettleTransition = !shouldReduceMotion && shellPhase === "compact"
-    ? {
-      ...MAIN_WINDOW_MINIMIZED_ICON_SETTLE_TRANSITION,
-      times: [...MAIN_WINDOW_MINIMIZED_ICON_SETTLE_SCALE_TIMES],
-    }
-    : MAIN_WINDOW_MINIMIZED_ICON_REDUCED_MOTION_TRANSITION;
-  const minimizedIconExit = shouldReduceMotion
-    ? {
-        opacity: 0,
-        scale: 1,
-        transition: MAIN_WINDOW_MINIMIZED_ICON_REDUCED_EXIT_TRANSITION,
-      }
-    : {
-        opacity: 0,
-        scale: 1,
-        transition: MAIN_WINDOW_MINIMIZED_ICON_EXIT_TRANSITION,
-      };
-  const panelScale = visualIsMinimized ? minimizedPanelScale : 1;
-  const panelRadius = visualShellFrame.radius;
-  const shadowRadius = shadowShellFrame.radius;
-  const initialPanelTweenTransition = MAIN_WINDOW_PANEL_INITIAL_TWEEN_TRANSITION;
-  const minimizedPanelTweenTransition = MAIN_WINDOW_PANEL_COMPACT_TWEEN_TRANSITION;
-  const instantPanelValueTransition = MAIN_WINDOW_PANEL_INSTANT_TRANSITION;
-  const springPanelValueTransition = MAIN_WINDOW_PANEL_FULL_SPRING_TRANSITION;
-  const panelShellClipPath = visualShellFrame.clipPath;
-  const shouldUseFullElasticScale = (
-    shellPhase === "expanding"
-    && !isInitialMount
-    && !shouldUseInstantPanelTransition
-    && !visualIsMinimized
-    && !shouldReduceMotion
-  );
-  const panelShellScaleAnimate = shouldUseFullElasticScale
-    ? [...MAIN_WINDOW_PANEL_FULL_ELASTIC_SCALE_KEYFRAMES]
-    : isInitialMount
-      ? MAIN_WINDOW_INITIAL_PANEL_SCALE
-      : panelScale;
-  const panelShellScaleTransition = shouldUseFullElasticScale
-    ? {
-      ...springPanelValueTransition,
-      times: [...MAIN_WINDOW_PANEL_FULL_ELASTIC_SCALE_TIMES],
-    }
-    : isInitialMount
-      ? initialPanelTweenTransition
-      : shouldUseInstantPanelTransition
-        ? instantPanelValueTransition
-        : visualIsMinimized
-          ? minimizedPanelTweenTransition
-          : springPanelValueTransition;
-  const panelShellAnimate = {
-    scale: panelShellScaleAnimate,
-    borderRadius: panelRadius,
-    clipPath: panelShellClipPath,
-    x: panelOffsetX,
-    y: panelOffsetY,
-    width: panelRenderSize,
-    height: panelRenderSize,
-  };
-  const panelShellTransition = {
-    scale: panelShellScaleTransition,
-    borderRadius: isInitialMount
-      ? initialPanelTweenTransition
-      : shouldUseInstantPanelTransition
-        ? instantPanelValueTransition
-        : visualIsMinimized
-          ? minimizedPanelTweenTransition
-          : springPanelValueTransition,
-    clipPath: isInitialMount
-      ? initialPanelTweenTransition
-      : shouldUseInstantPanelTransition
-        ? instantPanelValueTransition
-        : visualIsMinimized
-          ? minimizedPanelTweenTransition
-          : springPanelValueTransition,
-    x: shouldUseInstantPanelTransition
-      ? instantPanelValueTransition
-      : visualIsMinimized
-        ? minimizedPanelTweenTransition
-        : springPanelValueTransition,
-    y: shouldUseInstantPanelTransition
-      ? instantPanelValueTransition
-      : visualIsMinimized
-        ? minimizedPanelTweenTransition
-        : springPanelValueTransition,
-    width: shouldUseInstantPanelTransition
-      ? instantPanelValueTransition
-      : visualIsMinimized
-        ? minimizedPanelTweenTransition
-        : springPanelValueTransition,
-    height: shouldUseInstantPanelTransition
-      ? instantPanelValueTransition
-      : visualIsMinimized
-        ? minimizedPanelTweenTransition
-        : springPanelValueTransition,
-  };
-  const getEdgeGlowOpacity = () => {
-    const distanceToEdge = Math.min(
-      mousePos.x,
-      mousePos.y,
-      FULL_SIZE - mousePos.x,
-      FULL_SIZE - mousePos.y,
-    );
-    const normalized = Math.max(0, 1 - distanceToEdge / EDGE_GLOW_TRIGGER_DISTANCE);
-    return Math.min(1, Math.pow(normalized, EDGE_GLOW_FALLOFF_EXPONENT) * 1.18);
-  };
-
-  const edgeGlowOpacity = getEdgeGlowOpacity();
-
-  const getEdgeGlowStyle = (): CSSProperties => {
-    return {
-      position: 'absolute',
-      inset: 0,
-      ...getContinuousCornerStyle(panelRadius),
-      pointerEvents: 'none',
-      padding: EDGE_GLOW_BORDER_WIDTH,
-      background: `radial-gradient(
-        ${EDGE_GLOW_RADIUS}px circle at ${mousePos.x}px ${mousePos.y}px,
-        rgba(59,130,246,1) 0%,
-        rgba(96,165,250,0.98) 18%,
-        rgba(125,211,252,0.72) 38%,
-        rgba(147,197,253,0.36) 56%,
-        rgba(191,219,254,0.14) 70%,
-        transparent 84%
-      )`,
-      boxShadow: 'inset 0 0 16px rgba(96,165,250,0.22), inset 0 0 28px rgba(96,165,250,0.08)',
-      mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-      maskComposite: 'exclude',
-      WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-      WebkitMaskComposite: 'xor',
-    };
-  };
-
-  const getDragGlowStyle = (): CSSProperties => {
-    return {
-      position: 'absolute',
-      inset: 0,
-      ...getContinuousCornerStyle(panelRadius),
-      pointerEvents: 'none',
-      padding: DRAG_GLOW_BORDER_WIDTH,
-      background: `linear-gradient(
-        135deg,
-        rgba(125,211,252,0.96) 0%,
-        rgba(96,165,250,0.98) 35%,
-        rgba(59,130,246,0.96) 65%,
-        rgba(147,197,253,0.92) 100%
-      )`,
-      boxShadow: `
-        inset 0 0 0 1px rgba(191,219,254,0.85),
-        inset 0 0 22px rgba(59,130,246,0.28),
-        inset 0 0 36px rgba(96,165,250,0.16)
-      `,
-      mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-      maskComposite: 'exclude',
-      WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-      WebkitMaskComposite: 'xor',
-    };
-  };
+  }, [hasOngoingTask, requestFullIntent]);
 
   const applyRuntimeConfig = useCallback((config: Record<string, unknown>) => {
     if (typeof config.outputPath === "string") {
@@ -1772,7 +1061,7 @@ function App({
         fallbackMessage,
       });
       showForegroundTaskOutcome({
-        status: "error",
+        status: "failure",
         error: diagnostic.userMessage,
         durationMs: 5000,
         diagnostic,
@@ -1785,13 +1074,20 @@ function App({
     showForegroundTaskOutcome,
   ]);
 
-  const enqueueVideoDownload = useCallback((request: string | DownloadQueueRequest) => {
+  const enqueueVideoDownload = useCallback((
+    request: string | DownloadQueueRequest,
+    intakeOrigin?: LocalIntakeOrigin,
+  ) => {
     const payload = typeof request === "string" ? { url: request } : request;
-    return runDownloadEnqueue(() => downloadActions.queue(payload), payload.pageUrl ?? payload.url);
+    const requestWithCause = intakeOrigin === undefined ? payload : { ...payload, intakeOrigin };
+    return runDownloadEnqueue(
+      () => downloadActions.queue(requestWithCause),
+      requestWithCause.pageUrl ?? requestWithCause.url,
+    );
   }, [downloadActions, runDownloadEnqueue]);
 
-  const enqueuePastedVideoDownload = useCallback((url: string) => (
-    runDownloadEnqueue(() => downloadActions.queuePasted(url), url)
+  const enqueuePastedVideoDownload = useCallback((url: string, intakeOrigin?: LocalIntakeOrigin) => (
+    runDownloadEnqueue(() => downloadActions.queuePasted(url, intakeOrigin), url)
   ), [downloadActions, runDownloadEnqueue]);
 
   const cancelVideoTask = useCallback(async (traceId: string) => {
@@ -1914,62 +1210,11 @@ function App({
   ]);
 
   useEffect(() => {
-    if (isMacOS) {
-      return;
-    }
-
-    let cancelled = false;
-    void desktopCurrentWindow.outerPosition()
-      .then((position) => {
-        if (!cancelled) {
-          lastKnownWindowPositionRef.current = position;
-        }
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isMacOS]);
-
-  // Keep the compact reveal only for full-sized startup windows.
-  useEffect(() => {
-    if (startsInNativeCompactStartupWindow) {
-      return;
-    }
-    let startupSettleFrame: number | null = null;
-    const timer = setTimeout(() => {
-      isInitialMountRef.current = false;
+    const timer = window.setTimeout(() => {
       setIsInitialMount(false);
-      startupSettleFrame = requestAnimationFrame(() => {
-        startupSettleFrame = null;
-        dispatchShellEvent({ type: "startupSettle" });
-      });
     }, 100);
-    return () => {
-      clearTimeout(timer);
-      if (startupSettleFrame !== null) {
-        cancelAnimationFrame(startupSettleFrame);
-      }
-    };
-  }, [dispatchShellEvent, startsInNativeCompactStartupWindow]);
-
-  useEffect(() => {
-    if (!startsInNativeCompactStartupWindow) {
-      return;
-    }
-
-    void resizeMainWindowPreservingPosition(
-      INTERMEDIATE_EXPAND_SIZE,
-      INTERMEDIATE_EXPAND_SIZE,
-    ).catch((err) => {
-      console.error("Failed to normalize startup compact window bounds:", err);
-    });
-  }, [
-    INTERMEDIATE_EXPAND_SIZE,
-    resizeMainWindowPreservingPosition,
-    startsInNativeCompactStartupWindow,
-  ]);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1988,25 +1233,10 @@ function App({
       if (runtimeBootstrapAfterVisibleTimerRef.current !== null) {
         clearTimeout(runtimeBootstrapAfterVisibleTimerRef.current);
       }
-      if (startupAutoMinimizeReleaseTimerRef.current !== null) {
-        clearTimeout(startupAutoMinimizeReleaseTimerRef.current);
-      }
       if (deferredStartupInitializationTimerRef.current !== null) {
         clearTimeout(deferredStartupInitializationTimerRef.current);
       }
       clearDeferredStartupInitializationIdle();
-      if (pointerLeaveCollapseTimerRef.current !== null) {
-        clearTimeout(pointerLeaveCollapseTimerRef.current);
-      }
-      if (edgeGlowRevealTimerRef.current !== null) {
-        clearTimeout(edgeGlowRevealTimerRef.current);
-      }
-      if (panelTransitionModeResetFrameRef.current !== null) {
-        cancelAnimationFrame(panelTransitionModeResetFrameRef.current);
-      }
-      if (compactHotspotFrameRef.current !== null) {
-        cancelAnimationFrame(compactHotspotFrameRef.current);
-      }
     };
   }, [clearDeferredStartupInitializationIdle]);
 
@@ -2105,18 +1335,53 @@ function App({
     prepareMainWindowForForegroundTask,
   ]);
 
-  useEffect(() => onDownloadTerminal((outcome) => {
+  // MR4: a NEW current primary Download invalidates the previous terminal
+  // Reveal Presentation state, its retention timer, and the centerOutcome
+  // lock immediately — including before the new download's first progress
+  // event (synthetic/preparing progress). Canvas suppression alone is not
+  // enough: the center outcome state and lock must be cleared. The effect
+  // keys on the current primary Download task identity (a stable object out
+  // of the queue state), so a newly-current download fires it regardless of
+  // progress events or React batching. The authoritative typed terminal fact
+  // in the Download queue state is never touched; requestId generation
+  // guards make the dismissed retention timer a stale no-op against any
+  // newer outcome.
+  useEffect(() => {
+    if (!shouldInvalidateTerminalRevealForPrimaryDownload(
+      centerOverlayStateRef.current,
+      primaryDownloadTask,
+    )) {
+      return;
+    }
+    dismissTransientCenterOverlay();
+  }, [dismissTransientCenterOverlay, primaryDownloadTask]);
+
+  useEffect(() => onDownloadTerminal((outcome, postReductionState) => {
+    // MR4: a terminal whose download is NOT the current primary (per the
+    // controller's EXACT post-reduction snapshot) is a background terminal.
+    // terminalReceived has already pruned the terminal's own trace, so any
+    // non-null primary is necessarily another download: suppress. Only a null
+    // primary shows the just-arrived terminal. No React commit timing is
+    // involved: the snapshot is captured synchronously at the controller
+    // notification boundary.
+    if (!shouldShowDownloadTerminalReveal(
+      selectPrimaryDownloadTask(postReductionState),
+    )) {
+      return;
+    }
     if (outcome.kind === "success") {
       showForegroundTaskOutcome({
         status: "success",
         error: null,
         durationMs: 1500,
+        origin: "terminal",
       });
     } else if (outcome.kind === "cancelled") {
       showForegroundTaskOutcome({
         status: "cancelled",
         error: outcome.errorSummary,
         durationMs: 1500,
+        origin: "terminal",
       });
     } else {
       const fallbackMessage = outcome.errorSummary ?? "Unknown download error";
@@ -2127,10 +1392,11 @@ function App({
         fallbackMessage,
       });
       showForegroundTaskOutcome({
-        status: "error",
+        status: "failure",
         error: diagnostic.userMessage,
         durationMs: 5000,
         diagnostic,
+        origin: "terminal",
       });
     }
   }), [
@@ -2170,49 +1436,6 @@ function App({
     return () => { unlisten.then(fn => fn()); };
   }, []);
 
-  useEffect(() => {
-    const unlisten = desktopEvents.on<{ restoreLive?: boolean }>("ui-lab-reset", (event) => {
-      const restoreLive = event.payload?.restoreLive === true;
-      isUiLabPreviewActiveRef.current = !restoreLive;
-      setIsUiLabPreviewActive(!restoreLive);
-      if (!restoreLive) {
-        void ensureMainWindowFullMode({
-          focusContainer: false,
-        });
-      }
-      if (queueNoticeTimerRef.current !== null) {
-        clearTimeout(queueNoticeTimerRef.current);
-        queueNoticeTimerRef.current = null;
-      }
-      if (runtimeRetryFeedbackTimerRef.current !== null) {
-        clearTimeout(runtimeRetryFeedbackTimerRef.current);
-        runtimeRetryFeedbackTimerRef.current = null;
-      }
-      if (runtimeSuccessTimerRef.current !== null) {
-        clearTimeout(runtimeSuccessTimerRef.current);
-        runtimeSuccessTimerRef.current = null;
-      }
-
-      pendingTranscodeActionTraceIdsRef.current = new Set();
-      setPendingTranscodeActionTraceIds([]);
-      downloadActions.reset();
-      setVideoTranscodeQueueState(EMPTY_VIDEO_TRANSCODE_QUEUE_STATE);
-      setVideoTranscodeQueueDetail(EMPTY_VIDEO_TRANSCODE_QUEUE_DETAIL);
-      setTranscodeProgressByTrace({});
-      resetDownloadOutcome();
-      setQueueNoticeMessage(null);
-      setIsQueuePopoverOpen(false);
-      setIsRuntimeRetryInFlight(false);
-      setIsRuntimeRetryFeedbackVisible(false);
-      setShowRuntimeSuccessIndicator(false);
-      setIsRuntimeIndicatorHovered(false);
-      if (restoreLive) {
-        void refreshRuntimeDependencyContext();
-      }
-    });
-    return () => { unlisten.then(fn => fn()); };
-  }, [downloadActions, ensureMainWindowFullMode, refreshRuntimeDependencyContext, resetDownloadOutcome]);
-
   // Listen for rename toggle changes from settings window
   useEffect(() => {
     const unlisten = desktopEvents.on<{ enabled: boolean }>("rename-setting-changed", (event) => {
@@ -2239,14 +1462,10 @@ function App({
   // Listen for shortcut show event
   useEffect(() => {
     const unlisten = desktopEvents.on<void>("shortcut-show", () => {
-      void syncCurrentWindowPositionCache()
-        .catch((err) => {
-          console.error("Failed to sync window position after shortcut show:", err);
-        })
-        .then(() => ensureMainWindowFullMode());
+      requestFullIntent("shortcut", "instant");
     });
     return () => { unlisten.then(fn => fn()); };
-  }, [ensureMainWindowFullMode, syncCurrentWindowPositionCache]);
+  }, [requestFullIntent]);
 
   // Hydrate scheduler-owned app update state after startup.
   useEffect(() => {
@@ -2421,7 +1640,7 @@ function App({
         fallbackMessage,
       });
       showForegroundTaskOutcome({
-        status: "error",
+        status: "failure",
         source: "transcode",
         error: diagnostic.userMessage,
         durationMs: 5000,
@@ -2486,218 +1705,11 @@ function App({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [devMode]);
 
-  const syncMainWindowInteraction = useCallback(({
-    expandIfMinimized = true,
-  }: {
-    expandIfMinimized?: boolean;
-  } = {}) => {
-    const wasMinimized = isMinimizedRef.current;
-
-    if (expandIfMinimized && wasMinimized) {
-      dispatchShellEvent({ type: "pointerEnter" });
-    }
-  }, [dispatchShellEvent]);
-
-  const evaluateCompactHotspot = useCallback((clientX: number, clientY: number) => {
-    if (!supportsCompactPassthroughHotspot) {
-      return;
-    }
-    if (shellPhaseRef.current !== "compact") {
-      return;
-    }
-    if (interactionModeRef.current !== "compact-passthrough") {
-      return;
-    }
-
-    const insideHotspot = isPointInsideCompactPointerHotspot({
-      pointX: clientX,
-      pointY: clientY,
-      centerX: ICON_SIZE / 2,
-      centerY: ICON_SIZE / 2,
-      enterRadius: COMPACT_HOTSPOT_FRAME_SIZE / 2,
-      exitRadius: COMPACT_HOTSPOT_FRAME_SIZE / 2 + 4,
-      wasInside: compactHotspotInsideRef.current,
-    });
-
-    if (!insideHotspot || compactHotspotInsideRef.current) {
-      compactHotspotInsideRef.current = insideHotspot;
-      return;
-    }
-
-    compactHotspotInsideRef.current = true;
-    scheduleMainWindowPointerEnterExpand();
-  }, [
-    COMPACT_HOTSPOT_FRAME_SIZE,
-    ICON_SIZE,
-    scheduleMainWindowPointerEnterExpand,
-    supportsCompactPassthroughHotspot,
-  ]);
-
   useEffect(() => {
-    if (!supportsCompactPassthroughHotspot || shellPhase !== "compact") {
-      return;
+    if (runtimeGateIsBusy) {
+      requestFullIntent("runtimeGate", "animated");
     }
-
-    const handleMouseMove = (event: MouseEvent) => {
-      if (interactionModeRef.current !== "compact-passthrough") {
-        return;
-      }
-      if (compactHotspotFrameRef.current !== null) {
-        return;
-      }
-      const { clientX, clientY } = event;
-      updateLastKnownPointerScreenPoint(event.screenX, event.screenY);
-
-      compactHotspotFrameRef.current = requestAnimationFrame(() => {
-        compactHotspotFrameRef.current = null;
-        evaluateCompactHotspot(clientX, clientY);
-      });
-    };
-
-    window.addEventListener("mousemove", handleMouseMove, { passive: true });
-    return () => {
-      if (compactHotspotFrameRef.current !== null) {
-        cancelAnimationFrame(compactHotspotFrameRef.current);
-        compactHotspotFrameRef.current = null;
-      }
-      window.removeEventListener("mousemove", handleMouseMove);
-    };
-  }, [
-    evaluateCompactHotspot,
-    shellPhase,
-    supportsCompactPassthroughHotspot,
-    updateLastKnownPointerScreenPoint,
-    visualIsMinimized,
-  ]);
-
-  useEffect(() => {
-    dispatchShellEvent({ type: "setLock", lock: "task", active: hasOngoingTask || isProcessing });
-  }, [dispatchShellEvent, hasOngoingTask, isProcessing]);
-
-  useEffect(() => {
-    dispatchShellEvent({
-      type: "setLock",
-      lock: "centerOutcome",
-      active: centerOverlayLockActive,
-    });
-  }, [centerOverlayLockActive, dispatchShellEvent]);
-
-  useEffect(() => {
-    dispatchShellEvent({ type: "setLock", lock: "contextMenu", active: isContextMenuOpen });
-  }, [dispatchShellEvent, isContextMenuOpen]);
-
-  useEffect(() => {
-    dispatchShellEvent({ type: "setLock", lock: "uiLab", active: isUiLabPreviewActive });
-  }, [dispatchShellEvent, isUiLabPreviewActive]);
-
-  useEffect(() => {
-    dispatchShellEvent({
-      type: "setLock",
-      lock: "appUpdate",
-      active: appUpdatePhase === "downloading" || appUpdatePhase === "installing" || runtimeGateIsBusy,
-    });
-  }, [appUpdatePhase, dispatchShellEvent, runtimeGateIsBusy]);
-
-  useEffect(() => {
-    if (hasOngoingTask || isProcessing || !shouldReturnToCompactAfterForegroundTaskRef.current) {
-      return;
-    }
-
-    if (isMinimizedRef.current) {
-      shouldReturnToCompactAfterForegroundTaskRef.current = false;
-      return;
-    }
-
-    shouldReturnToCompactAfterForegroundTaskRef.current = false;
-    dispatchShellEvent({ type: "startupSettle" });
-  }, [
-    dispatchShellEvent,
-    hasOngoingTask,
-    isProcessing,
-  ]);
-
-  useEffect(() => {
-    if (visualIsMinimized) {
-      return;
-    }
-
-    const handleWindowMouseOut = (event: MouseEvent) => {
-      if (event.relatedTarget !== null) {
-        return;
-      }
-      scheduleMainWindowPointerLeaveCollapse();
-    };
-
-    window.addEventListener("mouseout", handleWindowMouseOut);
-    return () => {
-      window.removeEventListener("mouseout", handleWindowMouseOut);
-    };
-  }, [scheduleMainWindowPointerLeaveCollapse, visualIsMinimized]);
-
-  useEffect(() => {
-    if (visualIsMinimized) {
-      return;
-    }
-
-    let cancelled = false;
-    const unlisten = desktopCurrentWindow.onPointerBoundaryChanged(({ payload }) => {
-      if (cancelled) {
-        return;
-      }
-      if (payload.inside) {
-        scheduleMainWindowPointerEnterExpand();
-        return;
-      }
-      scheduleMainWindowPointerLeaveCollapse();
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten.then((fn) => fn());
-    };
-  }, [
-    scheduleMainWindowPointerEnterExpand,
-    scheduleMainWindowPointerLeaveCollapse,
-    visualIsMinimized,
-  ]);
-
-  useEffect(() => {
-    if (startupAutoMinimizeGraceMs <= 0) {
-      startupAutoMinimizeUnlockedRef.current = true;
-      return;
-    }
-
-    startupAutoMinimizeUnlockedRef.current = false;
-    startupAutoMinimizeReleaseTimerRef.current = window.setTimeout(() => {
-      startupAutoMinimizeReleaseTimerRef.current = null;
-      startupAutoMinimizeUnlockedRef.current = true;
-      dispatchShellEvent({ type: "setLock", lock: "startup", active: false });
-      dispatchShellEvent({ type: "startupSettle" });
-    }, startupAutoMinimizeGraceMs);
-
-    return () => {
-      if (startupAutoMinimizeReleaseTimerRef.current !== null) {
-        clearTimeout(startupAutoMinimizeReleaseTimerRef.current);
-        startupAutoMinimizeReleaseTimerRef.current = null;
-      }
-      startupAutoMinimizeUnlockedRef.current = startupAutoMinimizeGraceMs === 0;
-    };
-  }, [dispatchShellEvent, startupAutoMinimizeGraceMs]);
-
-  useEffect(() => {
-    if (!runtimeGateIsBusy) {
-      return;
-    }
-
-    dispatchShellEvent({ type: "forceFull" });
-  }, [
-    dispatchShellEvent,
-    runtimeGateIsBusy,
-  ]);
-
-  useEffect(() => () => {
-    clearMainWindowInteractionTimer();
-  }, [clearMainWindowInteractionTimer]);
+  }, [requestFullIntent, runtimeGateIsBusy]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2713,354 +1725,17 @@ function App({
     };
   }, [closeContextMenuWindow, isContextMenuOpen]);
 
-  const flushWindowDragPosition = useCallback(() => {
-    windowDragFrameRef.current = null;
-    const dragState = activeWindowDragRef.current;
-    if (!dragState) {
-      return;
-    }
-
-    if (
-      dragState.lastAppliedX === dragState.nextX
-      && dragState.lastAppliedY === dragState.nextY
-    ) {
-      return;
-    }
-
-    dragState.lastAppliedX = dragState.nextX;
-    dragState.lastAppliedY = dragState.nextY;
-    lastKnownWindowPositionRef.current = {
-      x: dragState.nextX,
-      y: dragState.nextY,
-    };
-    desktopCurrentWindow.setPosition({
-      x: dragState.nextX,
-      y: dragState.nextY,
-    });
-  }, []);
-
-  const scheduleWindowDragPosition = useCallback(() => {
-    if (windowDragFrameRef.current !== null) {
-      return;
-    }
-
-    windowDragFrameRef.current = window.requestAnimationFrame(() => {
-      flushWindowDragPosition();
-    });
-  }, [flushWindowDragPosition]);
-
-  const updateManualWindowDrag = useCallback((screenX: number, screenY: number) => {
-    const dragState = activeWindowDragRef.current;
-    if (!dragState) {
-      return;
-    }
-
-    dragState.nextX = Math.round(dragState.windowX + (screenX - dragState.startScreenX));
-    dragState.nextY = Math.round(dragState.windowY + (screenY - dragState.startScreenY));
-
-    if (
-      dragState.nextX === dragState.lastAppliedX
-      && dragState.nextY === dragState.lastAppliedY
-    ) {
-      return;
-    }
-
-    scheduleWindowDragPosition();
-  }, [scheduleWindowDragPosition]);
-
-  const releasePanelPointerCapture = useCallback((pointerId: number | null) => {
-    if (pointerId === null) {
-      return;
-    }
-
-    const container = containerRef.current;
-    if (!container) {
-      return;
-    }
-
-    try {
-      if (container.hasPointerCapture(pointerId)) {
-        container.releasePointerCapture(pointerId);
-      }
-    } catch {
-      // Ignore browsers that already released or never established pointer capture.
-    }
-  }, []);
-
-  const resetWindowDragState = useCallback((options?: {
-    eventPointerId?: number | null;
-  }) => {
-    const pointerId = resolvePanelPointerCaptureId({
-      eventPointerId: options?.eventPointerId ?? null,
-      activePointerId: activeWindowDragRef.current?.pointerId ?? null,
-      pendingPointerId: pendingDragStartRef.current?.pointerId ?? null,
-    });
-
-    releasePanelPointerCapture(pointerId);
-    pendingDragStartRef.current = null;
-    activeWindowDragRef.current = null;
-    isWindowPointerDownRef.current = false;
-    dispatchShellEvent({ type: "setLock", lock: "drag", active: false });
-    if (windowDragFrameRef.current !== null) {
-      window.cancelAnimationFrame(windowDragFrameRef.current);
-      windowDragFrameRef.current = null;
-    }
-
-    const wasDragging = isDraggingRef.current;
-    isDraggingRef.current = false;
-    if (wasDragging) {
-      syncMainWindowInteraction();
-    }
-  }, [dispatchShellEvent, releasePanelPointerCapture, syncMainWindowInteraction]);
-
-  const finishWindowDrag = useCallback((eventPointerId?: number | null) => {
-    resetWindowDragState({
-      eventPointerId: eventPointerId ?? null,
-    });
-  }, [resetWindowDragState]);
-
-  useEffect(() => {
-    const handleWindowPointerUp = () => {
-      if (
-        !isDraggingRef.current
-        && !pendingDragStartRef.current
-        && !activeWindowDragRef.current
-        && !isWindowPointerDownRef.current
-      ) {
-        return;
-      }
-
-      resetWindowDragState();
-    };
-
-    window.addEventListener("pointerup", handleWindowPointerUp);
-    window.addEventListener("pointercancel", handleWindowPointerUp);
-    return () => {
-      window.removeEventListener("pointerup", handleWindowPointerUp);
-      window.removeEventListener("pointercancel", handleWindowPointerUp);
-    };
-  }, [resetWindowDragState]);
-
-  useEffect(() => {
-    const handleGlobalDropSessionEnd = () => {
-      clearPanelDropInteractionState();
-    };
-
-    window.addEventListener("drop", handleGlobalDropSessionEnd, true);
-    window.addEventListener("dragend", handleGlobalDropSessionEnd, true);
-    window.addEventListener("blur", handleGlobalDropSessionEnd);
-    return () => {
-      window.removeEventListener("drop", handleGlobalDropSessionEnd, true);
-      window.removeEventListener("dragend", handleGlobalDropSessionEnd, true);
-      window.removeEventListener("blur", handleGlobalDropSessionEnd);
-    };
-  }, [clearPanelDropInteractionState]);
-
-  useEffect(() => {
-    return () => {
-      if (windowDragFrameRef.current !== null) {
-        window.cancelAnimationFrame(windowDragFrameRef.current);
-      }
-    };
-  }, []);
-
-  const startWindowDrag = useCallback(async (screenX: number, screenY: number) => {
-    const pendingDragStart = pendingDragStartRef.current;
-    if (!pendingDragStart || isDraggingRef.current) {
-      return;
-    }
-
-    pendingDragStartRef.current = null;
-    isDraggingRef.current = true;
-    dispatchShellEvent({ type: "setLock", lock: "drag", active: true });
-
-    try {
-      const windowPosition = await pendingDragStart.windowPositionPromise;
-      lastKnownWindowPositionRef.current = windowPosition;
-      if (!isWindowPointerDownRef.current) {
-        isDraggingRef.current = false;
-        dispatchShellEvent({ type: "setLock", lock: "drag", active: false });
-        syncMainWindowInteraction();
-        return;
-      }
-
-      activeWindowDragRef.current = {
-        pointerId: pendingDragStart.pointerId,
-        startScreenX: pendingDragStart.screenX,
-        startScreenY: pendingDragStart.screenY,
-        windowX: windowPosition.x,
-        windowY: windowPosition.y,
-        nextX: windowPosition.x,
-        nextY: windowPosition.y,
-        lastAppliedX: windowPosition.x,
-        lastAppliedY: windowPosition.y,
-        applyInFlight: false,
-      };
-      updateManualWindowDrag(screenX, screenY);
-    } catch (err) {
-      console.error("Failed to start manual window drag:", err);
-      isDraggingRef.current = false;
-      dispatchShellEvent({ type: "setLock", lock: "drag", active: false });
-      syncMainWindowInteraction();
-    }
-  }, [dispatchShellEvent, syncMainWindowInteraction, updateManualWindowDrag]);
-
-  const canDoubleClickOpenOutputFolder =
-    !visualIsMinimized &&
-    !isProcessing &&
-    !primaryTask &&
-    totalTaskCount === 0 &&
-    !isQueuePopoverOpen;
-
-  const triggerPanelOutputFolderShortcut = async (
-    e: Pick<React.MouseEvent<HTMLDivElement>, "preventDefault" | "stopPropagation">,
-  ) => {
-    const now = Date.now();
-    if (now - lastPanelOutputFolderShortcutAtRef.current < PANEL_OUTPUT_FOLDER_SHORTCUT_DEDUP_MS) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    lastPanelOutputFolderShortcutAtRef.current = now;
-    resetWindowDragState();
-    e.preventDefault();
-    e.stopPropagation();
-    syncMainWindowInteraction();
-    await openCurrentOutputFolder();
-  };
-
-  const handlePanelPointerDown = async (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return; // 只响应左键
-    if (isContextMenuOpen) {
-      await closeContextMenuWindow();
-      return;
-    }
-    if (visualIsMinimized) {
-      syncMainWindowInteraction();
-      return;
-    }
-    const targetIgnored = shouldIgnorePanelDoubleClickTarget(e.target);
-    if (targetIgnored) {
-      resetWindowDragState();
-      return;
-    }
-
-    if (shouldOpenOutputFolderFromPanelMouseDownDoubleClick({
-      isMacOS,
-      button: e.button,
-      detail: e.detail,
-      canDoubleClickOpenOutputFolder,
-      targetIgnored,
-    })) {
-      await triggerPanelOutputFolderShortcut(e);
-      return;
-    }
-
-    isWindowPointerDownRef.current = true;
-    dispatchShellEvent({ type: "setLock", lock: "drag", active: true });
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // Ignore environments where pointer capture cannot be established.
-    }
-    pendingDragStartRef.current = {
-      pointerId: e.pointerId,
-      clientX: e.clientX,
-      clientY: e.clientY,
-      screenX: e.screenX,
-      screenY: e.screenY,
-      windowPositionPromise: desktopCurrentWindow.outerPosition().then((position) => {
-        lastKnownWindowPositionRef.current = position;
-        return position;
-      }),
-    };
-  };
-
-  const handlePanelPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    updateLastKnownPointerScreenPoint(e.screenX, e.screenY);
-
-    if (isDraggingRef.current) {
-      const activeDrag = activeWindowDragRef.current;
-      if (activeDrag && activeDrag.pointerId === e.pointerId) {
-        updateManualWindowDrag(e.screenX, e.screenY);
-      }
-      return;
-    }
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    setMousePos({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
-    if (!visualIsMinimized) {
-      clearMainWindowInteractionTimer();
-    }
-
-    const pendingDragStart = pendingDragStartRef.current;
-    if (
-      !pendingDragStart
-      || pendingDragStart.pointerId !== e.pointerId
-      || e.buttons !== 1
-      || visualIsMinimized
-    ) {
-      return;
-    }
-
-    const dragDistance = Math.hypot(
-      e.clientX - pendingDragStart.clientX,
-      e.clientY - pendingDragStart.clientY,
-    );
-    if (dragDistance < WINDOW_DRAG_START_THRESHOLD) {
-      return;
-    }
-
-    void startWindowDrag(e.screenX, e.screenY);
-  };
-
-  const handlePanelPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDraggingRef.current) {
-      finishWindowDrag(e.pointerId);
-      return;
-    }
-
-    resetWindowDragState({
-      eventPointerId: e.pointerId,
-    });
-  };
-
-  const handlePanelPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDraggingRef.current) {
-      finishWindowDrag(e.pointerId);
-      return;
-    }
-
-    resetWindowDragState({
-      eventPointerId: e.pointerId,
-    });
-  };
-
-  const handlePanelDoubleClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-    resetWindowDragState();
-    if (e.button !== 0 || !canDoubleClickOpenOutputFolder) {
-      return;
-    }
-    if (shouldIgnorePanelDoubleClickTarget(e.target)) {
-      return;
-    }
-
-    await triggerPanelOutputFolderShortcut(e);
-  };
-
   // Handle paste event - check for video URL first, then image URL, then clipboard images/files.
-  const handlePaste = async (clipboardData: DataTransfer | null) => {
-    syncMainWindowInteraction({ expandIfMinimized: false });
-
+  const handlePaste = async (
+    clipboardData: DataTransfer | null,
+    intakeOrigin?: LocalIntakeOrigin,
+  ) => {
     const text = clipboardData?.getData("text/plain") ?? "";
 
     // 1. Check if clipboard text is a video URL (highest priority)
     if (text && isResolvableVideoInputUrl(text)) {
       console.log("Pasted video URL:", text);
-      await enqueuePastedVideoDownload(text);
+      await enqueuePastedVideoDownload(text, intakeOrigin);
       return;
     }
 
@@ -3177,21 +1852,9 @@ function App({
     }
   };
 
-  pasteHandlerRef.current = (event: ClipboardEvent) => {
-    event.preventDefault();
-    void handlePaste(event.clipboardData);
+  pasteHandlerRef.current = (clipboardData, origin) => {
+    void handlePaste(clipboardData, origin);
   };
-
-  useEffect(() => {
-    const handleWindowPaste = (event: ClipboardEvent) => {
-      pasteHandlerRef.current(event);
-    };
-
-    window.addEventListener("paste", handleWindowPaste);
-    return () => {
-      window.removeEventListener("paste", handleWindowPaste);
-    };
-  }, []);
 
   // Check if URL looks like an image
   const isImageUrl = (url: string): boolean => {
@@ -3223,38 +1886,36 @@ function App({
     return imagePatterns.some(pattern => pattern.test(url));
   };
 
-  // Handle native drop event for URL detection
+  // Handle native drop event for URL detection. Drop presentation state
+  // (drag hover, drop lock, dragleave suppression) is owned by the
+  // presentation surface; this handler only processes dropped content.
   const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsHovering(false);
-    const pointerInsideAfterDrop = isPointInsidePanel(e.clientX, e.clientY);
-    isPointerInsidePanelRef.current = pointerInsideAfterDrop;
-    updateDropHoverState(true);
-    dispatchShellEvent({ type: "dropEnter" });
-
-    try {
+    // Capture before the first await. This point is a transient Presentation
+    // cause only and is never reread during acceptance or reduction.
+    const intakeOrigin = mainWindowFullContentVisible
+      ? snapshotClientPointOrigin(
+          e.clientX,
+          e.clientY,
+          e.currentTarget.getBoundingClientRect(),
+        )
+      : undefined;
     const droppedFolderResult = await desktopDrop.consumePendingFolderDrop();
     if (droppedFolderResult?.success) {
       try {
         await saveOutputPath(droppedFolderResult.path);
         setOutputPath(droppedFolderResult.path);
         resetDownloadOutcome();
-        showFolderDropOutcome();
+        showFolderDropOutcome(intakeOrigin);
       } catch (err) {
         console.error("Failed to save dropped folder path:", err);
         showFolderDropErrorOutcome(t("app.drop.errors.saveFailed"));
       }
-
-      suppressNextPanelDragLeave();
-      clearPanelDropInteractionState({ pointerInside: pointerInsideAfterDrop });
       return;
     }
 
     if (droppedFolderResult && shouldHandleDroppedFolderResult(droppedFolderResult)) {
       console.error("Failed to resolve dropped folder:", droppedFolderResult);
       showFolderDropErrorOutcome(t(getDroppedFolderErrorTranslationKey(droppedFolderResult.reason)));
-      suppressNextPanelDragLeave();
-      clearPanelDropInteractionState({ pointerInside: pointerInsideAfterDrop });
       return;
     }
 
@@ -3408,7 +2069,7 @@ function App({
         videoUrl: mergedVideoUrl,
         videoCandidates: mergedVideoCandidates,
         dragDiagnostic: pinterestDragDiagnostic,
-      });
+      }, intakeOrigin);
       return;
     }
 
@@ -3504,7 +2165,7 @@ function App({
           videoUrl: resolvedXiaohongshuMedia?.videoUrl ?? undefined,
           videoCandidates: resolvedXiaohongshuMedia?.videoCandidates ?? undefined,
           siteHint: "xiaohongshu",
-        });
+        }, intakeOrigin);
         return;
       }
 
@@ -3577,7 +2238,7 @@ function App({
     if (url && isResolvableVideoInputUrl(url) && !shouldPreferTwitterXImageBranch) {
       console.log("Detected video URL:", url);
       resetDownloadOutcome();
-      await enqueueVideoDownload(url);
+      await enqueueVideoDownload(url, intakeOrigin);
       return;
     }
 
@@ -3700,9 +2361,6 @@ function App({
 
     // If not a URL and no files, let the desktop runtime handle it
     console.log("Not an image URL and no files, letting the desktop runtime handle it");
-    } finally {
-      clearPanelDropInteractionState({ pointerInside: pointerInsideAfterDrop });
-    }
   };
 
   // Open settings window
@@ -3755,7 +2413,6 @@ function App({
   };
 
   const handleRuntimeDependencyRecheck = async () => {
-    syncMainWindowInteraction({ expandIfMinimized: false });
     setIsRuntimeRetryInFlight(true);
     setIsRuntimeRetryFeedbackVisible(true);
     if (runtimeRetryFeedbackTimerRef.current !== null) {
@@ -3776,13 +2433,8 @@ function App({
     }
   };
 
-  // 右键菜单
+  // 右键菜单 (the presentation surface calls this after its own drag reset)
   const handleContextMenu = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    resetWindowDragState();
-    syncMainWindowInteraction({ expandIfMinimized: false });
-
     try {
       await closeContextMenuWindow();
 
@@ -3837,51 +2489,10 @@ function App({
     }
   };
 
-  const shouldRenderMiniControls = shellPhase === "full" && isPanelHovered;
+  const shouldRenderMiniControls = mainWindowFullContentVisible && isPanelHovered;
   const miniControlsPresenceTransition = shouldReduceMotion
     ? { duration: 0.01 }
     : { duration: 0.12, ease: [0.22, 1, 0.36, 1] as const };
-  const containerBackdropShadow = primaryTask || isHovering
-    ? colors.panelShadowStrong
-    : colors.panelShadow;
-  const panelViewportSize = INTERMEDIATE_EXPAND_SIZE;
-  const panelBorderColor = visualIsMinimized
-    ? colors.borderStart
-    : primaryTask?.kind === "transcode"
-      ? colors.transcodeBorder
-      : primaryTask?.kind === "download"
-        ? colors.accentBorder
-        : isHovering
-          ? colors.accentBorder
-          : colors.borderStart;
-  const containerShellAccentShadow = primaryTask?.kind === "transcode"
-    ? `inset 0 0 14px ${colors.transcodeGlow}`
-    : primaryTask?.kind === "download"
-      ? `inset 0 0 12px ${colors.accentGlow}`
-      : isHovering
-        ? `inset 0 0 18px ${colors.accentGlow}, inset 0 0 28px ${colors.accentSurfaceStrong}`
-        : null;
-  const containerShellBoxShadow = [
-    `inset 0 0 0 1px ${panelBorderColor}`,
-    `inset 0 1px 0 ${colors.fieldInset}`,
-    containerShellAccentShadow,
-  ].filter(Boolean).join(", ");
-  const containerShadowBackdropStyle = getShadowBackdropStyle(colors, {
-    radius: shadowRadius,
-    boxShadow: visualIsMinimized
-      ? colors.panelShadowCompact
-      : containerBackdropShadow,
-  });
-  const minimizedContainerBoxShadow = theme === "black"
-    ? [
-      "inset 0 0 0 1px rgba(245,245,245,0.18)",
-      "inset 0 1px 0 rgba(245,245,245,0.24)",
-      "inset 0 -1px 0 rgba(0,0,0,0.22)",
-    ].join(", ")
-    : `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}`;
-  const containerBoxShadow = visualIsMinimized && !isMacOS
-    ? minimizedContainerBoxShadow
-    : containerShellBoxShadow;
   const shouldShowAppUpdateIndicator = !!appUpdateInfo && (
     appUpdatePhase === "available"
     || appUpdatePhase === "checking"
@@ -3931,33 +2542,6 @@ function App({
     : primaryTask?.kind === "transcode"
       ? pendingTranscodeActionTraceIds.includes(primaryTask.task.traceId)
       : false;
-  const getDownloadQueueTaskProgressText = (task: DownloadTask): string => {
-    if (selectIsTaskCancelling(downloadState, task.traceId)) {
-      return t("app.queue.cancelling");
-    }
-    if (task.phase === "probing_quality") {
-      return t("app.queue.probingAdvancedQuality");
-    }
-    if (task.phase === "selecting_quality") {
-      return t("app.queue.selectAdvancedQuality");
-    }
-    if (task.status === "pending") {
-      return t("app.queue.waiting");
-    }
-    const progress = selectTaskProgress(downloadState, task.traceId);
-    if (!progress) {
-      return t("app.downloadStage.preparing");
-    }
-    const statusText = getDownloadStatusText(i18n.t, progress, progress.stage);
-    return progress.percent < 0
-      ? statusText
-      : t("app.queue.percentStatus", {
-          percent: Math.round(progress.percent),
-          status: statusText,
-        });
-  };
-  const getDownloadQueueTaskProgressPercent = (task: DownloadTask): number =>
-    selectTaskProgressPercent(downloadState, task);
   const primaryTaskStatusText = primaryTask
     ? primaryTask.statusText
     : "";
@@ -4077,33 +2661,6 @@ function App({
     isQueuePopoverOpen,
     isAdvancedQualitySelectionPopover,
   });
-  const queueViewMeta = [
-    totalDownloadTaskCount > 0 ? t("app.queue.downloadCountSummary", { count: totalDownloadTaskCount }) : null,
-    totalTranscodeTaskCount > 0 ? t("app.queue.transcodeCountSummary", { count: totalTranscodeTaskCount }) : null,
-  ].filter(Boolean).join(" · ");
-  const hasDownloadTasks = totalDownloadTaskCount > 0;
-  const hasTranscodeTasks = totalTranscodeTaskCount > 0;
-  const primaryTaskStroke = primaryTask?.kind === "transcode"
-    ? colors.transcodeSolid
-    : colors.progressFgStroke;
-  const primaryTaskTextColor = primaryTask?.kind === "transcode"
-    ? colors.transcodeText
-    : colors.progressText;
-  const primaryTaskStatusColor = primaryTask?.kind === "transcode"
-    ? colors.transcodeMutedText
-    : colors.accentText;
-  const primaryTaskPillBackground = primaryTask?.kind === "transcode"
-    ? colors.transcodeSurface
-    : colors.accentSurface;
-  const primaryTaskPillBorder = primaryTask?.kind === "transcode"
-    ? colors.transcodeBorder
-    : colors.accentBorder;
-  const primaryTaskPillText = primaryTask?.kind === "transcode"
-    ? colors.transcodeText
-    : colors.accentText;
-  const primaryTaskTrackStroke = primaryTask?.kind === "transcode"
-    ? colors.transcodeTrack
-    : colors.progressBgStroke;
   const runtimeMissingComponents = runtimeDependencyGateState?.missingComponents.length
     ? runtimeDependencyGateState.missingComponents
     : getMissingRuntimeComponentsFromStatus(runtimeDependencyStatus);
@@ -4114,7 +2671,7 @@ function App({
   );
   const runtimeGateRequiresManualAction = runtimeGateNeedsManualAction(runtimeGatePhase)
     || (!runtimeGateIsBusy && runtimeDependencyStatus === null);
-  const shouldShowRuntimeIndicator = !visualIsMinimized && !isQueuePopoverOpen && (
+  const shouldShowRuntimeIndicator = mainWindowFullContentVisible && !isQueuePopoverOpen && (
     showRuntimeSuccessIndicator
     || hasRuntimeGateIssue
   );
@@ -4145,908 +2702,63 @@ function App({
   const runtimeIndicatorIsIndeterminate = runtimeIndicatorShouldRenderRing
     && !showRuntimeSuccessIndicator
     && runtimeIndicatorProgressPercent === null;
-  const runtimeIndicatorSize = 18;
-  const runtimeIndicatorRadius = 7;
-  const runtimeIndicatorCircumference = 2 * Math.PI * runtimeIndicatorRadius;
-  const runtimeIndicatorFillRatio = showRuntimeSuccessIndicator
-    ? 1
-    : runtimeIndicatorProgressPercent !== null
-      ? Math.max(0.08, runtimeIndicatorProgressPercent / 100)
-      : 0.34;
-  const runtimeIndicatorDashOffset = runtimeIndicatorCircumference * (1 - runtimeIndicatorFillRatio);
-  const shouldShowRuntimePopover = shouldShowRuntimeIndicator
-    && isRuntimeIndicatorHovered
-    && !showRuntimeSuccessIndicator;
   const runtimeIndicatorTitle = runtimeGateRequiresManualAction
     ? runtimeIndicatorErrorSummary ?? runtimeIndicatorFallbackSummary
     : runtimeIndicatorProgressLabel ?? runtimeIndicatorHeadline;
-  const runtimeIndicatorPresenceTransition = shouldReduceMotion
-    ? { duration: 0.1 }
-    : { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const };
-  const runtimeIndicatorShellAnimate = showRuntimeSuccessIndicator && !shouldReduceMotion
-    ? {
-        scale: [1, 1.18, 1.03],
-        y: [0, -1, 0],
-        opacity: [0.96, 1, 1],
-      }
-    : {
-        scale: 1,
-        y: 0,
-        opacity: 1,
-      };
-  const runtimeIndicatorShellTransition = showRuntimeSuccessIndicator && !shouldReduceMotion
-    ? {
-        duration: 0.42,
-        ease: [0.22, 1, 0.36, 1] as const,
-        times: [0, 0.56, 1],
-      }
-    : {
-        duration: 0.16,
-        ease: [0.22, 1, 0.36, 1] as const,
-      };
-  const runtimeIndicatorPopoverBorder = runtimeGateRequiresManualAction
-    ? colors.warningBorder
-    : colors.borderStart;
-  const runtimeIndicatorPopoverStyle: CSSProperties = {
-    position: "absolute",
-    left: 0,
-    bottom: 0,
-    marginBottom: 26,
-    width: 166,
-    display: "flex",
-    flexDirection: "column",
-    gap: 7,
-    padding: "10px 10px 9px",
-    ...getPanelShellStyle(colors, {
-      radius: 12,
-      boxShadow: `inset 0 0 0 1px ${runtimeIndicatorPopoverBorder}, inset 0 1px 0 ${colors.fieldInset}, ${colors.panelShadowStrong}`,
-    }),
-    backdropFilter: "blur(14px)",
-    transformOrigin: "bottom left",
-  };
-  const runtimeIndicatorStatusDotStyle: CSSProperties = {
-    ...getStatusDotStyle(colors.warningSolid, colors.warningGlow),
-    width: 6,
-    height: 6,
-    boxShadow: `0 0 8px ${colors.warningGlow}`,
-  };
-  const runtimeIndicatorProgressTrackStyle: CSSProperties = {
-    width: "100%",
-    height: 5,
-    borderRadius: 999,
-    overflow: "hidden",
-    background: `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgPrimary} 100%)`,
-    boxShadow: `inset 0 0 0 1px ${colors.fieldBorder}`,
-  };
-  const runtimeIndicatorProgressFillStyle: CSSProperties = {
-    width: runtimeIndicatorIsIndeterminate
-      ? "38%"
-      : `${runtimeIndicatorProgressPercent ?? 100}%`,
-    height: "100%",
-    borderRadius: 999,
-    background: `linear-gradient(90deg, ${colors.warningSolid} 0%, ${colors.warningText} 100%)`,
-    boxShadow: `0 0 12px ${colors.warningGlow}`,
-    animation: runtimeIndicatorIsIndeterminate ? "shimmer 1.2s ease-in-out infinite" : "none",
-    transformOrigin: "left center",
-    transition: runtimeIndicatorIsIndeterminate ? "none" : "width 0.22s ease",
-  };
   return (
-    <div
-	      style={{
-        position: "relative",
-        width: panelViewportSize,
-        height: panelViewportSize,
-        overflow: "visible",
+    <MainWindowPresentationSurface
+      presentation={presentation}
+      environment={{
+        platform: currentMainWindowPlatform,
+        isMacOS,
+        supportsCompactPassthrough: supportsCompactPassthroughHotspot,
+        reducedMotion: Boolean(shouldReduceMotion),
+        startsCompact: !startsExpandedOnLaunch,
       }}
+      locks={presentationLocks}
+      primaryTaskKind={primaryTask?.kind ?? null}
+      expandedPresentationTarget={expandedPresentationTarget}
+      isContextMenuOpen={isContextMenuOpen}
+      interactionBusy={isProcessing || Boolean(primaryTask) || totalTaskCount > 0 || isQueuePopoverOpen}
+      onCloseContextMenu={closeContextMenuWindow}
+      onOutputFolderShortcut={handleOutputFolderShortcut}
+      onContextMenu={handleContextMenu}
+      onDrop={handleDrop}
+      onPaste={handleSurfacePaste}
+      onPanelHoveredChange={setIsPanelHovered}
     >
-        <motion.div
-          initial={false}
-          aria-hidden="true"
-          animate={{
-            scale: panelShellScaleAnimate,
-            borderRadius: shadowRadius,
-            x: shadowOffsetX,
-            y: shadowOffsetY,
-            width: shadowRenderSize,
-            height: shadowRenderSize,
+        <MainWindowQueuePopover
+          ref={queueBadgeButtonRef}
+          visible={showVideoTaskBadge || isQueuePopoverOpen}
+          showBadge={showVideoTaskBadge}
+          isOpen={isQueuePopoverOpen}
+          onToggleOpen={() => setIsQueuePopoverOpen((current) => !current)}
+          totalTaskCount={totalTaskCount}
+          downloadQueueTasks={downloadQueueTasks}
+          totalDownloadTaskCount={totalDownloadTaskCount}
+          downloadState={downloadState}
+          transcodeQueueTasks={transcodeQueueTasks}
+          totalTranscodeTaskCount={totalTranscodeTaskCount}
+          pendingTranscodeActionTraceIds={pendingTranscodeActionTraceIds}
+          isAdvancedQualitySelectionPopover={isAdvancedQualitySelectionPopover}
+          advancedQualitySelectionTask={advancedQualitySelectionTask}
+          mainWindowFullContentVisible={mainWindowFullContentVisible}
+          getAdvancedQualityTaskTitle={getAdvancedQualityTaskTitle}
+          renderAdvancedQualityOptionButton={renderAdvancedQualityOptionButton}
+          onCancelDownload={(traceId) => {
+            void cancelVideoTask(traceId);
           }}
-          transition={{
-            scale: panelShellTransition.scale,
-            borderRadius: panelShellTransition.borderRadius,
-            x: panelShellTransition.x,
-            y: panelShellTransition.y,
-            width: panelShellTransition.width,
-            height: panelShellTransition.height,
+          onCancelTranscode={(traceId) => {
+            void cancelTranscodeTask(traceId);
           }}
-          style={{
-            top: 0,
-            left: 0,
-            zIndex: 0,
-            transformOrigin: "top left",
-            ...containerShadowBackdropStyle,
+          onRetryTranscode={(traceId) => {
+            void retryTranscodeTask(traceId);
+          }}
+          onRemoveTranscode={(traceId) => {
+            void removeTranscodeTask(traceId);
           }}
         />
-	      <motion.div
-	      ref={containerRef}
-      tabIndex={0}
-      onDragEnter={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-        console.log("DragEnter types:", e.dataTransfer.types);
-        isPointerInsidePanelRef.current = true;
-        updateDropHoverState(true);
-        dispatchShellEvent({ type: "dropEnter" });
-        syncMainWindowInteraction({ expandIfMinimized: false });
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-        console.log("DragOver types:", e.dataTransfer.types);
-        isPointerInsidePanelRef.current = true;
-        updateDropHoverState(true);
-        dispatchShellEvent({ type: "dropEnter" });
-        syncMainWindowInteraction({ expandIfMinimized: false });
-        const hasFiles = e.dataTransfer.files.length > 0 || e.dataTransfer.types.includes("Files");
-        const hasUrl = e.dataTransfer.types.includes("text/uri-list")
-          || e.dataTransfer.types.includes("text/plain");
-        if ((hasFiles || hasUrl) && !isHovering) {
-          setIsHovering(true);
-        }
-      }}
-      onDragStartCapture={(e) => {
-        if (shouldPreventPanelNativeDragStart(e.target)) {
-          e.preventDefault();
-        }
-      }}
-      onDrop={handleDrop}
-      onDragLeave={() => {
-        if (suppressNextPanelDragLeaveRef.current) {
-          suppressNextPanelDragLeaveRef.current = false;
-          return;
-        }
-        clearPanelDropInteractionState();
-      }}
-      onMouseEnter={(e) => {
-      updateLastKnownPointerScreenPoint(e.screenX, e.screenY);
-      const rect = e.currentTarget.getBoundingClientRect();
-      setMousePos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
-      scheduleMainWindowPointerEnterExpand();
-      syncMainWindowInteraction({ expandIfMinimized: false });
-      containerRef.current?.focus();
-    }}
-    onMouseLeave={() => {
-      scheduleMainWindowPointerLeaveCollapse();
-      }}
-      onPointerDown={handlePanelPointerDown}
-      onPointerUp={handlePanelPointerUp}
-      onPointerMove={handlePanelPointerMove}
-      onPointerCancel={handlePanelPointerCancel}
-      onDoubleClick={handlePanelDoubleClick}
-      onContextMenu={handleContextMenu}
-      initial={false}
-      animate={panelShellAnimate}
-      transition={panelShellTransition}
-      onAnimationComplete={handleAnimationComplete}
-      style={{
-        transformOrigin: 'top left',
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-	        alignItems: 'center',
-	        gap: 8,
-	        outline: 'none',
-          zIndex: 1,
-		        ...getPanelShellStyle(colors, {
-	            radius: panelRadius,
-	            boxShadow: containerBoxShadow,
-	          }),
-	        overflow: 'hidden',
-        transition: shouldUseInstantPanelTransition
-          ? undefined
-          : `box-shadow 0.18s ${COMPACT_EASE}`,
-        willChange: 'transform, clip-path',
-      }}
-	          >
-	            <div
-	              style={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: 8,
-          opacity: 1,
-          visibility: "visible",
-          pointerEvents: "auto",
-        }}
-      >
-        {/* Edge glow layer - follows mouse */}
-        <AnimatePresence>
-          {shouldShowEdgeGlow && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: edgeGlowOpacity }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.08, ease: 'linear' }}
-              style={getEdgeGlowStyle()}
-            />
-          )}
-        </AnimatePresence>
 
-        <AnimatePresence>
-          {shouldShowDragGlow && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.985 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.99 }}
-              transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-              style={getDragGlowStyle()}
-            />
-          )}
-        </AnimatePresence>
-
-        {showVideoTaskBadge || isQueuePopoverOpen ? (
-        <>
-          {showVideoTaskBadge ? (
-            <button
-              ref={queueBadgeButtonRef}
-              onClick={() => setIsQueuePopoverOpen((current) => !current)}
-              onMouseDown={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute',
-                top: 10,
-                left: 10,
-                minWidth: 42,
-                height: 30,
-                borderRadius: 15,
-                padding: '0 10px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                background: isQueuePopoverOpen
-                  ? `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgSecondary} 100%)`
-                  : `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgPrimary} 100%)`,
-                color: colors.textPrimary,
-                border: `1px solid ${isQueuePopoverOpen ? colors.queueStatusBorder : colors.fieldBorder}`,
-                fontSize: 12,
-                fontWeight: 800,
-                lineHeight: 1,
-                userSelect: 'none',
-                zIndex: 30,
-                boxShadow: `inset 0 0 0 1px ${isQueuePopoverOpen ? colors.queueStatusBorder : colors.borderStart}, ${colors.panelShadow}`,
-                backdropFilter: 'blur(12px)',
-                cursor: 'pointer',
-                transition: 'background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
-              }}
-              aria-pressed={isQueuePopoverOpen}
-              aria-label={t("app.queue.currentTasksAria", { count: totalTaskCount })}
-              title={isQueuePopoverOpen ? t("app.queue.closeList") : t("app.queue.showList")}
-            >
-              <span style={{ pointerEvents: 'none' }}>{totalTaskCount}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, pointerEvents: 'none' }}>
-                {hasDownloadTasks ? (
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      backgroundColor: colors.progressFgStroke,
-                      boxShadow: `0 0 10px ${colors.progressFgStroke}`,
-                      flexShrink: 0,
-                    }}
-                  />
-                ) : null}
-                {hasTranscodeTasks ? (
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      backgroundColor: colors.transcodeSolid,
-                      boxShadow: `0 0 10px ${colors.transcodeGlow}`,
-                      flexShrink: 0,
-                    }}
-                  />
-                ) : null}
-              </span>
-            </button>
-          ) : null}
-
-          <AnimatePresence>
-            {isQueuePopoverOpen ? (
-              <motion.div
-                initial={{ opacity: 0, y: -8, scale: 0.98, filter: 'blur(2px)' }}
-                animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
-                exit={{ opacity: 0, y: 8, scale: 0.98, filter: 'blur(2px)' }}
-                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  padding: isAdvancedQualitySelectionPopover ? '10px' : '48px 10px 10px',
-                  ...getContinuousCornerStyle(visualIsMinimized ? 100 : 16),
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                  background: `linear-gradient(180deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                  boxShadow: `inset 0 0 0 1px ${colors.queueBadgeBorder}, inset 0 0 18px ${colors.queueStatusBg}`,
-                  backdropFilter: 'blur(16px)',
-                  zIndex: 25,
-                }}
-                data-panel-double-click="ignore"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                {isAdvancedQualitySelectionPopover && advancedQualitySelectionTask ? (
-                  <div
-                    style={{
-                      flex: 1,
-                      minHeight: 0,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 750,
-                            lineHeight: 1.1,
-                            color: colors.textPrimary,
-                            userSelect: 'none',
-                          }}
-                        >
-                          {t("app.queue.selectAdvancedQuality")}
-                        </span>
-                        <span
-                          title={getAdvancedQualityTaskTitle(advancedQualitySelectionTask)}
-                          style={{
-                            fontSize: 10,
-                            lineHeight: 1.2,
-                            color: colors.textSecondary,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            userSelect: 'none',
-                          }}
-                        >
-                          {getAdvancedQualityTaskTitle(advancedQualitySelectionTask)}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          void cancelVideoTask(advancedQualitySelectionTask.traceId);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          border: `1px solid ${colors.fieldBorder}`,
-                          backgroundColor: colors.fieldBg,
-                          cursor: 'pointer',
-                          flexShrink: 0,
-                        }}
-                        title={t("app.queue.cancelTask")}
-                      >
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 10 10"
-                          style={{ color: colors.progressCancelIcon }}
-                        >
-                          <path
-                            d="M2 2L8 8M8 2L2 8"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-
-                    <div
-                      className="hide-scrollbar"
-                      style={{
-                        flex: 1,
-                        minHeight: 0,
-                        overflowY: 'auto',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 6,
-                      }}
-                    >
-                      {advancedQualitySelectionTask.qualityOptions?.map((option) => (
-                        renderAdvancedQualityOptionButton(advancedQualitySelectionTask, option, "popover")
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div
-                  style={{
-                    display: isAdvancedQualitySelectionPopover ? 'none' : 'flex',
-                    flexDirection: 'column',
-                    gap: 4,
-                    padding: '0 4px 2px',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: colors.textPrimary,
-                      lineHeight: 1,
-                      userSelect: 'none',
-                    }}
-                  >
-                    {t("app.queue.label")}
-                  </span>
-                  {queueViewMeta ? (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        color: colors.textSecondary,
-                        lineHeight: 1.2,
-                        userSelect: 'none',
-                      }}
-                    >
-                      {queueViewMeta}
-                    </span>
-                  ) : null}
-                </div>
-
-                <div
-                  className="hide-scrollbar"
-                  style={{
-                    flex: 1,
-                    minHeight: 0,
-                    overflowY: 'auto',
-                    display: isAdvancedQualitySelectionPopover ? 'none' : 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    paddingRight: 2,
-                  }}
-                >
-                  {hasDownloadTasks ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 8,
-                          padding: '0 4px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                          <span
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: '50%',
-                              backgroundColor: colors.progressFgStroke,
-                              boxShadow: `0 0 8px ${colors.progressFgStroke}`,
-                              flexShrink: 0,
-                            }}
-                          />
-                          <span
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: colors.textPrimary,
-                              lineHeight: 1,
-                              userSelect: 'none',
-                            }}
-                          >
-                            {t("app.queue.downloadSection")}
-                          </span>
-                        </div>
-                        <span
-                          style={{
-                            fontSize: 8,
-                            color: colors.textSecondary,
-                            lineHeight: 1,
-                            userSelect: 'none',
-                          }}
-                        >
-                          {totalDownloadTaskCount}
-                        </span>
-                      </div>
-
-                      {downloadQueueTasks.map((task) => {
-                        const isTaskCancelling = selectIsTaskCancelling(downloadState, task.traceId);
-                        return (
-                          <div
-                            key={task.traceId}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              padding: '8px 9px',
-                              ...getInsetCardStyle(colors),
-                            }}
-                          >
-                            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span
-                                  style={{
-                                    width: 6,
-                                    height: 6,
-                                    borderRadius: '50%',
-                                    flexShrink: 0,
-                                    backgroundColor: task.status === 'pending'
-                                      ? colors.accentBorder
-                                      : colors.progressFgStroke,
-                                    boxShadow: task.status === 'pending'
-                                      ? `0 0 8px ${colors.accentGlow}`
-                                      : `0 0 10px ${colors.progressFgStroke}`,
-                                  }}
-                                />
-                                <span
-                                  title={task.label}
-                                  style={{
-                                    fontSize: 10,
-                                    lineHeight: 1.2,
-                                    color: colors.textPrimary,
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                  }}
-                                >
-                                  {task.label}
-                                </span>
-                              </div>
-                              <div
-                                style={{
-                                  width: '100%',
-                                  height: 6,
-                                  borderRadius: 999,
-                                  background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                                  overflow: 'hidden',
-                                  boxShadow: `inset 0 0 0 1px ${colors.borderStart}`,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    width: `${getDownloadQueueTaskProgressPercent(task)}%`,
-                                    height: '100%',
-                                    borderRadius: 999,
-                                    background: task.status === 'pending'
-                                      ? `linear-gradient(90deg, ${colors.accentBorder} 0%, ${colors.progressText} 100%)`
-                                      : `linear-gradient(90deg, ${colors.progressFgStroke} 0%, ${colors.progressText} 100%)`,
-                                    boxShadow: task.status === 'pending'
-                                      ? `0 0 12px ${colors.accentGlow}`
-                                      : `0 0 12px ${colors.progressFgStroke}`,
-                                    transition: 'width 0.2s ease',
-                                  }}
-                                />
-                              </div>
-                              <span style={{ fontSize: 9, lineHeight: 1.1, color: colors.textSecondary }}>
-                                {getDownloadQueueTaskProgressText(task)}
-                              </span>
-                              {task.phase === "selecting_quality" && task.qualityOptions?.length ? (
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 5,
-                                  }}
-                                >
-                                  {task.qualityOptions.map((option) => (
-                                    renderAdvancedQualityOptionButton(task, option, "inline")
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                            <button
-                              onClick={() => {
-                                void cancelVideoTask(task.traceId);
-                              }}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              disabled={isTaskCancelling}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: '50%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                border: 'none',
-                                backgroundColor: isTaskCancelling
-                                  ? colors.queueStatusBg
-                                  : 'transparent',
-                                cursor: isTaskCancelling ? 'default' : 'pointer',
-                                opacity: isTaskCancelling ? 0.6 : 1,
-                                flexShrink: 0,
-                                transition: 'background-color 0.2s ease',
-                              }}
-                              title={isTaskCancelling ? t("app.queue.cancellingTask") : t("app.queue.cancelTask")}
-                            >
-                              <svg
-                                width="10"
-                                height="10"
-                                viewBox="0 0 10 10"
-                                style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
-                              >
-                                <path
-                                  d="M2 2L8 8M8 2L2 8"
-                                  stroke="currentColor"
-                                  strokeWidth="1.5"
-                                  strokeLinecap="round"
-                                />
-                              </svg>
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-
-                  {hasTranscodeTasks ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 8,
-                          padding: '0 4px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                          <span
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: '50%',
-                              backgroundColor: colors.transcodeSolid,
-                              boxShadow: `0 0 8px ${colors.transcodeGlow}`,
-                              flexShrink: 0,
-                            }}
-                          />
-                          <span
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: colors.textPrimary,
-                              lineHeight: 1,
-                              userSelect: 'none',
-                            }}
-                          >
-                            {t("app.queue.transcodeSection")}
-                          </span>
-                        </div>
-                        <span
-                          style={{
-                            fontSize: 8,
-                            color: colors.textSecondary,
-                            lineHeight: 1,
-                            userSelect: 'none',
-                          }}
-                        >
-                          {totalTranscodeTaskCount}
-                        </span>
-                      </div>
-
-                      {transcodeQueueTasks.map((task) => {
-                        const isFailedTask = task.status === "failed";
-                        const isTaskActionPending = pendingTranscodeActionTraceIds.includes(task.traceId);
-                        const formatLabel = getVideoTranscodeFormatLabel(task);
-                        const markerColor = isFailedTask ? colors.dangerSolid : colors.transcodeSolid;
-                        const markerGlow = isFailedTask ? colors.dangerGlow : colors.transcodeGlow;
-                        const taskStatusText = isTaskActionPending
-                          ? t("app.queue.cancellingTranscode")
-                          : getTranscodeTaskStatusText(i18n.t, task);
-
-                        return (
-                          <div
-                            key={task.traceId}
-                            style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 7,
-                              padding: '8px 9px',
-                              ...getInsetCardStyle(colors, isFailedTask ? colors.dangerBorder : colors.borderStart),
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                              <span
-                                style={{
-                                  width: 6,
-                                  height: 6,
-                                  borderRadius: '50%',
-                                  flexShrink: 0,
-                                  backgroundColor: markerColor,
-                                  boxShadow: `0 0 10px ${markerGlow}`,
-                                }}
-                              />
-                              <span
-                                title={task.label}
-                                style={{
-                                  flex: 1,
-                                  minWidth: 0,
-                                  fontSize: 10,
-                                  lineHeight: 1.2,
-                                  color: colors.textPrimary,
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {task.label}
-                              </span>
-                              {formatLabel ? (
-                                <span
-                                  style={{
-                                    maxWidth: 76,
-                                    padding: '2px 5px',
-                                    borderRadius: 999,
-                                    fontSize: 8,
-                                    lineHeight: 1,
-                                    color: colors.transcodeText,
-                                    backgroundColor: colors.transcodeSurface,
-                                    border: `1px solid ${colors.transcodeBorder}`,
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    userSelect: 'none',
-                                  }}
-                                  title={formatLabel}
-                                >
-                                  {formatLabel}
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <div
-                              style={{
-                                width: '100%',
-                                height: 6,
-                                borderRadius: 999,
-                                background: `linear-gradient(90deg, ${colors.bgGradientStart} 0%, ${colors.bgGradientEnd} 100%)`,
-                                overflow: 'hidden',
-                                boxShadow: `inset 0 0 0 1px ${colors.borderStart}`,
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: `${getVideoTranscodeTaskProgressPercent(task)}%`,
-                                  height: '100%',
-                                  borderRadius: 999,
-                                  background: `linear-gradient(90deg, ${colors.transcodeSolid} 0%, ${colors.transcodeText} 100%)`,
-                                  boxShadow: `0 0 12px ${colors.transcodeGlow}`,
-                                  opacity: isFailedTask ? 0.7 : 1,
-                                  transition: 'width 0.2s ease',
-                                }}
-                              />
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
-                              <span
-                                title={isTaskActionPending ? undefined : task.error ?? undefined}
-                                style={{
-                                  flex: 1,
-                                  minWidth: 0,
-                                  fontSize: 9,
-                                  lineHeight: 1.1,
-                                  color: isFailedTask ? colors.dangerText : colors.textSecondary,
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {taskStatusText}
-                              </span>
-
-                              {isFailedTask ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                                  <button
-                                    onClick={() => {
-                                      void retryTranscodeTask(task.traceId);
-                                    }}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    disabled={isTaskActionPending}
-                                    style={{
-                                      border: `1px solid ${colors.transcodeBorder}`,
-                                      backgroundColor: colors.transcodeSurface,
-                                      color: colors.transcodeText,
-                                      borderRadius: 999,
-                                      padding: '2px 7px',
-                                      fontSize: 8,
-                                      lineHeight: 1.2,
-                                      cursor: isTaskActionPending ? 'default' : 'pointer',
-                                      opacity: isTaskActionPending ? 0.6 : 1,
-                                    }}
-                                    title={t("app.queue.retryTranscode")}
-                                  >
-                                    {t("app.queue.retryTranscode")}
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      void removeTranscodeTask(task.traceId);
-                                    }}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    disabled={isTaskActionPending}
-                                    style={{
-                                      border: `1px solid ${colors.fieldBorder}`,
-                                      backgroundColor: colors.fieldBg,
-                                      color: colors.textSecondary,
-                                      borderRadius: 999,
-                                      padding: '2px 7px',
-                                      fontSize: 8,
-                                      lineHeight: 1.2,
-                                      cursor: isTaskActionPending ? 'default' : 'pointer',
-                                      opacity: isTaskActionPending ? 0.6 : 1,
-                                    }}
-                                    title={t("app.queue.removeTranscodeHint")}
-                                  >
-                                    {t("app.queue.removeTranscode")}
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    void cancelTranscodeTask(task.traceId);
-                                  }}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  disabled={isTaskActionPending}
-                                  style={{
-                                    width: 24,
-                                    height: 24,
-                                    borderRadius: '50%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    border: 'none',
-                                    backgroundColor: isTaskActionPending
-                                      ? colors.queueStatusBg
-                                      : 'transparent',
-                                    cursor: isTaskActionPending ? 'default' : 'pointer',
-                                    opacity: isTaskActionPending ? 0.6 : 1,
-                                    flexShrink: 0,
-                                    transition: 'background-color 0.2s ease',
-                                  }}
-                                  title={isTaskActionPending ? t("app.queue.cancellingTranscode") : t("app.queue.cancelTranscode")}
-                                >
-                                  <svg
-                                    width="10"
-                                    height="10"
-                                    viewBox="0 0 10 10"
-                                    style={{ color: colors.progressCancelIcon, transition: 'color 0.2s' }}
-                                  >
-                                    <path
-                                      d="M2 2L8 8M8 2L2 8"
-                                      stroke="currentColor"
-                                      strokeWidth="1.5"
-                                      strokeLinecap="round"
-                                    />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        </>
-        ) : null}
 
         <AnimatePresence>
           {shouldRenderMiniControls ? (
@@ -5066,8 +2778,6 @@ function App({
               {/* Close button - top right circle */}
               <NeonIconButton
                 onClick={async () => {
-                  clearEdgeGlowRevealTimer();
-                  setShowEdgeGlow(false);
                   await closeContextMenuWindow().catch(() => undefined);
                   try {
                     await desktopCurrentWindow.hide();
@@ -5102,484 +2812,50 @@ function App({
           ) : null}
         </AnimatePresence>
 
-        {/* 中央图标 */}
-        <AnimatePresence mode="sync">
-        {centerOverlayVisual.kind === "task-progress" && primaryTask ? (
-          <motion.div
-            key={centerOverlayVisual.key}
-            initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
-            animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
-            exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
-            transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
-            draggable={false}
-            style={CENTER_OVERLAY_CONTENT_STYLE}
-          >
-            <CircularProgressIndicator
-              strokeColor={primaryTaskStroke}
-              trackColor={primaryTaskTrackStroke}
-              textColor={primaryTaskTextColor}
-              percent={primaryTask.percent}
-              indeterminate={primaryTask.indeterminate}
-            />
-            {primaryTaskStatusText ? (
-              <span style={{ fontSize: 10, color: primaryTaskStatusColor, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>
-                {primaryTaskStatusText}
-              </span>
-            ) : null}
-            {primaryTaskSummaryText ? (
-              <span
-                style={{
-                  fontSize: 9,
-                  color: primaryTaskPillText,
-                  backgroundColor: primaryTaskPillBackground,
-                  border: `1px solid ${primaryTaskPillBorder}`,
-                  borderRadius: 999,
-                  padding: '2px 6px',
-                  lineHeight: 1.1,
-                  userSelect: 'none',
-                  pointerEvents: 'none',
-                }}
-              >
-                {primaryTaskSummaryText}
-              </span>
-            ) : null}
-            {primaryTask.kind === "download" || primaryTask.kind === "transcode" ? (
-              <button
-                onClick={async () => {
-                  if (isPrimaryTaskActionPending) {
-                    return;
-                  }
-                  if (primaryTask.kind === "download") {
-                    void cancelVideoTask(primaryTask.task.traceId);
-                    return;
-                  }
-                  void cancelTranscodeTask(primaryTask.task.traceId);
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-                onMouseEnter={() => setIsProgressCancelHovered(true)}
-                onMouseLeave={() => setIsProgressCancelHovered(false)}
-                style={{
-                  margin: 0,
-                  marginTop: 4,
-                  width: 20,
-                  height: 20,
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: isProgressCancelHovered ? colors.progressCancelHoverBg : 'transparent',
-                  border: 'none',
-                  cursor: isPrimaryTaskActionPending ? 'default' : 'pointer',
-                  transition: 'background-color 0.2s',
-                  opacity: isPrimaryTaskActionPending ? 0.6 : 1,
-                  pointerEvents: 'auto',
-                }}
-                title={primaryTask.kind === "transcode" ? t("app.actions.exitCurrentTranscode") : t("app.actions.cancelCurrentTask")}
-              >
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 10 10"
-                  style={{
-                    color: isProgressCancelHovered ? colors.progressCancelHoverIcon : colors.progressCancelIcon,
-                    transition: 'color 0.2s',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  <path
-                    d="M2 2L8 8M8 2L2 8"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            ) : null}
-          </motion.div>
-        ) : centerOverlayVisual.kind === "task-processing" ? (
-          <motion.div
-            key={centerOverlayVisual.key}
-            initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
-            animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
-            exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
-            transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
-            draggable={false}
-            style={CENTER_OVERLAY_CONTENT_STYLE}
-          >
-            <CircularProgressIndicator
-              strokeColor={colors.accentSolid}
-              trackColor={colors.borderStart}
-              textColor={colors.textSecondary}
-              percent={0}
-              indeterminate
-            />
-          </motion.div>
-        ) : centerOverlayVisual.kind === "task-outcome" ? (
-          <motion.div
-            key={centerOverlayVisual.key}
-            initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
-            animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
-            exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
-            transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
-            draggable={false}
-            style={CENTER_OVERLAY_CONTENT_STYLE}
-          >
-            <ForegroundOutcomeOverlay
-              outcomeVisible={centerOverlayVisual.outcomeVisible}
-              cancelled={centerOverlayVisual.status !== "success"}
-              errorMessage={centerOverlayVisual.message}
-              showCopyAction={centerOverlayVisual.status === "error" && Boolean(centerOverlayVisual.diagnostic)}
-              onCopyDiagnostic={centerOverlayVisual.diagnostic
-                ? () => {
-                    if (centerOverlayVisual.diagnostic) {
-                      handleCopyErrorDiagnostic(centerOverlayVisual.diagnostic);
-                    }
-                  }
-                : undefined}
-              copyDiagnosticLabel={t("app.errorDiagnostic.copy")}
-              successColor={colors.successIcon}
-              errorColor={colors.errorIcon}
-              loadingStrokeColor={colors.accentSolid}
-              loadingTrackColor={colors.borderStart}
-              loadingTextColor={colors.textSecondary}
-            />
-          </motion.div>
-        ) : centerOverlayVisual.kind === "folder-outcome" ? (
-          <motion.div
-            key={centerOverlayVisual.key}
-            initial={CENTER_OVERLAY_PRESENCE_MOTION.initial}
-            animate={CENTER_OVERLAY_PRESENCE_MOTION.animate}
-            exit={CENTER_OVERLAY_PRESENCE_MOTION.exit}
-            transition={CENTER_OVERLAY_PRESENCE_MOTION.transition}
-            draggable={false}
-            style={CENTER_OVERLAY_CONTENT_STYLE}
-          >
-            <ForegroundOutcomeOverlay
-              outcomeVisible
-              cancelled={centerOverlayVisual.status === "error"}
-              errorMessage={centerOverlayVisual.status === "error" ? centerOverlayVisual.message : null}
-              successColor={colors.successIcon}
-              errorColor={colors.errorIcon}
-              loadingStrokeColor={colors.accentSolid}
-              loadingTrackColor={colors.borderStart}
-              loadingTextColor={colors.textSecondary}
-              SuccessIcon={FolderCheckIcon}
-              successIconStrokeWidth={2}
-            />
-          </motion.div>
-        ) : centerOverlayVisual.kind === "minimized" ? (
-          <motion.div
-            key={centerOverlayVisual.key}
-            initial={{ scale: MAIN_WINDOW_INITIAL_PANEL_SCALE, opacity: 0 }}
-            animate={minimizedIconAnimate}
-            exit={minimizedIconExit}
-            transition={minimizedIconTransition}
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              pointerEvents: "none",
-              zIndex: 4,
-            }}
-          >
-            <motion.div
-              key={`compact-icon-settle-${compactIconSettlePulseKey}`}
-              initial={false}
-              animate={minimizedIconSettleAnimate}
-              transition={minimizedIconSettleTransition}
-              style={{
-                width: minimizedIconFrameSize,
-                height: minimizedIconFrameSize,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                ...getContinuousCornerStyle("50%"),
-                background: "transparent",
-	                boxShadow: "none",
-	                overflow: "hidden",
-                transform: `scale(${minimizedIconWrapperScale})`,
-                transformOrigin: "center center",
-                willChange: "transform",
-              }}
-            >
-              <CatIcon size={minimizedIconSize} glow={!isMacOS} />
-            </motion.div>
-          </motion.div>
-        ) : null}
-        </AnimatePresence>
+        <MainWindowCenterOverlay
+          centerOverlayVisual={centerOverlayVisual}
+          primaryTask={primaryTask}
+          primaryTaskStatusText={primaryTaskStatusText}
+          primaryTaskSummaryText={primaryTaskSummaryText}
+          onCopyDiagnostic={handleCopyErrorDiagnostic}
+          showPrimaryCancel={
+            Boolean(
+              centerOverlayVisual.kind === "task-progress"
+              && primaryTask !== null,
+            )
+          }
+          isPrimaryCancelPending={isPrimaryTaskActionPending}
+          primaryTaskTraceId={primaryTask?.task.traceId ?? null}
+          onCancelPrimaryTask={(traceId) => {
+            if (primaryTask?.kind === "download") {
+              void cancelVideoTask(traceId);
+            } else {
+              void cancelTranscodeTask(traceId);
+            }
+          }}
+        />
 
-        <AnimatePresence>
-          {shouldShowRuntimeIndicator ? (
-          <motion.div
-            initial={shouldReduceMotion
-              ? { opacity: 0 }
-              : { opacity: 0, scale: 0.9, y: 6, filter: "blur(1.5px)" }}
-            animate={shouldReduceMotion
-              ? { opacity: 1 }
-              : { opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
-            exit={shouldReduceMotion
-              ? { opacity: 0 }
-              : { opacity: 0, scale: 0.78, y: 8, filter: "blur(1.5px)" }}
-            transition={runtimeIndicatorPresenceTransition}
-            style={{
-              position: "absolute",
-              left: 12,
-              bottom: 12,
-              zIndex: 12,
-              transformOrigin: "bottom left",
-            }}
-            data-panel-double-click="ignore"
-            onMouseEnter={() => setIsRuntimeIndicatorHovered(true)}
-            onMouseLeave={() => setIsRuntimeIndicatorHovered(false)}
-          >
-            <AnimatePresence>
-              {shouldShowRuntimePopover ? (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.94, y: 4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.96, y: 4 }}
-                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                  style={runtimeIndicatorPopoverStyle}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                    <span style={runtimeIndicatorStatusDotStyle} />
-                    <span
-                      style={{
-                        minWidth: 0,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: colors.textPrimary,
-                        lineHeight: 1.1,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        userSelect: "none",
-                      }}
-                    >
-                      {runtimeIndicatorHeadline}
-                    </span>
-                  </div>
+        <MainWindowRuntimeIndicator
+          visible={shouldShowRuntimeIndicator}
+          showSuccess={showRuntimeSuccessIndicator}
+          isHovered={isRuntimeIndicatorHovered}
+          onHoverChange={setIsRuntimeIndicatorHovered}
+          headline={runtimeIndicatorHeadline}
+          statusText={runtimeIndicatorStatusText}
+          footerText={runtimeIndicatorFooterText}
+          title={runtimeIndicatorTitle}
+          progressPercent={runtimeIndicatorProgressPercent}
+          isIndeterminate={runtimeIndicatorIsIndeterminate}
+          shouldRenderRing={runtimeIndicatorShouldRenderRing}
+          requiresManualAction={runtimeGateRequiresManualAction}
+          reducedMotion={Boolean(shouldReduceMotion)}
+          isRetryInFlight={isRuntimeRetryInFlight}
+          isRetryFeedbackVisible={isRuntimeRetryFeedbackVisible}
+          onRecheck={() => {
+            void handleRuntimeDependencyRecheck();
+          }}
+        />
 
-                  {runtimeIndicatorShouldRenderRing ? (
-                    <div style={runtimeIndicatorProgressTrackStyle}>
-                      <div style={runtimeIndicatorProgressFillStyle} />
-                    </div>
-                  ) : null}
-
-                  <span
-                    title={runtimeIndicatorStatusText}
-                    style={{
-                      fontSize: 9,
-                      lineHeight: 1.24,
-                      color: runtimeGateRequiresManualAction ? colors.warningText : colors.textSecondary,
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {runtimeIndicatorStatusText}
-                  </span>
-
-                  {runtimeIndicatorFooterText ? (
-                    <span
-                      style={{
-                        fontSize: 8,
-                        lineHeight: 1.2,
-                        color: colors.textSecondary,
-                        opacity: 0.88,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {runtimeIndicatorFooterText}
-                    </span>
-                  ) : null}
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-
-            {runtimeIndicatorShouldRenderRing ? (
-              <motion.div
-                initial={false}
-                onMouseDown={(e) => e.stopPropagation()}
-                title={runtimeIndicatorTitle}
-                animate={runtimeIndicatorShellAnimate}
-                transition={runtimeIndicatorShellTransition}
-                style={{
-                  position: "relative",
-                  width: 24,
-                  height: 24,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  borderRadius: "50%",
-                  background: `linear-gradient(180deg, ${colors.fieldBg} 0%, ${colors.bgSecondary} 100%)`,
-                  boxShadow: showRuntimeSuccessIndicator
-                    ? `inset 0 0 0 1px ${colors.warningBorder}, inset 0 1px 0 ${colors.fieldInset}, 0 0 14px ${colors.warningGlow}`
-                    : `inset 0 0 0 1px ${colors.borderStart}, inset 0 1px 0 ${colors.fieldInset}`,
-                  pointerEvents: "auto",
-                  transition: "box-shadow 0.18s ease",
-                }}
-              >
-                {showRuntimeSuccessIndicator && !shouldReduceMotion ? (
-                  <motion.span
-                    initial={{ opacity: 0.22, scale: 0.84 }}
-                    animate={{ opacity: [0.2, 0.44, 0], scale: [0.84, 1.42, 1.68] }}
-                    transition={{
-                      duration: 0.52,
-                      ease: [0.22, 1, 0.36, 1],
-                      times: [0, 0.48, 1],
-                    }}
-                    style={{
-                      position: "absolute",
-                      inset: 1,
-                      borderRadius: "50%",
-                      border: `1px solid ${colors.warningBorder}`,
-                      pointerEvents: "none",
-                    }}
-                  />
-                ) : null}
-                <svg
-                  width={runtimeIndicatorSize}
-                  height={runtimeIndicatorSize}
-                  viewBox={`0 0 ${runtimeIndicatorSize} ${runtimeIndicatorSize}`}
-                  style={{ transform: "rotate(-90deg)", display: "block" }}
-                >
-                  <circle
-                    cx={runtimeIndicatorSize / 2}
-                    cy={runtimeIndicatorSize / 2}
-                    r={runtimeIndicatorRadius}
-                    fill="none"
-                    stroke={colors.progressBgStroke}
-                    strokeWidth="2"
-                  />
-                  <circle
-                    cx={runtimeIndicatorSize / 2}
-                    cy={runtimeIndicatorSize / 2}
-                    r={runtimeIndicatorRadius}
-                    fill="none"
-                    stroke={colors.warningSolid}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeDasharray={runtimeIndicatorCircumference}
-                    strokeDashoffset={runtimeIndicatorDashOffset}
-                    style={{
-                      transition: runtimeIndicatorIsIndeterminate
-                        ? "none"
-                        : "stroke-dashoffset 0.24s ease, opacity 0.18s ease",
-                      animation: runtimeIndicatorIsIndeterminate ? "spin 1s linear infinite" : "none",
-                      transformOrigin: "center",
-                      opacity: showRuntimeSuccessIndicator ? 1 : 0.96,
-                    }}
-                  />
-                </svg>
-              </motion.div>
-            ) : (
-              <motion.button
-                type="button"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => {
-                  if (isRuntimeRetryInFlight) {
-                    return;
-                  }
-                  void handleRuntimeDependencyRecheck();
-                }}
-                title={runtimeIndicatorTitle}
-                style={{
-                  position: "relative",
-                  width: 24,
-                  height: 24,
-                  padding: 0,
-                  border: "none",
-                  borderRadius: 999,
-                  background: "transparent",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: isRuntimeRetryInFlight ? "default" : "pointer",
-                  opacity: isRuntimeRetryInFlight ? 0.82 : 1,
-                }}
-                animate={isRuntimeRetryFeedbackVisible
-                  ? {
-                      scale: [1, 0.92, 1.04, 1],
-                    }
-                  : {
-                      scale: 1,
-                    }}
-                transition={isRuntimeRetryFeedbackVisible
-                  ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] }
-                  : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-              >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    inset: 4,
-                    borderRadius: "50%",
-                    border: `1px solid ${colors.warningBorder}`,
-                    opacity: 0.72,
-                    pointerEvents: "none",
-                  }}
-                />
-                <motion.span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    inset: 4,
-                    borderRadius: "50%",
-                    border: `1px solid ${colors.warningBorder}`,
-                    boxShadow: `0 0 10px ${colors.warningGlow}`,
-                    pointerEvents: "none",
-                  }}
-                  animate={shouldReduceMotion
-                    ? { scale: 1, opacity: 0.64 }
-                    : isRuntimeRetryFeedbackVisible
-                      ? {
-                          scale: [1, 1.16, 1.28],
-                          opacity: [0.9, 0.42, 0],
-                        }
-                      : {
-                          scale: [1, 1.14, 1.32],
-                          opacity: [0.82, 0.3, 0],
-                        }}
-                  transition={shouldReduceMotion
-                    ? { duration: 0.16 }
-                    : isRuntimeRetryFeedbackVisible
-                      ? { duration: 0.46, ease: [0.22, 1, 0.36, 1] }
-                      : {
-                          duration: 1.45,
-                          repeat: Number.POSITIVE_INFINITY,
-                          ease: [0.22, 1, 0.36, 1],
-                        }}
-                />
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    inset: "50%",
-                    width: 8,
-                    height: 8,
-                    marginLeft: -4,
-                    marginTop: -4,
-                    borderRadius: "50%",
-                    backgroundColor: colors.warningSolid,
-                    display: "block",
-                    pointerEvents: "none",
-                    boxShadow: isRuntimeRetryFeedbackVisible
-                      ? `0 0 10px ${colors.warningGlow}`
-                      : `0 0 6px ${colors.warningGlow}`,
-                  }}
-                />
-              </motion.button>
-            )}
-          </motion.div>
-          ) : null}
-        </AnimatePresence>
 
         <AnimatePresence>
           {shouldRenderMiniControls ? (
@@ -5712,9 +2988,7 @@ function App({
             </motion.div>
           ) : null}
         </AnimatePresence>
-      </div>
-      </motion.div>
-    </div>
+    </MainWindowPresentationSurface>
   );
 }
 

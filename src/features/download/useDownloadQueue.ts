@@ -5,7 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { DownloadQueueAck } from "../../application/download-api";
+import type { DownloadQueueAck, LocalIntakeOrigin } from "../../application/download-api";
 import {
   reduceDownloadQueue,
   type DownloadAction,
@@ -21,6 +21,11 @@ import {
   type DownloadTerminalOutcome,
 } from "./model";
 
+export type DownloadIntakeTransition = Readonly<{
+  traceId: string;
+  origin?: LocalIntakeOrigin;
+}>;
+
 /**
  * Lifecycle-safe Download queue controller: one reducer instance and one
  * subscription owner per client identity. Protocol events are reduced
@@ -32,7 +37,17 @@ export class DownloadQueueController {
   private state: DownloadQueueState;
   private readonly client: DownloadQueueClient;
   private readonly stateListeners = new Set<(state: DownloadQueueState) => void>();
-  private readonly terminalListeners = new Set<(outcome: DownloadTerminalOutcome) => void>();
+  // Terminal listeners receive (outcome, postReductionState): the read-only
+  // controller state AFTER terminalReceived reduced the authoritative fact,
+  // captured synchronously at the notification boundary. This is exact by
+  // construction — no React commit timing or ref snapshot can lag it — and
+  // the state is never mutated by listeners.
+  private readonly terminalListeners = new Set<
+    (outcome: DownloadTerminalOutcome, postReductionState: DownloadQueueState) => void
+  >();
+  private readonly intakeListeners = new Set<
+    (transition: DownloadIntakeTransition, postReductionState: DownloadQueueState) => void
+  >();
   /** True only after dispose(); a pre-start controller is still usable. */
   private disposed = false;
   /** Bumped on every start/dispose so stale registrations and action
@@ -60,10 +75,24 @@ export class DownloadQueueController {
     };
   }
 
-  subscribeTerminal(listener: (outcome: DownloadTerminalOutcome) => void): () => void {
+  subscribeTerminal(
+    listener: (outcome: DownloadTerminalOutcome, postReductionState: DownloadQueueState) => void,
+  ): () => void {
     this.terminalListeners.add(listener);
     return () => {
       this.terminalListeners.delete(listener);
+    };
+  }
+
+  subscribeIntake(
+    listener: (
+      transition: DownloadIntakeTransition,
+      postReductionState: DownloadQueueState,
+    ) => void,
+  ): () => void {
+    this.intakeListeners.add(listener);
+    return () => {
+      this.intakeListeners.delete(listener);
     };
   }
 
@@ -103,6 +132,7 @@ export class DownloadQueueController {
     this.registration = null;
     this.stateListeners.clear();
     this.terminalListeners.clear();
+    this.intakeListeners.clear();
   }
 
   queue(request: DownloadQueueRequest): Promise<DownloadQueueAck> {
@@ -110,9 +140,9 @@ export class DownloadQueueController {
     return this.client.queue(request).then((ack) => this.acceptQueueAck(epoch, ack));
   }
 
-  queuePasted(url: string): Promise<DownloadQueueAck> {
+  queuePasted(url: string, intakeOrigin?: LocalIntakeOrigin): Promise<DownloadQueueAck> {
     const epoch = this.epoch;
-    return this.client.queuePasted(url).then((ack) => this.acceptQueueAck(epoch, ack));
+    return this.client.queuePasted(url, intakeOrigin).then((ack) => this.acceptQueueAck(epoch, ack));
   }
 
   cancel(traceId: string): Promise<boolean> {
@@ -205,15 +235,36 @@ export class DownloadQueueController {
           this.state.cancelling.includes(event.payload.traceId),
         );
         this.dispatch({ type: "terminalReceived", outcome });
-        this.terminalListeners.forEach((listener) => listener(outcome));
+        // Exact post-reduction snapshot: dispatch replaced this.state
+        // synchronously, so listeners see every prior event (progress, queue
+        // detail, earlier terminals) and never a stale React commit.
+        this.terminalListeners.forEach((listener) => listener(outcome, this.state));
         break;
       }
       case "queueCount":
         this.dispatch({ type: "queueCountReceived", maxConcurrent: event.maxConcurrent });
         break;
-      case "queueDetail":
+      case "queueDetail": {
+        const acceptedTraceId = event.acceptedTraceId;
+        const wasAlreadyMember = acceptedTraceId === undefined
+          ? false
+          : Object.prototype.hasOwnProperty.call(this.state.tasksById, acceptedTraceId);
         this.dispatch({ type: "queueDetailReceived", tasks: event.tasks });
+        if (
+          acceptedTraceId !== undefined
+          && !wasAlreadyMember
+          && Object.prototype.hasOwnProperty.call(this.state.tasksById, acceptedTraceId)
+        ) {
+          const transition = {
+            traceId: acceptedTraceId,
+            ...(event.acceptedIntakeOrigin === undefined
+              ? {}
+              : { origin: event.acceptedIntakeOrigin }),
+          };
+          this.intakeListeners.forEach((listener) => listener(transition, this.state));
+        }
         break;
+      }
     }
   }
 }
@@ -247,17 +298,31 @@ export function useDownloadQueue(client: DownloadQueueClient) {
 
   const actions = useMemo(() => ({
     queue: (request: DownloadQueueRequest) => controller.queue(request),
-    queuePasted: (url: string) => controller.queuePasted(url),
+    queuePasted: (url: string, intakeOrigin?: LocalIntakeOrigin) => controller.queuePasted(url, intakeOrigin),
     cancel: (traceId: string) => controller.cancel(traceId),
     selectQuality: (traceId: string, optionId: string) => controller.selectQuality(traceId, optionId),
     reset: () => controller.reset(),
   }), [controller]);
 
   const onTerminal = useCallback(
-    (listener: (outcome: DownloadTerminalOutcome) => void) =>
-      controller.subscribeTerminal(listener),
+    (
+      listener: (
+        outcome: DownloadTerminalOutcome,
+        postReductionState: DownloadQueueState,
+      ) => void,
+    ) => controller.subscribeTerminal(listener),
     [controller],
   );
 
-  return { state, actions, onTerminal };
+  const onIntake = useCallback(
+    (
+      listener: (
+        transition: DownloadIntakeTransition,
+        postReductionState: DownloadQueueState,
+      ) => void,
+    ) => controller.subscribeIntake(listener),
+    [controller],
+  );
+
+  return { state, actions, onIntake, onTerminal };
 }

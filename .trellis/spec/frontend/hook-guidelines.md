@@ -81,20 +81,26 @@ useEffect(() => {
 
 ---
 
-## Idle Timer Pattern
+## Timer Hygiene Pattern
 
-**Auto-minimize after inactivity:**
+There is no App-owned idle/leave collapse timer: the lifecycle reducer emits
+`collapseTimer.start` / `collapseTimer.cancel` effects and the effect executor
+owns the single cancelable 80 ms collapse timer. App timers exist only for
+transient UI such as notices.
+
+**Resetting a transient notice after a delay:**
 
 ```tsx
-const idleTimerRef = useRef<number | null>(null);
+const queueNoticeTimerRef = useRef<number | null>(null);
 
-const resetIdleTimer = () => {
-  if (idleTimerRef.current) {
-    clearTimeout(idleTimerRef.current);
+const showQueueNotice = () => {
+  if (queueNoticeTimerRef.current !== null) {
+    clearTimeout(queueNoticeTimerRef.current);
   }
-  idleTimerRef.current = window.setTimeout(() => {
-    setIsMinimized(true);
-  }, 3000);
+  queueNoticeTimerRef.current = window.setTimeout(() => {
+    queueNoticeTimerRef.current = null;
+    setQueueNoticeMessage(null);
+  }, 4000);
 };
 ```
 
@@ -104,17 +110,17 @@ const resetIdleTimer = () => {
 const isHoveredRef = useRef(false);
 const isDraggingRef = useRef(false);
 
-const resetIdleTimer = () => {
-  if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+const resetQueueNoticeTimer = () => {
+  if (queueNoticeTimerRef.current) clearTimeout(queueNoticeTimerRef.current);
   if (isHoveredRef.current || isDraggingRef.current) return;
-  idleTimerRef.current = window.setTimeout(() => {
+  queueNoticeTimerRef.current = window.setTimeout(() => {
     if (isHoveredRef.current || isDraggingRef.current) return;
-    setIsMinimized(true);
-  }, 3000);
+    setQueueNoticeMessage(null);
+  }, 4000);
 };
 ```
 
-This avoids stale-closure timing bugs where UI is still hovered but the window still minimizes.
+This avoids stale-closure timing bugs where UI is still hovered but a timer still fires.
 
 ---
 

@@ -1,0 +1,8 @@
+{"file":".trellis/tasks/08-15-mr9-fullscreen-activation-fx-progress-visual-refinement/research/repository-grounded-planning-report.md","reason":"MR9 baseline, opportunity authority findings, single-host design, shader source decision, architecture gaps, and stop gates."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Single source of truth, reducer/controller ownership, bounded transient Presentation state, and no duplicate completion authority."}
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Compact/full surface motion, reduced-motion, renderer-local execution, and lifecycle separation rules."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Ameow dark-neutral surfaces, semantic color tokens, progress/glow vocabulary, and named palette requirements."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"MainWindow/Expanded component composition and keeping Download DOM controls separate from decorative graphics."}
+{"file":".trellis/spec/frontend/docs-site.md","reason":"Required paired Chinese/English public documentation updates and docs build validation for visible behavior changes."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/04-electron-download-command-bridge-contract.md","reason":"Renderer and Browser Extension queue command/event authority, protocol boundary, and accepted trace semantics."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace Product/Application facts through Presentation policy and the one renderer host without source-of-truth drift."}

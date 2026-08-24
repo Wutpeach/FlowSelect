@@ -37,8 +37,23 @@ export type ErrorDiagnosticCopyRequest = {
   failure?: RuntimeFailureDiagnostic | null;
 };
 
-export type ErrorDiagnosticCopyPayload = {
-  schemaVersion: 1;
+/**
+ * Bounded sanitized evidence line for Transcode/legacy-only failures. It is
+ * explicitly labeled as evidence and never re-interpreted to choose Product
+ * terminal or report category semantics.
+ */
+export type ErrorDiagnosticCopyEvidence = {
+  kind: "transcode" | "legacy";
+  summary: string;
+};
+
+/**
+ * Incident-scoped Quick Copy report (v2). Contains typed incident facts and
+ * ordered attempt summaries only; it never includes whole-session runtime log
+ * lines and never carries open context bags or raw engine output.
+ */
+export type ErrorDiagnosticCopyReport = {
+  formatVersion: 2;
   generatedAt: string;
   app: {
     version: string;
@@ -46,7 +61,7 @@ export type ErrorDiagnosticCopyPayload = {
     arch?: string;
     language?: string;
   };
-  failure: {
+  incident: {
     surface: ErrorDiagnosticSurface;
     traceId?: string;
     userMessage: string;
@@ -54,16 +69,12 @@ export type ErrorDiagnosticCopyPayload = {
     url?: SafeDiagnosticUrl;
     code?: string;
     classification?: string;
-    rawMessage?: string;
     diagnosticCategory?: DownloadDiagnosticCategory;
     attemptSummary?: DownloadTerminalDiagnosticSummary;
+    evidence?: ErrorDiagnosticCopyEvidence;
   };
-  runtimeLog: {
-    excerptLineCount: number;
-    lines: string[];
-  };
-  redaction: {
+  privacy: {
     applied: true;
-    urlReducedToOrigin: true;
+    notes: string[];
   };
 };

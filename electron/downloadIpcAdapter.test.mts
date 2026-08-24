@@ -70,6 +70,27 @@ describe("createDownloadIpcAdapter", () => {
     }));
   });
 
+  it("passes a finite local Intake cause separately from the canonical command", async () => {
+    const runtime = createRuntimeStub();
+    const adapter = createAdapter(runtime);
+    await adapter.invoke("queue_video_download", {
+      url: "https://www.youtube.com/watch?v=origin",
+      intakeOrigin: { x: 0.2, y: 0.8 },
+    });
+    expect(runtime.queueDownload).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://www.youtube.com/watch?v=origin" }),
+      { intakeOrigin: { x: 0.2, y: 0.8 } },
+    );
+
+    await adapter.invoke("queue_video_download", {
+      url: "https://www.youtube.com/watch?v=malformed",
+      intakeOrigin: { x: 2, y: "nope" },
+    });
+    expect(runtime.queueDownload).toHaveBeenLastCalledWith(
+      expect.objectContaining({ url: "https://www.youtube.com/watch?v=malformed" }),
+    );
+  });
+
   it("preserves injected clip ranges when queueing video downloads", async () => {
     const runtime = createRuntimeStub();
     const adapter = createAdapter(runtime);
@@ -185,6 +206,7 @@ describe("createDownloadIpcAdapter", () => {
 
     await adapter.invoke("queue_pasted_video_download", {
       url: "https://www.youtube.com/watch?v=abc123",
+      intakeOrigin: { x: 0.35, y: 0.65 },
     });
 
     const pastedCall = runtime.queuePastedDownload.mock.calls[0];
@@ -194,6 +216,7 @@ describe("createDownloadIpcAdapter", () => {
       videoQuality: "balanced",
     });
     const ports = pastedCall[1];
+    expect(pastedCall[2]).toEqual({ intakeOrigin: { x: 0.35, y: 0.65 } });
 
     // Eligibility follows the desktop pasted-site allowlist.
     expect(ports.isEligible("youtube")).toBe(true);

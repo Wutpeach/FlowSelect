@@ -1,0 +1,886 @@
+{
+  "evidenceName": "after-origin-guard",
+  "browser": "151.0.4129.59",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "consoleErrors": [
+    "Unsupported style property %s. Did you mean %s? -electron-corner-smoothing ElectronCornerSmoothing",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Unsupported style property %s. Did you mean %s? -electron-corner-smoothing ElectronCornerSmoothing",
+    "Unable to preventDefault inside passive event listener invocation.",
+    "Unable to preventDefault inside passive event listener invocation."
+  ],
+  "toolbar": {
+    "wrapperRect": {
+      "x": 1083,
+      "y": 936,
+      "width": 337,
+      "height": 44
+    },
+    "collapsedRect": {
+      "x": 1376,
+      "y": 936,
+      "width": 44,
+      "height": 44
+    },
+    "placement": {
+      "viewportGapRight": 20,
+      "viewportGapBottom": 20,
+      "devtoolsOverlapArea": 1760,
+      "workspaceOverlapArea": 0,
+      "underlying": {
+        "tag": "aside",
+        "data": {
+          "labDevtools": ""
+        },
+        "text": "开发工具目标目标全屏缩放自动 · 2×背景深色预览减弱动态关减弱动态减弱动态驱动生产 reducedMotion 输入；减弱动态预设会强制开启。源点设置源点 X源点 Y激活触发时快照；驱动 uActi"
+      }
+    }
+  },
+  "full": {
+    "one": {
+      "selectedLabel": "1×",
+      "targetRect": {
+        "x": 439.2,
+        "y": 339.47,
+        "width": 200,
+        "height": 200
+      },
+      "highlightRect": {
+        "x": 439.2,
+        "y": 339.47,
+        "width": 200,
+        "height": 200
+      },
+      "delta": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "tooltip": "<PresentationLab> <LabOverlayStage> container",
+      "nativeTargets": [
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labPreviewFrame": ""
+          },
+          "title": "点击预览可设置归一化本地源点",
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labWorkspaceBody": "",
+            "labStageViewport": ""
+          },
+          "title": null,
+          "role": null,
+          "text": "深色"
+        },
+        {
+          "tag": "main",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labWorkspace": ""
+          },
+          "title": null,
+          "role": null,
+          "text": "Intake · 本地源点热力图 · 移动场下载进行中转码进行中混合忙碌深色显示模式全屏紧凑缩放自动1×2×3×全屏 · 200×200 · 1×操作重播导出 4× PNG点击预览可设置归一化本地源点；仅挂载一个生产画布。"
+        }
+      ]
+    },
+    "auto": {
+      "selectedLabel": "自动",
+      "targetRect": {
+        "x": 339.2,
+        "y": 239.47,
+        "width": 400,
+        "height": 400
+      },
+      "highlightRect": {
+        "x": 339.2,
+        "y": 239.47,
+        "width": 400,
+        "height": 400
+      },
+      "delta": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "tooltip": "<PresentationLab> <LabOverlayStage> container",
+      "nativeTargets": [
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labPreviewFrame": ""
+          },
+          "title": "点击预览可设置归一化本地源点",
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labWorkspaceBody": "",
+            "labStageViewport": ""
+          },
+          "title": null,
+          "role": null,
+          "text": "深色"
+        },
+        {
+          "tag": "main",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labWorkspace": ""
+          },
+          "title": null,
+          "role": null,
+          "text": "Intake · 本地源点热力图 · 移动场下载进行中转码进行中混合忙碌深色显示模式全屏紧凑缩放自动1×2×3×全屏 · 200×200 · 自动 · 2×操作重播导出 4× PNG点击预览可设置归一化本地源点；仅挂载一个生产画布。"
+        }
+      ]
+    },
+    "three": {
+      "selectedLabel": "3×",
+      "targetRect": {
+        "x": 239.2,
+        "y": 139.47,
+        "width": 600,
+        "height": 600
+      },
+      "highlightRect": {
+        "x": 239.2,
+        "y": 139.47,
+        "width": 600,
+        "height": 600
+      },
+      "delta": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "tooltip": "<PresentationLab> <LabOverlayStage> container",
+      "nativeTargets": [
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labPreviewFrame": ""
+          },
+          "title": "点击预览可设置归一化本地源点",
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labWorkspaceBody": "",
+            "labStageViewport": ""
+          },
+          "title": null,
+          "role": null,
+          "text": "深色"
+        },
+        {
+          "tag": "main",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labWorkspace": ""
+          },
+          "title": null,
+          "role": null,
+          "text": "Intake · 本地源点热力图 · 移动场下载进行中转码进行中混合忙碌深色显示模式全屏紧凑缩放自动1×2×3×全屏 · 200×200 · 3×操作重播导出 4× PNG点击预览可设置归一化本地源点；仅挂载一个生产画布。"
+        }
+      ]
+    },
+    "pointAnnotation": {
+      "beforeOrigin": {
+        "x": 523.2,
+        "y": 423.47,
+        "width": 36,
+        "height": 36
+      },
+      "afterOrigin": {
+        "x": 523.2,
+        "y": 423.47,
+        "width": 36,
+        "height": 36
+      },
+      "pendingHeader": "<PresentationLab> <LabOverlayStage> container display: block; background-color: rgb(27, 25, 32); Cancel Add",
+      "annotation": {
+        "id": "1787454696683",
+        "x": 30.486111111111114,
+        "y": 359,
+        "comment": "full frame proof",
+        "element": "<PresentationLab> <LabOverlayStage> container",
+        "elementPath": "div > div > div > div",
+        "timestamp": 1787454696683,
+        "boundingBox": {
+          "x": 339.203125,
+          "y": 239.46875,
+          "width": 400,
+          "height": 400
+        },
+        "nearbyText": "",
+        "cssClasses": "",
+        "isFixed": false,
+        "fullPath": "body > div#root > div > main > div > div > div > div",
+        "accessibility": "",
+        "computedStyles": "color: rgb(236, 232, 242); background-color: rgb(27, 25, 32); border-color: rgb(236, 232, 242); font-size: 16px; font-weight: 400; font-family: system-ui, -apple-system, \"Segoe UI\", sans-serif; text-align: start; width: 200px; height: 200px; border: 0px none rgb(236, 232, 242); border-radius: 16px; display: block; position: relative; flex-direction: row; opacity: 1; overflow: hidden; box-shadow: rgb(51, 46, 63) 0px 0px 0px 1px, rgba(0, 0, 0, 0.5) 0px 10px 30px 0px",
+        "nearbyElements": "",
+        "reactComponents": "<PresentationLab> <LabOverlayStage>",
+        "sourceFile": "src/lab/LabOverlayStage.tsx:71:16"
+      }
+    },
+    "pointCopy": "## Page Feedback: /lab.html\r\n**Viewport:** 1440×1000\r\n\r\n### 1. <PresentationLab> <LabOverlayStage> container\r\n**Location:** div > div > div > div\r\n**Source:** src/lab/LabOverlayStage.tsx:71:16\r\n**React:** <PresentationLab> <LabOverlayStage>\r\n**Feedback:** full frame proof",
+    "areaAnnotation": {
+      "drag": {
+        "start": {
+          "x": 359.2,
+          "y": 259.47
+        },
+        "end": {
+          "x": 407.2,
+          "y": 307.47
+        }
+      },
+      "pendingHeader": "Area selection Cancel Add",
+      "annotation": {
+        "id": "1787454697798",
+        "x": 28.26388888888889,
+        "y": 307,
+        "comment": "full area proof",
+        "element": "Area selection",
+        "elementPath": "region at (359, 259)",
+        "timestamp": 1787454697798,
+        "boundingBox": {
+          "x": 359,
+          "y": 259,
+          "width": 48,
+          "height": 48
+        },
+        "isMultiSelect": true
+      }
+    },
+    "areaCopy": "## Page Feedback: /lab.html\r\n**Viewport:** 1440×1000\r\n\r\n### 1. Area selection\r\n**Location:** region at (359, 259)\r\n**Feedback:** full area proof",
+    "drawToolbarVisible": false
+  },
+  "controls": {
+    "scaleLabels": [
+      "自动",
+      "1×",
+      "2×",
+      "3×"
+    ],
+    "targetLabels": [
+      "全屏",
+      "紧凑"
+    ],
+    "annotationModeBlocking": {
+      "before": "false",
+      "during": "false",
+      "after": "true",
+      "optionCount": 3
+    },
+    "resetModeRecovery": {
+      "changedOrigin": {
+        "x": 610.98,
+        "y": 495,
+        "width": 36,
+        "height": 36
+      },
+      "blockedOrigin": {
+        "x": 610.98,
+        "y": 495,
+        "width": 36,
+        "height": 36
+      },
+      "resetOrigin": {
+        "x": 523.2,
+        "y": 423.47,
+        "width": 36,
+        "height": 36
+      }
+    },
+    "resetRecovered": {
+      "title": "将当前 Lab 预览 / 场景恢复到基线状态（重新应用场景、源点居中、关闭减弱动态）。",
+      "stillVisible": true
+    }
+  },
+  "sharedDom": {
+    "previewButtons": [
+      {
+        "text": "1",
+        "title": "显示当前任务",
+        "ariaLabel": "当前任务：1"
+      }
+    ],
+    "queueTargetRect": {
+      "x": 405.05,
+      "y": 438.06,
+      "width": 224.9,
+      "height": 23.67
+    },
+    "queueHover": {
+      "targetRect": {
+        "x": 403.2,
+        "y": 449.06,
+        "width": 228,
+        "height": 24
+      },
+      "highlightRect": {
+        "x": 403.21,
+        "y": 449.06,
+        "width": 227.99,
+        "height": 24
+      },
+      "delta": {
+        "x": 0.01,
+        "y": 0,
+        "width": -0.01,
+        "height": 0
+      },
+      "tooltip": "<MainWindowQueuePopover> <AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> \"galaxy-remaster-4k.mp4\"",
+      "nativeTargets": [
+        {
+          "tag": "span",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": "galaxy-remaster-4k.mp4",
+          "role": null,
+          "text": "galaxy-remaster-4k.mp4"
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": "galaxy-remaster-4k.mp4"
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": "galaxy-remaster-4k.mp464% · 下载中... 12.4 MB/s · 预计 0:42"
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": "galaxy-remaster-4k.mp464% · 下载中... 12.4 MB/s · 预计 0:42"
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": "下载队列1galaxy-remaster-4k.mp464% · 下载中... 12.4 MB/s · 预计 0:42"
+        }
+      ]
+    },
+    "queueAnnotation": {
+      "beforeOrigin": null,
+      "afterOrigin": null,
+      "pendingHeader": "<MainWindowQueuePopover> <AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> \"galaxy-remaster-4k.mp4\" color: rgb(238, 238, 238); font-size: 10px; font-weight: 400; font-family: system-ui, -apple-system, \"Segoe UI\", sans-serif; line-height: 12px; Cancel Add",
+      "annotation": {
+        "id": "1787454702349",
+        "x": 35.90277777777778,
+        "y": 461,
+        "comment": "queue row proof",
+        "element": "<MainWindowQueuePopover> <AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> \"galaxy-remaster-4k.mp4\"",
+        "elementPath": "div > div > div > span",
+        "timestamp": 1787454702349,
+        "boundingBox": {
+          "x": 403.203125,
+          "y": 449.0625,
+          "width": 228,
+          "height": 24
+        },
+        "nearbyText": "galaxy-remaster-4k.mp4",
+        "cssClasses": "",
+        "isFixed": false,
+        "fullPath": "body > div#root > div > main > div > div > div > div > div > div.hide-scrollbar > div > div > div > div > span",
+        "accessibility": "",
+        "computedStyles": "color: rgb(238, 238, 238); border-color: rgb(238, 238, 238); font-size: 10px; font-weight: 400; font-family: system-ui, -apple-system, \"Segoe UI\", sans-serif; line-height: 12px; text-align: start; width: 114px; height: 12px; border: 0px none rgb(238, 238, 238); display: block; flex-direction: row; opacity: 1; overflow: hidden",
+        "nearbyElements": "span",
+        "reactComponents": "<MainWindowQueuePopover> <AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div>",
+        "sourceFile": "src/contexts/ThemeContext.tsx:173:14"
+      }
+    },
+    "queueCopy": "## Page Feedback: /lab.html\r\n**Viewport:** 1440×1000\r\n\r\n### 1. <MainWindowQueuePopover> <AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> \"galaxy-remaster-4k.mp4\"\r\n**Location:** div > div > div > span\r\n**Source:** src/contexts/ThemeContext.tsx:173:14\r\n**React:** <MainWindowQueuePopover> <AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div>\r\n**Feedback:** queue row proof",
+    "queueRecovered": 1,
+    "runtimeAccess": {
+      "visibleRuntimeEntry": false,
+      "injectedExistingFixture": true,
+      "note": "The final scenario strip has no runtime entry; the browser proof switched the existing activeFixtureId hook to runtime-auto-config without changing source or layout."
+    },
+    "runtimeBefore": {
+      "reachable": true,
+      "targetRect": {
+        "x": 363.2,
+        "y": 567.47,
+        "width": 48,
+        "height": 48
+      },
+      "rootText": "app.runtime.component.ytDlp app.runtime.progressSummary app.runtime.nextSummary"
+    },
+    "runtimeHover": {
+      "targetRect": {
+        "x": 363.2,
+        "y": 567.47,
+        "width": 48,
+        "height": 48
+      },
+      "highlightRect": {
+        "x": 369.2,
+        "y": 573.47,
+        "width": 36,
+        "height": 36
+      },
+      "delta": {
+        "x": 6,
+        "y": 6,
+        "width": -12,
+        "height": -12
+      },
+      "tooltip": "<AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> <motion.div> icon",
+      "nativeTargets": [
+        {
+          "tag": "svg",
+          "id": null,
+          "classes": null,
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": "app.runtime.progressSummary",
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "panelDoubleClick": "ignore"
+          },
+          "title": null,
+          "role": null,
+          "text": "app.runtime.component.ytDlpapp.runtime.progressSummaryapp.runtime.nextSummary"
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labPreviewFrame": ""
+          },
+          "title": "点击预览可设置归一化本地源点",
+          "role": null,
+          "text": "app.runtime.component.ytDlpapp.runtime.progressSummaryapp.runtime.nextSummary"
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": "app.runtime.component.ytDlpapp.runtime.progressSummaryapp.runtime.nextSummary"
+        }
+      ]
+    },
+    "runtimeAnnotation": {
+      "beforeOrigin": null,
+      "afterOrigin": null,
+      "pendingHeader": "<AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> <motion.div> icon width: 18px; height: 18px; object-fit: fill; Cancel Add",
+      "annotation": {
+        "id": "1787454704749",
+        "x": 26.875,
+        "y": 591,
+        "comment": "runtime control proof",
+        "element": "<AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> <motion.div> icon",
+        "elementPath": "div > div > div > svg",
+        "timestamp": 1787454704749,
+        "boundingBox": {
+          "x": 369.203125,
+          "y": 573.46875,
+          "width": 36,
+          "height": 36
+        },
+        "nearbyText": "",
+        "cssClasses": "",
+        "isFixed": false,
+        "fullPath": "body > div#root > div > main > div > div > div > div > div > div > svg",
+        "accessibility": "",
+        "computedStyles": "color: rgb(236, 232, 242); border-color: rgb(236, 232, 242); font-size: 16px; font-weight: 400; font-family: system-ui, -apple-system, \"Segoe UI\", sans-serif; text-align: start; width: 18px; height: 18px; border: 0px none rgb(236, 232, 242); display: block; flex-direction: row; opacity: 1; overflow: hidden; transform: matrix(0, -1, 1, 0, 0, 0)",
+        "nearbyElements": "",
+        "reactComponents": "<AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> <motion.div>",
+        "sourceFile": "src/contexts/ThemeContext.tsx:173:14"
+      }
+    },
+    "runtimeCopy": "## Page Feedback: /lab.html\r\n**Viewport:** 1440×1000\r\n\r\n### 1. <AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> <motion.div> icon\r\n**Location:** div > div > div > svg\r\n**Source:** src/contexts/ThemeContext.tsx:173:14\r\n**React:** <AnimatePresence> <PresenceChild> <PopChild> <PopChildMeasure> <motion.div> <motion.div>\r\n**Feedback:** runtime control proof",
+    "runtimeAfter": {
+      "visible": true,
+      "rootText": "app.runtime.component.ytDlp app.runtime.progressSummary app.runtime.nextSummary"
+    }
+  },
+  "compact": {
+    "stage": {
+      "targetRect": {
+        "x": 419.2,
+        "y": 341.56,
+        "width": 240,
+        "height": 240
+      },
+      "highlightRect": {
+        "x": 449.21,
+        "y": 371.56,
+        "width": 180,
+        "height": 180
+      },
+      "delta": {
+        "x": 30.01,
+        "y": 30,
+        "width": -60,
+        "height": -60
+      },
+      "tooltip": "<PresentationLab> <CompactPreviewStage> container",
+      "nativeTargets": [
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labCompactShell": ""
+          },
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labCompactStage": ""
+          },
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labWorkspaceBody": "",
+            "labStageViewport": ""
+          },
+          "title": null,
+          "role": null,
+          "text": "深色"
+        }
+      ]
+    },
+    "shell": {
+      "targetRect": {
+        "x": 449.2,
+        "y": 371.56,
+        "width": 180,
+        "height": 180
+      },
+      "highlightRect": {
+        "x": 449.2,
+        "y": 371.56,
+        "width": 180,
+        "height": 180
+      },
+      "delta": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "tooltip": "<PresentationLab> <CompactPreviewStage> container",
+      "nativeTargets": [
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labCompactShell": ""
+          },
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labCompactStage": ""
+          },
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {},
+          "title": null,
+          "role": null,
+          "text": ""
+        },
+        {
+          "tag": "div",
+          "id": null,
+          "classes": "",
+          "data": {
+            "labWorkspaceBody": "",
+            "labStageViewport": ""
+          },
+          "title": null,
+          "role": null,
+          "text": "深色"
+        }
+      ]
+    },
+    "nativeCenterTargets": [
+      {
+        "tag": "div",
+        "id": null,
+        "classes": "",
+        "data": {
+          "labCompactShell": ""
+        },
+        "title": null,
+        "role": null,
+        "text": ""
+      },
+      {
+        "tag": "div",
+        "id": null,
+        "classes": "",
+        "data": {
+          "labCompactStage": ""
+        },
+        "title": null,
+        "role": null,
+        "text": ""
+      },
+      {
+        "tag": "div",
+        "id": null,
+        "classes": "",
+        "data": {},
+        "title": null,
+        "role": null,
+        "text": ""
+      },
+      {
+        "tag": "div",
+        "id": null,
+        "classes": "",
+        "data": {},
+        "title": null,
+        "role": null,
+        "text": ""
+      },
+      {
+        "tag": "div",
+        "id": null,
+        "classes": "",
+        "data": {
+          "labWorkspaceBody": "",
+          "labStageViewport": ""
+        },
+        "title": null,
+        "role": null,
+        "text": "深色"
+      }
+    ],
+    "annotation": {
+      "beforeOrigin": null,
+      "afterOrigin": null,
+      "pendingHeader": "<PresentationLab> <CompactPreviewStage> container display: flex; Cancel Add",
+      "annotation": {
+        "id": "1787454707032",
+        "x": 37.43055555555556,
+        "y": 461,
+        "comment": "compact shell proof",
+        "element": "<PresentationLab> <CompactPreviewStage> container",
+        "elementPath": "div > div > div > div",
+        "timestamp": 1787454707032,
+        "boundingBox": {
+          "x": 449.203125,
+          "y": 371.5625,
+          "width": 180,
+          "height": 180
+        },
+        "nearbyText": "",
+        "cssClasses": "",
+        "isFixed": false,
+        "fullPath": "body > div#root > div > main > div > div > div > div > div",
+        "accessibility": "",
+        "computedStyles": "color: rgb(236, 232, 242); border-color: rgb(236, 232, 242); font-size: 16px; font-weight: 400; font-family: system-ui, -apple-system, \"Segoe UI\", sans-serif; text-align: start; width: 60px; height: 60px; border: 0px none rgb(236, 232, 242); border-radius: 100px; display: flex; position: absolute; top: 10px; right: 10px; bottom: 10px; left: 10px; flex-direction: row; justify-content: center; align-items: center; opacity: 1; overflow: hidden; box-shadow: rgba(0, 0, 0, 0.32) 0px 7px 14px -7px, rgba(0, 0, 0, 0.22) 0px 2px 6px -3px, rgba(0, 0, 0, 0.18) 0px 1px 3px -2px",
+        "nearbyElements": "",
+        "reactComponents": "<PresentationLab> <CompactPreviewStage>",
+        "sourceFile": "src/contexts/ThemeContext.tsx:173:14"
+      }
+    },
+    "copy": "## Page Feedback: /lab.html\r\n**Viewport:** 1440×1000\r\n\r\n### 1. <PresentationLab> <CompactPreviewStage> container\r\n**Location:** div > div > div > div\r\n**Source:** src/contexts/ThemeContext.tsx:173:14\r\n**React:** <PresentationLab> <CompactPreviewStage>\r\n**Feedback:** compact shell proof",
+    "areaAnnotation": {
+      "drag": {
+        "start": {
+          "x": 469.2,
+          "y": 391.56
+        },
+        "end": {
+          "x": 514.2,
+          "y": 436.56
+        }
+      },
+      "pendingHeader": "Area selection Cancel Add",
+      "annotation": {
+        "id": "1787454708065",
+        "x": 35.69444444444444,
+        "y": 436,
+        "comment": "compact area proof",
+        "element": "Area selection",
+        "elementPath": "region at (469, 391)",
+        "timestamp": 1787454708065,
+        "boundingBox": {
+          "x": 469,
+          "y": 391,
+          "width": 45,
+          "height": 45
+        },
+        "isMultiSelect": true
+      }
+    },
+    "areaCopy": "## Page Feedback: /lab.html\r\n**Viewport:** 1440×1000\r\n\r\n### 1. Area selection\r\n**Location:** region at (469, 391)\r\n**Feedback:** compact area proof"
+  }
+}

@@ -1,0 +1,7 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Preserve MainWindowPresentationSurface composition boundaries, pointer-events, and single decorative host ownership."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Preserve the real panel, CSS shadow, compact surface language, and avoid decorative competing geometry."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Apply repository TypeScript, testing, and validation contracts to the candidate diff."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse existing geometry constants and renderer-owned texture lifecycle without adding abstractions."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Keep native, DOM geometry, renderer resources, and Lab gating authorities separated."}
+{"file":".trellis/tasks/08-21-paper-heatmap-geometry-rendering-domain-audit/research/repository-geometry-rendering-domain-audit.md","reason":"Authoritative 228/200/14 geometry, clipping, shadow, and output-domain evidence."}
+{"file":".trellis/tasks/08-21-paper-heatmap-geometry-rendering-domain-audit/research/paper-heatmap-domain-planning-report.md","reason":"Approved source-to-processed-fields-to-Thermal causality and falsification gates."}

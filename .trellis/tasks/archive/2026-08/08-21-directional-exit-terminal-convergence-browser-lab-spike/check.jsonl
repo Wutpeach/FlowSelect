@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run and assess the required frontend quality gates."}
+{"file":".trellis/spec/frontend/type-safety/01-overview.md","reason":"Verify touched component contracts remain explicit and type-safe."}

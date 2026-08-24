@@ -446,7 +446,7 @@ Required tests:
   - compact transparent-area click-through still works
   - compact hotspot hover-expand still works after `setFocusable(false)`
 - Automated:
-  - `npm run test -- compactPointerHotspot mainWindowTransitionToken mainWindowMode startupWindowState`
+  - `npm run test -- compactPointerHotspot startupWindowState mainWindowSurfacePolicy`
   - Unit test the “ensure directory first” path used by `open_current_output_folder`.
   - Manual macOS check: double-clicking the main panel opens the configured/default output folder even when it has not been created before.
 

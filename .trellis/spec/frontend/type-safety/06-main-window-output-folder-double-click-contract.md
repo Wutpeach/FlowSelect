@@ -58,8 +58,8 @@ fn open_folder(path: String) -> Result<(), String>
 #### Frontend Contract
 
 - Main window must invoke `open_current_output_folder` through the desktop bridge; it must not duplicate output-path resolution in React.
-- Double-click open-folder must only be enabled in the normal idle panel state:
-  - `!isMinimized`
+- Double-click open-folder must only be enabled in the normal idle full panel state:
+  - full content visible (lifecycle visual projection is `full`, not compact)
   - `!isProcessing`
   - no active `downloadProgress`
   - `videoQueueState.totalCount === 0`

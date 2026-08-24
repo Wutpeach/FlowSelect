@@ -1,0 +1,36 @@
+{
+  "id": "mr2-compact-flat-blob-cat-character",
+  "name": "mr2-compact-flat-blob-cat-character",
+  "title": "MR2 Compact Flat Blob Cat Character",
+  "description": "Implement the approved compact Flat Blob Cat Character as a disposable Presentation-local consumer after MR1.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-08-13",
+  "completedAt": "2026-08-13",
+  "branch": "mr1/expanded-dot-field",
+  "base_branch": "cindy/auto-o3p8cr",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "architectureReview": "PASS",
+    "architectureReviewedAt": "2026-08-13",
+    "validationDebt": [
+      "macOS manual validation NOT VERIFIED",
+      "live OS-level Reduced Motion toggle NOT VERIFIED manually",
+      "white-theme visual polish NOT VERIFIED",
+      "display-scale-factor and monitor-edge manual matrix NOT VERIFIED",
+      "Windows native argument-conversion risk remains separately reachable and unrepaired"
+    ]
+  }
+}

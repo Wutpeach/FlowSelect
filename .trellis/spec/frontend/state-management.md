@@ -14,7 +14,7 @@ FlowSelect uses local React state for most UI state, with ThemeContext for globa
 
 | Category | Solution | Example |
 |----------|----------|---------|
-| UI State | useState | `isHovering`, `isMinimized` |
+| UI State | useState | `isHovering`, `isPanelHovered` |
 | Refs | useRef | `idleTimerRef`, `containerRef` |
 | Theme | ThemeContext | `theme`, `colors` |
 | Config | Backend JSON | `outputPath`, `shortcut` |
@@ -176,34 +176,34 @@ Preferred ownership:
 
 | Concern | Preferred State | Why |
 |---------|-----------------|-----|
-| Visual shell mode | `useState` | React needs to render icon/full/morph states |
-| High-frequency interaction guards | `useRef` | Pointer-down / drag pending / drag active must update synchronously without waiting for render |
-| Cancelable timers | `useRef` + shared clear helper | Leave-delay timers must be cancelable from multiple paths |
-| Hover truth after transforms | Native boundary event + state sync | DOM enter/leave can be lost after transparent-window morphs |
+| Compact/full/transition authority | lifecycle reducer (`src/presentation/main-window/lifecycle.ts`) | The reducer is the only writable owner; `App.tsx` never keeps `isMinimized`/`shellPhase` mirrors |
+| Visual, interaction, native facts | pure projections (`projections.ts`) | Consumers read projected facts; projections never write lifecycle state |
+| High-frequency interaction guards | feature-local refs in the presentation surface | Pointer-down / drag pending / drag active update synchronously without waiting for render |
+| Cancelable timers | effect executor (`effectExecutor.ts`) | The 80 ms collapse timer is executor-owned and canceled by re-enter, teardown, and any full intent |
+| Hover truth after transforms | lifecycle pointer facts | DOM enter/leave and native pointer-boundary facts both feed the same reducer |
+| Continuous pointer coordinates | Pointer Field (`pointerField.ts`) | One renderer-local MotionValue authority; pointer coordinates never live in React application state, lifecycle state, or IPC |
 
 Contracts:
-- Do not let `onMouseLeave` directly own collapse decisions for the compact window. Leave is only one signal; morph completion, drag lifecycle, and task-outcome unlocks may need a second truth check.
-- Compact/full switching must be owned by a single reducer/controller. Handlers dispatch explicit events such as pointer enter/leave, drop enter/leave, lock changes, startup settle, and animation completion; they must not make independent compact/full decisions.
-- Do not use DOM `:hover` as a compact/full decision source. During compact-to-full morphs, transparent-window changes can leave `:hover` stale after an explicit leave. The reducer's explicit pointer/drop events are the source of truth.
-- Native pointer-boundary events from Electron main are allowed as input facts for the reducer. Electron may report whether the OS cursor is inside the main BrowserWindow bounds, but it must not decide compact/full shell state.
-- Collapse timers belong to the reducer effect layer and must use reducer-issued tokens. Components may execute the timer effect, but they must not create independent leave timers or clear timers outside reducer effects and teardown.
-- Keep one shared clear helper per timer family. If a leave-delay timer exists, it must be canceled by re-enter, teardown, and any flow that forces full mode.
-- Pointer-down, drag-threshold pending, and active drag are distinct interaction states. Leave handling must respect all three.
-- When multiple transitions can hand off between each other, decide the next shell state at the handoff point instead of letting one effect finish and a second effect immediately undo it.
-- If a foreground success/error outcome is rendered briefly in the main panel, treat that outcome visibility as its own synchronous guard, typically via a ref that collapse callbacks can read immediately. Do not rely on React state alone to lock compact-mode collapse for the completion checkmark/error state, because async completion callbacks can race pointer-leave or post-task collapse handoff by one frame.
+- Do not let `onMouseLeave` directly own collapse decisions for the compact window. Leave is only one fact; the reducer gates it against phase, locks, and pointer truth.
+- Compact/full switching must be owned by the single lifecycle reducer. Handlers dispatch explicit events (pointer enter/leave, drop enter/leave, lock changes, startup settle, requestFull, visual transition completion); they must not make independent compact/full decisions.
+- Do not use DOM `:hover` as a compact/full decision source. The reducer's explicit pointer/drop facts are the source of truth.
+- Native pointer-boundary events from Electron main are input facts for the lifecycle. Electron reports whether the OS cursor is inside the main BrowserWindow bounds, but it must not decide compact/full shell state. The subscription keeps a listener-generation guard so a late emission from a replaced subscription cannot affect the current lifecycle.
+- The collapse timer is one executor-owned 80 ms timer keyed by the lifecycle timer epoch. Re-enter cancels it, teardown cancels it, and any full intent cancels it. Stale timer events are rejected by epoch.
+- Pointer-down, drag-threshold pending, and active drag are distinct interaction states owned by the presentation surface, and the `drag` lock holds full.
+- When multiple transitions can hand off between each other, the reducer decides the next shell state at the handoff point (epoch-checked visual completion) instead of letting one effect finish and a second effect immediately undo it.
+- If a foreground success/error outcome is rendered briefly in the main panel, the `centerOutcome` lock keeps the shell full. The foreground task path issues `requestFull` (explicit full intent) before the outcome can paint; intent never fabricates pointer-inside truth.
 - When showing a foreground task outcome after download/transcode completion, request full-mode ownership before or alongside flipping the visible outcome state. The completion glyph/message must not first appear inside the compact icon shell and then recover back to the full panel.
-- If a foreground/download path calls `forceFull` while the shell is compact, let the resulting `requestExpand` animated first render proceed. Do not immediately route the same synchronous call stack through a full-mode synchronization helper that sets `panelTransitionMode` to `instant`; stale refs such as `isMinimizedRef.current` can still read the pre-render compact value and accidentally clobber the compact-to-full morph. Prefer checking the synchronously updated shell phase/ref, such as `shellPhaseRef.current === "expanding"`, before falling back to an instant full synchronization path.
-- Programmatic full-mode requests must not fabricate pointer ownership. If a reducer event such as `forceFull` expands the compact window for download progress or another app-owned flow, preserve the current `pointerInside` value instead of setting it to `true`. Otherwise task/outcome lock release can believe the pointer is still inside and skip the normal collapse path until the next real enter/leave event.
+- Programmatic full requests (`requestFull`) must not fabricate pointer ownership. They preserve the current `pointerInside` value. Otherwise lock release can believe the pointer is still inside and skip the normal collapse path until the next real enter/leave event.
 
 ### Center Overlay State Ownership
 
-The center overlay in `src/App.tsx` is a separate single-owner state machine inside the compact window. It must not be modeled as several independent booleans such as `isProcessing`, `isForegroundTaskOutcomeVisible`, `centerOutcome`, and a minimized-icon branch.
+The center overlay in `src/App.tsx` is a separate single-owner state machine inside the main window. It must not be modeled as several independent booleans such as `isProcessing`, `isForegroundTaskOutcomeVisible`, and `centerOutcome`.
 
 Preferred ownership:
 
 | Concern | Preferred State | Why |
 |---------|-----------------|-----|
-| Current visual owner | discriminated union / reducer state | One selector decides whether the center shows progress, processing, task outcome, folder outcome, minimized icon, or nothing |
+| Current visual owner | discriminated union / reducer state | One selector decides whether the center shows progress, processing, task outcome, folder outcome, or nothing; the compact icon is surface output driven by the lifecycle visual projection |
 | Transient outcome lifetime | request id / epoch in state | Stale timer callbacks must not clear a newer outcome |
 | Shell-lock truth | derived from the same reducer state | Processing, loading, visible outcome, and folder outcome all keep the shell stable |
 | Progress truth | derived from queue/progress maps | Progress stays the source of truth and can preempt stale outcomes |
@@ -214,7 +214,7 @@ Contracts:
 - Give each transient outcome a request id and validate it in timer callbacks before mutating state.
 - Progress events may dismiss stale outcome visuals, but they must not clear the long-running `task-processing` state if it is still active.
 - Folder outcomes must use the same request-id guard as task outcomes.
-- Minimized icon rendering should be mutually exclusive with task progress and transient outcomes.
+- The compact icon shell is presentation-surface output driven by the lifecycle visual projection; the center overlay has no minimized/icon branch and must never render task or outcome content inside the compact shell.
 
 Common mistakes:
 
@@ -231,7 +231,6 @@ const [centerOverlayState, setCenterOverlayState] = useState(() => createCenterO
 const centerOverlayVisual = selectCenterOverlayVisual({
   primaryTask,
   centerOverlayState,
-  visualIsMinimized,
 });
 ```
 
@@ -252,35 +251,29 @@ switch (centerOverlayVisual.kind) {
   case "task-processing":
   case "task-outcome":
   case "folder-outcome":
-  case "minimized":
   case "none":
 }
 ```
 
 Common compact-window mistakes:
 
-**WRONG: Independent timer ownership**
+**WRONG: App-owned collapse timer**
 ```tsx
 onMouseLeave={() => {
   setTimeout(collapseMainWindowToIcon, 140);
 }}
-
-const resetIdleTimer = () => {
-  clearTimeout(idleTimerRef.current!);
-};
 ```
 
 Why wrong:
-- The leave timer is invisible to other reset paths and may still fire after re-enter.
+- The App never owns a collapse timer. The lifecycle reducer emits
+  `collapseTimer.start` / `collapseTimer.cancel` effects; the effect executor
+  owns the single cancelable `80 ms` timer, and re-entry cancels it.
 
-**CORRECT: Shared timer ownership**
+**CORRECT: Collapse timer owned by the effect executor**
 ```tsx
-const clearPointerLeaveCollapseTimer = () => {
-  if (pointerLeaveCollapseTimerRef.current !== null) {
-    clearTimeout(pointerLeaveCollapseTimerRef.current);
-    pointerLeaveCollapseTimerRef.current = null;
-  }
-};
+// Lifecycle emits: { type: "collapseTimer.start", timerEpoch, delayMs: 80 }
+// The executor schedules/cancels exactly one timer and reports the epoch
+// back as collapseTimerFired; stale epochs are ignored by the reducer.
 ```
 
 **WRONG: Drag and leave handled independently**
@@ -330,3 +323,42 @@ function App() {
   <App />
 </ThemeProvider>
 ```
+## Motion / Presentation Foundation (MR0)
+
+MR0 keeps authority layers separate and never creates duplicate Product, lifecycle, or pointer state. The layers are:
+
+| Layer | Owner | Role |
+| --- | --- | --- |
+| Product facts | Download reducer/selectors (`src/features/download/`), Application facts | tasks, progress, terminal outcomes; sole business truth |
+| Presentation Lifecycle | `lifecycle.ts` reducer + projections | full/compact/transition, locks, epochs; sole writable lifecycle authority |
+| Projected persistent/transient/terminal presentation | selectors + `centerOverlayState.ts` request-id policy + composition | the current persistent baseline, bounded transient intents, terminal-priority target; presentation projections only |
+| Continuous renderer runtime | `pointerField.ts` (+ consumers like `magnetic.ts`) | high-frequency pointer geometry; renderer-local, never React app state |
+
+Rules:
+
+- Presentation projections never write back into Product or lifecycle authority. A projection is a pure function of facts.
+- The center overlay (`centerOverlayState.ts`) keeps request-id/timer policy as presentation policy: it owns the bounded terminal visibility opportunity and projects the `centerOutcome` lifecycle lock. `lifecycle.ts` consumes the lock but does not own the timer. Animation completion never releases locks or dispatches collapse.
+- Terminal projected presentation has visual priority over ordinary transients but owns neither the terminal fact nor collapse. New authoritative active work re-evaluates locks/collapse eligibility from facts.
+- A transient response restores the CURRENT persistent baseline (including changes that arrived during the transient); it never rewrites the baseline.
+- Transient concurrency is bounded locally (latest-replaces/coalescing). No unbounded animation queue, no global store, no bus, no state machine added for motion.
+- Renderer motion state is disposable and reconstructible: collapse sleeps a still-mounted runtime; replacement/unmount permanently disposes; rebuild reconstructs from the current projection.
+- Guarded by `src/architecture/import-guard.test.ts` (lifecycle/pointer writer uniqueness, surface wiring boundary) and `src/presentation/main-window/presentationCompositionContract.test.ts` — a normative test-only contract model; MR1/MR2 implementations add their own conformance tests and are not certified by the model alone.
+
+### MR7 Expanded graphics clarification
+
+`expandedPresentationRuntime.ts` may retain only reconstructible interpolation,
+generation, and one pending frame. Its inputs are the pure current Progress and
+Terminal Presentation targets. It must not retain terminal targets after their
+publisher removes them, classify outcomes, release `centerOutcome`, progress the
+main-window lifecycle, mutate Download/Application state, or expose semantic
+callbacks. WebGL context/resource state is decorative renderer-local state and
+failure leaves all authorities unchanged.
+
+MR8 adds one Download-Intake-specific bounded Presentation owner beside these
+projections. Its source is the Application-authored `acceptedTraceId` marker on
+the exact new-membership queue snapshot; unmarked snapshots and local command
+acks never create it. It owns only latest opportunity identity, deadline, and
+stale invalidation. The pure Expanded Presentation policy resolves MR4 current-
+primary suppression, Terminal, Intake, then MR3 Progress before passing one
+typed target to the MR7 host. Intake creates no lifecycle lock, Product field,
+renderer completion callback, queue, scheduler, or generic Reveal authority.

@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Check transform ownership, lifecycle completion separation, reduced motion, and the stable native BrowserWindow contract."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check that continuous pointer data has one MotionValue authority and never becomes React/application/lifecycle state."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Apply frontend cleanup, hook cleanup, TypeScript, and Motion quality checks."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check that pointer hot paths do not cross renderer/native boundaries or create duplicate authority."}
+{"file":".trellis/tasks/08-11-m2-pointer-field-magnetic/research/current-m2-presentation-audit.md","reason":"Compare the final diff against the repository baseline and protected M0/M1 boundaries."}

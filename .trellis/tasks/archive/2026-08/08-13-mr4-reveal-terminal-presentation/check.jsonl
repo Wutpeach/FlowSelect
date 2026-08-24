@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify forbidden imports, no generic runtime, no per-frame React/IPC, and preserved Windows risk gates."}
+{"file":".trellis/tasks/08-13-mr4-reveal-terminal-presentation/research/repository-grounded-planning-report.md","reason":"Check implementation against approved baseline facts and exclusions."}

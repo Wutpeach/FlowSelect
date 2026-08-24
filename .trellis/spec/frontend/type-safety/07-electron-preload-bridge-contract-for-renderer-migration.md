@@ -47,18 +47,22 @@ const update = await window.ameow!.updater.check();
 await window.ameow!.updater.downloadAndInstall();
 ```
 
-Current-window bounds typing:
+Current-window compact reachability typing:
 
 ```ts
-const result = await window.ameow!.currentWindow.animateBounds(bounds, {
-  durationMs: 0,
-  transitionToken,
+const result = await window.ameow!.currentWindow.ensureMainWindowCompactReachable({
+  reachableFrameSize,
+  edgePadding: 8,
+  reducedMotion,
+  requestEpoch,
 });
 
-if (result.transitionToken !== transitionToken) {
+if (result.requestEpoch !== requestEpoch) {
   return;
 }
 ```
+
+The renderer cannot request arbitrary native width/height, target bounds, easing, or duration. Electron main owns monitor selection, clamping, and position-only interpolation; returning to interactive mode cancels any active correction.
 
 ### 3. Contracts
 
@@ -76,11 +80,8 @@ if (result.transitionToken !== transitionToken) {
   - `window.ameow!.windows.focus(...)`
   - `window.ameow!.windows.openSettings(...)`
   - `window.ameow!.windows.openContextMenu(...)`
-- Dev-only preview tooling may additionally use:
-  - `window.ameow!.windows.openUiLab(...)`
-  - `window.ameow!.commands.invoke<void>("dev_ui_lab_apply_scenario", { scenario })`
-  - `window.ameow!.events.on<void>("ui-lab-reset", ...)`
-- UI Lab and other internal preview routes must be gated behind `import.meta.env.DEV`; packaged builds must not expose a production-facing route or settings entry point for them.
+- Dev-only preview/export tooling does not use the Electron bridge: the Browser Lab (plain Vite, port 1421, `lab.html` + `src/lab/`) is a standalone browser page with no desktop bridge import. It synthesizes typed production state/payload fixtures, applies the relevant production selectors/helpers/projections, and renders through the production `ExpandedPresentationSurface`. The retired Electron UI Lab surface (`openUiLab`, `dev_ui_lab_apply_scenario`, `ui-lab-reset`) must not be reintroduced on the bridge.
+- The Browser Lab must remain a dev-only surface gated behind the `vite.lab.config.ts` entry; the production build input is pinned to `index.html`, so Lab code is excluded from production bundles and no packaged route or settings entry point exposes it.
 - `window.ameow!.clipboard.readImage()` must return serializable pixel data only; renderer remains responsible for converting that into a `data:` URL for existing image-save flows.
 - `window.ameow!.updater.check()` must return serializable `AppUpdateInfo | null`; renderer must not expect a raw updater handle object with platform-specific methods.
 - App-update channel preference contract:
@@ -90,9 +91,9 @@ if (result.transitionToken !== transitionToken) {
   - Settings must emit `window.ameow!.events.emit("app-update-preference-changed", { receivePrereleaseUpdates: boolean })` after a successful save so already-mounted surfaces can refresh update state without restart.
   - Main-window listeners may treat `app-update-preference-changed` as a stateless refresh signal and re-run `window.ameow!.updater.check()`, but they must not assume the emitted payload is the source of truth over persisted config.
 - High-frequency frameless-window motion must use the typed current-window bridge (`outerPosition()` + `setPosition(...)`) rather than `commands.invoke("set_window_position")`.
-- Same-window icon-mode size morphs must use `window.ameow!.currentWindow.animateBounds(...)`; do not add a dedicated transition overlay BrowserWindow back into the renderer contract.
-- If `currentWindow.animateBounds(...)` is used by competing compact/full paths, keep the request and response on one typed contract. Renderer code should pass an optional `transitionToken` and treat the echoed `transitionToken` as the async completion identity before committing follow-up UI state.
-- If Electron main repositions `main` natively outside the renderer drag path, such as the `shortcut-show` summon flow, renderer compact/full helpers must refresh any cached `outerPosition()` before reusing it for `currentWindow.animateBounds(...)` or idle compact transitions.
+- Normal full↔compact morphs are renderer-visual-only with a stable BrowserWindow viewport; there is no renderer-facing generic bounds animation API. The only native placement operation is the semantic `ensureMainWindowCompactReachable(...)` (monitor clamp + position-only interpolation) plus `cancelCompactReachability()`.
+- Compact lifecycle completion has one acknowledgement: the matching Renderer Motion collapse completion, epoch-checked in the presentation lifecycle. Native compact reachability is independent, cancellable OS work; it never gates the lifecycle or passthrough, and its request/response `requestEpoch` guard prevents stale corrections from moving a newer full surface.
+- If Electron main repositions `main` natively outside the renderer drag path, such as the `shortcut-show` summon flow, renderer presentation helpers issue explicit full intent through the lifecycle; no cached renderer position is reused for native placement because Electron main owns the corrected position.
 - The optional global `window.ameow` is the migration boundary. Do not scatter ad hoc fallback branches across components; use a small adapter layer or fail fast where the bridge is required.
 
 ### 4. Validation & Error Matrix
@@ -104,8 +105,8 @@ if (result.transitionToken !== transitionToken) {
 | Electron mode is detected but `window.ameow` is missing | Renderer bootstrap | Failure is explicit and diagnosable | Fail fast instead of silently mounting browser-mode UI |
 | Event listener implementation depends on one shared desktop IPC channel | Re-render / subscription churn | Listener counts stay bounded and event payloads stay local to their contract | Use event-specific channels and matching cleanup |
 | Child window created with raw Electron/Tauri APIs | Window lifecycle path | Window ownership stays centralized | Route through `window.ameow!.windows.*` |
-| Dev-only preview route is registered in production | Renderer bootstrap / routing | Internal tooling stays hidden from packaged users | Gate route registration with `import.meta.env.DEV` |
-| Scenario preview uses an untyped command or ad hoc event name | Preview boundary | UI Lab stays on the typed preload contract | Use `dev_ui_lab_apply_scenario` and `ui-lab-reset` from `src/types/electronBridge.ts` |
+| Dev-only preview route is registered in production | Renderer bootstrap / routing | Internal tooling stays hidden from packaged users | Production build input is pinned to `index.html`; the Browser Lab entry (`lab.html` + `src/lab/`) is excluded from production bundles |
+| Scenario preview uses an untyped command or ad hoc event name | Preview boundary | Browser Lab scenarios stay on production types and never touch the Electron bridge | Synthesize typed state/payload fixtures and use applicable production selectors/helpers/projections; no `dev_ui_lab_apply_scenario` / `ui-lab-reset` contract exists on the bridge |
 | Clipboard bridge returns non-serializable platform handle | Renderer paste path | Renderer can still convert to `data:` URL | Return structured `{ width, height, rgba }` only |
 | Updater bridge leaks provider-specific object shape | Update UI path | Renderer remains platform-agnostic | Return `AppUpdateInfo | null` and expose install separately |
 | Settings writes prerelease preference through ad hoc local state only | Update channel toggle path | Preference is lost on refresh/restart | Persist `receivePrereleaseUpdates` through `get_config` / `save_config` |
@@ -113,9 +114,9 @@ if (result.transitionToken !== transitionToken) {
 | Settings emits `app-update-preference-changed` before save succeeds | Cross-window refresh path | Main window may refresh against stale persisted config | Emit the event only after `save_config` resolves |
 | Main window treats the emitted payload as canonical without rechecking updater state | Update-indicator path | UI can drift from the actual available update result | Re-run `window.ameow!.updater.check()` on the event |
 | Frameless drag uses `commands.invoke("set_window_position")` inside `pointermove` | Main window interaction | Drag stays smooth | Use `currentWindow.setPosition(...)` fire-and-forget |
-| Icon-mode expand introduces a second temporary overlay BrowserWindow | Main window transition path | Expand remains a single-HWND morph with no cross-window handoff | Use `currentWindow.animateBounds(...)` on the main window instead |
-| `animateBounds(...)` completion from an old compact/full request still mutates renderer state | Main window transition path | Late callbacks cannot reapply stale native/window state | Carry a typed transition token through the request/response boundary and validate it after `await` |
-| Electron main repositions the BrowserWindow before `shortcut-show`, but renderer reuses stale cached coordinates for the next compact/full transition | Shortcut summon then idle compact path | Compact icon stays anchored to the latest shortcut position | Refresh cached `currentWindow.outerPosition()` when `shortcut-show` arrives before reusing cached bounds |
+| Icon-mode expand introduces a second temporary overlay BrowserWindow | Main window transition path | Expand remains a single-HWND morph with no cross-window handoff | Keep the stable main BrowserWindow; morph is renderer-visual-only |
+| Stale compact reachability correction resolves after the surface expanded again | Main window transition path | Late OS work cannot move a newer full surface | Returning to interactive mode cancels the active correction; `requestEpoch` guards async results |
+| Renderer requests arbitrary native width/height or duration | Main window transition path | Renderer cannot control native size animation | Only the semantic `ensureMainWindowCompactReachable(...)` placement op is exposed |
 | `window.ameow` absence handled differently in many components | Migration review | Bridge failures stay predictable | Centralize access behind one adapter or fail fast consistently |
 
 ### 5. Good / Base / Bad Cases
@@ -125,9 +126,9 @@ if (result.transitionToken !== transitionToken) {
   - Settings toggles `receivePrereleaseUpdates`, persists it to config, emits `app-update-preference-changed`, and the main window refreshes update availability without restart.
   - `App.tsx` child-window logic moves from `WebviewWindow` calls to `window.ameow!.windows.has/focus/open*` without changing labels or visible behavior.
   - `src/main.tsx` stops booting the normal desktop shell when Electron is detected but the preload bridge is unavailable.
-  - Dev-only UI review tooling opens `window.ameow!.windows.openUiLab(...)` from Settings and drives the real main window through the typed `dev_ui_lab_apply_scenario` command.
+  - Dev-only preview/export stays out of Electron: the Browser Lab (plain Vite, port 1421) mounts the production surface with fixture state and never imports the desktop bridge; the retired `openUiLab` / `dev_ui_lab_apply_scenario` / `ui-lab-reset` surface is absent from the bridge.
   - Frameless window dragging uses `outerPosition()` + `setPosition(...)` over the typed current-window bridge, so pointer-move updates stay out of the command invoke path.
-  - `shortcut-show` first refreshes the renderer's cached `outerPosition()` and then runs the existing full-mode restore helper, so the next idle compact stays at the new shortcut anchor point.
+  - `shortcut-show` issues explicit full intent through the presentation lifecycle, and Electron main owns the corrected compact position through the semantic reachability op.
   - Clipboard-image flows still receive pixel data that the renderer turns into a PNG data URL before calling `save_data_url`.
 - Base:
   - Legacy Tauri files may still exist during incremental migration, but any newly migrated file uses the preload bridge exclusively.
@@ -136,7 +137,7 @@ if (result.transitionToken !== transitionToken) {
   - Settings stores the prerelease toggle only in React state, so refresh/restart resets the user back to stable updates silently.
   - Main window subscribes to `app-update-preference-changed` but never re-runs the updater check, so the indicator keeps stale stable/prerelease state until the next app launch.
   - A renderer subscribes to one catch-all desktop event listener and switches on event names locally.
-  - Shortcut summon moves the native BrowserWindow near the cursor, but renderer keeps a stale pre-shortcut position cache and shrinks the idle icon back to the old coordinates.
+  - Renderer calls a removed generic bounds animation API for compact/full presentation; native placement must go through the semantic reachability operation instead.
   - Desktop bootstrap silently falls back to browser-mode routing when `window.ameow` is missing.
   - Renderer update UI depends on an Electron-specific updater object instead of the preload contract.
   - Different components invent different child-window APIs instead of using `window.ameow!.windows`.
@@ -148,9 +149,9 @@ if (result.transitionToken !== transitionToken) {
 - Electron bootstrap path shows an explicit failure state if `window.ameow` is unavailable.
 - Child-window flows still open/focus `settings` and `context-menu` through the typed bridge.
 - Dev-only preview route is registered only when `import.meta.env.DEV` is true.
-- UI Lab renderer code uses typed bridge calls for `openUiLab`, `dev_ui_lab_apply_scenario`, and `ui-lab-reset`.
+- Dev-only preview stays out of Electron entirely: the Browser Lab mounts the production surface in a plain Vite page and production bundles exclude it.
 - Frameless drag stays on the typed current-window bridge and avoids per-move `invoke(...)`.
-- `currentWindow.animateBounds(...)` callers keep the optional `transitionToken` request field and echoed response field aligned across renderer, preload, and main process.
+- `ensureMainWindowCompactReachable(...)` keeps the `requestEpoch` request field aligned across renderer, preload, and main process; no generic renderer bounds animation API exists.
 - Clipboard-image save flows still receive enough data to produce a PNG data URL.
 - Update UI still handles `null` from `window.ameow!.updater.check()` safely.
 - Settings prerelease toggle survives invalid existing config JSON by writing a valid object with `receivePrereleaseUpdates`.

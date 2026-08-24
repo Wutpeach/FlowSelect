@@ -60,9 +60,6 @@ export const desktopCurrentWindow: AmeowCurrentWindowApi = {
   async scaleFactor() {
     return resolveElectronBridge().currentWindow.scaleFactor();
   },
-  startupWindowMode() {
-    return resolveElectronBridge().currentWindow.startupWindowMode();
-  },
   async startDragging() {
     await resolveElectronBridge().currentWindow.startDragging();
   },
@@ -72,8 +69,11 @@ export const desktopCurrentWindow: AmeowCurrentWindowApi = {
   setInteractionMode(mode) {
     resolveElectronBridge().currentWindow.setInteractionMode(mode);
   },
-  async animateBounds(bounds, options) {
-    return resolveElectronBridge().currentWindow.animateBounds(bounds, options);
+  async ensureMainWindowCompactReachable(options) {
+    return resolveElectronBridge().currentWindow.ensureMainWindowCompactReachable(options);
+  },
+  cancelCompactReachability() {
+    resolveElectronBridge().currentWindow.cancelCompactReachability();
   },
   async rendererReady() {
     await resolveElectronBridge().currentWindow.rendererReady();
@@ -149,7 +149,7 @@ export const desktopWindows = {
   async focus(label: AmeowWindowLabel): Promise<void> {
     await resolveElectronBridge().windows.focus(label);
   },
-  async close(label: "settings" | "context-menu" | "ui-lab"): Promise<void> {
+  async close(label: "settings" | "context-menu"): Promise<void> {
     await resolveElectronBridge().windows.close(label);
   },
   async openSettings(options: AmeowSecondaryWindowOptions): Promise<void> {
@@ -157,8 +157,5 @@ export const desktopWindows = {
   },
   async openContextMenu(options: AmeowContextMenuWindowOptions): Promise<void> {
     await resolveElectronBridge().windows.openContextMenu(options);
-  },
-  async openUiLab(options: AmeowSecondaryWindowOptions): Promise<void> {
-    await resolveElectronBridge().windows.openUiLab(options);
   },
 };

@@ -1,0 +1,1846 @@
+diff --git a/THIRD_PARTY_NOTICES.md b/THIRD_PARTY_NOTICES.md
+index c2d393f..d6feb44 100644
+--- a/THIRD_PARTY_NOTICES.md
++++ b/THIRD_PARTY_NOTICES.md
+@@ -1,27 +1,33 @@
+ # Third-Party Notices
+ 
+-## License status: no active Paper-derived source shipped
+-
+-As of the MR9 edge-capture baseline restore (2026-08-20), **no Paper-derived
+-source is shipped or actively adapted in this repository.** The lab-gated
+-heatmap spike in `src/presentation/main-window/ExpandedPresentationSurface.tsx`
+-is a clean-room analytic field (plane front + value-noise bend + rounded-rect
+-SDF + 2D gaussian core); it shares only the unprotectable high-level idea of a
+-“scalar heat → thermal color ramp” with Paper Shaders.
+-
+-Earlier MR9 research prototypes (the “Heatmap Literal Fidelity” spike and its
+-core-removal / latent-carrier successors) **did** closely adapt
+-`heatmap.ts` from `@paper-design/shaders@0.0.80` (Apache-2.0). Those prototypes
+-were rejected during visual review and their Paper-derived shader helpers,
+-boundary-texture preprocessing (`blurGray` / `multiPassBlurGray`,
+-`rasterizeHeatmap*`), and renderer-owned texture lifecycle were **removed**
+-when the analytic baseline was restored. They are retained only as historical
+-research evidence under `.trellis/tasks/08-15-mr9-fullscreen-activation-fx-
+-progress-visual-refinement/research/` and are not part of any shipped or
+-active source path.
+-
+-The Apache-2.0 text and Paper NOTICE are reproduced below for attribution
+-and historical traceability of that research.
++## License status: one active Paper-derived Lab-only preprocessing spike
++
++The **Lab-only Paper processed-silhouette spike** in
++`src/presentation/main-window/ExpandedPresentationSurface.tsx` is an **active
++Apache-2.0 derivative** of the geometry-agnostic preprocessing and scalar
++causality of `heatmap.ts` from `@paper-design/shaders@0.0.80` (Copyright 2026
++Paper, https://shaders.paper.design). It is gated behind a Lab-only `paper`
++prop that production never sets; it contributes exactly one CPU-built
++processed RGBA texture (`blurGray` / `multiPassBlurGray` integral-image box
++blur + a rounded-rect mask rasterizer) and one inner/outer/contour scalar
++composition, sampled by the existing single shader. Paper's
++logo/diamond/image-frame geometry, ShaderMount/ShaderSizing React runtime,
++and per-pixel helpers are NOT used; the exact Ameow 200x200/r16 panel
++silhouette is the sole source.
++
++### Modified Derivative Notice
++
++Per Apache-2.0 §4(b), this repository carries prominent modification notices:
++
++- The source file `src/presentation/main-window/ExpandedPresentationSurface.tsx`
++  starts with a `MODIFIED DERIVATIVE — Paper Heatmap mechanics (Apache-2.0)`
++  header naming the upstream (`@paper-design/shaders@0.0.80`, `heatmap.ts`,
++  Copyright 2026 Paper, https://shaders.paper.design) and describing what was
++  adapted and what was excluded.
++- adapted source: `src/presentation/main-window/ExpandedPresentationSurface.tsx`
++  (Lab-only `paper` mode: CPU preprocessing + shader `paperOutput`).
++- This file reproduces the upstream NOTICE and the full Apache-2.0 text below.
++- Ameow's root `LICENSE` (MIT) is unchanged and governs all non-adapted code.
+ 
+ ## Historical research reference
+ 
+@@ -30,8 +36,9 @@ and historical traceability of that research.
+ - **Research artifacts**: `research/mr9-literal-fidelity.md`,
+   `research/mr9-literal-reuse-map.md`, `research/mr9-core-removal-repair.md`,
+   `research/mr9-latent-carrier.md`, and the `mr9-literal-fidelity/`,
+-  `mr9-core-removal/`, `mr9-latent-carrier/` capture folders. No adapted
+-  source from those prototypes remains in the repository.
++  `mr9-core-removal/`, `mr9-latent-carrier/` capture folders. Rejected
++  prototypes remain historical research evidence only; the only active
++  adapted source is the Lab-only `paper` mode listed above.
+ 
+ ## NOTICE (reproduced from @paper-design/shaders@0.0.80)
+ 
+diff --git a/src/lab/LabOverlayStage.tsx b/src/lab/LabOverlayStage.tsx
+index acd0041..9f78b91 100644
+--- a/src/lab/LabOverlayStage.tsx
++++ b/src/lab/LabOverlayStage.tsx
+@@ -16,6 +16,7 @@ import {
+ } from "react";
+ import { useTranslation } from "react-i18next";
+ import { ExpandedPresentationSurface } from "../presentation/main-window/ExpandedPresentationSurface";
++import { getPanelShellStyle } from "../components/ui/shared-styles";
+ import { THERMAL_PALETTE } from "../presentation/main-window/thermalPalette";
+ import { MainWindowCenterOverlay } from "../presentation/main-window/MainWindowCenterOverlay";
+ import { MainWindowQueuePopover } from "../presentation/main-window/MainWindowQueuePopover";
+@@ -25,6 +26,11 @@ import type { ExpandedPresentationTarget } from "../presentation/main-window/exp
+ import type { ErrorDiagnosticCopyRequest } from "../types/errorDiagnostics";
+ import type { LabOverlayProjection } from "./overlayProjection";
+ import { LAB_PREVIEW_SIZE } from "./scenarios";
++import {
++  getMainWindowFullOuterSize,
++  MAIN_WINDOW_FULL_SHADOW_GUTTER,
++} from "../constants/windowMetrics";
++import { useTheme } from "../contexts/ThemeContext";
+ 
+ export type LabOverlayStageProps = {
+   target: ExpandedPresentationTarget;
+@@ -40,6 +46,23 @@ export type LabOverlayStageProps = {
+    * refraction displacement to the same analytic heat field.
+    */
+   refractionMode: boolean;
++  /**
++   * Lab-only Paper processed-silhouette spike flag; forwarded to the one
++   * production surface. While true the Lab frame becomes the real 228x228
++   * outer domain (200x200/r16 panel at outer origin 14,14) so the gutter is
++   * observable; the canvas spans the full 228. The REAL panel shell (actual
++   * production background + singular CSS shadow + interactive authority) sits
++   * BELOW the canvas, and a transparent nested UI content clip sits ABOVE it
++   * (no background/shadow) so the FX stays visible through the panel while UI
++   * stays clipped to the panel silhouette. Production never sets it.
++   */
++  paperMode: boolean;
++  /**
++   * Lab-only Paper fixed-phase input (manually pinned, default 0.35): the
++   * renderer-local phase uniform for fixed A/B/C/D morphology captures. It
++   * owns no lifecycle or scheduling authority.
++   */
++  paperPhase?: number;
+   /** Non-null when a seven-scenario overlay fixture is active. */
+   overlayProjection: LabOverlayProjection | null;
+   /** Show the queue badge/popover inside the preview frame. */
+@@ -134,6 +157,13 @@ const PREVIEW_FRAME_STYLE: CSSProperties = {
+   flexShrink: 0,
+ };
+ 
++// Paper mode exposes the REAL full-state outer domain: 228 = 200 + 14*2 (the
++// Windows/darwin shadow gutter), so the gutter and the CSS shadow are visible
++// around the exact 200x200/r16 panel instead of being clipped away by a
++// 200x200 preview frame.
++const LAB_PAPER_OUTER_SIZE = getMainWindowFullOuterSize("win32");
++const LAB_PAPER_GUTTER = MAIN_WINDOW_FULL_SHADOW_GUTTER;
++
+ export function LabOverlayStage(props: LabOverlayStageProps) {
+   const { t } = useTranslation("lab");
+   const {
+@@ -141,6 +171,8 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
+     reducedMotion,
+     heatmapMode,
+     refractionMode,
++    paperMode,
++    paperPhase,
+     overlayProjection,
+     showQueueOverlay,
+     queueOpen,
+@@ -167,6 +199,19 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
+     });
+   }, [onPreviewClick]);
+ 
++  const isPaper = paperMode === true;
++  const { colors } = useTheme();
++  const frameStyle: CSSProperties = isPaper
++    ? {
++        ...PREVIEW_FRAME_STYLE,
++        width: LAB_PAPER_OUTER_SIZE,
++        height: LAB_PAPER_OUTER_SIZE,
++        overflow: "visible",
++        borderRadius: 0,
++        background: "repeating-conic-gradient(#2a2731 0% 25%, #211f27 0% 50%) 0 0 / 14px 14px",
++      }
++    : PREVIEW_FRAME_STYLE;
++
+   const getAdvancedQualityTaskTitle = useCallback((task: { label: string }) => task.label, []);
+   const renderAdvancedQualityOptionButton = useCallback((): ReactNode => null, []);
+ 
+@@ -195,25 +240,43 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
+       }
+     : null;
+ 
+-  return (
+-    <div
+-      style={PREVIEW_FRAME_STYLE}
+-      data-lab-preview-frame=""
+-      onClick={handlePreviewClick}
+-      title={t("preview.clickToSetOrigin")}
+-    >
+-      <ExpandedPresentationSurface
+-        eligible
+-        reducedMotion={reducedMotion}
+-        target={target}
+-        palette={THERMAL_PALETTE}
+-        heatmap={heatmapMode}
+-        refraction={refractionMode}
+-        backingScale={captureScale}
+-        redrawEpoch={captureEpoch}
+-      />
+-      <WebglReadback captureEpoch={captureEpoch} onResult={onWebglReadback} />
++  // Real panel shell BELOW the FX canvas: the actual production panel
++  // background (gradient) and the singular CSS shadow, plus the interactive
++  // surface authority. The canvas is a sibling above it, so the shell
++  // background shows only where the FX canvas is transparent.
++  const panelShellStyle: CSSProperties | undefined = isPaper
++    ? {
++        position: "absolute",
++        left: LAB_PAPER_GUTTER,
++        top: LAB_PAPER_GUTTER,
++        width: LAB_PREVIEW_SIZE,
++        height: LAB_PREVIEW_SIZE,
++        ...getPanelShellStyle(colors, { radius: 16, boxShadow: colors.panelShadow }),
++      }
++    : undefined;
+ 
++  // Transparent nested UI content clip ABOVE the FX canvas: clips the DOM
++  // overlays to the exact 200x200/r16 panel silhouette without any
++  // background/shadow of its own, so the FX stays visible through the panel.
++  // The clip is a normal interactive container (pointer-events auto): UI
++  // descendants work normally with no per-child opt-in, and clicks on empty
++  // clip areas bubble to the frame. The FX canvas stays pointer-events none
++  // (it consumes neither shadow nor interaction authority).
++  const panelClipStyle: CSSProperties | undefined = isPaper
++    ? {
++        position: "absolute",
++        left: LAB_PAPER_GUTTER,
++        top: LAB_PAPER_GUTTER,
++        width: LAB_PREVIEW_SIZE,
++        height: LAB_PREVIEW_SIZE,
++        borderRadius: 16,
++        overflow: "hidden",
++        pointerEvents: "auto",
++      }
++    : undefined;
++
++  const overlayContent = (
++    <>
+       {overlayProjection !== null && overlayProjection.centerOverlayVisual.kind !== "none" ? (
+         <MainWindowCenterOverlay
+           centerOverlayVisual={overlayProjection.centerOverlayVisual}
+@@ -271,6 +334,38 @@ export function LabOverlayStage(props: LabOverlayStageProps) {
+         }}
+         aria-hidden="true"
+       />
++    </>
++  );
++
++  return (
++    <div
++      style={frameStyle}
++      data-lab-preview-frame=""
++      onClick={handlePreviewClick}
++      title={t("preview.clickToSetOrigin")}
++    >
++      {isPaper ? <div data-lab-panel-shell="" style={panelShellStyle} /> : null}
++      <ExpandedPresentationSurface
++        eligible
++        reducedMotion={reducedMotion}
++        target={target}
++        palette={THERMAL_PALETTE}
++        heatmap={heatmapMode}
++        refraction={refractionMode}
++        paper={paperMode}
++        paperPhase={paperPhase}
++        backingScale={captureScale}
++        redrawEpoch={captureEpoch}
++      />
++      <WebglReadback captureEpoch={captureEpoch} onResult={onWebglReadback} />
++
++      {isPaper ? (
++        <div data-lab-panel-clip="" style={panelClipStyle}>
++          {overlayContent}
++        </div>
++      ) : (
++        overlayContent
++      )}
+     </div>
+   );
+ }
+diff --git a/src/lab/PresentationLab.tsx b/src/lab/PresentationLab.tsx
+index 44bcfd5..26a60f5 100644
+--- a/src/lab/PresentationLab.tsx
++++ b/src/lab/PresentationLab.tsx
+@@ -49,6 +49,8 @@ type ShaderReadout = {
+   reducedMotion: number;
+   heatmapMode: number;
+   refractionMode: number;
++  paperMode: number;
++  paperPhase: number;
+   time: number;
+ };
+ 
+@@ -73,6 +75,8 @@ const readShaderReadout = (): ShaderReadout => {
+     reducedMotion: MISSING,
+     heatmapMode: MISSING,
+     refractionMode: MISSING,
++    paperMode: MISSING,
++    paperPhase: MISSING,
+     time: MISSING,
+   };
+   const canvas = canvases[0];
+@@ -120,6 +124,8 @@ const readShaderReadout = (): ShaderReadout => {
+     reducedMotion: readScalar("uReducedMotion"),
+     heatmapMode: readScalar("uHeatmapMode"),
+     refractionMode: readScalar("uRefractionMode"),
++    paperMode: readScalar("uPaperMode"),
++    paperPhase: readScalar("uPaperPhase"),
+     time: readScalar("uTime"),
+   };
+ };
+@@ -314,6 +320,8 @@ const PRESET_LABEL_KEYS: Readonly<Record<string, string>> = {
+   "heatmap-reduced": "heatmapReduced",
+   "heatmap-refraction-moving": "heatmapRefractionMoving",
+   "heatmap-refraction-reduced": "heatmapRefractionReduced",
++  "paper-static": "paperStatic",
++  "paper-reduced": "paperReduced",
+   "runtime-auto-config": "runtimeAutoConfig",
+   "runtime-failed": "runtimeFailed",
+   "download-active": "downloadActive",
+@@ -376,6 +384,9 @@ export function PresentationLab() {
+   const [exportError, setExportError] = useState<string | null>(null);
+   const [captureScale, setCaptureScale] = useState<number | undefined>(undefined);
+   const [captureEpoch, setCaptureEpoch] = useState(0);
++  // Manually pinned renderer-local Paper phase input (fixed A/B/C/D captures;
++  // owns no lifecycle or scheduling authority).
++  const [paperPhase, setPaperPhase] = useState(0.35);
+   const webglReadbackRef = useRef<((result: WebglReadbackResult | null) => void) | null>(null);
+   const exportResetTimerRef = useRef<number | null>(null);
+   const [readout, setReadout] = useState<ShaderReadout>(() => readShaderReadout());
+@@ -858,6 +869,24 @@ export function PresentationLab() {
+                 </button>
+               );
+             })}
++            {state.heatmap?.paper === true ? (
++              <label style={{ display: "block", marginTop: 8, fontSize: 12 }}>
++                {t("presets.paperPhase")}{" "}
++                <span style={{ fontSize: 10.5, color: colors.textSecondary }}>
++                  {paperPhase.toFixed(2)}
++                </span>
++                <input
++                  type="range"
++                  min={0}
++                  max={1}
++                  step={0.01}
++                  value={paperPhase}
++                  data-lab-action="paper-phase"
++                  onChange={(event) => setPaperPhase(Number(event.target.value))}
++                  style={{ width: "100%", marginTop: 4 }}
++                />
++              </label>
++            ) : null}
+             <button
+               type="button"
+               data-lab-action="clear-heatmap"
+@@ -880,8 +909,10 @@ export function PresentationLab() {
+         <LabOverlayStage
+           target={surfaceTarget}
+           reducedMotion={surfaceReducedMotion}
+-          heatmapMode={state.heatmap !== null}
++          heatmapMode={state.heatmap !== null && state.heatmap.paper !== true}
+           refractionMode={state.heatmap?.refraction === true}
++          paperMode={state.heatmap?.paper === true}
++          paperPhase={paperPhase}
+           overlayProjection={overlayProjection}
+           showQueueOverlay={showQueueOverlay}
+           queueOpen={queueOpen}
+diff --git a/src/lab/locales/en.json b/src/lab/locales/en.json
+index 23b1409..ae91e31 100644
+--- a/src/lab/locales/en.json
++++ b/src/lab/locales/en.json
+@@ -37,8 +37,11 @@
+     "heatmapReduced": { "label": "Heatmap · reduced motion", "description": "Static bounded field snapshot; no travelling frames." },
+     "heatmapRefractionMoving": { "label": "Heatmap · thermal refraction", "description": "Moving field with slow local low-frequency refraction (analytic resample)." },
+     "heatmapRefractionReduced": { "label": "Heatmap · refraction, reduced motion", "description": "Static frozen local refraction; zero travelling frames." },
++    "paperStatic": { "label": "Paper · processed silhouette", "description": "Static processed-silhouette inner/outer/contour mechanics (228 outer domain)." },
++    "paperReduced": { "label": "Paper · reduced motion", "description": "Static processed silhouette under Reduced Motion; zero continuing frames." },
+     "clearHeatmap": "Clear heatmap",
+     "clearHeatmapHint": "Return to the ordinary progress / activation surface.",
++    "paperPhase": "Paper phase (fixed A/B/C/D)",
+     "runtimeAutoConfig": { "label": "Auto configure", "description": "Runtime auto-configuring indicator (indeterminate progress)." },
+     "runtimeFailed": { "label": "Runtime failed", "description": "Actionable state after a runtime failure." },
+     "downloadActive": { "label": "Download active", "description": "Primary-task WebGL progress arc + queue rows (speed / ETA)." },
+diff --git a/src/lab/locales/zh-CN.json b/src/lab/locales/zh-CN.json
+index c03df6a..457fce9 100644
+--- a/src/lab/locales/zh-CN.json
++++ b/src/lab/locales/zh-CN.json
+@@ -37,8 +37,11 @@
+     "heatmapReduced": { "label": "热力图 · 减弱动态", "description": "静态有界场快照；无移动帧。" },
+     "heatmapRefractionMoving": { "label": "热力图 · 热折射", "description": "移动场 + 缓慢局部低频热折射（解析重采样）。" },
+     "heatmapRefractionReduced": { "label": "热力图 · 折射 · 减弱动态", "description": "冻结的静态局部折射；无移动帧。" },
++    "paperStatic": { "label": "Paper · 处理剪影", "description": "静态处理剪影内/外/轮廓机制（228 外部域）。" },
++    "paperReduced": { "label": "Paper · 减弱动态", "description": "减弱动态下的静态处理剪影；无持续帧。" },
+     "clearHeatmap": "清除热力图",
+     "clearHeatmapHint": "返回常规进度 / 激活表面。",
++    "paperPhase": "Paper 相位（固定 A/B/C/D）",
+     "runtimeAutoConfig": { "label": "自动配置", "description": "运行时自动配置中的指示器（不确定进度）。" },
+     "runtimeFailed": { "label": "运行失败", "description": "运行时失败后的可操作状态。" },
+     "downloadActive": { "label": "下载进行中", "description": "主任务 WebGL 进度弧 + 队列行（速度 / ETA）。" },
+diff --git a/src/lab/rendererReuse.test.ts b/src/lab/rendererReuse.test.ts
+index 492481c..b36a44d 100644
+--- a/src/lab/rendererReuse.test.ts
++++ b/src/lab/rendererReuse.test.ts
+@@ -85,6 +85,10 @@ describe("Browser Presentation Lab production renderer reuse", () => {
+     // The derived Refraction mode is forwarded through the one production
+     // surface as a lab-only flag; the Lab never re-implements the shader.
+     expect(labStage).toContain("refraction={refractionMode}");
++    // The Lab-only Paper processed-silhouette mode is forwarded the same way.
++    expect(labStage).toContain("paper={paperMode}");
++    // The manually pinned renderer-local Paper phase input is forwarded too.
++    expect(labStage).toContain("paperPhase={paperPhase}");
+   });
+ 
+   it("reimplements no renderer, runtime, or shader", () => {
+diff --git a/src/lab/scenarios.test.ts b/src/lab/scenarios.test.ts
+index bd6f79d..3c5541c 100644
+--- a/src/lab/scenarios.test.ts
++++ b/src/lab/scenarios.test.ts
+@@ -294,6 +294,7 @@ describe("Lab scenario model", () => {
+       presetId: "heatmap-moving",
+       forcedReducedMotion: false,
+       refraction: false,
++      paper: false,
+     });
+     // The spike keeps a valid semantic underlay (progress) and does not force
+     // reduced motion for the moving-field preset.
+@@ -312,6 +313,7 @@ describe("Lab scenario model", () => {
+       presetId: "heatmap-reduced",
+       forcedReducedMotion: true,
+       refraction: false,
++      paper: false,
+     });
+     expect(composeLabInput(state).reducedMotion).toBe(true);
+   });
+@@ -342,6 +344,7 @@ describe("Lab scenario model", () => {
+       presetId: "heatmap-refraction-moving",
+       forcedReducedMotion: false,
+       refraction: true,
++      paper: false,
+     });
+     // Refraction is a derived Heatmap mode: it still drives the production
+     // heatmap path with a valid progress underlay and no forced RM.
+@@ -360,19 +363,45 @@ describe("Lab scenario model", () => {
+       presetId: "heatmap-refraction-reduced",
+       forcedReducedMotion: true,
+       refraction: true,
++      paper: false,
+     });
+     // Reduced Motion freezes the refraction to a static snapshot.
+     expect(composeLabInput(state).reducedMotion).toBe(true);
+   });
+ 
+-  it("declares all four heatmap presets with distinct ids", () => {
++  it("declares all heatmap/paper presets with distinct ids", () => {
+     expect(LAB_HEATMAP_PRESETS.map((preset) => preset.id)).toEqual([
+       "heatmap-moving",
+       "heatmap-reduced",
+       "heatmap-refraction-moving",
+       "heatmap-refraction-reduced",
++      "paper-static",
++      "paper-reduced",
+     ]);
+     const ids = new Set(LAB_HEATMAP_PRESETS.map((preset) => preset.id));
+     expect(ids.size).toBe(LAB_HEATMAP_PRESETS.length);
+   });
++
++  it("activates the static Paper processed-silhouette presets and forces RM for the reduced variant", () => {
++    let state = createLabPresentationState();
++    state = reduceLabPresentation(state, { type: "setHeatmap", presetId: "paper-static" });
++    expect(state.heatmap).toEqual({
++      presetId: "paper-static",
++      forcedReducedMotion: false,
++      refraction: false,
++      paper: true,
++    });
++    // The static Paper mode is time-independent (static mechanics spike).
++    expect(composeLabInput(state).reducedMotion).toBe(false);
++    expect(state.activation).toBeNull();
++
++    state = reduceLabPresentation(state, { type: "setHeatmap", presetId: "paper-reduced" });
++    expect(state.heatmap).toEqual({
++      presetId: "paper-reduced",
++      forcedReducedMotion: true,
++      refraction: false,
++      paper: true,
++    });
++    expect(composeLabInput(state).reducedMotion).toBe(true);
++  });
+ });
+diff --git a/src/lab/scenarios.ts b/src/lab/scenarios.ts
+index b59ef0b..82db586 100644
+--- a/src/lab/scenarios.ts
++++ b/src/lab/scenarios.ts
+@@ -96,6 +96,10 @@ export type LabHeatmapPreset = Readonly<{
+   /** Derived Heatmap mode: while true the single shader also applies the
+    * lab-gated Thermal Refraction displacement to the same analytic field. */
+   refraction: boolean;
++  /** Lab-only Paper processed-silhouette mode: while true the single shader
++   * samples the ONE lazy processed RGBA texture (CPU-built from the exact
++   * 200x200/r16 panel mask) and composes Paper-derived scalar causality. */
++  paper: boolean;
+   label: string;
+   description: string;
+ }>;
+@@ -106,11 +110,17 @@ export type LabHeatmapPreset = Readonly<{
+  * clean-room scalar heat ramp and never a Paper runtime or second canvas.
+  * The two `heatmap-refraction-*` presets are a derived mode: they reuse the
+  * same heatmap state/category and only add the lab-only `refraction` flag.
++ * The two `paper-*` presets are the static processed-silhouette mechanics
++ * spike: they add the lab-only `paper` flag that samples ONE lazy processed
++ * RGBA texture (CPU-built from the exact 200x200/r16 panel mask) and compose
++ * Paper-derived inner/outer/contour scalar causality through the existing
++ * palette/output. All presets stay on the one production surface.
+  */
+ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
+   {
+     id: "heatmap-moving",
+     refraction: false,
++    paper: false,
+     forcedReducedMotion: false,
+     label: "Heatmap · moving field",
+     description: "Full-surface moving scalar heat field (clean-room spike).",
+@@ -118,6 +128,7 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
+   {
+     id: "heatmap-reduced",
+     refraction: false,
++    paper: false,
+     forcedReducedMotion: true,
+     label: "Heatmap · reduced motion",
+     description: "Static bounded field snapshot; no travelling frames.",
+@@ -125,6 +136,7 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
+   {
+     id: "heatmap-refraction-moving",
+     refraction: true,
++    paper: false,
+     forcedReducedMotion: false,
+     label: "Heatmap · thermal refraction",
+     description: "Moving field with slow local low-frequency refraction (analytic resample).",
+@@ -132,10 +144,27 @@ export const LAB_HEATMAP_PRESETS: readonly LabHeatmapPreset[] = [
+   {
+     id: "heatmap-refraction-reduced",
+     refraction: true,
++    paper: false,
+     forcedReducedMotion: true,
+     label: "Heatmap · refraction, reduced motion",
+     description: "Static frozen local refraction; zero travelling frames.",
+   },
++  {
++    id: "paper-static",
++    refraction: false,
++    paper: true,
++    forcedReducedMotion: false,
++    label: "Paper · processed silhouette",
++    description: "Static processed-silhouette inner/outer/contour mechanics (228 outer domain).",
++  },
++  {
++    id: "paper-reduced",
++    refraction: false,
++    paper: true,
++    forcedReducedMotion: true,
++    label: "Paper · reduced motion",
++    description: "Static processed silhouette under Reduced Motion; zero continuing frames.",
++  },
+ ];
+ 
+ export type LabActivationState = Readonly<{
+@@ -152,6 +181,8 @@ export type LabHeatmapState = Readonly<{
+   forcedReducedMotion: boolean;
+   /** Derived Heatmap mode flag; production never sees it. */
+   refraction: boolean;
++  /** Lab-only Paper processed-silhouette mode flag; production never sees it. */
++  paper: boolean;
+ }>;
+ 
+ export type LabPresentationState = Readonly<{
+@@ -271,6 +302,7 @@ export const reduceLabPresentation = (
+           presetId: preset.id,
+           forcedReducedMotion: preset.forcedReducedMotion,
+           refraction: preset.refraction,
++          paper: preset.paper,
+         },
+       };
+     }
+diff --git a/src/presentation/main-window/ExpandedPresentationSurface.tsx b/src/presentation/main-window/ExpandedPresentationSurface.tsx
+index ca230ee..bf3ecba 100644
+--- a/src/presentation/main-window/ExpandedPresentationSurface.tsx
++++ b/src/presentation/main-window/ExpandedPresentationSurface.tsx
+@@ -1,3 +1,16 @@
++/**
++ * MODIFIED DERIVATIVE — Paper Heatmap mechanics (Apache-2.0).
++ * Copyright 2026 Paper, https://shaders.paper.design.
++ *
++ * The Lab-only Paper processed-silhouette mode in this file derivative-adapts
++ * the geometry-agnostic preprocessing (integral-image box blur + multi-pass)
++ * and the inner/outer/contour scalar causality of `heatmap.ts` from
++ * `@paper-design/shaders@0.0.80`. Paper's logo/diamond/image-frame geometry,
++ * React mounting/sizing runtime, and per-pixel helpers are NOT used:
++ * the exact Ameow 200x200/r16 panel silhouette is the sole source. See
++ * THIRD_PARTY_NOTICES.md for the full Apache-2.0 text and Paper NOTICE.
++ * Ameow's root MIT license is unchanged.
++ */
+ import { useEffect, useLayoutEffect, useRef, useState } from "react";
+ import { MAIN_WINDOW_PANEL_SIZE } from "../../constants/windowMetrics";
+ import {
+@@ -50,6 +63,21 @@ uniform int uActivationKind;
+ uniform vec2 uActivationOrigin;
+ uniform int uHeatmapMode;
+ uniform int uRefractionMode;
++// Lab-only Paper processed-silhouette mode: the canvas spans the 228x228
++// outer domain and the exact 200x200/r16 panel sits at outer origin (14,14)
++// (uPaperPanelOrigin/uPaperPanelSize/uPaperPanelRadius are derived from the
++// MAIN_WINDOW_* geometry constants and the canvas CSS size). The one lazy
++// Lab-only processed RGBA texture holds R=exact panel source coverage,
++// G=BROAD processed field, B=NARROW processed field, A=contour edge
++// response. uPaperPhase is a manually pinned renderer-local Lab input for
++// fixed A/B/C/D captures (no time progression, no lifecycle authority).
++// Production never sets uPaperMode.
++uniform int uPaperMode;
++uniform vec2 uPaperPanelOrigin;
++uniform vec2 uPaperPanelSize;
++uniform float uPaperPanelRadius;
++uniform sampler2D uPaperBoundary;
++uniform float uPaperPhase;
+ // Lab-gated Heatmap spike: the restored baseline field is fully analytic
+ // (plane front + value-noise bend + rounded-rect SDF + 2D gaussian core), so
+ // it needs NO texture, preprocessing, or framebuffer. See
+@@ -156,41 +184,52 @@ float roundedBoundary(vec2 uv) {
+ }
+ 
+ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+-  // ============ BASELINE MOTION / CONTACT FIELD (source-asserted) ============
+-  // Checkpoint C travelling diagonal band + Rounded Boundary Edge Capture.
+-  // The material repair below only consumes these scalars; it never changes
+-  // the motion/contact formulas or constants.
++  // ============ BOUNDARY-DRIVEN THERMAL SOURCE / INFLUENCE FIELD ============
++  // The travelling bent contour is a spatial source with ONE broad two-sided
++  // finite-support influence. The source travels lower-left -> upper-right;
++  // its support fully leaves the window before k=0 and after k=1, and the RM
++  // pin k=0.42 places it at the source-space center (developed full-surface).
++  // The same sourceInfluence gates the accepted material, the Refraction
++  // envelope and localized boundary contact. No half-plane or phase-wide
++  // visibility authority remains.
+   float k = reducedMotion ? 0.42 : fract(t * 0.13); // one continuous phase (~7.7s)
+-  float front = mix(-0.58, 1.6, k);                 // travelling front position
+   float bendTime = reducedMotion ? 0.0 : t;         // RM pins the deformation
+   vec2 q = uv - 0.5;                                // centered field coordinate
+-  const vec2 DIR = vec2(0.8235, 0.5674);            // normalize(0.90, 0.62); lower-left -> upper-right
++  const vec2 DIR = vec2(0.8235, 0.5674);            // lower-left -> upper-right
+   float p = dot(q, DIR);
+   float bend = heatmapBend(q, bendTime);
+-  float d = p - front + bend;                       // <0 swept (behind), >0 void ahead
+-  float behind = max(-d, 0.0);
+-  float body = exp(-behind * 1.1) * (1.0 - smoothstep(0.0, 0.05, d));
+-  float warm = exp(-abs(d + 0.018) * 30.0);
+-  vec2 frontPoint = DIR * front;
+-  float alongFront = dot(q - frontPoint, vec2(-DIR.y, DIR.x));
+-  float core = exp(-alongFront * alongFront * 200.0 - d * d * 200.0);
+-  float energy = smoothstep(0.0, 0.12, k) * (1.0 - smoothstep(0.66, 0.99, k));
+-  // Rounded boundary (real 200x200/16px shell) contact-gated localized
+-  // capture: nonzero only where the warm frontier meets the boundary.
++  // Source travel remapped so the finite support is fully off-window at both
++  // k=0 and k=1, with RM k=0.42 at the developed source-space center (0).
++  float sourcePosition = mix(-2.985, 4.122, k);
++  float d = p + bend - sourcePosition;              // signed distance to source contour
++  const float SOURCE_SUPPORT_HALF = 2.2;            // broad support (~1.4x window DIR span)
++  float r = abs(d) / SOURCE_SUPPORT_HALF;
++  // Squared smoothstep complement: broad flat inner response, exact zero at
++  // r >= 1 (every fixed pixel reaches zero from source distance alone).
++  float sourceInfluence = 1.0 - smoothstep(0.0, 1.0, r) * smoothstep(0.0, 1.0, r);
++  // Contour-local warmth: weak Refraction envelope + real boundary contact
++  // bias only. It never contributes to the baseline interior material.
++  float warm = exp(-abs(d + 0.018) * 22.0);
++  // Rounded boundary (real 200x200/16px shell) contact: intersection of the
++  // real boundary band and the source contour, gated by the same influence.
+   float bd = roundedBoundary(uv);
+   float boundaryBand = smoothstep(-0.05, 0.0, bd) * step(bd, 0.0);
+-  float capture = boundaryBand * warm * 0.6;
+-  float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;
++  float contact = boundaryBand * warm * sourceInfluence;
++  float capture = contact * 0.6;
++  // Broad cool mass: the SAME sourceInfluence forms the continuous symmetric
++  // response directly (NOT a swept half-plane). warm is NOT part of the
++  // baseline interior material: it is only a weak Refraction envelope + real
++  // boundary contact bias, so the interior never shows a source marker in
++  // either path.
++  float coolMass = sourceInfluence;
++  float heat = coolMass * 0.44 + capture;
+ 
+   // ============ MATERIAL / PALETTE / EDGE REPAIR (color-only) ============
+   // (1) Broader cool halo: lift the swept cool mass toward the light
+-  // blue/cyan band, gated away from the warm frontier so the front keeps a
+-  // clean yellow -> orange transition.
+-  float coolLift = body * (1.0 - smoothstep(0.20, 0.85, warm)) * 0.18 * energy;
+-  // (2) Clearer yellow transition: nudge the hot frontier/core/capture into
+-  // the yellow -> orange -> red-orange range of the repaired ramp.
+-  float hotLift = warm * 0.20 * energy;
+-  float material = clamp(heat + coolLift + hotLift, 0.0, 1.0);
++  // blue/cyan band. Interior material is a uniform continuous response
++  // (coolMass * 0.62); boundary capture carries the localized temperature.
++  float coolLift = coolMass * 0.18;
++  float material = clamp(heat + coolLift, 0.0, 1.0);
+ 
+   // Repaired ramp: dark/deep blue -> vivid blue -> light blue/cyan -> yellow
+   // -> orange -> red-orange. Grey/green/teal reduced (blue-dominant cyan,
+@@ -220,7 +259,6 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+   // capture keeps its inward-thick warm compression (capture already feeds
+   // heat) and gains a soft cool halo just inward of the contact, continuous
+   // with the surface field. No outline, decorative glow, or perimeter coord.
+-  float contact = boundaryBand * warm;
+   float inwardCool = contact * smoothstep(-0.16, -0.05, bd);
+   rgb = mix(rgb, vec3(0.160, 0.520, 0.900),
+     inwardCool * 0.35 * (1.0 - smoothstep(0.45, 0.80, material)));
+@@ -233,12 +271,12 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+   // the accepted field above. The displacement DIRECTION comes from the
+   // finite difference of the existing LOW-frequency heatmapBend (no
+   // high-frequency noise); the local intensity ENVELOPE hierarchy is
+-  // localized contact strongest > warm frontier strong > cool covered body
+-  // weaker but clearly present > energy zero -> exactly zero, so the
+-  // refraction lives only inside the travelling band and never fires
+-  // pre-contact / post-dissipation. Refraction off (uRefractionMode = 0)
+-  // keeps the accepted baseline path byte-identical. No texture, sampler,
+-  // framebuffer, second pass, or second draw.
++  // localized contact strongest > warm frontier strong > cool influence weak
++  // > sourceInfluence zero -> exactly zero, so refraction never fires
++  // pre-contact / post-dissipation and is gated by the same influence as the
++  // material. Refraction off (uRefractionMode = 0) keeps the accepted
++  // baseline path. No texture, sampler, framebuffer, second pass, or second
++  // draw.
+   if (uRefractionMode != 0) {
+     const float REFRACTION_EPS = 0.02;      // finite-difference step (q units)
+     const float REFRACTION_STRENGTH = 0.16; // bounded Lab spike amplitude
+@@ -248,29 +286,24 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+       heatmapBend(q + vec2(0.0, REFRACTION_EPS), bendTime)
+         - heatmapBend(q - vec2(0.0, REFRACTION_EPS), bendTime)
+     ) * (0.5 / REFRACTION_EPS);
+-    // Expanded local envelope: localized boundary contact (boundaryBand*warm)
+-    // strongest > warm frontier strong > cool covered body weaker but clearly
+-    // present > energy zero -> exactly zero. The covered-body floor uses the
+-    // depth-independent covered mask (whole body, not the depth-decayed body
+-    // scalar) gated away from the warm frontier, so it never brightens the
+-    // front and dies ahead of it (no full-screen wobble, no boundary ring).
+-    float covered = 1.0 - smoothstep(0.0, 0.05, d);
+-    float bodyFloor = covered * (1.0 - smoothstep(0.20, 0.85, warm));
+-    float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;
+-    // First-order analytic resample at q + grad*s: the signed distance and
+-    // front-tangent coordinates both shift (d = dot(q, DIR) - front + bend).
++    // Expanded local envelope from the SAME source influence: localized
++    // boundary contact (boundaryBand*warm) strongest > warm frontier weak >
++    // broad cool influence > influence zero -> exactly zero.
++    float env = clamp(
++      contact + warm * 0.25 + sourceInfluence * 0.30,
++      0.0, 1.0
++    ) * sourceInfluence;
++    // First-order analytic resample at q + grad*s: the signed distance to the
++    // source contour shifts (d = p + bend - sourcePosition).
+     float s = REFRACTION_STRENGTH * env;
+     float dShift = s * (dot(grad, DIR) + dot(grad, grad));
+-    float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));
+     float d2 = d + dShift;
+-    float along2 = alongFront + alongShift;
+-    float warm2 = exp(-abs(d2 + 0.018) * 30.0);
+-    float covered2 = 1.0 - smoothstep(0.0, 0.05, d2);
++    float warm2 = exp(-abs(d2 + 0.018) * 22.0);
+     // 2D temperature topology: three genuinely distinct coordinate frames
+     // (rotation, shear/axis-mix, anisotropic scale) at ~1.6-2.8x so the
+     // 200x200 view spans several broad smooth low-frequency lobes instead of
+-    // one correlated color mass; all samples share bendTime. Coverage
+-    // (covered2) answers where Thermal exists; topology answers temperature.
++    // one correlated color mass; all samples share bendTime. sourceInfluence
++    // answers where Thermal exists; topology answers temperature.
+     vec2 pa = vec2(0.8 * q.x - 0.6 * q.y, 0.6 * q.x + 0.8 * q.y) * 2.2 + vec2(0.30, -0.20);
+     vec2 pb = vec2(q.x + 0.45 * q.y, q.y - 0.35 * q.x) * 2.8 + vec2(-0.25, 0.35);
+     vec2 pc = vec2(q.x * 1.7, q.y * 0.9) * 1.6 + vec2(0.10, 0.40);
+@@ -285,12 +318,12 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+     // yellow/orange gradient with localized red-orange (no broad hot board).
+     float baseTemperature = clamp(0.5 + 0.5 * baseT + 0.24, 0.0, 1.0);
+     float contact2 = boundaryBand * warm2;
+-    // Bounded secondary biases keep frontier/contact hottest without defining
+-    // topology; covered2 gates material to the active region.
++    // Boundary contact stays hottest without adding an interior source marker;
++    // the same sourceInfluence gates material to the active region.
+     float material2 = clamp(
+-      mix(0.08, 0.93, baseTemperature) + warm2 * 0.18 + contact2 * 0.22,
++      mix(0.08, 0.93, baseTemperature) + contact2 * 0.22,
+       0.0, 1.0
+-    ) * covered2;
++    );
+     vec3 rgb2 = HEAT_STOP[0];
+     for (int i = 1; i < 7; i++) {
+       float m = clamp(material2 * 6.0 - float(i - 1), 0.0, 1.0);
+@@ -304,9 +337,9 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+       inwardCool2 * 0.35 * (1.0 - smoothstep(0.45, 0.80, material2)));
+     float alpha2 = mix(0.55, 1.0, smoothstep(0.0, 0.5, material2));
+     // Material visibility is decoupled from the (weaker) distortion envelope:
+-    // a separate covered x energy gate makes the 2D field directly visible
+-    // throughout the active body; energy=0 -> no new material.
+-    float materialMix = covered2 * energy;
++    // the SAME source influence gates the 2D field; influence=0 -> no new
++    // material and no Refraction.
++    float materialMix = sourceInfluence;
+     rgb = mix(rgb, rgb2, materialMix);
+     alpha = mix(alpha, alpha2, materialMix);
+   }
+@@ -315,6 +348,150 @@ void heatmapOutput(vec2 uv, float t, bool reducedMotion, out vec4 color) {
+   color = vec4(rgb, alpha);
+ }
+ 
++// ---- Paper processed-silhouette mode (lab-only, FIXED-PHASE morphology) ----
++// One lazy Lab-only processed RGBA texture uPaperBoundary built by CPU
++// preprocessing from the EXACT 200x200/r16 panel mask at outer origin
++// (14,14): R=exact source coverage, G=BROAD processed field, B=NARROW
++// processed field, A=contour edge response. The shader samples it in the
++// FULL canvas domain (the Lab canvas spans the 228x228 outer domain) and
++// composes Paper Heatmap's geometry-agnostic scalar mechanics
++// (derivative-adapted from @paper-design/shaders@0.0.80 heatmap.ts main(),
++// Apache-2.0): a warm inner field sculpted by THREE PHASE-OFFSET SUBTRACTIVE
++// translating shadows (Paper L209-214 / L240-242), a broad warm shell inside
++// the panel edge from the BROAD channel (Paper outerBlur L229-230) modulated
++// by Paper's vertical animatedMask sweep (L250-259), a low scalar contour
++// energy (Paper L246) kept shadow-sculpted so it never forms a ring, and ONE
++// final scalar heat through the existing Ameow thermal palette. Paper's
++// Apple/leaf/balls shadow geometry, its texture/preprocessing pipeline,
++// ShaderMount/ShaderSizing and React runtime are EXCLUDED; the Ameow panel
++// is the sole source silhouette. The phase is a MANUALLY PINNED
++// renderer-local Lab uniform (uPaperPhase) for fixed A/B/C/D captures - no
++// time progression, no lifecycle or scheduling authority. Static: no uTime.
++float paperShadowBlob(vec2 uv, float phase) {
++  // Derivative-adapted from Paper's translating soft-blob shadow helper
++  // (heatmap.ts L90-164, geometry-agnostic base only): the vertical
++  // trajectory posY = mix(-1., 2., phase), the move-down scale compression,
++  // the large soft base circle (smoothstep radius pair), pow softening, and
++  // the generic top-flattener gradient. Paper's Apple-specific right/top/
++  // bottom circles, leaf and random balls are EXCLUDED.
++  vec2 scaledUV = uv;
++  float posY = mix(-1.0, 2.0, phase);
++  float mainCircleScale = smoothstep(0.0, 0.8, posY)
++    * (1.0 - smoothstep(0.9, 1.4, posY));
++  scaledUV.y -= 0.5;
++  scaledUV *= vec2(1.0, 1.0 + 1.5 * mainCircleScale);
++  scaledUV.y += 0.5;
++  float innerR = 0.4;
++  float outerR = 1.0 - 0.3 * (smoothstep(0.1, 0.2, phase)
++    * (1.0 - smoothstep(0.2, 0.5, phase)));
++  float s = 1.0 - smoothstep(innerR, outerR,
++    length(scaledUV - vec2(0.5, posY - 0.2)));
++  s = pow(s, 1.4);
++  s *= 1.2;
++  // Generic top-flattener gradient (Paper translating-blob helper, non-Apple).
++  float pos = posY - uv.y;
++  float topFlattener = clamp((pos + 0.4) / 0.4, 0.0, 1.0)
++    * (1.0 - smoothstep(0.0, 1.2, pos));
++  topFlattener = pow(topFlattener, 3.0);
++  float topFlattenerMixer = 1.0 - smoothstep(0.0, 0.3, pos);
++  s = mix(topFlattener, s, topFlattenerMixer);
++  return clamp(s, 0.0, 1.0);
++}
++
++void paperOutput(vec2 uv, float phase, out vec4 color) {
++  vec4 img = texture(uPaperBoundary, uv);
++  float shape = img.r;      // exact panel source coverage (Paper img[0] analog)
++  float bigBlur = img.g;    // BROAD processed field (Paper img[1] big blur)
++  float narrowBlur = img.b; // NARROW processed field
++  float contour = img.a;    // processed contour edge response (edge band)
++  // Analytic cross-check of the exact panel shell (uPaperPanelOrigin/Size/
++  // Radius are derived from MAIN_WINDOW_* constants for this canvas domain).
++  vec2 halfSize = uPaperPanelSize * 0.5 - uPaperPanelRadius;
++  vec2 qb = abs(uv - (uPaperPanelOrigin + uPaperPanelSize * 0.5)) - halfSize;
++  float bd = length(max(qb, vec2(0.0))) + min(max(qb.x, qb.y), 0.0) - uPaperPanelRadius;
++  // Panel-local UV: the panel is the sole silhouette = Paper's object space.
++  vec2 panelUv = clamp((uv - uPaperPanelOrigin) / uPaperPanelSize, 0.0, 1.0);
++  // Paper's phase-offset shadow times (L209-214): t, t+1/3, t+2/3 (mod 1).
++  float phase1 = fract(phase);
++  float phase2 = fract(phase + 1.0 / 3.0);
++  float phase3 = fract(phase + 2.0 / 3.0);
++  // Paper's boundary-near inner/outer energy relation (L229-230). Paper's
++  // R channel is the background-side mask (1 = outside the logo), so with
++  // Ameow's exact panel mask (shape = 1 INSIDE) the adapted relation is:
++  // innerBlur = bigBlur INSIDE the panel (bright mid-interior, dips toward
++  // the edge); outerBlur = 1 - bigBlur inside the edge (BROAD warm shell).
++  float outerBlur = 1.0 - mix(1.0, bigBlur, shape);
++  float innerBlur = mix(0.0, bigBlur, shape);
++  // Paper's warm inner field (L239): inner = 0.8 + 0.8 * innerBlur.
++  float inner = 0.8 + 0.8 * innerBlur;
++  // Paper's THREE phase-offset subtractive shadows (L240-242): the warm
++  // field is sculpted by translating soft blobs -> Paper-like internal
++  // morphology (no noise/plasma/travelling field; the blobs are large soft
++  // Paper mechanics at fixed manually pinned phases).
++  float shadow1 = paperShadowBlob(panelUv, phase1);
++  float shadow2 = paperShadowBlob(panelUv, phase2);
++  float shadow3 = paperShadowBlob(panelUv, phase3);
++  float shadowUnion = max(shadow1, max(shadow2, shadow3));
++  inner = mix(inner, 0.0, shadow1);
++  inner = mix(inner, 0.0, shadow2);
++  inner = mix(inner, 0.0, shadow3);
++  // Scalar contour energy (Paper L246 analog, weight 0.12): transition
++  // energy near the panel edge, sculpted by the same shadows so it never
++  // forms a continuous gold/blue ring or frame.
++  inner += 2.0 * 0.12 * contour * (1.0 - shadowUnion);
++  inner = min(1.0, inner);
++  // Erase outside the panel (Paper's (1-shape) with the background-side R
++  // channel becomes * shape with Ameow's exact inside-side mask).
++  inner *= shape;
++  // Paper's outer modulation (L250-259): broad warm shell inside the panel
++  // edge, gated by the vertical animatedMask sweep in panel-local Y.
++  float outer = 0.0;
++  {
++    float t = mod(3.0 * phase - 0.1, 1.0);
++    outer = 0.9 * pow(outerBlur, 0.8);
++    float y = mod(panelUv.y - t, 1.0);
++    float animatedMask = smoothstep(0.3, 0.65, y)
++      * (1.0 - smoothstep(0.65, 1.0, y));
++    animatedMask = 0.5 + animatedMask;
++    outer *= animatedMask;
++    outer *= 0.22;
++  }
++  inner = pow(inner, 1.2);
++  // LOCKED subtle 14px-bounded gutter halo (repaired candidate behavior):
++  // the BROAD field tail outside the panel, gated by the real gutter
++  // distance falloff so it reaches ~0 before the 228 outer edge.
++  float gutter = (1.0 - uPaperPanelSize.x) * 0.5;
++  float gutterNorm = clamp(bd / max(gutter, 1e-5), 0.0, 1.0);
++  float outerFalloff = 1.0 - smoothstep(0.0, 1.0, gutterNorm);
++  float gutterHalo = 0.30 * bigBlur * (1.0 - shape) * outerFalloff;
++  // Final Thermal scalar projection (Paper L265): heat = clamp(inner+outer,0,1).
++  float heat = clamp(inner + outer + gutterHalo, 0.0, 1.0);
++  // Existing Ameow material language: same 7-stop ramp, yellow-zone
++  // correction, alpha ramp, and grain as the accepted Thermal output.
++  const vec3 PAPER_STOP[7] = vec3[7](
++    vec3(0.010, 0.014, 0.045),
++    vec3(0.035, 0.090, 0.360),
++    vec3(0.080, 0.220, 0.680),
++    vec3(0.090, 0.400, 0.940),
++    vec3(1.000, 0.800, 0.200),
++    vec3(1.000, 0.540, 0.140),
++    vec3(1.000, 0.340, 0.090)
++  );
++  vec3 rgb = PAPER_STOP[0];
++  for (int i = 1; i < 7; i++) {
++    float m = clamp(heat * 6.0 - float(i - 1), 0.0, 1.0);
++    rgb = mix(rgb, PAPER_STOP[i], m);
++  }
++  float yellowZone = smoothstep(0.40, 0.52, heat)
++    * (1.0 - smoothstep(0.62, 0.76, heat));
++  rgb.g = mix(rgb.g, rgb.r * 0.78 + rgb.b * 0.10, yellowZone * 0.9);
++  // Panel interior/edge stay opaque; the exterior halo fades to transparent
++  // as heat drops, so it approaches inactive inside the 14px gutter.
++  float alpha = smoothstep(0.06, 0.55, heat);
++  rgb += (heatmapGrainHash(uv * 311.0 + 17.0) - 0.5) * 0.02;
++  color = vec4(rgb, alpha);
++}
++
+ void main() {
+   vec2 centered = vUv - 0.5;
+   centered.x *= uResolution.x / max(uResolution.y, 1.0);
+@@ -401,6 +578,14 @@ void main() {
+     color = mix(activationColor, uThermalCore, smoothstep(0.86, 0.98, thermal));
+     alpha = max(alpha * 0.35, thermal * (uReducedMotion ? 0.24 : 0.72));
+   }
++  if (uPaperMode != 0) {
++    // Lab-only Paper processed-silhouette mode overrides the whole surface;
++    // fixed-phase morphology spike (manually pinned uPaperPhase) with its own
++    // ramp (PAPER_STOP) so the accepted Thermal/Refraction paths stay
++    // untouched. Static: no uTime, no travelling source, no second draw.
++    paperOutput(vUv, uPaperPhase, outColor);
++    return;
++  }
+   if (uHeatmapMode != 0) {
+     // Heatmap spike overrides the whole surface; the palette ramp is
+     // self-contained so the production thermal palette stays untouched.
+@@ -410,6 +595,137 @@ void main() {
+   outColor = vec4(color, alpha);
+ }`;
+ 
++// ---- Paper processed-silhouette CPU preprocessing (spike-local) ----
++// Derivative-adapted from Paper Heatmap's geometry-agnostic preprocessing
++// (integral-image box blur + multi-pass). The exact 200x200/r16 panel mask is
++// rasterized at the canvas backing resolution, then blurred into broad (G)
++// and narrow (B) processed fields with a contour edge response (A).
++const PAPER_BIG_BLUR_FRACTION = 0.08;
++const PAPER_NARROW_BLUR_FRACTION = 0.02;
++const PAPER_BLUR_PASSES = 3;
++
++const paperClamp01 = (value: number): number =>
++  Math.min(Math.max(value, 0), 1);
++
++const rasterizeRoundedRectMask = (
++  width: number,
++  height: number,
++  originX: number,
++  originY: number,
++  sizeX: number,
++  sizeY: number,
++  radius: number,
++): Float32Array => {
++  const mask = new Float32Array(width * height);
++  const radiusClamped = Math.max(0, Math.min(radius, sizeX / 2, sizeY / 2));
++  const halfX = sizeX / 2;
++  const halfY = sizeY / 2;
++  const centerX = originX + halfX;
++  const centerY = originY + halfY;
++  const superSamples = 3;
++  for (let py = 0; py < height; py += 1) {
++    for (let px = 0; px < width; px += 1) {
++      let coverage = 0;
++      for (let sy = 0; sy < superSamples; sy += 1) {
++        for (let sx = 0; sx < superSamples; sx += 1) {
++          const fx = px + (sx + 0.5) / superSamples;
++          const fy = py + (sy + 0.5) / superSamples;
++          const qx = Math.abs(fx - centerX) - (halfX - radiusClamped);
++          const qy = Math.abs(fy - centerY) - (halfY - radiusClamped);
++          const distance = Math.sqrt(Math.max(qx, 0) ** 2 + Math.max(qy, 0) ** 2)
++            + Math.min(Math.max(qx, qy), 0);
++          coverage += paperClamp01(0.5 - (distance - radiusClamped));
++        }
++      }
++      mask[py * width + px] = coverage / (superSamples * superSamples);
++    }
++  }
++  return mask;
++};
++
++// Integral-image box blur (Paper-derived geometry-agnostic preprocessing).
++const boxBlurGray = (
++  source: Float32Array,
++  width: number,
++  height: number,
++  radius: number,
++): Float32Array => {
++  const integral = new Float32Array((width + 1) * (height + 1));
++  for (let y = 0; y < height; y += 1) {
++    for (let x = 0; x < width; x += 1) {
++      const value = source[y * width + x];
++      integral[(y + 1) * (width + 1) + (x + 1)] =
++        value
++        + integral[y * (width + 1) + (x + 1)]
++        + integral[(y + 1) * (width + 1) + x]
++        - integral[y * (width + 1) + x];
++    }
++  }
++  const radiusClamped = Math.max(1, Math.round(radius));
++  const blurred = new Float32Array(width * height);
++  for (let y = 0; y < height; y += 1) {
++    for (let x = 0; x < width; x += 1) {
++      const x0 = Math.max(0, x - radiusClamped);
++      const x1 = Math.min(width - 1, x + radiusClamped);
++      const y0 = Math.max(0, y - radiusClamped);
++      const y1 = Math.min(height - 1, y + radiusClamped);
++      const sum =
++        integral[(y1 + 1) * (width + 1) + (x1 + 1)]
++        - integral[y0 * (width + 1) + (x1 + 1)]
++        - integral[(y1 + 1) * (width + 1) + x0]
++        + integral[y0 * (width + 1) + x0];
++      const count = (x1 - x0 + 1) * (y1 - y0 + 1);
++      blurred[y * width + x] = sum / count;
++    }
++  }
++  return blurred;
++};
++
++const multiPassBlurGray = (
++  source: Float32Array,
++  width: number,
++  height: number,
++  radius: number,
++  passes: number,
++): Float32Array => {
++  let current = source;
++  for (let pass = 0; pass < passes; pass += 1) {
++    current = boxBlurGray(current, width, height, radius);
++  }
++  return current;
++};
++
++// Builds the one RGBA processed texture: R=exact panel source coverage,
++// G=big broad field, B=narrow field, A=contour edge response. All channels
++// derive from the exact panel mask at the canvas backing resolution.
++const buildPaperBoundary = (
++  width: number,
++  height: number,
++  originX: number,
++  originY: number,
++  sizeX: number,
++  sizeY: number,
++  radius: number,
++): Uint8Array => {
++  const source = rasterizeRoundedRectMask(
++    width, height, originX, originY, sizeX, sizeY, radius,
++  );
++  const big = multiPassBlurGray(
++    source, width, height, sizeX * PAPER_BIG_BLUR_FRACTION, PAPER_BLUR_PASSES,
++  );
++  const narrow = multiPassBlurGray(
++    source, width, height, sizeX * PAPER_NARROW_BLUR_FRACTION, PAPER_BLUR_PASSES,
++  );
++  const rgba = new Uint8Array(width * height * 4);
++  for (let index = 0; index < width * height; index += 1) {
++    rgba[index * 4 + 0] = Math.round(paperClamp01(source[index]) * 255);
++    rgba[index * 4 + 1] = Math.round(paperClamp01(big[index]) * 255);
++    rgba[index * 4 + 2] = Math.round(paperClamp01(narrow[index]) * 255);
++    rgba[index * 4 + 3] = Math.round(paperClamp01((source[index] - narrow[index]) * 3.0) * 255);
++  }
++  return rgba;
++};
++
+ export type ExpandedPresentationSurfaceProps = {
+   eligible: boolean;
+   reducedMotion: boolean;
+@@ -429,6 +745,24 @@ export type ExpandedPresentationSurfaceProps = {
+    * cool-body-weak, energy-zero envelope. Production never sets it.
+    */
+   refraction?: boolean;
++  /**
++   * Lab-only Paper processed-silhouette spike flag (default false). While
++   * true the single shader samples the ONE lazy Lab-only processed RGBA
++   * texture built by CPU preprocessing from the exact 200x200/r16 panel mask
++   * at outer origin (14,14) and composes Paper-derived inner/outer/contour
++   * scalar causality through the existing Ameow palette/output. The Lab
++   * exposes the same canvas to the full 228x228 outer domain. Production
++   * never sets it.
++   */
++  paper?: boolean;
++  /**
++   * Lab-only Paper fixed-phase input (default 0.35). Manually pinned
++   * renderer-local value driving the Paper phase-offset subtractive shadow
++   * composition (uPaperPhase) for fixed A/B/C/D Lab captures. It owns no
++   * lifecycle, scheduling, or time authority: paperOutput is fully static
++   * and never reads uTime. Production never sets it.
++   */
++  paperPhase?: number;
+   /**
+    * Optional ABSOLUTE backing pixels-per-CSS-pixel value (dev-only, default
+    * undefined = normal clamped devicePixelRatio). The Browser Lab passes 4
+@@ -449,9 +783,9 @@ export type ExpandedPresentationSurfaceProps = {
+ type GraphicsColors = ThermalPalette;
+ 
+ type GraphicsRenderer = {
+-  render: (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean) => void;
++  render: (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean, paperMode: boolean, paperPhase: number) => void;
+   resize: (backingScale?: number) => void;
+-  redraw: (colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean) => void;
++  redraw: (colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean, paperMode: boolean, paperPhase: number) => void;
+   clear: () => void;
+   dispose: () => void;
+ };
+@@ -537,8 +871,9 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+   gl.enable(gl.BLEND);
+   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+ 
+-  // The restored Heatmap spike is fully analytic, so the renderer allocates
+-  // no boundary texture/preprocessing for it (one program, one draw).
++  // The restored Heatmap/Refraction spikes are fully analytic: no boundary
++  // texture. The Lab-only Paper mode allocates exactly ONE lazy processed
++  // RGBA texture (CPU-built from the exact panel mask) on its first draw.
+ 
+   const resolutionLocation = gl.getUniformLocation(linkedProgram, "uResolution");
+   const timeLocation = gl.getUniformLocation(linkedProgram, "uTime");
+@@ -550,6 +885,12 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+   const activationOriginLocation = gl.getUniformLocation(linkedProgram, "uActivationOrigin");
+   const heatmapModeLocation = gl.getUniformLocation(linkedProgram, "uHeatmapMode");
+   const refractionModeLocation = gl.getUniformLocation(linkedProgram, "uRefractionMode");
++  const paperModeLocation = gl.getUniformLocation(linkedProgram, "uPaperMode");
++  const paperPanelOriginLocation = gl.getUniformLocation(linkedProgram, "uPaperPanelOrigin");
++  const paperPanelSizeLocation = gl.getUniformLocation(linkedProgram, "uPaperPanelSize");
++  const paperPanelRadiusLocation = gl.getUniformLocation(linkedProgram, "uPaperPanelRadius");
++  const paperBoundaryLocation = gl.getUniformLocation(linkedProgram, "uPaperBoundary");
++  const paperPhaseLocation = gl.getUniformLocation(linkedProgram, "uPaperPhase");
+   const cornerRadiusLocation = gl.getUniformLocation(linkedProgram, "uCornerRadius");
+   const voidLocation = gl.getUniformLocation(linkedProgram, "uThermalVoid");
+   const deepLocation = gl.getUniformLocation(linkedProgram, "uThermalDeep");
+@@ -558,6 +899,37 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+   const goldLocation = gl.getUniformLocation(linkedProgram, "uThermalGold");
+   const coreLocation = gl.getUniformLocation(linkedProgram, "uThermalCore");
+ 
++  // One lazy Lab-only processed RGBA texture for the Paper mode. Built by CPU
++  // preprocessing from the exact panel mask at the canvas backing resolution
++  // on the first Paper draw; recreated by the reinstall after context
++  // restore; deleted on dispose; never allocated on the default/fallback path.
++  let paperBoundaryTexture: WebGLTexture | null = null;
++
++  const ensurePaperBoundary = (): void => {
++    if (paperBoundaryTexture !== null) return;
++    const width = canvas.width;
++    const height = canvas.height;
++    if (width <= 0 || height <= 0) return;
++    const cssSize = Math.max(canvas.clientWidth || width, 1);
++    const scale = width / cssSize;
++    const panelOrigin = Math.max(0, (cssSize - MAIN_WINDOW_PANEL_SIZE) / 2) * scale;
++    const panelSize = MAIN_WINDOW_PANEL_SIZE * scale;
++    const panelRadius = MAIN_WINDOW_FULL_PANEL_RADIUS * scale;
++    const rgba = buildPaperBoundary(
++      width, height, panelOrigin, panelOrigin, panelSize, panelSize, panelRadius,
++    );
++    const texture = gl.createTexture();
++    if (texture === null) return;
++    gl.bindTexture(gl.TEXTURE_2D, texture);
++    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
++    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
++    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
++    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
++    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
++    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
++    paperBoundaryTexture = texture;
++  };
++
+   const resize = (backingScale?: number): void => {
+     if (disposed) return;
+     const bounds = canvas.getBoundingClientRect();
+@@ -583,7 +955,7 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+     gl.viewport(0, 0, width, height);
+   };
+ 
+-  const draw = (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean): void => {
++  const draw = (frame: ExpandedPresentationFrame, colors: GraphicsColors, heatmapMode: boolean, refractionMode: boolean, paperMode: boolean, paperPhase: number): void => {
+     if (disposed || gl.isContextLost()) return;
+     lastFrame = frame;
+     let progressMode = 0;
+@@ -612,6 +984,25 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+     gl.uniform2f(activationOriginLocation, activation?.origin.x ?? 0.5, activation?.origin.y ?? 0.5);
+     gl.uniform1i(heatmapModeLocation, heatmapMode ? 1 : 0);
+     gl.uniform1i(refractionModeLocation, refractionMode ? 1 : 0);
++    gl.uniform1i(paperModeLocation, paperMode ? 1 : 0);
++    gl.uniform1f(paperPhaseLocation, paperPhase);
++    if (paperMode) {
++      ensurePaperBoundary();
++      if (paperBoundaryTexture !== null) {
++        const cssSize = Math.max(canvas.clientWidth || canvas.width, 1);
++        const panelOrigin = Math.max(0, (cssSize - MAIN_WINDOW_PANEL_SIZE) / 2);
++        gl.uniform2f(paperPanelOriginLocation, panelOrigin / cssSize, panelOrigin / cssSize);
++        gl.uniform2f(
++          paperPanelSizeLocation,
++          MAIN_WINDOW_PANEL_SIZE / cssSize,
++          MAIN_WINDOW_PANEL_SIZE / cssSize,
++        );
++        gl.uniform1f(paperPanelRadiusLocation, MAIN_WINDOW_FULL_PANEL_RADIUS / cssSize);
++        gl.activeTexture(gl.TEXTURE0);
++        gl.bindTexture(gl.TEXTURE_2D, paperBoundaryTexture);
++        gl.uniform1i(paperBoundaryLocation, 0);
++      }
++    }
+     gl.uniform1f(cornerRadiusLocation, MAIN_WINDOW_CORNER_RADIUS_NORMALIZED);
+     gl.uniform3fv(voidLocation, parseHexColor(colors.thermalVoid));
+     gl.uniform3fv(deepLocation, parseHexColor(colors.thermalDeep));
+@@ -633,13 +1024,17 @@ const createGraphicsRenderer = (canvas: HTMLCanvasElement): GraphicsRenderer | n
+   return {
+     render: draw,
+     resize,
+-    redraw: (colors, heatmapMode, refractionMode) => {
+-      if (lastFrame !== null) draw(lastFrame, colors, heatmapMode, refractionMode);
++    redraw: (colors, heatmapMode, refractionMode, paperMode, paperPhase) => {
++      if (lastFrame !== null) draw(lastFrame, colors, heatmapMode, refractionMode, paperMode, paperPhase);
+     },
+     clear,
+     dispose: () => {
+       if (disposed) return;
+       disposed = true;
++      if (paperBoundaryTexture !== null) {
++        gl.deleteTexture(paperBoundaryTexture);
++        paperBoundaryTexture = null;
++      }
+       gl.deleteProgram(linkedProgram);
+     },
+   };
+@@ -657,6 +1052,8 @@ export function ExpandedPresentationSurface({
+   palette,
+   heatmap = false,
+   refraction = false,
++  paper = false,
++  paperPhase = 0.35,
+   backingScale,
+   redrawEpoch = 0,
+ }: ExpandedPresentationSurfaceProps) {
+@@ -672,6 +1069,8 @@ export function ExpandedPresentationSurface({
+   const colorsRef = useRef<GraphicsColors>(palette);
+   const heatmapModeRef = useRef(heatmap);
+   const refractionModeRef = useRef(refraction);
++  const paperModeRef = useRef(paper);
++  const paperPhaseRef = useRef(paperPhase);
+   const backingScaleRef = useRef<number | undefined>(backingScale);
+   const [dprEpoch, setDprEpoch] = useState(0);
+ 
+@@ -681,6 +1080,8 @@ export function ExpandedPresentationSurface({
+     colorsRef.current = palette;
+     heatmapModeRef.current = heatmap;
+     refractionModeRef.current = refraction;
++    paperModeRef.current = paper;
++    paperPhaseRef.current = paperPhase;
+     backingScaleRef.current = backingScale;
+   }, [
+     eligible,
+@@ -690,6 +1091,8 @@ export function ExpandedPresentationSurface({
+     target,
+     heatmap,
+     refraction,
++    paper,
++    paperPhase,
+   ]);
+ 
+   useEffect(() => {
+@@ -704,7 +1107,7 @@ export function ExpandedPresentationSurface({
+         now: () => performance.now(),
+         scheduleFrame: (callback) => requestAnimationFrame(callback),
+         cancelFrame: (handle) => cancelAnimationFrame(handle),
+-        render: (frame) => rendererRef.current?.render(frame, colorsRef.current, heatmapModeRef.current, refractionModeRef.current),
++        render: (frame) => rendererRef.current?.render(frame, colorsRef.current, heatmapModeRef.current, refractionModeRef.current, paperModeRef.current, paperPhaseRef.current),
+       });
+       runtimeRef.current = runtime;
+       renderer.resize();
+@@ -723,7 +1126,7 @@ export function ExpandedPresentationSurface({
+     installRenderer();
+     const resizeObserver = new ResizeObserver(() => {
+       rendererRef.current?.resize(backingScaleRef.current);
+-      if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
++      if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, paperModeRef.current, paperPhaseRef.current);
+       else rendererRef.current?.clear();
+     });
+     resizeObserver.observe(canvas);
+@@ -758,17 +1161,17 @@ export function ExpandedPresentationSurface({
+     const renderer = rendererRef.current;
+     if (renderer === null) return;
+     renderer.resize(backingScaleRef.current);
+-    if (eligibleRef.current) renderer.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
++    if (eligibleRef.current) renderer.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, paperModeRef.current, paperPhaseRef.current);
+     else renderer.clear();
+   }, [backingScale, redrawEpoch]);
+ 
+   useEffect(() => {
+-    if (eligible) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
+-  }, [eligible, palette, heatmap, refraction]);
++    if (eligible) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, paperModeRef.current, paperPhaseRef.current);
++  }, [eligible, palette, heatmap, refraction, paper, paperPhase]);
+ 
+   useEffect(() => {
+     rendererRef.current?.resize(backingScaleRef.current);
+-    if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current);
++    if (eligibleRef.current) rendererRef.current?.redraw(colorsRef.current, heatmapModeRef.current, refractionModeRef.current, paperModeRef.current, paperPhaseRef.current);
+     else rendererRef.current?.clear();
+     // Observe the raw scale even though the backing store is capped. A query
+     // for the capped value would stay false when moving between (for example)
+diff --git a/src/presentation/main-window/expandedPresentationSurface.test.ts b/src/presentation/main-window/expandedPresentationSurface.test.ts
+index b77997e..6de9df7 100644
+--- a/src/presentation/main-window/expandedPresentationSurface.test.ts
++++ b/src/presentation/main-window/expandedPresentationSurface.test.ts
+@@ -160,45 +160,49 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(hostSource).toContain("uniform int uHeatmapMode;");
+     expect(hostSource).toContain("heatmapOutput(vUv, uTime, uReducedMotion, outColor)");
+     expect(hostSource).toContain("heatmap?: boolean;");
+-    // The restored analytic baseline needs NO texture/preprocessing: no
+-    // sampler, rasterizer, blur helpers, framebuffer, or second pass.
++    // The analytic heatmap baseline stays texture-free; the ONLY sampler in
++    // the file is the new Lab-only Paper processed-silhouette texture.
+     expect(hostSource).not.toContain("u_heatmapBoundary");
+-    expect(hostSource).not.toContain("sampler2D");
+-    expect(hostSource).not.toContain("blurGray");
+-    expect(hostSource).not.toContain("multiPassBlurGray");
++    expect(hostSource.match(/sampler2D\b/g)).toHaveLength(1);
++    expect(hostSource).toContain("uniform sampler2D uPaperBoundary;");
+     expect(hostSource).not.toContain("rasterizeHeatmap");
+     expect(hostSource).not.toContain("HEATMAP_CORE_SCALE");
+     expect(hostSource).not.toContain("coreMask");
+-    expect(hostSource).not.toMatch(/createTexture|createFramebuffer|framebufferTexture2D/);
++    // No framebuffer, render-to-texture pass, or second draw anywhere; the
++    // single processed texture is built by CPU preprocessing and sampled by
++    // the existing draw (one createTexture, guarded to Paper mode).
++    expect(hostSource).not.toMatch(/createFramebuffer|framebufferTexture2D|renderbuffer|generateMipmap/);
++    expect(hostSource.match(/gl\.createTexture\(\)/g)).toHaveLength(1);
+     expect(paletteSource).toContain('thermalVoid: "#201E25"');
+   });
+ 
+-  it("restores the Checkpoint C travelling diagonal band with exact constants", () => {
+-    // Selected baseline motion grammar (research/paper-shaders-heatmap-
+-    // checkpoint-b.md / checkpoint-c.md): one continuous phase, the
+-    // lower-left -> upper-right front, and the exact body/warm/core/energy
+-    // constants, over the centered field coordinate q = uv - 0.5.
++  it("remaps the source travel so finite support leaves the window and RM sits at developed center", () => {
++    // Boundary-Driven Thermal Source: one continuous phase k, the unchanged
++    // lower-left -> upper-right DIR, and the remapped source travel so the
++    // broad finite support is fully off-window at both k=0 and k=1, with the
++    // RM pin k=0.42 at the developed source-space center.
+     expect(hostSource).toContain("const vec2 DIR = vec2(0.8235, 0.5674);");
+     expect(hostSource).toContain("float k = reducedMotion ? 0.42 : fract(t * 0.13);");
+-    expect(hostSource).toContain("float front = mix(-0.58, 1.6, k);");
++    expect(hostSource).toContain("float sourcePosition = mix(-2.985, 4.122, k);");
+     expect(hostSource).toContain("vec2 q = uv - 0.5;");
+-    expect(hostSource).toContain("float d = p - front + bend;");
+-    expect(hostSource).toContain("float body = exp(-behind * 1.1) * (1.0 - smoothstep(0.0, 0.05, d));");
+-    expect(hostSource).toContain("float warm = exp(-abs(d + 0.018) * 30.0);");
+-    expect(hostSource).toContain("float core = exp(-alongFront * alongFront * 200.0 - d * d * 200.0);");
+-    expect(hostSource).toContain("float energy = smoothstep(0.0, 0.12, k) * (1.0 - smoothstep(0.66, 0.99, k));");
+-    // Reduced Motion pins the mid-sweep snapshot and freezes the deformation.
++    expect(hostSource).toContain("float d = p + bend - sourcePosition;");
++    // One broad two-sided finite-support influence with exact zero at r >= 1.
++    expect(hostSource).toContain("const float SOURCE_SUPPORT_HALF = 2.2;");
++    expect(hostSource).toContain("float sourceInfluence = 1.0 - smoothstep(0.0, 1.0, r) * smoothstep(0.0, 1.0, r);");
++    // Contour-local warmth is a subordinate bias (no core marker, no strip).
++    expect(hostSource).toContain("float warm = exp(-abs(d + 0.018) * 22.0);");
++    // Reduced Motion pins the developed snapshot and freezes the deformation.
+     expect(hostSource).toContain("float bendTime = reducedMotion ? 0.0 : t;");
+     expect(hostSource).toContain("heatmapBend(q, bendTime)");
+   });
+ 
+-  it("restores the Rounded Boundary Edge Capture contact gate", () => {
+-    // Selected baseline contact grammar (research/mr9-rounded-boundary-edge-
+-    // capture-spike.md): real 200x200/16px rounded-rect SDF, inward-thick
+-    // boundary band, contact-gated localized capture, and the exact heat sum.
++  it("keeps the Rounded Boundary contact gated by the source influence", () => {
++    // Real 200x200/16px rounded-rect SDF, inward-thick boundary band, and the
++    // localized capture = real boundary band x source contour x influence.
+     expect(hostSource).toContain("float boundaryBand = smoothstep(-0.05, 0.0, bd) * step(bd, 0.0);");
+-    expect(hostSource).toContain("float capture = boundaryBand * warm * 0.6;");
+-    expect(hostSource).toContain("float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;");
++    expect(hostSource).toContain("float contact = boundaryBand * warm * sourceInfluence;");
++    expect(hostSource).toContain("float capture = contact * 0.6;");
++    expect(hostSource).toContain("float heat = coolMass * 0.44 + capture;");
+     expect(hostSource).toContain("float bd = roundedBoundary(uv);");
+     expect(hostSource).toContain("vec2 halfSize = vec2(0.5) - uCornerRadius;");
+   });
+@@ -216,9 +220,9 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(heatmapBlock).toContain("vec3(1.000, 0.340, 0.090)");
+     // Material layering consumes the baseline scalars; it never changes the
+     // motion/contact formulas or constants above.
+-    expect(heatmapBlock).toContain("float coolLift = body * (1.0 - smoothstep(0.20, 0.85, warm)) * 0.18 * energy;");
+-    expect(heatmapBlock).toContain("float hotLift = warm * 0.20 * energy;");
+-    expect(heatmapBlock).toContain("float material = clamp(heat + coolLift + hotLift, 0.0, 1.0);");
++    expect(heatmapBlock).toContain("float coolLift = coolMass * 0.18;");
++    expect(heatmapBlock).toContain("float material = clamp(heat + coolLift, 0.0, 1.0);");
++    expect(heatmapBlock).not.toContain("hotLift");
+     // Clearer yellow transition (green-cast neutralization in the cyan->yellow
+     // zone) and the contact-gated edge halo.
+     expect(heatmapBlock).toContain("float yellowZone");
+@@ -232,7 +236,7 @@ describe("Expanded Presentation graphics host contract", () => {
+   it("excludes all rejected candidate grammar and internal geometry", () => {
+     const heatmapBlock = hostSource.slice(
+       hostSource.indexOf("// ---- Heatmap spike (lab-gated)"),
+-      hostSource.lastIndexOf("void main()"),
++      hostSource.indexOf("// ---- Paper processed-silhouette mode"),
+     );
+     // Rejected literal-fidelity / core-removal / latent-carrier path is gone.
+     expect(hostSource).not.toContain("latentCarrier");
+@@ -240,7 +244,9 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(hostSource).not.toContain("u_heatmapBoundary");
+     expect(hostSource).not.toContain("HEAT_COLOR");
+     expect(hostSource).not.toContain("HEAT_ALPHA");
+-    expect(hostSource).not.toContain("MODIFIED DERIVATIVE of Paper Shaders");
++    // The Paper-derived mode carries a provenance header (asserted in the
++    // license test) but no rejected Paper geometry or runtime grammar.
++    expect(hostSource).toContain("MODIFIED DERIVATIVE");
+     // No internal object / fixed geometry / inset thermal rectangle.
+     expect(heatmapBlock).not.toMatch(
+       /coreMask|insetRect|diamond|logo|capsule|synthetic core/i,
+@@ -274,25 +280,24 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(hostSource).toContain("uniform int uRefractionMode;");
+     expect(hostSource).toContain("refraction?: boolean;");
+     expect(hostSource).toContain("refractionModeRef.current");
+-    expect(hostSource).not.toContain("sampler2D");
+-    expect(hostSource).not.toMatch(/createTexture|createFramebuffer|framebufferTexture2D/);
++    // Refraction itself remains analytic: the single Lab-only sampler/texture
++    // is the Paper mode, and no framebuffer or second pass exists anywhere.
++    expect(hostSource.match(/sampler2D\b/g)).toHaveLength(1);
++    expect(hostSource).not.toMatch(/createFramebuffer|framebufferTexture2D|renderbuffer|generateMipmap/);
+   });
+ 
+   it("derives the Refraction displacement from the low-frequency heatmapBend finite difference", () => {
+     // Displacement direction comes from the finite difference of the existing
+     // LOW-frequency heatmapBend (no high-frequency noise), and the local
+-    // intensity envelope is warm/frontier strong, cool body weak, and exactly
+-    // zero where energy is zero (energy=0 -> refraction off).
++    // intensity envelope is gated by the SAME source influence (zero at
++    // influence=0 -> refraction off).
+     expect(hostSource).toContain("if (uRefractionMode != 0) {");
+     expect(hostSource).toContain("heatmapBend(q + vec2(REFRACTION_EPS, 0.0), bendTime)");
+     expect(hostSource).toContain("heatmapBend(q + vec2(0.0, REFRACTION_EPS), bendTime)");
+-    expect(hostSource).toContain("float covered = 1.0 - smoothstep(0.0, 0.05, d);");
+-    expect(hostSource).toContain("float bodyFloor = covered * (1.0 - smoothstep(0.20, 0.85, warm));");
+-    expect(hostSource).toContain("float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;");
++    expect(hostSource).toMatch(/float env = clamp\([\s\S]*?\) \* sourceInfluence;/);
+     expect(hostSource).toContain("float dShift = s * (dot(grad, DIR) + dot(grad, grad));");
+-    expect(hostSource).toContain("float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));");
+     // Displacement keeps the locked env-weighted amplitude; material
+-    // visibility is decoupled onto the covered x energy gate.
++    // visibility is decoupled onto the same source influence gate.
+     expect(hostSource).toContain("float s = REFRACTION_STRENGTH * env;");
+     expect(hostSource).toContain("rgb = mix(rgb, rgb2, materialMix);");
+     expect(hostSource).toContain("alpha = mix(alpha, alpha2, materialMix);");
+@@ -301,26 +306,25 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(hostSource).toContain("reducedMotion ? 0.0 : t");
+   });
+ 
+-  it("expands the Refraction envelope: contact strongest, front strong, covered body present, energy zero none", () => {
++  it("gates the Refraction envelope with the same source influence (contact > warm > cool, zero at influence=0)", () => {
+     const gate = hostSource.slice(
+       hostSource.indexOf("if (uRefractionMode != 0) {"),
+       hostSource.indexOf("// Subtle sine-free grain"),
+     );
+     // Hierarchy: localized boundary contact (boundaryBand*warm) is the
+-    // strongest envelope term, the warm frontier is strong, and the cool
+-    // covered body has a weaker but clearly present depth-independent floor.
+-    expect(gate).toContain("float covered = 1.0 - smoothstep(0.0, 0.05, d);");
+-    expect(gate).toContain("float bodyFloor = covered * (1.0 - smoothstep(0.20, 0.85, warm));");
+-    expect(gate).toContain("float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;");
+-    // The floor is gated away from the warm frontier and the whole envelope
+-    // is energy-gated, so energy=0 -> exactly zero; no full-screen wobble and
+-    // no perimeter/boundary ring grammar inside the gate.
+-    expect(gate).toContain("(1.0 - smoothstep(0.20, 0.85, warm))");
+-    expect(gate).toContain("* energy;");
++    // strongest envelope term, the warm frontier is weak (envelope only), and
++    // the broad cool influence has a clearly present term. The whole
++    // envelope is zero when sourceInfluence is zero.
++    expect(gate).toMatch(/float env = clamp\([\s\S]*?\) \* sourceInfluence;/);
++    expect(gate).toContain("sourceInfluence * 0.30");
++    // No half-plane coverage or phase-wide energy remains inside the gate.
++    expect(gate).not.toContain("covered");
++    expect(gate).not.toContain("float bodyFloor");
++    expect(gate).not.toContain("* energy;");
+     expect(gate).not.toMatch(/perimeterCoordinate|chaseDistance|dualFront|oppositeClosure/i);
+   });
+ 
+-  it("builds a broad 2D heatmapBend temperature topology with covered gating", () => {
++  it("builds a broad 2D heatmapBend temperature topology gated by sourceInfluence", () => {
+     const gate = hostSource.slice(
+       hostSource.indexOf("if (uRefractionMode != 0) {"),
+       hostSource.indexOf("// Subtle sine-free grain"),
+@@ -335,36 +339,33 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(gate).toContain("float baseB = heatmapBend(pb, bendTime) * 16.0;");
+     expect(gate).toContain("float baseC = heatmapBend(pc, bendTime) * 16.0;");
+     expect(gate).toContain("float baseT = clamp(baseA * 0.45 + baseB * 0.35 + baseC * 0.20, -1.0, 1.0);");
+-    // The negative-biased heatmapBend window is re-centered so the broad
+-    // lobes span deep/vivid blue, cyan, yellow and a yellow/orange gradient
+-    // with localized red-orange instead of a broad hot board.
+     expect(gate).toContain("float baseTemperature = clamp(0.5 + 0.5 * baseT + 0.24, 0.0, 1.0);");
+     expect(gate).not.toContain("float baseTemperature = 0.5 + 0.5 * baseT;");
+     expect(gate).toContain("mix(0.08, 0.93, baseTemperature)");
+-    expect(gate).toContain("float covered2 = 1.0 - smoothstep(0.0, 0.05, d2);");
+     // Material visibility is decoupled from the (weaker) distortion envelope:
+-    // a covered x energy gate, not env.
+-    expect(gate).toContain("float materialMix = covered2 * energy;");
++    // the SAME source influence gates the 2D field, not env.
++    expect(gate).toContain("float materialMix = sourceInfluence;");
+     expect(gate).toContain("rgb = mix(rgb, rgb2, materialMix);");
+     expect(gate).toContain("alpha = mix(alpha, alpha2, materialMix);");
+     expect(gate).not.toContain("rgb = mix(rgb, rgb2, env);");
+     expect(gate).not.toContain("alpha = mix(alpha, alpha2, env);");
+-    // The rejected behind/depth axis and the sweep-aligned linear nudge are
+-    // gone and no longer authoritative.
+-    expect(gate).not.toContain("behind2");
++    // No half-plane coverage, phase-wide energy, or depth axis remains.
++    expect(gate).not.toContain("covered");
++    expect(gate).not.toContain("float bodyFloor");
++    expect(gate).not.toContain("* energy;");
++    expect(gate).not.toContain("behind");
+     expect(gate).not.toContain("depthT");
+-    expect(gate).not.toContain("along2 * ");
++    expect(gate).not.toContain("along2");
+     expect(gate).not.toContain("trailing");
+-    // Frontier/contact are bounded additive biases, not the topology.
+-    expect(gate).toContain("warm2 * 0.18");
++    // Only real-boundary contact is an additive bias; the moving contour has
++    // no interior material term that could become a visible source marker.
++    expect(gate).not.toMatch(/baseTemperature\) \+ warm2/);
+     expect(gate).toContain("contact2 * 0.22");
+-    expect(gate).toContain("* covered2;");
+-    // Locked envelope + strength + displacement stay byte-identical.
++    // Locked strength + displacement stay unchanged; envelope now influence-gated.
+     expect(gate).toContain("const float REFRACTION_EPS = 0.02;");
+     expect(gate).toContain("const float REFRACTION_STRENGTH = 0.16;");
+-    expect(gate).toContain("float env = clamp(contact + warm * 0.60 + bodyFloor * 0.30, 0.0, 1.0) * energy;");
++    expect(gate).toMatch(/float env = clamp\([\s\S]*?\) \* sourceInfluence;/);
+     expect(gate).toContain("float dShift = s * (dot(grad, DIR) + dot(grad, grad));");
+-    expect(gate).toContain("float alongShift = s * dot(grad, vec2(-DIR.y, DIR.x));");
+     // Prohibited paths absent: no new ramp, no noise/hash, no second
+     // canvas/draw, no forbidden motion/geometry grammar inside the gate.
+     expect(gate).not.toContain("HEAT_STOP2");
+@@ -375,34 +376,273 @@ describe("Expanded Presentation graphics host contract", () => {
+     expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
+   });
+ 
+-  it("keeps the accepted baseline constants untouched by the Refraction gate", () => {
+-    // The refraction block is additive and gated: the accepted motion/contact/
+-    // palette/material/edge lines below stay byte-identical (covered by the
+-    // dedicated baseline tests above), and Refraction off adds nothing.
+-    expect(hostSource).toContain("float d = p - front + bend;");
+-    expect(hostSource).toContain("float heat = (body * 0.44 + warm * 0.22 + core * 0.55 + capture) * energy;");
+-    expect(hostSource).toContain("float material = clamp(heat + coolLift + hotLift, 0.0, 1.0);");
++  it("keeps the accepted baseline material constants under the Refraction gate", () => {
++    // The refraction block is additive and gated: the accepted palette/
++    // material/edge lines stay unchanged (covered by the dedicated baseline
++    // tests above), and Refraction off adds nothing.
++    expect(hostSource).toContain("float d = p + bend - sourcePosition;");
++    expect(hostSource).toContain("float heat = coolMass * 0.44 + capture;");
++    expect(hostSource).toContain("float material = clamp(heat + coolLift, 0.0, 1.0);");
+     // No high-frequency noise lattice or haze primitive is introduced.
+     expect(hostSource).not.toContain("vec2(26.0");
+     expect(hostSource).not.toContain("vec2(34.0");
+     expect(hostSource).not.toContain("haze");
+   });
+ 
+-  it("documents the license state honestly (no active Paper derivative)", () => {
+-    // All Paper-derived shader/preprocessing source was removed with the
+-    // rejected literal/latent-carrier path; the notices must distinguish
+-    // historical research from shipped/active adapted source and must not
+-    // claim active reuse.
++  it("uses one broad two-sided finite-support sourceInfluence as the only visibility authority", () => {
++    const heatmapBlock = hostSource.slice(
++      hostSource.indexOf("// ---- Heatmap spike (lab-gated)"),
++      hostSource.lastIndexOf("void main()"),
++    );
++    // The same influence gates material, Refraction envelope and boundary
++    // contact; exact zero at r>=1 so every fixed pixel reaches zero from
++    // source distance alone (pre-entry and post-exit void are identical).
++    expect(heatmapBlock).toContain("float sourceInfluence = 1.0 - smoothstep(0.0, 1.0, r) * smoothstep(0.0, 1.0, r);");
++    expect(heatmapBlock).toContain("const float SOURCE_SUPPORT_HALF = 2.2;");
++    expect(heatmapBlock).toContain("float contact = boundaryBand * warm * sourceInfluence;");
++    expect(heatmapBlock).toContain("float capture = contact * 0.6;");
++    expect(heatmapBlock).toContain("float materialMix = sourceInfluence;");
++    expect(heatmapBlock).toMatch(/float env = clamp\([\s\S]*?\) \* sourceInfluence;/);
++    // Warm is excluded from the baseline interior material: weak Refraction
++    // envelope + real boundary contact bias only, so no travelling highlight
++    // or strip can form in either path (topology carries the Refraction color).
++    expect(heatmapBlock).toContain("float heat = coolMass * 0.44 + capture;");
++    expect(heatmapBlock).not.toContain("hotLift");
++    expect(heatmapBlock).not.toContain("warm * 0.10");
++    expect(heatmapBlock).not.toMatch(/baseTemperature\) \+ warm2/);
++    expect(heatmapBlock).not.toMatch(/sourceMarker|interiorMarker|warmLine|hotStrip|coreHighlight/);
++    // coolMass is the continuous broad response itself: sourceInfluence forms
++    // the material directly with no interior hollow at the source contour, so
++    // the baseline (Refraction OFF) path never shows a warm-contour trough.
++    expect(heatmapBlock).toContain("float coolMass = sourceInfluence;");
++    expect(heatmapBlock).not.toContain("smoothstep(0.12, 0.45, warm)");
++    // No half-plane or phase-wide visibility authority remains anywhere in
++    // the heatmap block (declaration-level checks; comments may reference the
++    // rejected history as evidence).
++    expect(heatmapBlock).not.toContain("float behind");
++    expect(heatmapBlock).not.toContain("float body =");
++    expect(heatmapBlock).not.toContain("float energy");
++    expect(heatmapBlock).not.toContain("float covered");
++    expect(heatmapBlock).not.toContain("float bodyFloor");
++    expect(heatmapBlock).not.toContain("float core =");
++    expect(heatmapBlock).not.toContain("float front =");
++    expect(heatmapBlock).not.toContain("trailing");
++    expect(heatmapBlock).not.toContain("qExit");
++    expect(heatmapBlock).not.toContain("terminal");
++    expect(heatmapBlock).not.toContain("wipe");
++    expect(heatmapBlock).not.toContain("cleanup");
++    expect(heatmapBlock).not.toContain("convergence");
++    expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
++    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
++  });
++
++  it("documents the license state honestly (active Paper-derived preprocessing)", () => {
++    // The Paper processed-silhouette spike derivative-adapts Paper Heatmap
++    // preprocessing (integral-image box blur + inner/outer/contour scalar
++    // causality). The notices must now declare the active adapted portion,
++    // the Apache-2.0 text, the Paper NOTICE, and Ameow's modification notice.
+     const notices = readFileSync(resolve(here, "../../../THIRD_PARTY_NOTICES.md"), "utf8");
+     expect(notices).toContain("Paper Shaders");
+-    expect(notices).toContain("no active Paper-derived source shipped");
+-    expect(notices).toContain("clean-room");
+-    expect(notices).not.toMatch(/Modified Derivative Notice/);
+-    expect(notices).not.toMatch(/adapted source: `src\/presentation\/main-window\/ExpandedPresentationSurface/);
+-    // Historical research evidence is documented as non-shipped.
++    expect(notices).toContain("Apache License, Version 2.0");
++    expect(notices).toMatch(/Modified Derivative Notice/);
++    expect(notices).toMatch(/adapted source: `src\/presentation\/main-window\/ExpandedPresentationSurface/);
++    // The source header carries a prominent provenance/modification marker.
++    expect(hostSource).toContain("MODIFIED DERIVATIVE");
++    expect(hostSource).toMatch(/Apache-2\.0/);
++    // Historical rejected research remains documented separately.
+     expect(notices).toContain("research evidence");
+     // Root project license remains MIT (not overwritten).
+     const rootLicense = readFileSync(resolve(here, "../../../LICENSE"), "utf8");
+     expect(rootLicense).toContain("MIT License");
+   });
++
++  it("keeps the Paper processed-silhouette mode on the one canvas/program/draw with a lab-only gate", () => {
++    // One canvas, one draw, one `uPaperMode` gate production never sets, and
++    // one lazy Lab-only processed RGBA texture sampled by the existing draw.
++    expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
++    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
++    expect(hostSource).toContain("uniform int uPaperMode;");
++    expect(hostSource).toContain("uniform sampler2D uPaperBoundary;");
++    expect(hostSource).toContain("uniform float uPaperPhase;");
++    expect(hostSource).toContain("paperOutput(vUv, uPaperPhase, outColor)");
++    expect(hostSource).toContain("paper?: boolean;");
++    expect(hostSource).toContain("paperPhase?: number;");
++    expect(hostSource).toContain("paperModeRef.current");
++    expect(hostSource).toContain("paperPhaseRef.current");
++    // The processed texture is CPU-built, lazy, and Lab-only: the builder is
++    // only reached inside the paperMode branch of draw.
++    expect(hostSource).toContain("ensurePaperBoundary");
++    const drawRegion = hostSource.slice(
++      hostSource.indexOf("const draw = (frame"),
++      hostSource.indexOf("const clear = ("),
++    );
++    expect(drawRegion).toContain("if (paperMode) {");
++    expect(drawRegion.indexOf("ensurePaperBoundary()"))
++      .toBeGreaterThan(drawRegion.indexOf("if (paperMode) {"));
++    // dispose deletes the texture and the program; restore rebuilds lazily.
++    expect(hostSource).toContain("gl.deleteTexture(paperBoundaryTexture)");
++    expect(hostSource).toContain('addEventListener("webglcontextrestored"');
++  });
++
++  it("derives the exact 228/200/14 panel mask and processed channels from repository constants", () => {
++    // The latent panel silhouette is the exact 200x200/r16 panel centered in
++    // the 228 outer domain (14px gutter): the renderer derives the normalized
++    // origin/size/radius from MAIN_WINDOW_* constants and the canvas CSS size.
++    expect(hostSource).toContain("(cssSize - MAIN_WINDOW_PANEL_SIZE) / 2");
++    expect(hostSource).toContain("MAIN_WINDOW_FULL_PANEL_RADIUS / cssSize");
++    expect(hostSource).toContain("uPaperPanelOrigin");
++    expect(hostSource).toContain("uPaperPanelSize");
++    expect(hostSource).toContain("uPaperPanelRadius");
++    // CPU preprocessing: exact rounded-rect mask rasterizer + Paper-derived
++    // integral-image box blur + multi-pass; R/G/B/A = source/broad/narrow/contour.
++    expect(hostSource).toContain("rasterizeRoundedRectMask");
++    expect(hostSource).toContain("boxBlurGray");
++    expect(hostSource).toContain("multiPassBlurGray");
++    expect(hostSource).toContain("rgba[index * 4 + 3]");
++    // The Lab frame exposes the real 228 outer domain from the same constants.
++    const labStage = readFileSync(resolve(here, "../../lab/LabOverlayStage.tsx"), "utf8");
++    expect(labStage).toContain("getMainWindowFullOuterSize");
++    expect(labStage).toContain("paper={paperMode}");
++    // Corrected layer model: the REAL panel shell (actual production background
++    // + the SINGULAR CSS shadow + interaction authority) sits BELOW the FX
++    // canvas; a transparent nested UI content clip sits ABOVE it (no
++    // background/shadow) so FX shows through while UI stays clipped.
++    expect(labStage).toContain("data-lab-panel-shell");
++    expect(labStage).toContain("getPanelShellStyle");
++    expect(labStage.match(/boxShadow: colors\.panelShadow/g) ?? []).toHaveLength(1);
++    expect(labStage.indexOf("data-lab-panel-shell"))
++      .toBeLessThan(labStage.indexOf("<ExpandedPresentationSurface"));
++    expect(labStage.indexOf("<ExpandedPresentationSurface"))
++      .toBeLessThan(labStage.indexOf("data-lab-panel-clip"));
++    // No travelling source owns the Paper channels.
++    const paperBlock = hostSource.slice(
++      hostSource.indexOf("void paperOutput("),
++      hostSource.lastIndexOf("void main()"),
++    );
++    expect(paperBlock).not.toContain("sourceInfluence");
++  });
++
++  it("restores distinct BROAD/NARROW processed scales and the Paper phase-offset subtractive morphology", () => {
++    // Broad and narrow are mathematically and visually distinct (Paper's
++    // scale relationship: big blur 15% vs inner blur ~1.8% of size). The
++    // review finding that both fractions were 0.03 is fixed.
++    expect(hostSource).toContain("const PAPER_BIG_BLUR_FRACTION = 0.08;");
++    expect(hostSource).toContain("const PAPER_NARROW_BLUR_FRACTION = 0.02;");
++    // Paper geometry-agnostic mechanics are derivative-adapted in the slice:
++    // phase-offset shadow times (L209-214), the warm inner field (L239), the
++    // three subtractive erasures (L240-242), the broad warm shell from the
++    // BROAD channel (outerBlur L229-230), and the animatedMask sweep
++    // (L250-259) modulated outer.
++    expect(hostSource).toContain("fract(phase + 1.0 / 3.0)");
++    expect(hostSource).toContain("fract(phase + 2.0 / 3.0)");
++    expect(hostSource).toContain("paperShadowBlob");
++    expect(hostSource).toContain("float inner = 0.8 + 0.8 * innerBlur;");
++    expect(hostSource).toContain("inner = mix(inner, 0.0, shadow1);");
++    expect(hostSource).toContain("inner = mix(inner, 0.0, shadow2);");
++    expect(hostSource).toContain("inner = mix(inner, 0.0, shadow3);");
++    expect(hostSource).toContain("float outerBlur = 1.0 - mix(1.0, bigBlur, shape);");
++    expect(hostSource).toContain("mod(3.0 * phase - 0.1, 1.0)");
++    expect(hostSource).toContain("float animatedMask = smoothstep(0.3, 0.65, y)");
++    // Contour contributes scalar transition energy (weight 0.12), sculpted by
++    // the same shadows so it never forms a continuous gold/blue ring/frame.
++    expect(hostSource).toContain("2.0 * 0.12 * contour * (1.0 - shadowUnion)");
++    // LOCKED 14px-bounded gutter halo from the repaired candidate: secondary
++    // (0.30) and gated by the real gutter distance falloff (reaches ~0 at the
++    // 228 outer edge).
++    expect(hostSource).toContain("(1.0 - uPaperPanelSize.x) * 0.5");
++    expect(hostSource).toContain("float outerFalloff");
++    expect(hostSource).toContain("0.30 * bigBlur * (1.0 - shape) * outerFalloff");
++    // Interior/edge stay opaque; the exterior halo fades to transparent as
++    // heat drops (alpha floor removed) so it approaches inactive inside 14px.
++    expect(hostSource).toContain("smoothstep(0.06, 0.55, heat)");
++    expect(hostSource).not.toContain("mix(0.55, 1.0, smoothstep(0.0, 0.5, heat))");
++  });
++
++  it("keeps Paper mode static under Reduced Motion with zero travelling frames", () => {
++    // paperOutput is time-independent (static mechanics spike); RM still pins
++    // the travelling Thermal phase and freezes the deformation for the other
++    // paths, and the runtime never schedules continuing frames under RM.
++    const paperBlock = hostSource.slice(
++      hostSource.indexOf("void paperOutput("),
++      hostSource.lastIndexOf("void main()"),
++    );
++    expect(paperBlock).not.toContain("uTime");
++    // The only fract() calls are the FIXED Paper phase offsets (t, t+1/3,
++    // t+2/3) of the manually pinned uPaperPhase uniform - never time.
++    expect(paperBlock).not.toContain("fract(t");
++    expect(paperBlock).not.toContain("fract(uTime");
++    expect(hostSource).toContain("reducedMotion ? 0.42 : fract(t * 0.13)");
++    expect(hostSource).toContain("reducedMotion ? 0.0 : t");
++  });
++
++  it("keeps the Paper phase a manually pinned renderer-local Lab uniform with no time/lifecycle authority", () => {
++    // Fixed phases are renderer-local manual Lab inputs only (A/B/C/D
++    // captures); they own no lifecycle or scheduling authority.
++    expect(hostSource).toContain("uniform float uPaperPhase;");
++    expect(hostSource).toContain("paperPhase?: number;");
++    expect(hostSource).toContain("paperPhaseRef.current");
++    expect(hostSource).toContain("paperOutput(vUv, uPaperPhase, outColor)");
++    // The Lab forwards the manual phase through the ONE surface.
++    const labStage = readFileSync(resolve(here, "../../lab/LabOverlayStage.tsx"), "utf8");
++    expect(labStage).toContain("paperPhase={paperPhase}");
++    const presentationLab = readFileSync(resolve(here, "../../lab/PresentationLab.tsx"), "utf8");
++    expect(presentationLab).toContain(
++      "heatmapMode={state.heatmap !== null && state.heatmap.paper !== true}",
++    );
++    // No time progression inside the Paper slice, and no reuse of the
++    // accepted Thermal sourceInfluence authority.
++    const paperBlock = hostSource.slice(
++      hostSource.indexOf("void paperOutput("),
++      hostSource.lastIndexOf("void main()"),
++    );
++    expect(paperBlock).not.toContain("uTime");
++    expect(paperBlock).not.toContain("fract(t");
++    expect(paperBlock).not.toContain("sourceInfluence");
++  });
++
++  it("keeps pointer-events / UI-clip / shadow ownership and the production mount untouched", () => {
++    // The FX canvas stays aria-hidden and pointer-events:none.
++    expect(hostSource).toContain('aria-hidden="true"');
++    expect(hostSource).toContain('pointerEvents: "none"');
++    // The production Surface still mounts exactly one host, keeps the CSS
++    // shadow backdrop as a separate layer, and keeps the real panel clip.
++    expect(surfaceSource.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
++    expect(surfaceSource).toContain("getShadowBackdropStyle");
++    expect(surfaceSource).toContain('overflow: "hidden"');
++    // The Lab content clip preserves the real 200x200/r16 panel above FX: the
++    // nested UI clip is transparent (no background/shadow) and is a normal
++    // interactive container (pointer-events auto) so panel/UI descendants
++    // work normally with no per-child opt-in. The FX canvas stays
++    // pointer-events none, so it consumes neither shadow nor interaction
++    // authority.
++    const labStage = readFileSync(resolve(here, "../../lab/LabOverlayStage.tsx"), "utf8");
++    expect(labStage).toContain("data-lab-panel-clip");
++    expect(labStage).toContain("data-lab-panel-shell");
++    // The nested clip carries NO background/shadow of its own and does NOT
++    // disable pointer events on descendants (pointer-events auto): ordinary
++    // UI children stay interactive without per-child opt-in.
++    const clipStyleBlock = labStage.slice(
++      labStage.indexOf("const panelClipStyle"),
++      labStage.indexOf("const overlayContent"),
++    );
++    expect(clipStyleBlock).not.toContain("background");
++    expect(clipStyleBlock).not.toContain("boxShadow");
++    expect(clipStyleBlock).not.toContain('pointerEvents: "none"');
++    expect(clipStyleBlock).toContain('pointerEvents: "auto"');
++  });
++
++  it("excludes Paper geometry, runtime, and second-renderer grammar from the Paper slice", () => {
++    const paperBlock = hostSource.slice(
++      hostSource.indexOf("float paperShadowBlob("),
++      hostSource.lastIndexOf("void main()"),
++    );
++    const paperExecutable = paperBlock
++      .replace(/\/\*[\s\S]*?\*\//g, "")
++      .replace(/\/\/.*$/gm, "");
++    expect(paperExecutable).not.toMatch(
++      /shadowShape|u_image|imgSoftFrame|getImgFrame|circle\(|lst\(|sst\(|ShaderMount|ShaderSizing/,
++    );
++    expect(hostSource.match(/<canvas\b/g)).toHaveLength(1);
++    expect(hostSource.match(/gl\.drawArrays\(/g)).toHaveLength(1);
++  });
+ });

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/character-motion.md","reason":"Check MR2 compact Character ownership, attention, lifecycle, Reduced Motion, and stable-source compliance."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check Character runtime remains disposable visual state rather than authority."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check cleanup, theme, and static quality constraints."}
+{"file":".trellis/tasks/08-13-mr2-compact-flat-blob-cat-character/research/repository-baseline.md","reason":"Check implementation against exact post-MR1 file boundaries and Windows dependency judgment."}

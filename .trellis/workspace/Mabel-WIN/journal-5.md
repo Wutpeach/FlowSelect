@@ -1547,12 +1547,22 @@ Moved fallible output settlement before the single diagnostic/product terminal, 
 ### Summary
 
 MR3 Progress Field implemented on mr1/expanded-dot-field: pure download->presentation projection (downloadProgressProjection.ts), determinate row-major frontier with no-overstatement clamp and current-condition coalescing, new-trace immediate rebase incl. indeterminate-gap zero seed, indeterminate sweep band / reduced-motion static bloom, additive acknowledgement settle, terminal/removal reconstruct, one pending frame max / zero at idle-settled-sleep-dispose. Spec contract added to motion-guidelines.md. Work commit 73cb29a; validation debt retained: human visual review (both themes, live reduced-motion toggle, mixed-DPR, replacement-while-active), indeterminate in real renderer (no scriptable non-finite-percent scenario), CDP hover expansion unreliable so settled 200x200 idle-without-progress NOT VERIFIED, macOS. No MR4 entered.
+## Session 246: MR1 Expanded Dot Field Substrate
+
+**Date**: 2026-08-13
+**Task**: MR1 Expanded Dot Field Substrate
+**Branch**: `mr1/expanded-dot-field`
+
+### Summary
+
+Implemented the Surface-owned Canvas 2D Expanded Dot Field consumer with bounded latest-replaces retarget, fixed residual continuity, reduced-motion retiming, sleep/wake/dispose generation guards, zero-idle-frame scheduling, architecture guards, automated performance evidence, and Windows Electron smoke evidence. Full suite retains two baseline-identical unrelated failures; manual raster/theme/context/DPR signoff remains pending Architecture Review.
 
 ### Git Commits
 
 | Hash | Message |
 |------|---------|
 | `73cb29a` | (see git log) |
+| `a7ecc53` | (see git log) |
 
 ### Status
 
@@ -1636,6 +1646,21 @@ Closed the isolated Ripple Browser Lab feasibility stage: repaired the WebM fram
 
 - Committed the Lab-only Ripple source-fidelity and single-scene checkpoint.
 - Removed only the encoded white pre-roll frames from the two review WebMs and refreshed embedded review payloads.
+## Session 247: MR2 Compact Flat Blob Cat Character
+
+**Date**: 2026-08-13
+**Task**: MR2 Compact Flat Blob Cat Character
+**Branch**: `mr1/expanded-dot-field`
+
+### Summary
+
+Implemented and Architecture-approved the compact inline-SVG Flat Blob Cat with bounded read-only Pointer Field attention, deterministic disposable blink lifecycle, Reduced Motion stable-source settling, architecture guards, Windows Electron evidence, and preserved non-blocking manual validation debt.
+
+### Main Changes
+
+- Replaced the legacy compact CatIcon composition with persistent Body, pointed-soft Ears, and capsule Eyes.
+- Kept Pointer Field, lifecycle, Product, and native-window authority boundaries intact while adding the Surface-owned Windows compact adapter and observable neutral reset.
+- Recorded the Motion 12 stable-source Reduced Motion contract and retained macOS, live preference-toggle, white-theme, DPI/monitor-edge, and native-risk validation debt.
 
 ### Git Commits
 
@@ -1646,6 +1671,12 @@ Closed the isolated Ripple Browser Lab feasibility stage: repaired the WebM fram
 ### Testing
 
 - [OK] Focused Ripple and rendererReuse tests, type-check, lint, renderer build, decode/playback verification, and isolation scan pass.
+| `8e626f5` | (see git log) |
+
+### Testing
+
+- [OK] Character and architecture guards: 54/54 passed; presentation/native regressions: 164/164 passed.
+- [OK] Type-check, lint, renderer/Electron build, and diff-check passed; full suite 1629/1631 with two unrelated baseline failures.
 
 ### Status
 
@@ -1665,6 +1696,18 @@ Closed the isolated Ripple Browser Lab feasibility stage: repaired the WebM fram
 
 Preserved M3 raw evidence on a non-Product history line and closed duplicate
 MR8, Paper, and Diagnostics task truth without Product integration.
+- Wait for GPT Architecture Lead to open a separate MR3 phase; do not enter MR3 automatically.
+
+
+## Session 248: MR4 Reveal / Terminal Presentation
+
+**Date**: 2026-08-13
+**Task**: MR4 Reveal / Terminal Presentation
+**Branch**: `mr1/expanded-dot-field`
+
+### Summary
+
+MR4 Reveal / Terminal Presentation: typed download-terminal to Dot Field lane projection with post-reduction snapshot seam, origin discriminator, primary-download invalidation, folder outcome success|error restoration. Implementation Architecture Review PASS; archived.
 
 ### Git Commits
 
@@ -1677,3 +1720,246 @@ MR8, Paper, and Diagnostics task truth without Product integration.
 ### Status
 
 [OK] **Completed** — Phase 4 remains unstarted.
+| `c75ec6a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 249: MR5 Motion Consolidation / Polish — implementation PASS & close-out
+
+**Date**: 2026-08-13
+**Task**: MR5 Motion Consolidation / Polish — implementation PASS & close-out
+**Branch**: `mr5/motion-consolidation`
+
+### Summary
+
+MR5 minimal consolidation received GPT Architecture Lead final Implementation Architecture Review PASS. No new production motion abstraction: terminal-signature boundary fix (terminal.status discriminator) with host regression, lifecycle lock input ownership narrowed (Surface sole drag/drop writer, dead startup lock wire removed, startupSettle semantics preserved), unconsumed compactReachabilityActive projection removed, legacy CatIcon/mascot deleted. Focused tests/type-check/lint/build green; full suite 1698/1700 with exactly two baseline-reproduced non-MR5 failures (electron/preloadBridgeContract.test.mts, browser-extension/architecture-guard.test.js). Validation debt retained: Windows Risk A/B, macOS + manual visual validation.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `60cfb49` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 250: MR8 Download Intake Reveal closure
+
+**Date**: 2026-08-15
+**Task**: MR8 Download Intake Reveal closure
+**Branch**: `motion/presentation-integration`
+
+### Summary
+
+Implemented and architecture-approved authoritative Download Intake Reveal with transient causal marker, bounded latest-only Presentation, pure Terminal/Intake/Progress policy, single Expanded host rendering, docs/spec updates, and Windows validation. Retained macOS NOT VERIFIED and the pre-existing browser-extension CRLF-sensitive full-suite debt.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3a3aeb3` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 251: MR9 Browser Lab consolidation
+
+**Date**: 2026-08-18
+**Task**: MR9 Browser Lab consolidation
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+Implemented and validated the dev-only Chinese Browser Lab, migrated seven legacy UI Lab scenarios onto shared production presentation paths, added transparent 4x PNG export, retired the Electron UI Lab and legacy screenshot workflow, synchronized Trellis contracts, and archived the completed child task after Architecture and manual acceptance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `30e0e54` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 252: Diagnostics Readability / Export Cleanup closure
+
+**Date**: 2026-08-19
+**Task**: Diagnostics Readability / Export Cleanup closure
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+Cherry-picked the Architecture-PASS Diagnostics repair onto the authoritative MR9 lineage without importing divergent main history; validated diagnostics contracts and archived the task.
+
+### Main Changes
+
+- Integrated reviewed Diagnostics checkpoint 353a798 as b9ba027 on the MR9 line.
+- Preserved MR9 pre-existing dirty validation artifacts byte-for-byte by aggregate status and tracked-diff hashes.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b9ba027` | (see git log) |
+
+### Testing
+
+- [OK] Focused Diagnostics suite: 196/196 passed.
+- [OK] Type-check, lint, app build, docs build, diff check, and architecture invariant assertions passed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Resume MR9 Thermal FX Visual Repair only under a separately authorized prompt from this authoritative branch state.
+
+
+## Session 253: MR9 Thermal FX Visual Repair 收尾
+
+**Date**: 2026-08-20
+**Task**: MR9 Thermal FX Visual Repair 收尾
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+完成 MR9 Earlier Motion Baseline + Material / Palette / Edge Repair 验收、提交与归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e01be0157a61b2b8fca3c4d6c96d57dd731227b9` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 254: Complete Thermal Refraction 2D Material Model spike
+
+**Date**: 2026-08-21
+**Task**: Complete Thermal Refraction 2D Material Model spike
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+Implemented and visually validated the Lab-only Thermal Refraction spike with a covered-region 2D multi-temperature field, preserved single-renderer and Reduced Motion invariants, retained all matched evidence, and stopped before timing or production work.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `046f228` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 255: Directional Exit Terminal Convergence spike rejected and abandoned
+
+**Date**: 2026-08-21
+**Task**: Directional Exit Terminal Convergence spike rejected and abandoned
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+GPT Architecture Lead rejected the visual experiment; retained all evidence, restored product/test files to 8a80474, and archived without an implementation commit.
+
+### Main Changes
+
+- Retained planning, implementation report, captures, validation, and failed visual evidence in the rejected task archive.
+- Restored ExpandedPresentationSurface.tsx and expandedPresentationSurface.test.ts exactly to stable checkpoint 8a80474; no Directional Exit implementation commit exists.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Focused Vitest 61/61; type-check and lint passed; full npm test 1773/1774 with the pre-existing browser-extension/architecture-guard.test.js:277 assertion failure; product/test diff after restore is empty.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- No new Thermal Source planning started; stop and await explicit direction.
+
+
+## Session 256: MR9 Localized Thermal Production Checkpoint Closure
+
+**Date**: 2026-08-22
+**Task**: MR9 Localized Thermal Production Checkpoint Closure
+**Branch**: `motion/mr9-fullscreen-activation-fx`
+
+### Summary
+
+Frozen the Architecture-approved localized Thermal + Refraction + real-boundary response + subordinate halo production checkpoint; revalidated focused/full gates, recorded Windows packaged-directory EPERM and macOS as not verified, archived accepted/rejected/production MR9 tasks, and stopped before any new visual experiment.
+## Session 256: Finalize UI Lab Refresh Presentation Playground
+
+**Date**: 2026-08-23
+**Task**: Finalize UI Lab Refresh Presentation Playground
+**Branch**: `planning/ui-lab-refresh`
+
+### Summary
+
+Committed and archived the validated UI Lab Presentation Playground with unified Workspace Shell, Full/Compact Auto previews, Lab-local controls, final browser evidence, and preserved production boundaries.
+
+### Main Changes
+
+- Committed the validated UI Lab implementation and all planning/report/screenshot evidence.
+- Archived the layout-repair child first, then the UI Lab Refresh parent with the existing relationship intact.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0e24a7a` | (see git log) |
+| `878d868` | (see git log) |
+
+### Testing
+
+- [OK] Lab 118/118, type-check, lint, production build, diff/isolation checks, and real Edge/Playwright validation passed.
+- [OK] Full suite remains 1822/1823 with only the pre-existing Windows CRLF-sensitive browser-extension assertion.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Await future work outside this archived task chain; do not add Agentation or Compact Mascot work here.
+
+
+## Session 257: Agentation Integration Final Placement Repair
+
+**Date**: 2026-08-23
+**Task**: Agentation Integration Final Placement Repair
+**Branch**: `planning/ui-lab-refresh`
+
+### Summary
+
+Completed and finalized the UI Lab-only agentation@3.0.2 integration: grouped Background and Reset at Preview lower-left, placed the official toolbar near Preview lower-right through its className escape hatch, revalidated browser interactions/origin guard and production artifact isolation, then archived the spike and parent planning tasks.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6d5b5f3` | (see git log) |
+
+### Status
+
+[OK] **Completed**

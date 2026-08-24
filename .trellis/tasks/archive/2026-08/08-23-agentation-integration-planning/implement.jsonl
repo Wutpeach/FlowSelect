@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Keep the third-party tool inside the dev-only Lab graph, preserve production Presentation boundaries, and require real build/package isolation evidence."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Use the official React component directly without a speculative wrapper, adapter, provider, or duplicated UI."}
+{"file":".trellis/tasks/08-23-agentation-integration-planning/research/upstream-agentation.md","reason":"Use the verified 3.0.2 integration, published-package behavior, React/source limitations, and PolyForm Shield obligations."}
+{"file":".trellis/tasks/08-23-agentation-integration-planning/research/repository-compatibility.md","reason":"Use the final UI Lab DOM, scaling, hit targets, pointer risk, placement, and minimum real-browser retention gate."}

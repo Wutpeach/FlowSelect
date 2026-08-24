@@ -9,7 +9,7 @@ _Part 4 of 4._
 | Renderer imports `electron` or `@tauri-apps/*` directly after migration starts | Code review / type review | Desktop runtime stays preload-mediated | Route through `window.ameow` only |
 | Command name or payload key changes during transport migration | Renderer command call path | Existing TS call sites keep working | Preserve names/keys or update this spec and call sites together |
 | Window labels drift from `main` / `settings` / `context-menu` | Window lookup/focus path | Existing focus/close logic still works | Keep labels stable |
-| `ui-lab` is reachable in packaged builds | Dev-only preview boundary | Production builds stay free of internal preview tooling | Gate window open + scenario commands behind `!app.isPackaged` and hide renderer route/UI entry points outside dev |
+| Dev-only UI Lab (`ui-lab` window / `openUiLab` / `dev_ui_lab_apply_scenario` / `ui-lab-reset`) reappears | Dev-only preview boundary | The Electron UI Lab is retired; dev preview/export lives in the Browser Lab (plain Vite, no Electron, no desktop bridge) | Keep the bridge surface free of any UI Lab label/command; Browser Lab scenarios use production state/payload types plus applicable selectors/helpers/projections and render through the production surface |
 | Main close quits the app instead of hiding | Tray lifecycle | Current compact-tray behavior regresses | Keep hide-on-close for `main` |
 | Windows utility windows surface taskbar entries by default | Windows desktop shell behavior | Ameow stays tray-first and does not pin floating utility windows into the taskbar | Set `skipTaskbar: true` for `main` and default secondary windows on Windows unless explicitly overridden |
 | Packaged Windows transparent frameless windows become invisible even though tray/process state is healthy | Main/settings packaged startup on affected machines | Ameow should keep transparent parity by default and use the opaque path only when the explicit diagnostic escape hatch is enabled | Keep the default transparent-shell path intact and gate the opaque fallback behind the global override |
@@ -21,15 +21,15 @@ _Part 4 of 4._
 | Packaged `dist/index.html` still references `/assets/...` while BrowserWindow loads `file:///.../dist/index.html` | Packaged `main` / `settings` renderer startup | React UI loads bundled JS/CSS from the app directory instead of showing only the host window background | Set a `file://`-safe Vite build base such as `./` and verify emitted HTML |
 | Renderer continues normal bootstrap when Electron is detected but `window.ameow` is missing | Renderer startup | Bridge failures are visible and diagnosable | Fail fast with explicit bridge error UI |
 | App events are multiplexed through one shared IPC channel | Renderer event subscriptions | No listener leak warning during ordinary usage | Use `ameow:event:<event>` channels |
-| UI Lab invents duplicate renderer-only mock components | Preview-tooling review | Preview remains representative of the real main-window UI | Drive the existing main window with real app events / runtime-command overrides |
-| Non-runtime UI Lab preview leaks the live runtime indicator into download/transcode scenes | Preview-tooling review | Each preview shows only the state it is meant to demonstrate | Apply a ready runtime override for non-runtime scenarios and emit the override on every gate event while preview mode is active |
-| UI Lab scenario replay reuses `shortcut-show` or renderer preview mode does not suppress minimized visuals | Preview-tooling review | Preview opens once and stays in full main-window mode without circular-shell clipping, disappearance, or first-click flicker | Keep preview activation on the dedicated `ui-lab-reset` path and force renderer visual state to full mode while preview is active |
-| Renderer clears minimized/full-mode task or processing state before compact native bounds are restored during download/transcode/direct-processing | Main window enters a foreground feedback mode from compact icon mode | Foreground UI never appears cropped inside the compact native window | Restore BrowserWindow bounds first, then flip renderer state through one shared foreground-task helper |
-| A stale compact/full bounds completion resolves after a newer request | Main window compact/full transition | Late async work cannot reapply stale `80x80` / `200x200` bounds or renderer state | Carry and validate a transition token across the `currentWindow.animateBounds(...)` request/response contract |
+| Dev-only preview re-introduces duplicate renderer-only mock components | Preview-tooling review | Preview remains representative of the real main-window UI | Browser Lab mounts the production `ExpandedPresentationSurface` and shared overlay components as-is; it synthesizes typed state/payload fixtures and uses applicable production selectors/helpers/projections, never duplicate widgets |
+| Dev-only preview leaks the live runtime indicator into download/transcode scenes | Preview-tooling review | Each preview shows only the state it is meant to demonstrate | Browser Lab fixtures drive the same production selectors; runtime/transcode surfaces are DOM-based, so their shader stays idle (asserted in validation) |
+| Dev-only scenario replay reuses `shortcut-show` or bypasses the lifecycle | Preview-tooling review | Preview stays self-contained without touching production lifecycle/native paths | Browser Lab runs in a plain browser page (no Electron); it never emits production events, never overrides runtime commands, and leaves the lifecycle authority untouched |
+| Foreground feedback paints before explicit full intent is reduced | Main window enters a foreground feedback mode from compact icon mode | Foreground UI never appears cropped inside the compact shell | Issue explicit full intent through the presentation lifecycle before outcome state paints; the lifecycle owns the transition recipe |
+| A stale compact reachability correction resolves after the surface expanded again | Main window compact/full transition | Late async work cannot move a newer full surface | Returning to interactive mode cancels the active correction; the semantic reachability operation carries a `requestEpoch` guard; no generic renderer bounds animation exists |
 | Windows autostart reads only `openAtLogin` | Settings autostart status | UI can show enabled even when the current executable will not actually launch at login | Query the current executable path and treat `executableWillLaunchAtLogin` plus matching `launchItems.enabled` as the effective status |
 | Windows autostart write path omits a stable registry name or Startup Approved state | Settings autostart toggle | Re-enabling can create drifted entries or fail to reactivate the existing startup item cleanly | Write explicit `name`, `path`, `args`, and `enabled` fields together |
 | Frameless drag awaits `invoke(...)` or `set_window_position` on every pointer move | Main window drag path | Drag remains smooth and continuous | Use `currentWindow.setPosition(...)` fire-and-forget IPC, optionally RAF-batched |
-| Frameless `ui-lab` window has no declared drag region | Secondary window UX | The dev-only child window can still be repositioned like the other floating surfaces | Put a drag region on the header/shell and mark action buttons as `no-drag` |
+| Frameless dev-only windows reintroduce a non-draggable child surface | Secondary window UX | Dev-only preview stays outside Electron, so no secondary dev window exists to drag | Browser Lab is a plain Vite page; no new frameless BrowserWindow is created |
 | Managed runtime manifest lookup or asset download stalls indefinitely | Runtime bootstrap path | The gate does not stay in `checking`/`downloading` forever | Add bounded manifest timeout plus progress-based download stall timeout and convert timeout to `failed` |
 | WebSocket host/port changes from `127.0.0.1:39527` | Browser extension connect path | Extension reconnect logic keeps working | Keep fixed loopback endpoint |
 | Request correlation omits echoed `requestId` | Extension pending-request map | Background promise resolution breaks | Echo `data.requestId` on correlated responses |
@@ -49,16 +49,16 @@ _Part 4 of 4._
 - Good:
   - Renderer code replaces `invoke(...)` / `listen(...)` imports with `window.ameow` calls while command names and payload types remain unchanged.
   - Electron renderer startup surfaces an explicit bridge-failure screen if preload is missing instead of mounting an inert app shell.
-  - On Windows startup, `main` reveals at full native bounds first, then only enters compact mode through the same idle path used later in the session.
+  - On Windows startup, `main` reveals at the stable full viewport first, then only enters compact mode through the same lifecycle path used later in the session.
   - Electron dev startup reaches a visible `main` window on first stable paint without waiting for the full packaged-only renderer-ready handshake.
   - Non-critical startup status widgets do not mount until the initial full-window reveal has settled, but a user-triggered foreground action can still force the needed runtime refresh on demand.
   - Packaged startup reads config once for first-window theme, tray labels, and shortcut registration instead of serializing multiple config parses before the first reveal.
   - On Windows, the app exposes only the tray icon during normal idle/show-hide usage while `main`, `settings`, and other utility windows stay off the taskbar.
   - On Windows, the tray icon and any BrowserWindow icon surfaces use the Ameow app icon instead of the Electron default icon.
-  - Download/transcode progress and direct-processing feedback restore `main` through one shared helper, so the full-size shell never renders inside compact native bounds.
+  - Download/transcode progress and direct-processing feedback restore `main` through one shared lifecycle intent, so the full shell never renders inside the compact presentation.
   - Frameless main-window dragging stays smooth because pointer moves use `currentWindow.setPosition(...)` over fire-and-forget IPC instead of request/response invoke loops.
-  - In development, Settings opens `ui-lab`, the lab applies `dev_ui_lab_apply_scenario`, and the real main window reflects the mocked runtime/download/transcode states.
-  - Repeatedly switching UI Lab scenarios keeps the real main window in full-mode visuals, with no circular minimized shell wrapped around preview content.
+  - Dev preview/export lives entirely in the Browser Lab (plain Vite, port 1421, no Electron): scenario fixtures drive the production surface/selectors and the one-click 4x PNG export preserves the 200x200 CSS composition.
+  - The production Electron surface carries no UI Lab label, command, event, or route; production bundles exclude all Lab code.
   - Main/settings/context-menu can all subscribe to app events without `MaxListenersExceededWarning`.
   - Browser extension still connects to `ws://127.0.0.1:39527`, `get_language` succeeds, and `video_selected_v2` responses echo `requestId`.
   - Windows installer builds support in-app updates through the NSIS installer asset, while Windows portable builds support portable ZIP self-update through the external helper path.
@@ -68,13 +68,13 @@ _Part 4 of 4._
 - Base:
   - Electron main uses different implementation details internally, but renderer, config, and extension contracts stay stable.
   - Child-window creation moves out of renderer and into Electron main without changing labels or visible behavior.
-  - Startup may still compact after the normal idle delay, but it does not perform a startup-only immediate shrink as part of first reveal.
+  - Startup may still compact after the normal lifecycle settle path, but it does not perform a startup-only immediate shrink as part of first reveal.
   - Packaged startup may still perform native tray/shortcut setup work around first reveal, but shared config-derived startup decisions come from one snapshot instead of repeated config reads.
   - Dev-only tooling may add one extra secondary label as long as packaged builds reject it cleanly.
   - Foreground events may arrive before the first visible progress payload or before a direct-processing spinner/check state, but the window-restore ordering stays centralized.
   - Title-bearing video downloads continue using title-first stems, while title-less Pinterest requests may still use the provider-specific short-id fallback.
 - Bad:
-  - Windows startup reveals `main` in an `80x80` native compact shell before the user has had any full-window settle time.
+  - The native main window is created at compact icon size instead of the stable full viewport.
   - Startup reveals the full window and then immediately forces a startup-only compact transition before the regular idle timer has a chance to govern compacting.
   - Dev startup keeps the first show blocked on a long renderer-ready handshake even though a stable first paint was already available.
   - Deferred startup checks stay delayed even after a user-triggered action needs runtime status immediately, so the first foreground action fails on missing cached state.
@@ -85,8 +85,8 @@ _Part 4 of 4._
   - Renderer silently falls back to plain browser behavior when the Electron bridge is missing.
   - All app events share one `"ameow:event"` channel and rely on renderer-side event-name filtering.
   - UI Lab is shipped as a production-facing route or button.
-  - UI Lab preview shows status/task content while the shell is still clipped to the compact circular icon shape.
-  - Download, transcode, or direct-processing feedback sets renderer full-mode state first and only resizes the native window afterward, so the panel is visibly cropped.
+  - UI Lab preview shows status/task content while the shell is still clipped to the compact circular icon shape, or preview bypasses the lifecycle with visual overrides.
+  - Foreground feedback paints before the lifecycle reduces explicit full intent, so the panel is visibly cropped or flashes inside the compact shell.
   - Pointer-move drag updates await `invoke(...)` round-trips.
   - Renderer starts importing `ipcRenderer` directly.
   - A random/dynamic port replaces `39527`.
@@ -102,7 +102,7 @@ _Part 4 of 4._
   - `npm run type-check` passes with `src/types/electronBridge.ts` as the preload source of truth.
   - No post-migration renderer file introduces fresh `@tauri-apps/*` imports.
 - Runtime behavior:
-  - Start Electron dev for `main`, `settings`, `context-menu`, and `ui-lab` and assert `window.ameow` exists before the normal UI boot path continues.
+  - Start Electron dev for `main`, `settings`, and `context-menu` and assert `window.ameow` exists before the normal UI boot path continues.
   - On Windows first launch, assert `main` reveals at `200x200` native bounds and does not immediately shrink to compact before the normal idle timeout expires.
   - In Electron dev, cold-start the app and assert `main` becomes visible on the first stable paint without waiting for tray/shortcut bootstrap completion.
   - Leave the startup-full window before the first idle compact and assert the app re-arms idle compact instead of collapsing immediately on that first pointer leave.
@@ -120,16 +120,16 @@ _Part 4 of 4._
   - Launch a second instance and assert the existing `main` window is focused/shown.
   - Open `settings` and `context-menu` and assert label-based focus/close behavior still works.
   - On Windows, assert the tray icon and BrowserWindow icon surfaces use the Ameow app icon instead of the default Electron icon in both dev and packaged runs.
-  - In development, open `ui-lab`, apply each preset, and assert the main window updates through the real runtime/download/transcode UI.
-  - In development, click multiple UI Lab scenario buttons back-to-back and assert the first click reveals the main preview without needing retries or producing a circular minimized shell.
-  - Open `ui-lab` and assert the header can drag the frameless child window while the close button remains clickable.
+  - In the Browser Lab (plain Vite, port 1421), apply each migrated scenario and assert the production surface/selectors render the intended state without any Electron bridge.
+  - In the Browser Lab, click multiple scenario buttons back-to-back and assert the preview stays live and the shader/program remains linked.
+  - In the Browser Lab, click the one-click 4x PNG export and assert the preview CSS stays 200x200 during the export, the badge landmark lands at exactly 4x its live rect, and the 200-downsample reproduces the live rect.
   - Start from compact icon mode, trigger download progress, and assert `main` returns to full native bounds before the full task panel becomes visible.
   - Start from compact icon mode, trigger transcode progress, and assert the same no-crop restore contract holds.
   - Start from compact icon mode, trigger a direct image/file processing path, and assert the processing feedback UI does not render inside compact native bounds.
   - Keep `main` already expanded and emit repeated download/transcode progress updates; assert no redundant full-size resize loop or focus steal occurs.
-  - With live managed runtimes missing, apply a non-runtime UI Lab preset and assert no runtime indicator leaks into the preview; then apply a runtime preset and assert the runtime indicator still appears with the mocked gate payload.
-  - Reset from `ui-lab` and assert the main window clears preview state and refreshes live runtime context.
-  - In a packaged build, assert UI Lab entry points are not exposed and direct IPC attempts are rejected.
+  - With live managed runtimes missing, the Browser Lab's runtime-failed fixture shows the runtime indicator with the fixture gate payload (hover popover diagnostic) and no unrelated progress ring; download/transcode fixtures drive the determinate/idle shader modes asserted in validation.
+  - In the Browser Lab, export each scenario PNG and assert 912x912 transparent geometry: 200x200 content at 4x plus the production 14px gutter per side, with the live badge landmark preserved at a 56px backing-pixel inset; the export restores preview state afterwards.
+  - In the Browser Lab, assert no production Electron entry point (label/command/route) is referenced and the production bundle excludes all Lab code.
   - Drag the frameless main window continuously and assert movement remains smooth without getting stuck mid-drag.
   - Simulate a stalled runtime manifest request or stalled runtime asset download and assert the gate transitions to `failed` within the timeout window instead of remaining active indefinitely.
   - Repeatedly open UI surfaces that subscribe to app events and assert the Electron process does not emit `MaxListenersExceededWarning`.
@@ -186,13 +186,13 @@ const ws = new WebSocket("ws://127.0.0.1:39527");
 ```
 
 ```ts
-setIsMinimized(false);
-await currentWindow.animateBounds({ x, y, width: 200, height: 200 });
+// No renderer-facing generic bounds animation exists; native placement is the
+// semantic compact-reachability operation owned by Electron main.
 ```
 
 Why wrong:
-- Renderer can render full-size task content while the native window is still compact-sized.
-- Separate task paths can drift if each listener owns its own restore sequence.
+- A foreground path that renders full-size content before the lifecycle reduces explicit full intent can paint inside the compact shell.
+- Separate task paths can drift if each listener owns its own restore sequence instead of issuing lifecycle intent.
 
 ```ts
 await prepareMainWindowForForegroundTask();

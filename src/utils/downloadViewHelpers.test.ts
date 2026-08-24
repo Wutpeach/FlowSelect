@@ -279,6 +279,39 @@ describe("video queue helpers", () => {
       ],
     });
   });
+
+  it("keeps only a nonblank Intake marker that identifies a normalized task", () => {
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: " accepted ",
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).toMatchObject({ acceptedTraceId: "accepted" });
+
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: "missing",
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).not.toHaveProperty("acceptedTraceId");
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: "   ",
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).not.toHaveProperty("acceptedTraceId");
+  });
+
+  it("accepts an Intake origin only beside a valid accepted marker", () => {
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: "accepted",
+      acceptedIntakeOrigin: { x: 0.25, y: 0.75 },
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).toMatchObject({ acceptedIntakeOrigin: { x: 0.25, y: 0.75 } });
+    expect(normalizeVideoQueueDetail({
+      acceptedTraceId: "accepted",
+      acceptedIntakeOrigin: { x: 2, y: Number.NaN },
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).not.toHaveProperty("acceptedIntakeOrigin");
+    expect(normalizeVideoQueueDetail({
+      acceptedIntakeOrigin: { x: 0.25, y: 0.75 },
+      tasks: [{ traceId: "accepted", label: "Video", status: "pending" }],
+    })).not.toHaveProperty("acceptedIntakeOrigin");
+  });
 });
 
 describe("video transcode queue helpers", () => {

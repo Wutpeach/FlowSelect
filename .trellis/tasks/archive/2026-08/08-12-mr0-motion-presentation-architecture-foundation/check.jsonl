@@ -1,0 +1,9 @@
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Verify heterogeneous execution, disposal, retarget, reduced motion, settled sleep, and interpolation contracts are explicit without a shared animator."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Verify authority uniqueness and persistent/transient/terminal composition do not create duplicate Product or lifecycle state."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify dependency guards and no high-frequency React/Main/IPC motion requirements are executable."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify one-way Product facts to projection to renderer-local pixels across renderer, preload, and Electron layers."}
+{"file":".trellis/tasks/08-12-mr0-motion-presentation-architecture-foundation/research/motion-presentation-baseline-audit.md","reason":"Check preserved M0-M2 authority/test anchors and current stack evidence."}
+{"file":".trellis/tasks/08-12-mr0-motion-presentation-architecture-foundation/research/m3-intake-implementation-audit.md","reason":"Check M3 provenance, reusable/superseded classification, and no visual baseline leakage."}
+{"file":".trellis/tasks/08-12-mr0-motion-presentation-architecture-foundation/research/windows-correctness-risks-and-validation.md","reason":"Check both reachable Windows chains and focused/manual validation gates."}
+{"file":".trellis/tasks/08-12-mr0-motion-presentation-architecture-foundation/design.md","reason":"Audit all fixed decisions and the 13 acceptance-question crosswalk."}
+{"file":".trellis/tasks/08-12-mr0-motion-presentation-architecture-foundation/implement.md","reason":"Audit retarget, stale-dispose, persistent restoration, terminal priority, reduced motion, sleep/wake, interpolation, heterogeneous consumers, regression, and Windows coverage."}

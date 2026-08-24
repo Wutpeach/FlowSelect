@@ -13,7 +13,7 @@ import {
   shouldEnablePackagedStartupDiagnostics,
   shouldUsePackagedWindowsOpaqueWindow,
 } from "./windowVisibility.mjs";
-import { MAIN_WINDOW_COMPACT_STARTUP_SIZE } from "./startupWindowMode.mjs";
+import { MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE } from "../src/constants/windowMetrics.js";
 
 describe("shouldUsePackagedWindowsOpaqueWindow", () => {
   it("keeps transparent parity by default on packaged Windows builds", () => {
@@ -141,18 +141,18 @@ describe("resolveMainWindowRevealBounds", () => {
       bounds: {
         x: 100,
         y: 120,
-        width: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
-        height: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+        width: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
+        height: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
       },
       displays: [display],
       fallbackDisplay: display,
-      minimumWidth: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
-      minimumHeight: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+      minimumWidth: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
+      minimumHeight: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
     })).toEqual({
       x: 100,
       y: 120,
-      width: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
-      height: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+      width: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
+      height: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
     });
   });
 
@@ -198,19 +198,19 @@ describe("resolveMainWindowRevealBounds", () => {
       bounds: {
         x: 24,
         y: 32,
-        width: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
-        height: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+        width: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
+        height: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
       },
       displays: [display],
       fallbackDisplay: display,
       forceCenter: true,
-      minimumWidth: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
-      minimumHeight: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+      minimumWidth: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
+      minimumHeight: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
     })).toEqual({
       x: 920,
       y: 500,
-      width: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
-      height: MAIN_WINDOW_COMPACT_STARTUP_SIZE,
+      width: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
+      height: MAIN_WINDOW_DEFAULT_COMPACT_OUTER_SIZE,
     });
   });
 });

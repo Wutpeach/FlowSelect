@@ -237,8 +237,8 @@ export const normalizeVideoQueueState = (
 
 export const normalizeVideoQueueDetail = (
   payload: Partial<VideoQueueDetailPayload> | null | undefined,
-): VideoQueueDetailPayload => ({
-  tasks: Array.isArray(payload?.tasks)
+): VideoQueueDetailPayload => {
+  const tasks = Array.isArray(payload?.tasks)
     ? payload.tasks.flatMap((task) => {
         if (!task || typeof task.traceId !== "string" || typeof task.label !== "string") {
           return [];
@@ -278,8 +278,39 @@ export const normalizeVideoQueueDetail = (
           qualityOptions,
         }];
       })
-    : [],
-});
+    : [];
+  const acceptedTraceId = typeof payload?.acceptedTraceId === "string"
+    ? payload.acceptedTraceId.trim()
+    : "";
+  const acceptedIntakeOrigin = payload?.acceptedIntakeOrigin;
+  const validAcceptedIntakeOrigin = (
+    acceptedIntakeOrigin
+    && typeof acceptedIntakeOrigin === "object"
+    && !Array.isArray(acceptedIntakeOrigin)
+    && typeof acceptedIntakeOrigin.x === "number"
+    && Number.isFinite(acceptedIntakeOrigin.x)
+    && acceptedIntakeOrigin.x >= 0
+    && acceptedIntakeOrigin.x <= 1
+    && typeof acceptedIntakeOrigin.y === "number"
+    && Number.isFinite(acceptedIntakeOrigin.y)
+    && acceptedIntakeOrigin.y >= 0
+    && acceptedIntakeOrigin.y <= 1
+  )
+    ? { x: acceptedIntakeOrigin.x, y: acceptedIntakeOrigin.y }
+    : undefined;
+  return {
+    tasks,
+    ...(acceptedTraceId.length > 0
+      && tasks.some((task) => task.traceId === acceptedTraceId)
+      ? {
+          acceptedTraceId,
+          ...(validAcceptedIntakeOrigin === undefined
+            ? {}
+            : { acceptedIntakeOrigin: validAcceptedIntakeOrigin }),
+        }
+      : {}),
+  };
+};
 
 const normalizeVideoTranscodeStage = (
   stage: unknown,

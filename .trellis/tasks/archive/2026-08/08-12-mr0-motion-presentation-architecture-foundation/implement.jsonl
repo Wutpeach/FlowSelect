@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Codify authority direction, disposable renderer-local runtime lifecycle, bounded interruption, retarget, reduced-motion semantic execution, sleep/wake, and interpolation classes without defining an engine."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Record Product facts, Presentation Lifecycle, projected persistent/transient/terminal presentation, and continuous runtime as separate ownership layers."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Keep MainWindowPresentationSurface as wiring/composition and recipes/scheduling consumer-local."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Place narrow projection and renderer-local modules without introducing a shared runtime hierarchy."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Add forbidden dependency and high-frequency React/Main/IPC motion patterns."}
+{"file":".trellis/tasks/08-12-mr0-motion-presentation-architecture-foundation/research/motion-presentation-baseline-audit.md","reason":"Repository evidence for M0-M2 ownership, dependency direction, current stack, source/test integration points, and surface responsibilities."}
+{"file":".trellis/tasks/08-12-mr0-motion-presentation-architecture-foundation/research/m3-intake-implementation-audit.md","reason":"Classify dirty M3 reusable concepts versus superseded Reveal/Progress presentation paths and their tests."}
+{"file":".trellis/tasks/08-12-mr0-motion-presentation-architecture-foundation/research/windows-correctness-risks-and-validation.md","reason":"Keep both Windows issues reachable and map their exact call chains, focused suites, and repair gates."}

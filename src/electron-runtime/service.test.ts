@@ -351,6 +351,68 @@ describe("AmeowElectronDownloadRuntime", () => {
     expect(events.some((entry) => entry.event === "video-download-complete")).toBe(true);
   });
 
+  it("atomically marks each authoritative snapshot across concurrent new memberships", async () => {
+    const events: Array<{ event: RuntimeEmitterEvent; payload: unknown }> = [];
+    const runtime = createRuntime({
+      providers: [genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async () => new Promise(() => undefined)),
+      ],
+      onEmit(event, payload) {
+        events.push({ event, payload });
+      },
+    });
+
+    const [first, second] = await Promise.all([
+      runtime.queueVideoDownload({ url: "https://example.com/intake-a" }),
+      runtime.queueVideoDownload({ url: "https://example.com/intake-b" }),
+    ]);
+    const markedDetails = events
+      .filter((entry) => entry.event === "video-queue-detail")
+      .map((entry) => entry.payload as {
+        acceptedTraceId?: string;
+        tasks: Array<{ traceId: string }>;
+      })
+      .filter((detail) => detail.acceptedTraceId !== undefined);
+
+    expect(markedDetails).toEqual([
+      expect.objectContaining({
+        acceptedTraceId: first.traceId,
+        tasks: [expect.objectContaining({ traceId: first.traceId })],
+      }),
+      expect.objectContaining({
+        acceptedTraceId: second.traceId,
+        tasks: [
+          expect.objectContaining({ traceId: first.traceId }),
+          expect.objectContaining({ traceId: second.traceId }),
+        ],
+      }),
+    ]);
+    expect(runtime.getQueueDetail()).not.toHaveProperty("acceptedTraceId");
+  });
+
+  it("emits a local Intake origin only on the same new-membership marker", async () => {
+    const events: Array<{ event: RuntimeEmitterEvent; payload: unknown }> = [];
+    const runtime = createRuntime({
+      providers: [genericProvider],
+      engines: [createEngineStub("yt-dlp", async () => new Promise(() => undefined))],
+      onEmit(event, payload) {
+        events.push({ event, payload });
+      },
+    });
+    const ack = await runtime.queueDownload(
+      { url: "https://example.com/origin" },
+      { intakeOrigin: { x: 0.2, y: 0.7 } },
+    );
+    const marked = events.find((entry) => entry.event === "video-queue-detail"
+      && (entry.payload as { acceptedTraceId?: string }).acceptedTraceId === ack.traceId)?.payload;
+    expect(marked).toMatchObject({
+      acceptedTraceId: ack.traceId,
+      acceptedIntakeOrigin: { x: 0.2, y: 0.7 },
+    });
+    expect(runtime.getQueueDetail()).not.toHaveProperty("acceptedIntakeOrigin");
+  });
+
   it("cancels pending work immediately", async () => {
     const completed: Array<{ traceId: string; success: boolean; error?: string }> = [];
     const telemetry: DownloadTelemetryEvent[] = [];
@@ -623,6 +685,13 @@ describe("AmeowElectronDownloadRuntime", () => {
 
     expect(runYtDlpAdvancedQualityProbeMock).toHaveBeenCalledTimes(1);
     expect(events.some((entry) => entry.event === "video-download-progress")).toBe(false);
+    const markedDetails = events
+      .filter((entry) => entry.event === "video-queue-detail")
+      .map((entry) => entry.payload as { acceptedTraceId?: string })
+      .filter((detail) => detail.acceptedTraceId !== undefined);
+    expect(markedDetails).toEqual([
+      expect.objectContaining({ acceptedTraceId: ack.traceId }),
+    ]);
   });
 
   it("probes advanced quality for an opaque fake Site declaring the requirement, without any Site allowlist", async () => {
@@ -988,6 +1057,7 @@ describe("AmeowElectronDownloadRuntime", () => {
   });
 
   it("dedupes repeated advanced-quality requests for the same video", async () => {
+    const events: Array<{ event: RuntimeEmitterEvent; payload: unknown }> = [];
     const runtime = createRuntime({
       providers: [youtubeProvider, genericProvider],
       engines: [
@@ -997,6 +1067,9 @@ describe("AmeowElectronDownloadRuntime", () => {
           filePath: `${context.outputDir}/${context.outputStem}.mp4`,
         })),
       ],
+      onEmit(event, payload) {
+        events.push({ event, payload });
+      },
     });
 
     let releaseProbe: (() => void) | undefined;
@@ -1026,6 +1099,11 @@ describe("AmeowElectronDownloadRuntime", () => {
 
     expect(second.traceId).toBe(first.traceId);
     expect(runtime.getQueueState().activeCount).toBe(1);
+    expect(events
+      .filter((entry) => entry.event === "video-queue-detail")
+      .map((entry) => entry.payload as { acceptedTraceId?: string })
+      .filter((detail) => detail.acceptedTraceId !== undefined))
+      .toEqual([expect.objectContaining({ acceptedTraceId: first.traceId })]);
 
     if (releaseProbe) {
       releaseProbe();
@@ -1211,6 +1289,7 @@ describe("AmeowElectronDownloadRuntime", () => {
 
   it("continues the same advanced-quality task into a normal download after selection", async () => {
     const seenTraceIds: string[] = [];
+    const events: Array<{ event: RuntimeEmitterEvent; payload: unknown }> = [];
     const runtime = createRuntime({
       providers: [youtubeProvider, genericProvider],
       engines: [
@@ -1225,6 +1304,9 @@ describe("AmeowElectronDownloadRuntime", () => {
           };
         }),
       ],
+      onEmit(event, payload) {
+        events.push({ event, payload });
+      },
     });
 
     runYtDlpAdvancedQualityProbeMock.mockResolvedValueOnce({
@@ -1248,6 +1330,11 @@ describe("AmeowElectronDownloadRuntime", () => {
 
     await waitFor(() => seenTraceIds.includes(ack.traceId));
     expect(seenTraceIds).toEqual([ack.traceId]);
+    expect(events
+      .filter((entry) => entry.event === "video-queue-detail")
+      .map((entry) => entry.payload as { acceptedTraceId?: string })
+      .filter((detail) => detail.acceptedTraceId !== undefined))
+      .toEqual([expect.objectContaining({ acceptedTraceId: ack.traceId })]);
   });
 
   it("emits a failure completion and removes the task when advanced-quality probing fails", async () => {

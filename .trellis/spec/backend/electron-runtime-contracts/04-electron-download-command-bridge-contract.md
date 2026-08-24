@@ -25,6 +25,15 @@ type ElectronDownloadCommand =
   | "get_gallery_dl_info";
 ```
 
+Authoritative new-membership snapshot metadata:
+
+```ts
+type VideoQueueDetailPayload = {
+  tasks: VideoQueueTaskPayload[];
+  acceptedTraceId?: string;
+};
+```
+
 Pasted-video extension request:
 
 ```json
@@ -78,6 +87,7 @@ Pasted-video extension result:
 - `src/protocol/download/ipcMappers.ts` is the single wire -> canonical compatibility decoder and Application/core -> Renderer payload mapper (quality/request-ID aliases, capture evidence, progress/result/typed-error mapping).
 - `src/protocol/envelopes.ts` owns the IPC outer-envelope and WS root/action-envelope decoders used by `electron/main.mts`; both transports treat their root frame as untrusted (non-blank string command/action required, malformed WS roots get the `Invalid request` failure envelope).
 - `src/electron-runtime/service.ts` remains the only owner of video queue state, queue concurrency, cancellation, progress emission, terminal `video-download-complete`, telemetry, and transcode follow-up.
+- An actual new runtime membership (normal queue creation or a new advanced-quality task) emits exactly one existing `video-queue-detail` snapshot with transient `acceptedTraceId`. Ordinary snapshots, existing-trace quality selection, and advanced-quality dedupe are unmarked. The field is never persisted or added to the Download reducer/model, and no local ack or second event channel may substitute for it.
 - `electron/extensionRequestBridge.mts` owns pasted-video extension request correlation, timeout cleanup, result normalization, and shutdown rejection.
 - `queue_pasted_video_download` may use extension-assisted pre-resolution, but the resolved payload must be enqueued through the same `DownloadApplicationApi` queue path as `queue_video_download`.
 - `video_selected_v2` WebSocket requests must enqueue through `downloadWsAdapter` -> `DownloadApplicationApi`, not through a second queue implementation.
@@ -106,16 +116,20 @@ Pasted-video extension result:
 | `pasted_video_selection_result` has unknown correlation id | Return failed WS ack with `unknown_correlation_request` |
 | App is quitting with pending pasted-video requests | Reject pending bridge promises and clear timers |
 | Active runtime download is cancelled | Runtime emits terminal `video-download-complete` failure/cancel payload |
+| New normal or advanced-quality membership is created | Its exact queue-detail snapshot carries `acceptedTraceId` for that trace |
+| Existing advanced-quality trace is selected or deduped | Queue detail stays unmarked; no new membership is claimed |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: YouTube pasted URL asks the extension for page context, receives a resolved URL/metadata payload without cookies, and enqueues through `src/electron-runtime`.
 - Good: YouTube/Bilibili injected player sends `video_selected_v2` with `clipStartSec`, `clipEndSec`, and `extensionData`; Electron bridge forwards those fields unchanged into `queue_video_download`.
 - Good: A Weibo popup row with a selected `1080p` variant sends `selectedVideoVariant`, and backend failure text identifies the selected quality instead of silently downloading another quality.
+- Good: Renderer and Extension commands share the same Application/runtime insertion path, so the one marked queue snapshot is transport-neutral.
 - Base: Generic pasted URL has no extension-assisted site hint and enqueues directly through `src/electron-runtime`.
 - Bad: `electron/main.mts` reconstructs a `queue_video_download` payload inline and omits a browser-originated field such as `clipStartSec`, causing downstream runtime code to choose the full-video path.
 - Bad: Treating Weibo `selectedVideoVariant` as just another `videoCandidates[]` hint and allowing gallery-dl fallback to download a different quality.
 - Bad: Reintroducing `activeVideoDownloads`, `pendingVideoDownloads`, `child_process.spawn("yt-dlp", ...)`, or `--progress-template` handling in `electron/main.mts`.
+- Bad: Inferring acceptance from an unmarked full-snapshot delta, command timing, first progress, or a renderer callback.
 
 ### 6. Tests Required
 
@@ -124,6 +138,7 @@ Pasted-video extension result:
 - `electron/downloadWsAdapter.test.mts`: `video_selected_v2` queue decode, quality alias sync, selected variant preservation, pasted/site-session correlation results, `unknown_action` failed acks, queue-ack-only.
 - `src/protocol/download/ipcMappers.test.ts`: compatibility alias decoding, capture-evidence validation, full-chain `selectedVideoVariant` regression (wire -> decoder -> raw input schema), typed result/cancel mapping.
 - `src/protocol/envelopes.test.ts`: IPC/WS envelope decoders (null/array/missing/non-string/blank command or action, valid envelope preservation).
+- `src/electron-runtime/service.test.ts`, `src/utils/downloadViewHelpers.test.ts`, `src/features/download/client.test.ts`, and `src/features/download/useDownloadQueue.test.ts`: marked new membership, unmarked hydration/dedupe/existing selection, marker normalization, transport-neutral delivery, replay guard, and exact post-reduction publication.
 - `src/sites/providers.test.ts`: Weibo `selectedVideoVariant` resolves to one `yt-dlp` engine plan with the selected URL and no gallery-dl fallback.
 - `src/orchestration/download-orchestrator.test.ts`: explicit Weibo selected-variant failures include selected-quality wording.
 - `electron/videoDownloadCommands.test.mts`: operational commands only (transcode, runtime dependency).
@@ -144,4 +159,10 @@ spawn(ytdlpPath, ["--progress-template", "..."]);
 ```ts
 // electron/main.mts
 return getDownloadIpcAdapter().invoke("queue_video_download", payload);
+```
+
+For Intake causality, the runtime marks the snapshot it already owns:
+
+```ts
+await emitQueueState(newTraceId); // only immediately after new membership
 ```

@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Defines Motion ownership, transform authority, reduced-motion behavior, and the stable Main Window renderer/native morph contract."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Defines lifecycle single ownership and requires continuous pointer coordinates to remain local Motion values rather than React/application state."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Defines Main Window visual layering and contains the temporary pointer-following border guidance that M2 must replace accurately."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Provides the renderer/preload/main hot-path and native-boundary checks needed to keep Magnetic renderer-only."}
+{"file":".trellis/tasks/08-11-m2-pointer-field-magnetic/research/current-m2-presentation-audit.md","reason":"Repository-grounded map of current pointer, shell transform, Edge Glow, lifecycle, native surface, and test ownership."}

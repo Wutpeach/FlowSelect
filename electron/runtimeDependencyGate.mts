@@ -38,8 +38,6 @@ type RuntimeDependencyGateControllerOptions = {
 };
 
 export type RuntimeDependencyGateController = {
-  clearUiLabRuntimeGateOverride(): void;
-  setUiLabRuntimeGateOverride(gateState: RuntimeDependencyGateStatePayload): void;
   emitState(): RuntimeDependencyGateStatePayload;
   getState(): Promise<RuntimeDependencyGateStatePayload>;
   refreshState(): Promise<RuntimeDependencyGateStatePayload>;
@@ -138,12 +136,9 @@ export const createRuntimeDependencyGateController = (
     nextComponent: null,
   };
   let runtimeDependencyBootstrapPromise: Promise<void> | null = null;
-  let uiLabRuntimeGateOverride: RuntimeDependencyGateStatePayload | null = null;
 
   const emitRuntimeDependencyGateState = (): RuntimeDependencyGateStatePayload => {
-    const payload = uiLabRuntimeGateOverride
-      ? cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride, now)
-      : { ...runtimeDependencyGateState };
+    const payload = { ...runtimeDependencyGateState };
     options.emitAppEvent("runtime-dependency-gate-state", payload);
     return payload;
   };
@@ -270,9 +265,6 @@ export const createRuntimeDependencyGateController = (
   };
 
   const getRuntimeDependencyGateState = async (): Promise<RuntimeDependencyGateStatePayload> => {
-    if (uiLabRuntimeGateOverride) {
-      return cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride, now);
-    }
     if (runtimeDependencyBootstrapPromise) {
       return { ...runtimeDependencyGateState };
     }
@@ -281,12 +273,6 @@ export const createRuntimeDependencyGateController = (
   };
 
   return {
-    clearUiLabRuntimeGateOverride() {
-      uiLabRuntimeGateOverride = null;
-    },
-    setUiLabRuntimeGateOverride(gateState) {
-      uiLabRuntimeGateOverride = cloneRuntimeDependencyGateState(gateState, now);
-    },
     emitState() {
       return emitRuntimeDependencyGateState();
     },
@@ -294,21 +280,11 @@ export const createRuntimeDependencyGateController = (
       return getRuntimeDependencyGateState();
     },
     async refreshState() {
-      if (uiLabRuntimeGateOverride) {
-        const payload = cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride, now);
-        options.emitAppEvent("runtime-dependency-gate-state", payload);
-        return payload;
-      }
       const snapshot = await options.getRuntimeDependencyStatus();
       return syncRuntimeDependencyGateStateFromSnapshot(snapshot);
     },
     ensureMissingManagedRuntimesReady,
     async startBootstrap(reason = "frontend_after_visible") {
-      if (uiLabRuntimeGateOverride) {
-        const payload = cloneRuntimeDependencyGateState(uiLabRuntimeGateOverride, now);
-        options.emitAppEvent("runtime-dependency-gate-state", payload);
-        return payload;
-      }
       if (runtimeDependencyBootstrapPromise) {
         return { ...runtimeDependencyGateState };
       }

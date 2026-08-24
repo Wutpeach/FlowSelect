@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Keep the three Lab regions and Preview hosts within existing React component composition conventions."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Keep Preview Target and scenario state Lab-local without creating a second production state authority."}
+{"file":".trellis/tasks/08-22-ui-lab-refresh-planning/research/repository-baseline.md","reason":"Implement from the exact MR9 baseline, current scenario/projection flow, Full/Compact reuse boundaries, and scale contract."}
+{"file":".trellis/tasks/08-22-ui-lab-refresh-planning/research/agentation-feasibility.md","reason":"Apply the optional Agentation containment, hit-test, license, and proof gates without production changes."}

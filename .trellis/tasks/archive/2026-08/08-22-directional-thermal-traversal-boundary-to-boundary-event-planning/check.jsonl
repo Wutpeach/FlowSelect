@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Planning artifact and later spike validation quality gates."}
+{"file":".trellis/tasks/08-22-directional-thermal-traversal-boundary-to-boundary-event-planning/research/planning-report.md","reason":"Repaired signal inventory, chosen capture/contact direction, halo contract, spike and falsification gates."}
+{"file":".trellis/spec/frontend/character-motion.md","reason":"Review causality, terminal state, and Reduced Motion behavior."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Review runtime and renderer ownership boundaries."}

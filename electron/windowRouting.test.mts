@@ -7,7 +7,6 @@ import {
   buildRendererRoute,
   resolveBaseRendererUrl,
   resolveSecondaryWindowAnchorLabel,
-  resolveSecondaryWindowGap,
   resolveSecondaryWindowOpenOptions,
   secondaryWindowRoute,
 } from "./windowRouting.mjs";
@@ -16,7 +15,6 @@ const labels = {
   main: "main",
   settings: "settings",
   contextMenu: "context-menu",
-  uiLab: "ui-lab",
 };
 
 const createWindow = (bounds = {
@@ -57,7 +55,6 @@ describe("secondary window routing", () => {
   it("maps supported secondary window labels to renderer routes", () => {
     expect(secondaryWindowRoute("settings", labels)).toBe("/settings");
     expect(secondaryWindowRoute("context-menu", labels)).toBe("/context-menu");
-    expect(secondaryWindowRoute("ui-lab", labels)).toBe("/ui-lab");
     expect(() => secondaryWindowRoute("main", labels)).toThrow("Unsupported secondary window label");
   });
 
@@ -66,29 +63,6 @@ describe("secondary window routing", () => {
       labels,
       getWindow: vi.fn(),
     })).toBe("main");
-
-    expect(resolveSecondaryWindowAnchorLabel("ui-lab", {
-      labels,
-      getWindow: vi.fn(() => createWindow()),
-    })).toBe("settings");
-
-    expect(resolveSecondaryWindowAnchorLabel("ui-lab", {
-      labels,
-      getWindow: vi.fn(() => createWindow(undefined, true)),
-    })).toBe("main");
-  });
-
-  it("uses ui lab gap only for ui lab windows", () => {
-    expect(resolveSecondaryWindowGap("ui-lab", {
-      labels,
-      settingsGap: 16,
-      uiLabGap: 20,
-    })).toBe(20);
-    expect(resolveSecondaryWindowGap("settings", {
-      labels,
-      settingsGap: 16,
-      uiLabGap: 20,
-    })).toBe(16);
   });
 });
 
@@ -103,7 +77,6 @@ describe("secondary window placement", () => {
       height: 800,
     })),
     settingsGap: 16,
-    uiLabGap: 20,
     edgePadding: 8,
   };
 

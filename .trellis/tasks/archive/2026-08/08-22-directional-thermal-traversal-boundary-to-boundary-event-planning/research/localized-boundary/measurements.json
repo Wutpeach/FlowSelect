@@ -1,0 +1,361 @@
+{
+  "url": "http://127.0.0.1:1422/lab.html",
+  "platform": "Windows / Microsoft Edge / WebGL2",
+  "macOS": "NOT VERIFIED — no macOS runtime host",
+  "actualComponent": {
+    "linked": true,
+    "programLog": "",
+    "pageErrors": [],
+    "consoleWarnings": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "%s a style property during rerender (%s) when a conflicting property is set (%s) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values. Removing borderColor border",
+      "Unsupported style property %s. Did you mean %s? -electron-corner-smoothing ElectronCornerSmoothing",
+      "%s a style property during rerender (%s) when a conflicting property is set (%s) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values. Removing borderColor border",
+      "%s a style property during rerender (%s) when a conflicting property is set (%s) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values. Removing borderColor border"
+    ],
+    "networkErrors": [],
+    "instrumentation": {
+      "createProgram": 2,
+      "deleteProgram": 1,
+      "livePrograms": 1,
+      "compileShader": 4,
+      "linkProgram": 2,
+      "drawArrays": 843,
+      "createTexture": 0,
+      "createFramebuffer": 0,
+      "shaders": [
+        {
+          "type": 35633,
+          "ok": true,
+          "log": ""
+        },
+        {
+          "type": 35632,
+          "ok": true,
+          "log": ""
+        },
+        {
+          "type": 35633,
+          "ok": true,
+          "log": ""
+        },
+        {
+          "type": 35632,
+          "ok": true,
+          "log": ""
+        }
+      ],
+      "links": [
+        {
+          "ok": true,
+          "log": ""
+        },
+        {
+          "ok": true,
+          "log": ""
+        }
+      ]
+    },
+    "canvasCount": 1
+  },
+  "baselineEquivalence": {
+    "acceptedSize": [
+      200,
+      200
+    ],
+    "outerSize": [
+      228,
+      228
+    ],
+    "interiorDifferentBytes": 7444,
+    "interiorMaxDelta": 255,
+    "visibleInteriorDifferentBytes": 6603,
+    "visibleInteriorMaxDelta": 6,
+    "visibleInteriorMaxDeltaByChannel": [
+      6,
+      6,
+      6,
+      0
+    ],
+    "acceptedHash": "2c035538c9530eccc736e97078aad78961033236342f3c1b74c6e1c9df357296"
+  },
+  "reducedMotion": {
+    "drawCountBefore500ms": 11,
+    "drawCountAfter500ms": 11,
+    "continuingDraws": 0
+  },
+  "interaction": {
+    "frame": {
+      "width": 228,
+      "height": 228
+    },
+    "panel": {
+      "x": 14,
+      "y": 14,
+      "width": 200,
+      "height": 200
+    },
+    "centerHit": "panel-clip",
+    "gutterHit": "frame",
+    "clipPointerEvents": "auto",
+    "canvasPointerEvents": "none",
+    "clipOverflow": "hidden",
+    "clipRadius": "16px",
+    "clipBackground": "none",
+    "clipShadow": "none",
+    "shellShadow": "rgba(0, 0, 0, 0.34) 0px 6px 16px -8px, rgba(0, 0, 0, 0.22) 0px 2px 7px -4px, rgba(0, 0, 0, 0.16) 0px 1px 3px -1px",
+    "shadowOwnerCount": 1,
+    "canvasCount": 1,
+    "clickMapping": {
+      "left": "39.7344px",
+      "top": "69.25px"
+    }
+  },
+  "reduced": {
+    "label": "reduced-contact",
+    "width": 228,
+    "height": 228,
+    "time": 0.6653000116348267,
+    "reducedMotion": true,
+    "linked": true,
+    "programLog": "",
+    "hash": "3cb515d4cae216767b7569ea0866d64f65a2420fc7c4dffba1f1a05d4336e9c3",
+    "alpha": {
+      "outer2pxMaxAlpha": 0,
+      "gutterMaxAlpha": 19,
+      "interiorMaxAlpha": 255,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "contact": {
+      "k": 0.42,
+      "energy": 1,
+      "litThreshold": 0.08,
+      "sideFractions": {
+        "top": 0.2125,
+        "right": 0.30833333333333335,
+        "bottom": 0,
+        "left": 0
+      },
+      "perimeterFraction": 0.13020833333333334,
+      "peakContact": 0.9980969107111276
+    }
+  },
+  "moving": [
+    {
+      "label": "phase-01-k0-02",
+      "width": 228,
+      "height": 228,
+      "time": 7.877900123596191,
+      "reducedMotion": false,
+      "linked": true,
+      "programLog": "",
+      "hash": "48ebc18ecd023f39f53affb9d6714b30277bb6bf99a0794f21040bd2cdbf16d0",
+      "alpha": {
+        "outer2pxMaxAlpha": 0,
+        "gutterMaxAlpha": 0,
+        "interiorMaxAlpha": 123,
+        "corners": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "contact": {
+        "k": 0.02412701606750489,
+        "energy": 0.1050181428035011,
+        "litThreshold": 0.08,
+        "sideFractions": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0.020833333333333332,
+          "left": 0.03333333333333333
+        },
+        "perimeterFraction": 0.013541666666666667,
+        "peakContact": 0.10197281535957199
+      }
+    },
+    {
+      "label": "phase-02-k0-12",
+      "width": 228,
+      "height": 228,
+      "time": 9.23639965057373,
+      "reducedMotion": false,
+      "linked": true,
+      "programLog": "",
+      "hash": "90bc293e5782ceb0aa39bead229cfbfb31238a9035cfa75f9be25cb7f2af4b91",
+      "alpha": {
+        "outer2pxMaxAlpha": 0,
+        "gutterMaxAlpha": 19,
+        "interiorMaxAlpha": 255,
+        "corners": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "contact": {
+        "k": 0.20073195457458493,
+        "energy": 1,
+        "litThreshold": 0.08,
+        "sideFractions": {
+          "top": 0.1125,
+          "right": 0,
+          "bottom": 0.20833333333333334,
+          "left": 0.11666666666666667
+        },
+        "perimeterFraction": 0.109375,
+        "peakContact": 0.988587270346065
+      }
+    },
+    {
+      "label": "phase-03-k0-25",
+      "width": 228,
+      "height": 228,
+      "time": 10.662799835205078,
+      "reducedMotion": false,
+      "linked": true,
+      "programLog": "",
+      "hash": "89a8f23688757be3cd5891dd34fb5d47a690444264ffd0a9f32ee90a0ce07a4b",
+      "alpha": {
+        "outer2pxMaxAlpha": 0,
+        "gutterMaxAlpha": 19,
+        "interiorMaxAlpha": 255,
+        "corners": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "contact": {
+        "k": 0.3861639785766602,
+        "energy": 1,
+        "litThreshold": 0.08,
+        "sideFractions": {
+          "top": 0.20833333333333334,
+          "right": 0.2791666666666667,
+          "bottom": 0,
+          "left": 0
+        },
+        "perimeterFraction": 0.121875,
+        "peakContact": 0.9999890399894805
+      }
+    },
+    {
+      "label": "phase-04-k0-42",
+      "width": 228,
+      "height": 228,
+      "time": 12.055899620056152,
+      "reducedMotion": false,
+      "linked": true,
+      "programLog": "",
+      "hash": "6ddedc89a093c18dc4af1ec1984ad2e5e5b67b3f045ac51eb046172dc8df169e",
+      "alpha": {
+        "outer2pxMaxAlpha": 0,
+        "gutterMaxAlpha": 19,
+        "interiorMaxAlpha": 255,
+        "corners": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "contact": {
+        "k": 0.5672669506072998,
+        "energy": 1,
+        "litThreshold": 0.08,
+        "sideFractions": {
+          "top": 0.15416666666666667,
+          "right": 0.2625,
+          "bottom": 0,
+          "left": 0
+        },
+        "perimeterFraction": 0.10416666666666667,
+        "peakContact": 0.9727483108310166
+      }
+    },
+    {
+      "label": "phase-05-k0-60",
+      "width": 228,
+      "height": 228,
+      "time": 13.324999809265137,
+      "reducedMotion": false,
+      "linked": true,
+      "programLog": "",
+      "hash": "9e0fa76b94b0a4d3293a072e2efb6679ab8ffabce3e737b8048aa85ddc077aa4",
+      "alpha": {
+        "outer2pxMaxAlpha": 0,
+        "gutterMaxAlpha": 0,
+        "interiorMaxAlpha": 251,
+        "corners": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "contact": {
+        "k": 0.7322499752044678,
+        "energy": 0.8771861849004968,
+        "litThreshold": 0.08,
+        "sideFractions": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        },
+        "perimeterFraction": 0,
+        "peakContact": 0.000039478143410301426
+      }
+    },
+    {
+      "label": "phase-06-k0-78",
+      "width": 228,
+      "height": 228,
+      "time": 14.683199882507324,
+      "reducedMotion": false,
+      "linked": true,
+      "programLog": "",
+      "hash": "e5450e8c5628a1f071efc60cf630d4744ca4d7d10718a59df92b5d2b0a265d59",
+      "alpha": {
+        "outer2pxMaxAlpha": 0,
+        "gutterMaxAlpha": 0,
+        "interiorMaxAlpha": 100,
+        "corners": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "contact": {
+        "k": 0.9088159847259523,
+        "energy": 0.1517876694818301,
+        "litThreshold": 0.08,
+        "sideFractions": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        },
+        "perimeterFraction": 0,
+        "peakContact": 6.179196193192333e-11
+      }
+    }
+  ],
+  "finalUniforms": {
+    "time": 18.728700637817383,
+    "reducedMotion": false,
+    "boundaryHaloMode": 1,
+    "heatmapMode": 1,
+    "refractionMode": 1
+  }
+}

@@ -1,0 +1,97 @@
+# MR9 Browser Lab Consolidation — Implementation & Validation Report
+
+Worktree: `D:/Ameow/.cindy-worktrees/mr9-fullscreen-activation-fx` (branch `motion/mr9-fullscreen-activation-fx` @ `c762c14`)
+Task: `08-18-mr9-browser-lab-consolidation` · Status: `in_progress` (awaiting review; nothing committed/merged)
+
+Manual visual acceptance: **PASS** (user-confirmed on 2026-08-18).
+
+GPT Architecture Lead Implementation Architecture Review: **PASS** (2026-08-18).
+
+Phase gate: Browser Lab Planning **PASS** · Implementation **PASS** · Manual Acceptance **PASS** · MR9 Final Closure **NOT YET**.
+
+## 1. Follow-up repair: three user-observed export defects
+
+### 1a. Lower-left "200×200" marker removed
+
+The debug size label (`data-lab-chrome`, lower-left of the center preview) was **deleted** from `LabOverlayStage.tsx` and its `preview.sizeLabel` locale key removed from `zh-CN.json` / `en.json`. The marker no longer appears in the live preview **or** in exported PNGs. The activation-origin dot remains (it is the Lab's click-to-set-origin affordance and is hidden during export like all `data-lab-chrome` elements).
+
+### 1b. Export-button lifecycle: short deliberate feedback, always back to idle
+
+`PresentationLab` now runs a `EXPORT_FEEDBACK_MS = 2000` reset timer (`scheduleExportReset`):
+
+- On **success**: label shows `已导出 <name> ✓` for 2 s, then returns to the normal `导出 4× PNG` idle label.
+- On **failure**: label shows `导出失败 ✗` + the `role="alert"` reason for 2 s, then returns to idle.
+- A pending reset timer is cancelled up front whenever a new export starts (so a stale timer can never reset a fresh capture to idle mid-flight).
+- Repeated exports keep working indefinitely; the timer is cleaned up on unmount.
+
+### 1c. Transparent 912×912 export with the production shadow gutter
+
+The export was previously a tightly cropped **800×800 opaque** square. It is now a **transparent PNG** that preserves the production window's rounded corners and full shared shadow:
+
+- **Padding derived from the production recipe, not an arbitrary frame**: `LAB_EXPORT_PADDING_CSS = MAIN_WINDOW_FULL_SHADOW_GUTTER = 14` CSS px per side (the exact gutter the production main window reserves for its panel shadow). The strongest recipe layer (`0 6px 16px -8px`) extends exactly 14 px below the panel, so 14 px is the *minimum* safe padding that reproduces the production silhouette without clipping any shadow extent.
+- **Exact output dimensions**: content 200×200 + 2×14 gutter = 228 CSS; ×4 = **912×912 backing px**, content shell at a **56 px** inset, radius **56 px** (the preview shell's actual `border-radius` read from `getComputedStyle`). Formula is `computeExportLayout(css, padding, scale)` (pure, unit-tested) — `round(css × scale)` per axis, independent of `devicePixelRatio`.
+- **Shadow via Canvas2D-native composition**: html2canvas's external `box-shadow` rendering is broken (its non-inset shadows are painted at a 10000 px offset and clipped away — verified by spike). The production `panelShadow` token (`colors.panelShadow` from `useTheme`) is normalized by the browser, split into layers, and reproduced with `ctx.shadowColor/shadowBlur/shadowOffset` + a rounded-rect fill, then the fill itself is erased with `destination-out`, leaving only the projected shadow on transparent. A **narrow explicit adapter** (`resolveShadowLayers`) supports exactly the recipe's layer shape (`color offsetX offsetY [blur] [spread]`); `inset`, `calc()`, `var()`, unknown tokens, or a missing shadow throw `ExportLayerFailure("shadow")` instead of silently approximating.
+- **Composite order (inside the rounded shell clip)**: shared shadow (gutter) → panel backdrop fill (`getComputedStyle(frame).backgroundColor`, read up front so the DOM capture's temporary transparent background never leaks) → WebGL layer (flipped readback; the shader is partly transparent where idle, so the opaque panel backdrop must be there) → DOM layer on top. The WebGL square corners are clipped to the rounded shell so they never show through the transparent export.
+- **Failure contract extended**: `ExportLayerFailure` now covers `"webgl" | "dom" | "shadow"`; the size-mismatch guard rejects any readback that is not exactly the content size (800×800) — a partial, wrong-size, or shadow-less PNG is never downloaded.
+
+## 2. Evidence images (regenerated at the new 912×912 transparent contract, `research/evidence/`)
+
+| File | Bytes | Content |
+|------|-------|---------|
+| `ameow-lab-download-active-4x.png` | 77,559 | 912×912 transparent — WebGL arc + speed/ETA + badge, shadow gutter, rounded shell |
+| `ameow-lab-transcode-active-4x.png` | 60,771 | 912×912 transparent — transcode ring 37% + 2:08 + badge |
+| `ameow-lab-runtime-failed-4x.png` | 39,061 | 912×912 transparent — runtime warning indicator, idle shader |
+| `mr9-browser-lab-consolidation-full.png` | 101,687 | Full Lab UI (three-pane zh-CN, marker removed) |
+| `mr9-browser-lab-consolidation-load.png` | 81,519 | Lab at load (generated by the validation script) |
+
+All three exports visually inspected over a checkerboard: dark rounded panel, soft shared shadow in the transparent gutter (checkerboard visible through it), all four outer corners fully transparent, no square-corner/opaque artifacts.
+
+## 3. Durable validation: 70/70 PASS
+
+`node .trellis/tasks/08-18-mr9-browser-lab-consolidation/research/run-browser-lab-consolidation-validation.mjs`
+
+- Load: 1 production canvas, program linked, no page errors; 7 migrated scenarios through production paths (idle/active shader modes, overlays, badges, popovers, copy-diagnostic, mixed-busy).
+- **Export (download-active)**:
+  - filename derived from scenario; PNG magic; **exactly 912×912**;
+  - CSS invariant: frame + canvas stay 200×200 every 15 ms across the whole transaction;
+  - **alpha-bounds contract**: >1000 fully transparent exterior pixels, >1000 nonzero shadow pixels **outside the 200×200 shell** (31,327), opaque content center (alpha 255), outer corner alpha < 8 (rounded silhouette);
+  - **badge landmark**: 4× badge at `(96,96) 168×120` = live + 14 px gutter, exact; 228-downsample reproduces live + gutter `(24,24) 42×30`;
+  - state restored (program linked + overlay mounted), no page errors.
+- **Feedback lifecycle**: success label shown → button returns to idle → repeated export downloads again (912) → back to idle. On a fresh page with html2canvas's module blocked: failure label + `role="alert"` reason → no download ever fires → button returns to idle → a fresh unblocked page exports 912 again.
+- **Failure contract**: null WebGL readback → `ExportLayerFailure('webgl')`; 1600×1600 DPR-multiplied readback → size-mismatch rejection ("does not match export content size 800x800"); `inset` shadow recipe → `ExportLayerFailure('shadow')`.
+- **Cross-DPR regression**: `deviceScaleFactor` 2 and 1.25 — frame CSS stays 200×200, export exactly 912×912, badge landmark exact (the old `dpr * override` bug would have produced 1824/1140 px exports and failed).
+- Reload survival, HMR survival, no fake controls, Lab entry imports no desktop bridge.
+
+## 4. Legacy retirement (verified zero live consumers, prior pass)
+
+- `scripts/capture-docs-screenshots.mjs` deleted; `docs:screenshots` removed from `package.json`; `mr3-smoke.cjs` deleted.
+- Electron UI Lab fully retired: no `ui-lab` label / `openUiLab` / `dev_ui_lab_apply_scenario` / `ui-lab-reset` anywhere; `UiLabPage.tsx` deleted; remaining `ui-lab` strings are only negative test assertions and retirement notes in `.trellis/spec/`.
+
+## 5. Trellis spec sync (prior pass)
+
+Retirement notes re-keyed to Browser Lab in `02-electron-foundation-replacement-contract.md`, `08-electron-proxy-resolution-contract-part-02.md`, `08-electron-proxy-resolution-contract-part-04.md`, `07-electron-preload-bridge-contract-for-renderer-migration.md`.
+
+## 6. Checks
+
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | clean |
+| `npx eslint src/lab src/presentation/main-window` | clean (0 errors) |
+| `npm run build` (renderer + electron) | clean; production `dist/` exclusion audit: **zero** `ameow-lab` / `data-lab-export` / `lab-main` / `PresentationLab` / `浏览器实验台` / `lab.html` / `html2canvas` / `data-lab-preview-frame` / `data-lab-chrome` / `LAB_EXPORT`; the single `backingScale` match is the legitimate production `ExpandedPresentationSurface` prop |
+| `npm run docs:build` | clean (53 pages, Pagefind OK) |
+| `npx vitest run` (full) | 200 files / 1694 pass / 1 pre-existing baseline-unrelated fail (`browser-extension/architecture-guard.test.js:277`, background.js untouched) |
+| Lab + surface unit tests | 233 pass (incl. new `exportPng.test.ts` 11 tests: geometry contract, transparent composite order, failure contract) |
+| Live Playwright (consolidated: 7 scenarios, transparent-bleed geometry + alpha audit, feedback lifecycle, failure contract, DPR 2/1.25, reload/HMR, structural) | 70/70 pass |
+| `git diff --check` | exit 0 |
+
+## 7. Residual debt (unchanged, out of scope)
+
+- Headless SwiftShader renders the thermal FX subtly — final aesthetic gate remains the user's manual Electron check.
+- macOS untested.
+- `.trellis/spec/` now documents the retired contract (no further action needed unless Trellis re-processes it).
+- Pre-existing `browser-extension/architecture-guard.test.js:277` failure is baseline-unrelated.
+- The Canvas2D shadow is a faithful raster approximation of the CSS recipe via the browser's own shadow API (the CSS-`box-shadow` exact rendering is a browser-internal detail); visually verified over a checkerboard.
+
+## 8. Boundaries honored
+
+One production canvas/renderer/program/shader (no copy); no new screenshot service/backend/second renderer; `html2canvas@^1.4.1` devDependency only; task left `in_progress`; no commit/merge/archive; no downloader/Electron/Thermal changes; all pre-existing dirty artifacts preserved; temporary spike/evidence scripts deleted (research/ now contains only the durable validation script + `evidence/`).

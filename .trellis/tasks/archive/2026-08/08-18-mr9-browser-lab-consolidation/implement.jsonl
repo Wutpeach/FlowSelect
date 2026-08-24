@@ -1,0 +1,7 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Share one browser-safe production presentational implementation between App and Lab without copying inline JSX or moving Electron ownership."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Keep synthetic Lab fixtures transient and separate from Product, Download, Transcode, lifecycle, config, and native authority."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Preserve the compact Ameow product-tool visual language and production theme/component tokens in the consolidated Three-pane Lab."}
+{"file":".trellis/spec/frontend/docs-site.md","reason":"Replace the legacy docs screenshot workflow without breaking public documentation asset and build contracts."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/04-electron-download-command-bridge-contract.md","reason":"Keep real Download/runtime command authority out of Browser Lab while retiring only the dev preview override path."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Guide mechanical extraction of existing visual subtrees and reject speculative generic Lab frameworks."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace synthetic preview facts through production reducers/selectors/projections/components without crossing into native authority."}

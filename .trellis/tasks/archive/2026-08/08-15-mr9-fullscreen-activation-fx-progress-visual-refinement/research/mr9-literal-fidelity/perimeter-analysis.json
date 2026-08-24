@@ -1,0 +1,42 @@
+[
+  {
+    "file": "mr9-literal-fidelity/f2.png",
+    "band_hot_frac": 0.0,
+    "center_hot_frac": 0.0
+  },
+  {
+    "file": "mr9-literal-fidelity/f3.png",
+    "band_hot_frac": 0.1107,
+    "center_hot_frac": 0.0
+  },
+  {
+    "file": "mr9-literal-fidelity/f4.png",
+    "band_hot_frac": 0.1394,
+    "center_hot_frac": 0.0938
+  },
+  {
+    "file": "mr9-literal-fidelity/f5.png",
+    "band_hot_frac": 0.0746,
+    "center_hot_frac": 0.2806
+  },
+  {
+    "file": "mr9-literal-fidelity/in-between-a.png",
+    "band_hot_frac": 0.0086,
+    "center_hot_frac": 0.0
+  },
+  {
+    "file": "mr9-literal-fidelity/in-between-b.png",
+    "band_hot_frac": 0.1148,
+    "center_hot_frac": 0.0
+  },
+  {
+    "file": "mr9-literal-fidelity/in-between-c.png",
+    "band_hot_frac": 0.1026,
+    "center_hot_frac": 0.3094
+  },
+  {
+    "file": "mr9-literal-fidelity/reduced.png",
+    "band_hot_frac": 0.1268,
+    "center_hot_frac": 0.1769
+  }
+]

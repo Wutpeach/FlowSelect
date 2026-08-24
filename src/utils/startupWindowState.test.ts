@@ -4,10 +4,8 @@ import {
   DEFERRED_STARTUP_IDLE_CALLBACK_TIMEOUT_MS,
   DEFERRED_STARTUP_INITIALIZATION_DELAY_MS,
   getDeferredStartupInitializationDelayMs,
-  getStartupAutoMinimizeGraceMs,
   STARTUP_AUTO_RUNTIME_BOOTSTRAP_DELAY_MS,
   shouldStartExpandedOnLaunch,
-  shouldUseNativeCompactStartupWindow,
 } from "./startupWindowState";
 
 describe("startup window state", () => {
@@ -18,7 +16,6 @@ describe("startup window state", () => {
     };
 
     expect(shouldStartExpandedOnLaunch(environment)).toBe(true);
-    expect(getStartupAutoMinimizeGraceMs(environment)).toBe(0);
     expect(getDeferredStartupInitializationDelayMs(environment)).toBe(
       DEFERRED_STARTUP_INITIALIZATION_DELAY_MS,
     );
@@ -30,45 +27,10 @@ describe("startup window state", () => {
       userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Electron/41.0.4",
     })).toBe(true);
 
-    expect(getStartupAutoMinimizeGraceMs({
-      protocol: "file:",
-      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Electron/41.0.4",
-    })).toBe(0);
-
     expect(getDeferredStartupInitializationDelayMs({
       protocol: "http:",
       userAgent: "Mozilla/5.0 Chrome/135.0.0.0 Safari/537.36",
     })).toBe(0);
-  });
-
-  it("recognizes a native compact startup shell when the initial window is already icon-sized", () => {
-    expect(shouldUseNativeCompactStartupWindow({
-      startupWindowMode: "compact",
-      startsExpandedOnLaunch: false,
-      isMacOS: false,
-    })).toBe(true);
-  });
-
-  it("keeps the startup reveal animation for full-sized or macOS launches", () => {
-    expect(shouldUseNativeCompactStartupWindow({
-      startupWindowMode: "full",
-      startsExpandedOnLaunch: false,
-      isMacOS: false,
-    })).toBe(false);
-
-    expect(shouldUseNativeCompactStartupWindow({
-      startupWindowMode: "compact",
-      startsExpandedOnLaunch: false,
-      isMacOS: true,
-    })).toBe(false);
-  });
-
-  it("keeps full startup mode when launch should begin expanded", () => {
-    expect(shouldUseNativeCompactStartupWindow({
-      startupWindowMode: "compact",
-      startsExpandedOnLaunch: true,
-      isMacOS: false,
-    })).toBe(false);
   });
 
   it("keeps bootstrap work later than the initial deferred-start gate", () => {

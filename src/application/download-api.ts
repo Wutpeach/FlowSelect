@@ -57,6 +57,16 @@ export type DownloadQueueAck = {
   traceId: string;
 };
 
+/**
+ * A normalized point captured synchronously at a renderer submission boundary.
+ * It is transient Presentation cause metadata, never Download input or state.
+ */
+export type LocalIntakeOrigin = Readonly<{ x: number; y: number }>;
+
+export type QueueDownloadPresentationCause = Readonly<{
+  intakeOrigin?: LocalIntakeOrigin;
+}>;
+
 export type AdvancedQualityPostProcessPlan =
   | "none"
   | "remux_only"
@@ -116,10 +126,14 @@ export type PastedSelectionPorts = {
 };
 
 export interface DownloadApplicationApi {
-  queueDownload(command: QueueDownloadCommand): Promise<DownloadQueueAck>;
+  queueDownload(
+    command: QueueDownloadCommand,
+    cause?: QueueDownloadPresentationCause,
+  ): Promise<DownloadQueueAck>;
   queuePastedDownload(
     command: QueueDownloadCommand,
     ports: PastedSelectionPorts,
+    cause?: QueueDownloadPresentationCause,
   ): Promise<DownloadQueueAck>;
   cancelDownload(traceId: string): Promise<boolean>;
   selectAdvancedQualityOption(traceId: string, optionId: string): Promise<boolean>;

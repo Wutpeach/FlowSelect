@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Preserve component scope, theme-token delivery, and non-interactive visual behavior."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Keep Compact/full lifecycle and continuous pointer authority outside the mascot visual leaf."}
+{"file":".trellis/tasks/08-23-compact-mascot-visual-planning/research/upstream-bible-strong-avatar-lab.md","reason":"Use the pinned upstream model, dependencies, API gaps, and source-fidelity evidence; governance is deferred to formal distribution/release."}
+{"file":".trellis/tasks/08-23-compact-mascot-visual-planning/research/ameow-compact-boundary.md","reason":"Use the exact Compact seam, geometry, pointer, lifecycle, Full/MR9, UI Lab, and Agentation boundaries."}
