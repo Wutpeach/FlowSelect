@@ -39,3 +39,24 @@ Recorded and archived the completed Trellis 0.6.15 tooling-only synchronization.
 ### Next Steps
 
 - No Product work started.
+
+
+## Session 253: Checkpoint Compact cat mascot behavior
+
+**Date**: 2026-08-24
+**Task**: Checkpoint Compact cat mascot behavior
+**Branch**: `main`
+
+### Summary
+
+Recorded a recoverable Compact cat behavior checkpoint: circular shell and approach-range pointer input repaired; CompactMascot/avatar-core single runtime, allowlisted actions, and lifecycle semantics preserved. Kirby-derived 3D cat-ear silhouette and shell-clipping calibration remain unresolved for the next independent task; no Architecture PASS.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b735075b7f6aa62caff01f81dfe67c20c4ec7f82` | (see git log) |
+
+### Status
+
+[OK] **Completed**
