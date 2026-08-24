@@ -1,0 +1,88 @@
+{
+  "labSettled": {
+    "documentCanvasCount": 1,
+    "mainPaperMountCount": 1,
+    "mainPaperCanvasCount": 1,
+    "productionPreviewCount": 0,
+    "visibleImageElementCount": 0,
+    "hostSize": [
+      200,
+      200
+    ],
+    "hostBackgroundImage": "none",
+    "hostBorderRadius": "0px",
+    "mountSize": [
+      200,
+      200
+    ],
+    "mountBackgroundImage": "none",
+    "mountHasOfficialRuntime": true
+  },
+  "labFrameSamples": [
+    {
+      "second": 0,
+      "currentFrame": 1230.5999999523165
+    },
+    {
+      "second": 3,
+      "currentFrame": 4680.399999952317
+    },
+    {
+      "second": 6,
+      "currentFrame": 8146.899999952317
+    },
+    {
+      "second": 9,
+      "currentFrame": 11596.799999952316
+    },
+    {
+      "second": 12,
+      "currentFrame": 15046.699999952318
+    }
+  ],
+  "labObservedDurationMs": 13816.100000000002,
+  "afterSwitchAway": {
+    "paperCanvasConnected": false,
+    "paperMountCount": 0,
+    "documentCanvasCount": 1,
+    "productionPreviewCount": 1
+  },
+  "afterRemount": {
+    "paperMountCount": 1,
+    "documentCanvasCount": 1,
+    "productionPreviewCount": 0
+  },
+  "official": {
+    "url": "https://shaders.paper.design/heatmap",
+    "title": "Heatmap Shader • Paper",
+    "defaultButtonCount": 1,
+    "bodyPaperMountCount": 1,
+    "canvasCount": 1,
+    "frames": [
+      {
+        "second": 0,
+        "index": 0,
+        "width": 1012,
+        "height": 569.25,
+        "area": 576081,
+        "visible": true
+      },
+      {
+        "second": 6,
+        "index": 0,
+        "width": 1012,
+        "height": 569.25,
+        "area": 576081,
+        "visible": true
+      },
+      {
+        "second": 12,
+        "index": 0,
+        "width": 1012,
+        "height": 569.25,
+        "area": 576081,
+        "visible": true
+      }
+    ]
+  }
+}

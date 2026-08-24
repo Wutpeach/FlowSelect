@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Authoritative Main Window Presentation ownership, transient latest-replaces, renderer-local execution, Reduced Motion, and MR7 host constraints."}
+{"file":".trellis/tasks/08-14-mr8-download-intake-reveal-planning/research/repository-grounded-planning-report.md","reason":"MR8 authoritative trigger, lifetime, priority, host input, implementation boundary, and stop conditions."}
+{"file":".trellis/tasks/archive/2026-08/08-14-mr7-expanded-presentation-substrate-replacement/research/repository-grounded-planning-report.md","reason":"Single-host capability, MR3/MR4 semantics, and prohibition on generic future Reveal infrastructure."}
+{"file":".trellis/spec/frontend/docs-site.md","reason":"Required paired Chinese/English public Download documentation and docs build contract for the visible Intake behavior."}

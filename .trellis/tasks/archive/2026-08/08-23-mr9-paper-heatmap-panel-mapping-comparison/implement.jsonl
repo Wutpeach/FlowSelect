@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Reuse the real panel recipe and keep the Lab-only comparison component idiomatic without duplicate visible geometry or local surface reconstruction."}
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Preserve the Production motion boundary while treating two official Paper-owned RAF lifecycles as a scoped Browser Lab comparison exception."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Use the established 200x200/r16 black-theme panel shell only in Scheme B and keep comparison labels and controls outside the visual geometry."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Apply source-fidelity guard tests, dependency/build isolation, full validation, and change-scope hygiene."}
+{"file":".trellis/tasks/08-23-mr9-paper-heatmap-panel-mapping-comparison/research/panel-mapping-evidence.md","reason":"Use the grounded preprocessing, alpha-composition, official-prop, repository-geometry, package, and baseline screenshot evidence for both mappings."}
+{"file":".trellis/tasks/08-23-mr9-paper-heatmap-official-component-source-fidelity-baseline/research/upstream-paper-heatmap.md","reason":"Retain the accepted package, Default preset, preprocessing, morphology, timing, coordinate, lifecycle, dependency, and license authority."}

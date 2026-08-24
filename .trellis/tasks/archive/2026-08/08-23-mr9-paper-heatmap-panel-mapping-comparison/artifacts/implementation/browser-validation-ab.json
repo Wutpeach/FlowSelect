@@ -1,0 +1,144 @@
+{
+  "settled": {
+    "documentCanvasCount": 2,
+    "paperMountCount": 2,
+    "paperCanvasCount": 2,
+    "productionPreviewCount": 0,
+    "cellACount": 1,
+    "cellBCount": 1,
+    "cellA": {
+      "size": [
+        200,
+        249.765625
+      ],
+      "imgOrSvg": 0,
+      "canvases": 1
+    },
+    "cellAViewport": {
+      "size": [
+        200,
+        200
+      ],
+      "imgOrSvg": 0,
+      "canvases": 1
+    },
+    "cellBPanel": {
+      "size": [
+        200,
+        200
+      ],
+      "imgOrSvg": 0,
+      "canvases": 1
+    },
+    "cellBViewport": {
+      "size": [
+        200,
+        200
+      ],
+      "imgOrSvg": 0,
+      "canvases": 1
+    },
+    "aPanelShellCount": 0,
+    "bPanelShellCount": 1,
+    "paperAbCount": 1,
+    "abInspectorCount": 1
+  },
+  "frameSamples": [
+    {
+      "second": 0,
+      "frames": [
+        2432,
+        2431.9000000953674
+      ]
+    },
+    {
+      "second": 3,
+      "frames": [
+        5481.9,
+        5481.800000095367
+      ]
+    },
+    {
+      "second": 6,
+      "frames": [
+        8498.4,
+        8498.300000095367
+      ]
+    },
+    {
+      "second": 9,
+      "frames": [
+        11531.6,
+        11531.500000095368
+      ]
+    },
+    {
+      "second": 12,
+      "frames": [
+        14548.2,
+        14548.100000095368
+      ]
+    }
+  ],
+  "labObservedDurationMs": {
+    "a": 12116.2,
+    "b": 12116.2
+  },
+  "captures": [
+    "ab-a-00s.png",
+    "ab-b-00s.png",
+    "ab-a-12s.png",
+    "ab-b-12s.png"
+  ],
+  "afterSwitchAway": {
+    "aCanvasConnected": false,
+    "bCanvasConnected": false,
+    "paperMountCount": 0,
+    "documentCanvasCount": 1,
+    "productionPreviewCount": 1
+  },
+  "afterRemount": {
+    "documentCanvasCount": 2,
+    "paperMountCount": 2,
+    "paperCanvasCount": 2,
+    "productionPreviewCount": 0,
+    "cellACount": 1,
+    "cellBCount": 1,
+    "cellA": {
+      "size": [
+        200,
+        249.765625
+      ],
+      "imgOrSvg": 0,
+      "canvases": 1
+    },
+    "cellAViewport": {
+      "size": [
+        200,
+        200
+      ],
+      "imgOrSvg": 0,
+      "canvases": 1
+    },
+    "cellBPanel": {
+      "size": [
+        200,
+        200
+      ],
+      "imgOrSvg": 0,
+      "canvases": 1
+    },
+    "cellBViewport": {
+      "size": [
+        200,
+        200
+      ],
+      "imgOrSvg": 0,
+      "canvases": 1
+    },
+    "aPanelShellCount": 0,
+    "bPanelShellCount": 1,
+    "paperAbCount": 1,
+    "abInspectorCount": 1
+  }
+}

@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify source allowlists, focused/full tests, type safety, lint, Production build isolation, exact dependencies, and diff hygiene."}
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Confirm Paper motion remains native, both mounts advance and dispose independently, and no Production scheduler or Reduced Motion contract changes."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Confirm Scheme B uses one real Ameow panel shell while Scheme A has only a display viewport and neither cell displays a duplicate silhouette."}
+{"file":".trellis/tasks/08-23-mr9-paper-heatmap-panel-mapping-comparison/research/panel-mapping-evidence.md","reason":"Check the exact A/B deviations, transparent colorBack semantics, two-canvas Lab exception, and compact visual evidence contract."}
+{"file":".trellis/tasks/08-23-mr9-paper-heatmap-official-component-source-fidelity-baseline/research/repository-isolation.md","reason":"Keep the comparison in the accepted dev-only Lab isolation and prove the stable Production Thermal checkpoint remains untouched."}

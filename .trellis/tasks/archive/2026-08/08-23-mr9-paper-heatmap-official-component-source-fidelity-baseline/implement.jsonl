@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Keep the Lab-only wrapper idiomatic and prevent UI geometry or interaction authority from leaking into the official component."}
+{"file":".trellis/spec/frontend/motion-guidelines.md","reason":"Identify the production motion and Reduced Motion contracts that remain protected while documenting the one source-fidelity Lab exception."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Apply project test, dependency, and change-isolation expectations during the bounded Lab implementation."}
+{"file":".trellis/tasks/08-23-mr9-paper-heatmap-official-component-source-fidelity-baseline/research/upstream-paper-heatmap.md","reason":"Use the exact published package, current upstream commit, official preset, preprocessing, lifecycle, dependency, and license evidence."}
+{"file":".trellis/tasks/08-23-mr9-paper-heatmap-official-component-source-fidelity-baseline/research/repository-isolation.md","reason":"Preserve the stable MR9 checkpoint and scope the official-canvas exception to one mutually exclusive Browser Lab scenario."}
