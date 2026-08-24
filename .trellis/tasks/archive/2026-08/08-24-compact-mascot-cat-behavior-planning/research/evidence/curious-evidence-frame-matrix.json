@@ -1,0 +1,353 @@
+{
+  "source": {
+    "pipeline": "direct avatar-core frame from the production Compact definition; not browser Lab DOM; no pointer input",
+    "action": "curious-short",
+    "bodyNodes": [
+      {
+        "surface": {
+          "type": "diamond",
+          "width": 108,
+          "height": 190,
+          "depth": 102,
+          "roundness": 1
+        },
+        "position": [
+          -72,
+          -50,
+          -80
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "surface": {
+          "type": "diamond",
+          "width": 108,
+          "height": 190,
+          "depth": 102,
+          "roundness": 1
+        },
+        "position": [
+          72,
+          -50,
+          -80
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "frames": [
+      {
+        "timestampMs": 800,
+        "phase": "hold",
+        "expression": "expression-00",
+        "transitionFrom": "neutral",
+        "head": [
+          7.3,
+          27.8,
+          -16.1
+        ],
+        "perspective": 1,
+        "ears": {
+          "back": [
+            {
+              "hash": "c154b697c11a",
+              "bounds": {
+                "minX": -30.49,
+                "maxX": 55.37,
+                "minY": -111.17,
+                "maxY": 42.07
+              },
+              "centroid": {
+                "x": 11.27,
+                "y": -37.99
+              }
+            },
+            {
+              "hash": "36cd0603e6a5",
+              "bounds": {
+                "minX": -153.21,
+                "maxX": -53.99,
+                "minY": -97.28,
+                "maxY": 72.21
+              },
+              "centroid": {
+                "x": -104.56,
+                "y": -18
+              }
+            }
+          ],
+          "front": []
+        }
+      },
+      {
+        "timestampMs": 3050,
+        "phase": "transition",
+        "expression": "expression-15",
+        "transitionFrom": "expression-00",
+        "head": [
+          3.8095703125,
+          31.5537109375,
+          -13.5021484375
+        ],
+        "perspective": 1,
+        "ears": {
+          "back": [
+            {
+              "hash": "e8f848b37a0e",
+              "bounds": {
+                "minX": -34.87,
+                "maxX": 48.95,
+                "minY": -116.8,
+                "maxY": 39.74
+              },
+              "centroid": {
+                "x": 5.28,
+                "y": -40.82
+              }
+            },
+            {
+              "hash": "64e87cc2355f",
+              "bounds": {
+                "minX": -156.54,
+                "maxX": -57.9,
+                "minY": -107.88,
+                "maxY": 67.14
+              },
+              "centroid": {
+                "x": -107.57,
+                "y": -23.35
+              }
+            }
+          ],
+          "front": []
+        }
+      },
+      {
+        "timestampMs": 3700,
+        "phase": "hold",
+        "expression": "expression-15",
+        "transitionFrom": "expression-00",
+        "head": [
+          0.319140625,
+          35.307421875,
+          -10.904296875
+        ],
+        "perspective": 1,
+        "ears": {
+          "back": [
+            {
+              "hash": "81703e7712bc",
+              "bounds": {
+                "minX": -39.12,
+                "maxX": 43.05,
+                "minY": -122.99,
+                "maxY": 36.49
+              },
+              "centroid": {
+                "x": 0.14,
+                "y": -47.59
+              }
+            },
+            {
+              "hash": "8082a87c0031",
+              "bounds": {
+                "minX": -159.02,
+                "maxX": -60.81,
+                "minY": -117.87,
+                "maxY": 62.2
+              },
+              "centroid": {
+                "x": -110.36,
+                "y": -31.03
+              }
+            }
+          ],
+          "front": []
+        }
+      }
+    ]
+  },
+  "production": {
+    "pipeline": "existing browser Lab production Compact leaf; DOM ear-path stats only",
+    "action": "curious-short",
+    "random": 0.45,
+    "quietDeadlineMs": 24300,
+    "bodyNodes": [
+      {
+        "surface": {
+          "type": "diamond",
+          "width": 108,
+          "height": 190,
+          "depth": 102,
+          "roundness": 1
+        },
+        "position": [
+          -72,
+          -50,
+          -80
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "surface": {
+          "type": "diamond",
+          "width": 108,
+          "height": 190,
+          "depth": 102,
+          "roundness": 1
+        },
+        "position": [
+          72,
+          -50,
+          -80
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "frames": [
+      {
+        "label": "00 hold",
+        "targetAfterClickMs": 25100,
+        "phase": "hold",
+        "expression": "expression-00",
+        "head": [
+          7.3,
+          27.8,
+          -16.1
+        ],
+        "actualAfterClickMs": 25120,
+        "actionElapsedMs": 820,
+        "ears": {
+          "back": [
+            {
+              "hash": "c154b697c11a",
+              "bounds": {
+                "minX": -30.49,
+                "maxX": 55.37,
+                "minY": -111.17,
+                "maxY": 42.07
+              },
+              "centroid": {
+                "x": 11.27,
+                "y": -37.99
+              }
+            },
+            {
+              "hash": "36cd0603e6a5",
+              "bounds": {
+                "minX": -153.21,
+                "maxX": -53.99,
+                "minY": -97.28,
+                "maxY": 72.21
+              },
+              "centroid": {
+                "x": -104.56,
+                "y": -18
+              }
+            }
+          ],
+          "front": []
+        }
+      },
+      {
+        "label": "00 → 15 midpoint",
+        "targetAfterClickMs": 27350,
+        "phase": "transition",
+        "expression": "expression-15",
+        "head": "interpolated; exact target tuple is in the direct-core source matrix",
+        "actualAfterClickMs": 27357,
+        "actionElapsedMs": 3057,
+        "ears": {
+          "back": [
+            {
+              "hash": "871415b06d22",
+              "bounds": {
+                "minX": -34.87,
+                "maxX": 48.95,
+                "minY": -116.8,
+                "maxY": 39.74
+              },
+              "centroid": {
+                "x": 5.28,
+                "y": -40.82
+              }
+            },
+            {
+              "hash": "65bc3af927b4",
+              "bounds": {
+                "minX": -156.54,
+                "maxX": -57.9,
+                "minY": -107.87,
+                "maxY": 67.14
+              },
+              "centroid": {
+                "x": -107.57,
+                "y": -23.34
+              }
+            }
+          ],
+          "front": []
+        }
+      },
+      {
+        "label": "15 hold",
+        "targetAfterClickMs": 28000,
+        "phase": "hold",
+        "expression": "expression-15",
+        "head": [
+          0.319140625,
+          35.307421875,
+          -10.904296875
+        ],
+        "actualAfterClickMs": 28020,
+        "actionElapsedMs": 3720,
+        "ears": {
+          "back": [
+            {
+              "hash": "81703e7712bc",
+              "bounds": {
+                "minX": -39.12,
+                "maxX": 43.05,
+                "minY": -122.99,
+                "maxY": 36.49
+              },
+              "centroid": {
+                "x": 0.14,
+                "y": -47.59
+              }
+            },
+            {
+              "hash": "8082a87c0031",
+              "bounds": {
+                "minX": -159.02,
+                "maxX": -60.81,
+                "minY": -117.87,
+                "maxY": 62.2
+              },
+              "centroid": {
+                "x": -110.36,
+                "y": -31.03
+              }
+            }
+          ],
+          "front": []
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,313 @@
+{
+  "pipeline": "direct avatar-core current-pose projection; no pointer input",
+  "thresholds": {
+    "viewBox": [
+      -150,
+      150
+    ],
+    "shell": [
+      -160.71428571428572,
+      160.71428571428572
+    ],
+    "frame": [
+      -214.28571428571428,
+      214.28571428571428
+    ],
+    "mascotSize": 56,
+    "renderScale": 0.95
+  },
+  "bodyNodes": [
+    {
+      "surface": {
+        "type": "diamond",
+        "width": 108,
+        "height": 190,
+        "depth": 102,
+        "roundness": 1
+      },
+      "position": [
+        -72,
+        -50,
+        -80
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "surface": {
+        "type": "diamond",
+        "width": 108,
+        "height": 190,
+        "depth": 102,
+        "roundness": 1
+      },
+      "position": [
+        72,
+        -50,
+        -80
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "neutralMetrics": {
+    "configuredCenterSpacingRatio": 0.6,
+    "directTipSpacing": 127.54,
+    "directTipSpacingRatio": 0.5314166666666666
+  },
+  "matrix": [
+    {
+      "state": "neutral",
+      "timestampMs": 0,
+      "earBounds": {
+        "minX": -111.6,
+        "maxX": 111.6,
+        "minY": -128.43,
+        "maxY": 39.86
+      },
+      "limits": {
+        "viewBox": true,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "idle expression-00 hold",
+      "timestampMs": 800,
+      "earBounds": {
+        "minX": -153.21,
+        "maxX": 55.37,
+        "minY": -111.17,
+        "maxY": 72.21
+      },
+      "limits": {
+        "viewBox": false,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "idle 00→08 midpoint",
+      "timestampMs": 5950,
+      "earBounds": {
+        "minX": -123.76,
+        "maxX": 99.14,
+        "minY": -136.37,
+        "maxY": 43.49
+      },
+      "limits": {
+        "viewBox": true,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "idle expression-08 hold",
+      "timestampMs": 6500,
+      "earBounds": {
+        "minX": -76.91,
+        "maxX": 143.53,
+        "minY": -150.67,
+        "maxY": 38.17
+      },
+      "limits": {
+        "viewBox": false,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "surprised first hold",
+      "timestampMs": 800,
+      "earBounds": {
+        "minX": -96.79,
+        "maxX": 113.48,
+        "minY": -150.23,
+        "maxY": 55.54
+      },
+      "limits": {
+        "viewBox": false,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "surprised midpoint",
+      "timestampMs": 3050,
+      "earBounds": {
+        "minX": -100.64,
+        "maxX": 114.02,
+        "minY": -152.56,
+        "maxY": 48.89
+      },
+      "limits": {
+        "viewBox": false,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "surprised second hold",
+      "timestampMs": 3700,
+      "earBounds": {
+        "minX": -103.9,
+        "maxX": 115.05,
+        "minY": -154.5,
+        "maxY": 41.51
+      },
+      "limits": {
+        "viewBox": false,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "curious-short first hold",
+      "timestampMs": 800,
+      "earBounds": {
+        "minX": -153.21,
+        "maxX": 55.37,
+        "minY": -111.17,
+        "maxY": 72.21
+      },
+      "limits": {
+        "viewBox": false,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "curious-short midpoint",
+      "timestampMs": 3050,
+      "earBounds": {
+        "minX": -156.54,
+        "maxX": 48.95,
+        "minY": -116.8,
+        "maxY": 67.14
+      },
+      "limits": {
+        "viewBox": false,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "curious-short second hold",
+      "timestampMs": 3700,
+      "earBounds": {
+        "minX": -159.02,
+        "maxX": 43.05,
+        "minY": -122.99,
+        "maxY": 62.2
+      },
+      "limits": {
+        "viewBox": false,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "playful-short first hold",
+      "timestampMs": 800,
+      "earBounds": {
+        "minX": -120.14,
+        "maxX": 102.84,
+        "minY": -166.88,
+        "maxY": 24.65
+      },
+      "limits": {
+        "viewBox": false,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "playful-short midpoint",
+      "timestampMs": 3050,
+      "earBounds": {
+        "minX": -135.77,
+        "maxX": 86.99,
+        "minY": -144.44,
+        "maxY": 33.36
+      },
+      "limits": {
+        "viewBox": true,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    },
+    {
+      "state": "playful-short second hold",
+      "timestampMs": 3700,
+      "earBounds": {
+        "minX": -143.45,
+        "maxX": 73.33,
+        "minY": -141.21,
+        "maxY": 58.07
+      },
+      "limits": {
+        "viewBox": true,
+        "shell": true,
+        "frame": true
+      },
+      "layers": {
+        "back": 2,
+        "front": 0
+      }
+    }
+  ]
+}

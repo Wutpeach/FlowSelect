@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/character-motion.md","reason":"Review authority isolation, lifecycle cleanup, pointer behavior, and Reduced Motion"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review frame ownership, stale callbacks, queues, and architecture boundaries"}
+{"file":".trellis/tasks/08-24-compact-mascot-cat-behavior-planning/research/authoritative-seam-and-behavior.md","reason":"Review against landed adapter and prior evidence constraints"}
+{"file":".trellis/tasks/08-24-compact-mascot-cat-behavior-planning/research/upstream-kirby-and-actions.md","reason":"Review source fidelity and exact upstream resource reuse"}

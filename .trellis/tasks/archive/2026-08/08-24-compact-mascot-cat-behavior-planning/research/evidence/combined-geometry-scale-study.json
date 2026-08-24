@@ -1,0 +1,332 @@
+[
+  {
+    "id": "A",
+    "width": 125,
+    "height": 205,
+    "depth": 110,
+    "x": 78,
+    "y": -78,
+    "z": -80,
+    "tilt": 0,
+    "fit": {
+      "scale": 0.7010739062067095,
+      "translationY": 15.455642513702983,
+      "maxRadius": 160.71428571428572,
+      "clearance": 0,
+      "shellRadius": 160.71428571428572
+    },
+    "neutral": {
+      "earBounds": {
+        "minX": -124.44,
+        "maxX": 124.44,
+        "minY": -159.88,
+        "maxY": 21.7
+      },
+      "headBounds": {
+        "minX": -122.31,
+        "maxX": 122.31,
+        "minY": 0,
+        "maxY": 0
+      },
+      "headWidth": 244.62
+    },
+    "envelope": {
+      "minX": -178.08,
+      "maxX": 161.92,
+      "minY": -203.72,
+      "maxY": 122.31
+    },
+    "metrics": {
+      "id": "A",
+      "sideBounds": [
+        {
+          "minX": -124.44,
+          "maxX": -30.95,
+          "minY": -159.88,
+          "maxY": -38.53
+        },
+        {
+          "minX": 30.95,
+          "maxX": 124.44,
+          "minY": -159.88,
+          "maxY": -38.53
+        }
+      ],
+      "tipSpacing": 138.188,
+      "earWidth": [
+        93.49,
+        93.49
+      ],
+      "headWidth": 244.62,
+      "tipSpacingRatio": 0.5649088381980214,
+      "earWidthRatio": [
+        0.38218461286893957,
+        0.38218461286893957
+      ]
+    }
+  },
+  {
+    "id": "B",
+    "width": 120,
+    "height": 200,
+    "depth": 108,
+    "x": 72,
+    "y": -76,
+    "z": -80,
+    "tilt": 0,
+    "fit": {
+      "scale": 0.7262231402161001,
+      "translationY": 14.495338122713768,
+      "maxRadius": 160.71428571428572,
+      "clearance": 0,
+      "shellRadius": 160.71428571428572
+    },
+    "neutral": {
+      "earBounds": {
+        "minX": -116.91,
+        "maxX": 116.91,
+        "minY": -155.89,
+        "maxY": 21.26
+      },
+      "headBounds": {
+        "minX": -122.31,
+        "maxX": 122.31,
+        "minY": 0,
+        "maxY": 0
+      },
+      "headWidth": 244.62
+    },
+    "envelope": {
+      "minX": -169.51,
+      "maxX": 153.2,
+      "minY": -197.8,
+      "maxY": 122.31
+    },
+    "metrics": {
+      "id": "B",
+      "sideBounds": [
+        {
+          "minX": -116.91,
+          "maxX": -28.2,
+          "minY": -155.89,
+          "maxY": -47.4
+        },
+        {
+          "minX": 28.2,
+          "maxX": 116.91,
+          "minY": -155.89,
+          "maxY": -47.4
+        }
+      ],
+      "tipSpacing": 127.556,
+      "earWidth": [
+        88.71,
+        88.71
+      ],
+      "headWidth": 244.62,
+      "tipSpacingRatio": 0.521445507317472,
+      "earWidthRatio": [
+        0.362644101054697,
+        0.362644101054697
+      ]
+    }
+  },
+  {
+    "id": "C",
+    "width": 115,
+    "height": 195,
+    "depth": 105,
+    "x": 68,
+    "y": -74,
+    "z": -80,
+    "tilt": 0,
+    "fit": {
+      "scale": 0.7477275597751802,
+      "translationY": 13.356608277583588,
+      "maxRadius": 160.7142857142857,
+      "clearance": 2.842170943040401e-14,
+      "shellRadius": 160.71428571428572
+    },
+    "neutral": {
+      "earBounds": {
+        "minX": -111.16,
+        "maxX": 111.16,
+        "minY": -151.9,
+        "maxY": 20.81
+      },
+      "headBounds": {
+        "minX": -122.31,
+        "maxX": 122.31,
+        "minY": 0,
+        "maxY": 0
+      },
+      "headWidth": 244.62
+    },
+    "envelope": {
+      "minX": -162.94,
+      "maxX": 146.52,
+      "minY": -192.36,
+      "maxY": 122.31
+    },
+    "metrics": {
+      "id": "C",
+      "sideBounds": [
+        {
+          "minX": -111.16,
+          "maxX": -28.15,
+          "minY": -151.9,
+          "maxY": -56.53
+        },
+        {
+          "minX": 28.15,
+          "maxX": 111.16,
+          "minY": -151.9,
+          "maxY": -56.53
+        }
+      ],
+      "tipSpacing": 120.488,
+      "earWidth": [
+        83.00999999999999,
+        83.00999999999999
+      ],
+      "headWidth": 244.62,
+      "tipSpacingRatio": 0.4925517128607636,
+      "earWidthRatio": [
+        0.3393426539121903,
+        0.3393426539121903
+      ]
+    }
+  },
+  {
+    "id": "D",
+    "width": 125,
+    "height": 205,
+    "depth": 110,
+    "x": 74,
+    "y": -78,
+    "z": -80,
+    "tilt": 8,
+    "fit": {
+      "scale": 0.7105117676726858,
+      "translationY": 15.011090390967494,
+      "maxRadius": 160.71428571428572,
+      "clearance": 0,
+      "shellRadius": 160.71428571428572
+    },
+    "neutral": {
+      "earBounds": {
+        "minX": -120.63,
+        "maxX": 120.63,
+        "minY": -159.51,
+        "maxY": 21.06
+      },
+      "headBounds": {
+        "minX": -122.31,
+        "maxX": 122.31,
+        "minY": 0,
+        "maxY": 0
+      },
+      "headWidth": 244.62
+    },
+    "envelope": {
+      "minX": -174.9,
+      "maxX": 158.37,
+      "minY": -198.98,
+      "maxY": 122.31
+    },
+    "metrics": {
+      "id": "D",
+      "sideBounds": [
+        {
+          "minX": -120.63,
+          "maxX": -23.05,
+          "minY": -159.51,
+          "maxY": -40.76
+        },
+        {
+          "minX": 23.05,
+          "maxX": 120.63,
+          "minY": -159.51,
+          "maxY": -40.76
+        }
+      ],
+      "tipSpacing": 106.87142857142855,
+      "earWidth": [
+        97.58,
+        97.58
+      ],
+      "headWidth": 244.62,
+      "tipSpacingRatio": 0.43688753401777675,
+      "earWidthRatio": [
+        0.3989044231869839,
+        0.3989044231869839
+      ]
+    }
+  },
+  {
+    "id": "current-failed",
+    "width": 125,
+    "height": 195,
+    "depth": 105,
+    "x": 42,
+    "y": -82,
+    "z": -80,
+    "tilt": 0,
+    "fit": {
+      "scale": 0.7735574783215778,
+      "translationY": 20.86139583687197,
+      "maxRadius": 160.71428571428572,
+      "clearance": 0,
+      "shellRadius": 160.71428571428572
+    },
+    "neutral": {
+      "earBounds": {
+        "minX": -92.56,
+        "maxX": 92.56,
+        "minY": -159.37,
+        "maxY": 14.13
+      },
+      "headBounds": {
+        "minX": -122.31,
+        "maxX": 122.31,
+        "minY": 0,
+        "maxY": 0
+      },
+      "headWidth": 244.62
+    },
+    "envelope": {
+      "minX": -144.5,
+      "maxX": 127.29,
+      "minY": -194.91,
+      "maxY": 122.31
+    },
+    "metrics": {
+      "id": "current-failed",
+      "sideBounds": [
+        {
+          "minX": -90.52,
+          "maxX": -0.15,
+          "minY": -159.37,
+          "maxY": -83.45
+        },
+        {
+          "minX": 0.15,
+          "maxX": 90.52,
+          "minY": -159.37,
+          "maxY": -83.45
+        }
+      ],
+      "tipSpacing": 74.41,
+      "earWidth": [
+        90.36999999999999,
+        90.36999999999999
+      ],
+      "headWidth": 244.62,
+      "tipSpacingRatio": 0.3041860845392854,
+      "earWidthRatio": [
+        0.36943013653830425,
+        0.36943013653830425
+      ]
+    }
+  }
+]

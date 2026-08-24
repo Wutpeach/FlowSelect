@@ -1,0 +1,17 @@
+{
+  "method": "production 1x Lab screenshot mask; RGB distance < 28 from lower-head body sample",
+  "headWidthPx": 146,
+  "tipSpacingRatio": null,
+  "earWidthRatio": [
+    null,
+    null
+  ],
+  "notchWidthRatio": null,
+  "notchDepthRatio": null,
+  "reference": {
+    "tipSpacingRatio": 0.675,
+    "earWidthRatio": 0.264,
+    "notchWidthRatio": 0.046,
+    "notchDepthRatio": 0.151
+  }
+}

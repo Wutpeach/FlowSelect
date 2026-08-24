@@ -1,0 +1,10 @@
+{
+  "source": "src/presentation/main-window/compactMascotBehaviorRuntime.test.ts",
+  "runtime": "one Compact-local avatar-core playback and one rAF scheduler",
+  "results": [
+    { "case": "pointer during action", "proof": "keeps pointer attention active during an action and freezes an active action while hidden", "result": "pass" },
+    { "case": "hidden then visible", "proof": "same test pauses at 19000, resumes at 100000, and action remains active at resumed 104500", "result": "pass" },
+    { "case": "Reduced Motion", "proof": "uses static open eyes with no decorative frame and invalidates stale callbacks", "result": "pass", "expected": "zero rAF/deadline/action and fresh baseline on normal start" },
+    { "case": "dispose/remount", "proof": "same test fires an uncancellable stale callback after static cancellation, then disposes; later start is inert", "result": "pass" }
+  ]
+}
