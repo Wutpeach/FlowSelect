@@ -126,6 +126,7 @@ import { resetRenameSequenceState } from "./renameRules";
 import { bilibiliProvider } from "../sites/bilibili";
 import { galleryDlSupportedProvider } from "../sites/gallery-dl-supported";
 import { weiboProvider } from "../sites/weibo";
+import { buildDiagnosticsSnapshot } from "../../electron/diagnostics.mjs";
 
 const waitFor = async (
   predicate: () => boolean,
@@ -638,6 +639,106 @@ describe("AmeowElectronDownloadRuntime", () => {
       success: false,
     });
     await waitFor(() => runtime.getQueueState().totalCount === 0);
+  });
+
+  it("does not disturb membership, cancellation, or settlement of a deferred active job", async () => {
+    const activeJob: {
+      release: (() => void) | null;
+      abortSignal: AbortSignal | null;
+    } = { release: null, abortSignal: null };
+    const completions: Array<{ traceId: string; success: boolean }> = [];
+    const runtime = createRuntime({
+      maxConcurrent: 1,
+      providers: [genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => new Promise<DownloadResult>((resolve) => {
+          activeJob.abortSignal = context.abortSignal;
+          activeJob.release = () => resolve({
+            traceId: context.traceId,
+            success: true,
+            filePath: `${context.outputDir}/${context.outputStem}.mp4`,
+          });
+        })),
+      ],
+      onEmit(event, payload) {
+        if (event === "video-download-complete") {
+          const completion = toCompletionView(payload);
+          completions.push({ traceId: completion.traceId, success: completion.success });
+        }
+      },
+    });
+
+    const accepted = await runtime.queueVideoDownload({ url: "https://example.com/active" });
+    await waitFor(() => runtime.getQueueState().activeCount === 1 && activeJob.release !== null);
+    const taskBeforeDiagnostics = runtime.getQueueDetail().tasks.find(
+      (task) => task.traceId === accepted.traceId,
+    );
+    expect(taskBeforeDiagnostics).toMatchObject({
+      traceId: accepted.traceId,
+      status: "active",
+    });
+
+    const diagnostics = await buildDiagnosticsSnapshot({
+      appVersion: "0.3.1",
+      platform: "win32",
+      arch: "x64",
+      isPackaged: false,
+      runtimeTarget: "x86_64-pc-windows-msvc",
+      runtimeStatus: {
+        python: { state: "missing", source: null, expectedSource: "bundled", path: null, error: "missing" },
+        ytDlp: { state: "missing", source: null, expectedSource: "managed", path: null, error: "missing" },
+        galleryDl: { state: "missing", source: null, expectedSource: "managed", path: null, error: "missing" },
+        ffmpeg: { state: "missing", source: null, expectedSource: "managed", path: null, error: "missing" },
+        deno: { state: "missing", source: null, expectedSource: "managed", path: null, error: "missing" },
+      },
+      runtimePaths: {
+        ytDlp: "missing",
+        galleryDl: "missing",
+        ffmpeg: "missing",
+        ffprobe: "missing",
+        deno: "missing",
+      },
+      runtimeGate: {
+        phase: "idle",
+        missingComponents: [],
+        lastError: null,
+        updatedAtMs: 0,
+        currentComponent: null,
+        currentStage: null,
+        progressPercent: null,
+        downloadedBytes: null,
+        totalBytes: null,
+        nextComponent: null,
+      },
+      inspectOutputDirectory: async () => ({
+        configured: false,
+        exists: false,
+        accessible: false,
+        writable: false,
+      }),
+      inspectBrowserBridge: () => ({ listenerActive: false, connectedClientCount: 0, pendingRequestCount: 0 }),
+      inspectDownloads: () => runtime.getQueueState(),
+      readRecentRuntimeLogLines: async () => [],
+      isPathPresent: () => false,
+      probeVersion: vi.fn(),
+    });
+
+    expect(diagnostics.downloads.active.value).toBe(1);
+    expect(diagnostics.downloads.pending.value).toBe(0);
+    expect(runtime.getQueueDetail().tasks.find((task) => task.traceId === accepted.traceId))
+      .toEqual(taskBeforeDiagnostics);
+    expect(activeJob.abortSignal?.aborted).toBe(false);
+    expect(completions).toEqual([]);
+
+    activeJob.release?.();
+    await waitFor(() => runtime.getQueueState().totalCount === 0);
+
+    expect(completions.filter((completion) => completion.traceId === accepted.traceId)).toEqual([
+      { traceId: accepted.traceId, success: true },
+    ]);
+    expect(runtime.getQueueDetail().tasks).not.toContainEqual(
+      expect.objectContaining({ traceId: accepted.traceId }),
+    );
   });
 
   it("creates a probing advanced-quality task instead of starting a normal download immediately", async () => {

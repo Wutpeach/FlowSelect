@@ -65,12 +65,18 @@ import {
   resolveReceivePrereleaseUpdates,
 } from "../updates/appUpdatePreferences";
 import type { AppUpdateInfo, AppUpdatePhase, AppUpdateStatePayload } from "../types/appUpdate";
+import type { DiagnosticFact, DiagnosticsSnapshot } from "../types/diagnostics";
 import { SITE_SESSION_LOGOS } from "../site-session-icons";
 import type {
   SiteSessionRegistryEntry,
   SiteSessionState,
   SiteSessionStateChangedPayload,
 } from "../types/siteSession";
+import {
+  diagnosticConclusionTone,
+  diagnosticFactText,
+  diagnosticsPresentationState,
+} from "./diagnosticsPresentation";
 
 type RenameRulePreset = "desc_number" | "asc_number" | "prefix_number";
 type SettingsPageId = "hub" | "appearance" | "saving" | "sites" | "plugins" | "system";
@@ -319,6 +325,9 @@ function SettingsPage() {
   const [hoveredHubDestination, setHoveredHubDestination] = useState<SettingsDetailPageId | null>(null);
   const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
   const [supportLogHint, setSupportLogHint] = useState("");
+  const [diagnosticsSnapshot, setDiagnosticsSnapshot] = useState<DiagnosticsSnapshot | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [appUpdateInfo, setAppUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [appUpdatePhase, setAppUpdatePhase] = useState<AppUpdatePhase>("idle");
   const [appUpdateError, setAppUpdateError] = useState<string | null>(null);
@@ -926,6 +935,23 @@ function SettingsPage() {
     }
   }, [appUpdateInfo, appUpdatePhase]);
 
+  const refreshDiagnostics = useCallback(async () => {
+    if (diagnosticsLoading) {
+      return;
+    }
+    setDiagnosticsLoading(true);
+    setDiagnosticsError(null);
+    try {
+      const snapshot = await desktopCommands.invoke<DiagnosticsSnapshot>("get_read_only_diagnostics");
+      setDiagnosticsSnapshot(snapshot);
+    } catch (err) {
+      console.error("Failed to read diagnostics:", err);
+      setDiagnosticsError(summarizeAppUpdateError(err) ?? t("desktop:settings.diagnostics.error"));
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }, [diagnosticsLoading, t]);
+
   const toggleAePortal = async () => {
     const previousValue = aePortalEnabled;
     const newValue = !previousValue;
@@ -973,6 +999,48 @@ function SettingsPage() {
   };
 
   const renamePreview = buildRenamePreview(renameRulePreset, renamePrefix, renameSuffix);
+  const diagnosticsState = diagnosticsPresentationState(
+    diagnosticsSnapshot,
+    diagnosticsLoading,
+    diagnosticsError,
+  );
+  const diagnosticsConclusionText = (fact: DiagnosticFact<unknown>) =>
+    t(`desktop:settings.diagnostics.conclusion.${fact.conclusion}`);
+  const diagnosticsToneColor = (fact: DiagnosticFact<unknown>, toneOverride?: "accent" | "danger" | "muted") => {
+    const tone = toneOverride ?? diagnosticConclusionTone(fact.conclusion);
+    return tone === "accent"
+      ? colors.accentText
+      : tone === "danger"
+        ? colors.dangerText
+        : colors.textSecondary;
+  };
+  const renderDiagnosticsRow = (
+    label: string,
+    fact: DiagnosticFact<unknown>,
+    value: ReactNode = diagnosticsConclusionText(fact),
+    toneOverride?: "accent" | "danger" | "muted",
+  ) => (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 10,
+        fontSize: 10.5,
+        color: colors.textSecondary,
+      }}
+    >
+      <span>{label}</span>
+      <span style={{
+        maxWidth: 156,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        color: diagnosticsToneColor(fact, toneOverride),
+      }}>
+        {value}
+      </span>
+    </div>
+  );
   const settingsShellRadius = 16;
   const windowShadowGutter = isMacOS ? MACOS_SECONDARY_WINDOW_SHADOW_GUTTER : 0;
   const panelStyle: CSSProperties = getWindowShellStyle(colors, theme, {
@@ -2258,6 +2326,144 @@ function SettingsPage() {
           >
             {networkProxyStatusText}
           </NeonHint>
+        </div>
+      </NeonSection>
+
+      <NeonSection
+        title={t("desktop:settings.diagnostics.title")}
+        hint={t("desktop:settings.diagnostics.hint")}
+      >
+        <div style={{ display: "grid", gap: 10 }}>
+          <NeonFieldButton
+            onClick={() => void refreshDiagnostics()}
+            disabled={diagnosticsLoading}
+            trailingContent={(
+              <span style={{ fontSize: 10.5, color: colors.accentText }}>
+                {diagnosticsLoading
+                  ? t("desktop:settings.diagnostics.loading")
+                  : diagnosticsSnapshot
+                    ? t("desktop:settings.diagnostics.refresh")
+                    : t("desktop:settings.diagnostics.run")}
+              </span>
+            )}
+            aria-busy={diagnosticsLoading}
+          >
+            {t("desktop:settings.diagnostics.button")}
+          </NeonFieldButton>
+
+          {diagnosticsError ? (
+            <NeonHint tone="danger" size="sm" role="alert">
+              {diagnosticsError}
+            </NeonHint>
+          ) : null}
+
+          {diagnosticsSnapshot ? (
+            <NeonCard
+              aria-live="polite"
+              style={{
+                padding: "10px 12px",
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 650, color: colors.textPrimary }}>
+                  {t("desktop:settings.diagnostics.report")}
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  color: diagnosticsState === "ready" ? colors.accentText : colors.textSecondary,
+                }}>
+                  {t(`desktop:settings.diagnostics.state.${diagnosticsState}`)}
+                </span>
+              </div>
+              <NeonHint size="sm">
+                {`${diagnosticFactText(diagnosticsSnapshot.environment.platform)} · ${diagnosticFactText(diagnosticsSnapshot.environment.architecture)} · ${diagnosticFactText(diagnosticsSnapshot.environment.runtimeTarget)}`}
+              </NeonHint>
+              <div style={{ display: "grid", gap: 5 }}>
+                {diagnosticsSnapshot.runtimes.map((runtime) => {
+                  const tone = diagnosticConclusionTone(runtime.version.conclusion);
+                  const versionText = runtime.version.value == null
+                    ? t(`desktop:settings.diagnostics.conclusion.${runtime.version.conclusion}`)
+                    : diagnosticFactText(runtime.version);
+                  return (
+                    <div
+                      key={runtime.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        fontSize: 10.5,
+                        color: colors.textSecondary,
+                      }}
+                    >
+                      <span>{t(`desktop:settings.diagnostics.runtime.${runtime.id}`)}</span>
+                      <span style={{
+                        maxWidth: 156,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        color: tone === "accent"
+                          ? colors.accentText
+                          : tone === "danger"
+                            ? colors.dangerText
+                            : colors.textSecondary,
+                      }} title={versionText}>
+                        {versionText}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: "grid", gap: 5 }}>
+                {renderDiagnosticsRow(
+                  t("desktop:settings.diagnostics.runtimeGate"),
+                  diagnosticsSnapshot.runtimeGate,
+                )}
+                {renderDiagnosticsRow(
+                  t("desktop:settings.diagnostics.outputExists"),
+                  diagnosticsSnapshot.outputDirectory.exists,
+                )}
+                {renderDiagnosticsRow(
+                  t("desktop:settings.diagnostics.outputRead"),
+                  diagnosticsSnapshot.outputDirectory.accessible,
+                )}
+                {renderDiagnosticsRow(
+                  t("desktop:settings.diagnostics.outputWrite"),
+                  diagnosticsSnapshot.outputDirectory.writable,
+                )}
+                <NeonHint size="sm">
+                  {t("desktop:settings.diagnostics.writePermissionCaveat")}
+                </NeonHint>
+                {renderDiagnosticsRow(
+                  t("desktop:settings.diagnostics.browserBridge"),
+                  diagnosticsSnapshot.browserBridge.listener,
+                )}
+                {renderDiagnosticsRow(
+                  t("desktop:settings.diagnostics.browserClients"),
+                  diagnosticsSnapshot.browserBridge.connectedClients,
+                  diagnosticsSnapshot.browserBridge.connectedClients.value == null
+                    ? diagnosticsConclusionText(diagnosticsSnapshot.browserBridge.connectedClients)
+                    : t("desktop:settings.diagnostics.clients", {
+                      count: diagnosticsSnapshot.browserBridge.connectedClients.value,
+                    }),
+                  diagnosticsSnapshot.browserBridge.connectedClients.value === 0
+                    ? "muted"
+                    : undefined,
+                )}
+                {renderDiagnosticsRow(
+                  t("desktop:settings.diagnostics.queueLabel"),
+                  diagnosticsSnapshot.downloads.active.conclusion !== "available"
+                    ? diagnosticsSnapshot.downloads.active
+                    : diagnosticsSnapshot.downloads.pending,
+                  t("desktop:settings.diagnostics.queue", {
+                    active: diagnosticsSnapshot.downloads.active.value ?? 0,
+                    pending: diagnosticsSnapshot.downloads.pending.value ?? 0,
+                  }),
+                )}
+              </div>
+            </NeonCard>
+          ) : null}
         </div>
       </NeonSection>
 

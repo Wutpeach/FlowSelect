@@ -91,6 +91,19 @@ describe("createConfigStore", () => {
     expect(store.getLogsDir()).toBe(join("/user-data", "logs"));
   });
 
+  it("reads diagnostics config facts without creating directories or persisting defaults", async () => {
+    const { directories, fs, store } = createStore();
+
+    await expect(store.readConfigObjectNoCreate()).resolves.toEqual({});
+    await expect(store.resolveCurrentOutputFolderPathNoCreate()).resolves.toBe(
+      join("/desktop", "Ameow_Received"),
+    );
+
+    expect(directories).toEqual([]);
+    expect(fs.mkdir).not.toHaveBeenCalled();
+    expect(fs.writeFile).not.toHaveBeenCalled();
+  });
+
   it("returns empty objects for invalid JSON without throwing", async () => {
     const configPath = join("/user-data", "settings.json");
     const { store } = createStore({

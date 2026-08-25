@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/08-25-diagnostics-read-only-p1/prd.md", "reason": "Acceptance and strict non-mutation gate"}
+{"file": ".trellis/tasks/08-25-diagnostics-read-only-p1/design.md", "reason": "Authority, data-flow, privacy, and P1-only review boundary"}
+{"file": ".trellis/spec/frontend/docs-site.md", "reason": "Require synchronized public documentation and docs build"}

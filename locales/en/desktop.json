@@ -444,6 +444,48 @@
       "exported": "Diagnostic log ready: {{fileName}}",
       "failed": "Failed to export diagnostic log"
     },
+    "diagnostics": {
+      "title": "Read-only diagnostics",
+      "hint": "Inspect the current app state without changing files, settings, downloads, or browser connections.",
+      "button": "Run self-check",
+      "run": "Run",
+      "refresh": "Refresh",
+      "loading": "Checking…",
+      "error": "The self-check could not be completed.",
+      "report": "Current report",
+      "queue": "Downloads: {{active}} active · {{pending}} waiting",
+      "queueLabel": "Queue",
+      "runtimeGate": "Runtime readiness",
+      "outputExists": "Output folder",
+      "outputRead": "Read access",
+      "outputWrite": "Write permission",
+      "writePermissionCaveat": "Permission access does not prove that a real file can be written.",
+      "browserBridge": "Browser Bridge",
+      "browserClients": "Bridge clients",
+      "clients": "{{count}} connected",
+      "state": {
+        "idle": "Not run",
+        "loading": "Checking",
+        "ready": "Available",
+        "partial": "Some facts are unavailable",
+        "error": "Could not check"
+      },
+      "conclusion": {
+        "available": "Available",
+        "degraded": "Needs attention",
+        "unavailable": "Unavailable",
+        "unknown": "Unknown",
+        "not_verified": "Not verified"
+      },
+      "runtime": {
+        "python": "Python",
+        "ytDlp": "yt-dlp",
+        "galleryDl": "gallery-dl",
+        "ffmpeg": "FFmpeg",
+        "ffprobe": "FFprobe",
+        "deno": "Deno"
+      }
+    },
     "versionCard": {
       "title": "App Version",
       "appName": "Ameow",

@@ -27,6 +27,7 @@ export type AmeowRendererCommand =
   | "get_current_shortcut"
   | "get_gallery_dl_info"
   | "get_network_proxy_state"
+  | "get_read_only_diagnostics"
   | "get_runtime_dependency_gate_state"
   | "get_runtime_dependency_status"
   | "open_current_output_folder"

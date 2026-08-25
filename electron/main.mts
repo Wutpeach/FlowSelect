@@ -38,12 +38,14 @@ import {
   createEngineRuntimeBindingRegistry,
   GalleryDlEngineAdapter,
   inspectRuntimeDependencyStatus,
+  inspectRuntimeBinaryPaths,
   releaseRenameStem,
   resolveBundledPythonRuntime,
   resetRenameSequenceState,
   resolveGalleryDlRuntimeDependencies,
   resolveXiaohongshuDragMedia,
   resolveRuntimeBinaryPaths,
+  resolveRuntimeTarget,
   resolveRenameEnabled,
   resolveYtDlpRuntimeDependencies,
   YtDlpEngineAdapter,
@@ -51,6 +53,7 @@ import {
 import {
   normalizeVideoQualityPreference,
   resolveYtdlpQualityPreferenceFromConfig,
+  sanitizeDiagnosticText,
 } from "../src/core/index.js";
 import { compareAppVersions } from "../src/updates/versioning.js";
 import { createAppUpdateController } from "./appUpdateController.mjs";
@@ -124,6 +127,11 @@ import {
 } from "./siteSessionCommands.mjs";
 import { createSupportLogCommandController } from "./supportLogCommands.mjs";
 import { createErrorDiagnosticCommandController } from "./errorDiagnosticCommands.mjs";
+import {
+  buildDiagnosticsSnapshot,
+  inspectOutputDirectoryReadOnly,
+} from "./diagnostics.mjs";
+import { createDiagnosticsCommandController } from "./diagnosticsCommands.mjs";
 import { buildXiaohongshuResolvedDragMediaResult } from "./xiaohongshuDragMediaResult.mjs";
 import {
   currentManagedRuntimeTarget,
@@ -197,6 +205,8 @@ const WINDOW_EDGE_PADDING = 8;
 const PROTECTED_IMAGE_RESOLUTION_TIMEOUT_MS = 15_000;
 const XIAOHONGSHU_DRAG_RESOLUTION_TIMEOUT_MS = 30_000;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
+const VERSION_PROBE_OUTPUT_LIMIT = 1_024;
+const VERSION_PROBE_TIMEOUT_MS = 4_000;
 const WINDOW_STARTUP_CAPTURE_DELAY_MS = 180;
 const STARTUP_DIAGNOSTIC_SETTINGS_OPEN_DELAY_MS = 1_500;
 const MACOS_TRAY_ICON_SIZE_PX = 18;
@@ -217,6 +227,7 @@ let downloadWsAdapter = null;
 let siteSessionCommandController = null;
 let supportLogCommandController = null;
 let errorDiagnosticCommandController = null;
+let diagnosticsCommandController = null;
 let siteSessionRefreshScheduler = null;
 let networkProxyPolicyController = null;
 const siteSessionManagers = new Map();
@@ -293,11 +304,13 @@ const getConfigPath = configStore.getConfigPath;
 const getLogsDir = configStore.getLogsDir;
 const getUserDataDir = configStore.getUserDataDir;
 const readConfigObject = configStore.readConfigObject;
+const readConfigObjectNoCreate = configStore.readConfigObjectNoCreate;
 const readConfigString = configStore.readConfigString;
 const readCurrentLanguage = configStore.readCurrentLanguage;
 const readCurrentTheme = configStore.readCurrentTheme;
 const readStartupConfigSnapshot = configStore.readStartupConfigSnapshot;
 const resolveCurrentOutputFolderPath = configStore.resolveCurrentOutputFolderPath;
+const resolveCurrentOutputFolderPathNoCreate = configStore.resolveCurrentOutputFolderPathNoCreate;
 const resolveExtensionInjectionDebugEnabledFromConfigObject =
   configStore.resolveExtensionInjectionDebugEnabledFromConfigObject;
 const resolveLanguageFromConfigString = configStore.resolveLanguageFromConfigString;
@@ -1733,10 +1746,22 @@ function getErrorDiagnosticCommandController() {
   return errorDiagnosticCommandController;
 }
 
+function getDiagnosticsCommandController() {
+  if (diagnosticsCommandController) {
+    return diagnosticsCommandController;
+  }
+
+  diagnosticsCommandController = createDiagnosticsCommandController({
+    getDiagnosticsSnapshot,
+  });
+  return diagnosticsCommandController;
+}
+
 // Order matters: first supporting controller wins. The download IPC adapter
 // owns ordinary download commands; the operational bridge handles transcode,
 // runtime dependency and downloader version/info commands.
 const rendererCommandControllerGetters = [
+  getDiagnosticsCommandController,
   getDownloadIpcAdapter,
   getVideoDownloadCommandBridge,
   getSiteSessionCommandController,
@@ -1764,6 +1789,55 @@ function missingRuntimeEntry(error) {
 
 async function getRuntimeDependencyStatus() {
   return inspectRuntimeDependencyStatus(buildElectronRuntimeEnvironment());
+}
+
+async function inspectDiagnosticsOutputDirectory() {
+  const config = await readConfigObjectNoCreate();
+  const outputPath = await resolveCurrentOutputFolderPathNoCreate();
+  const configured = typeof config.outputPath === "string" && Boolean(config.outputPath.trim());
+  return inspectOutputDirectoryReadOnly(outputPath, configured);
+}
+
+function inspectDiagnosticsBrowserBridge() {
+  const bridgeSnapshot = extensionRequestBridge?.getDiagnosticsSnapshot();
+  return {
+    listenerActive: Boolean(wsServer),
+    connectedClientCount: wsClients.size,
+    pendingRequestCount:
+      (bridgeSnapshot?.pendingPastedVideoSelectionRequests ?? 0)
+      + (bridgeSnapshot?.pendingSiteSessionCookieSyncRequests ?? 0),
+  };
+}
+
+function inspectDiagnosticsDownloads() {
+  if (!electronDownloadRuntime) {
+    return { activeCount: 0, pendingCount: 0 };
+  }
+  const queue = electronDownloadRuntime.getQueueState();
+  return {
+    activeCount: queue.activeCount,
+    pendingCount: queue.pendingCount,
+  };
+}
+
+async function getDiagnosticsSnapshot() {
+  const environment = buildElectronRuntimeEnvironment();
+  return buildDiagnosticsSnapshot({
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    isPackaged: app.isPackaged,
+    runtimeTarget: resolveRuntimeTarget(process.platform, process.arch),
+    runtimeStatus: await getRuntimeDependencyStatus(),
+    runtimePaths: inspectRuntimeBinaryPaths(environment),
+    runtimeGate: runtimeDependencyGateController.peekState(),
+    inspectOutputDirectory: inspectDiagnosticsOutputDirectory,
+    inspectBrowserBridge: inspectDiagnosticsBrowserBridge,
+    inspectDownloads: inspectDiagnosticsDownloads,
+    readRecentRuntimeLogLines,
+    isPathPresent: existsSync,
+    probeVersion: getLocalDownloaderVersion,
+  });
 }
 
 async function getRuntimeDependencyGateState() {
@@ -1829,7 +1903,7 @@ function compareLooseVersions(left, right) {
   return 0;
 }
 
-async function getLocalDownloaderVersion(toolId, binaryPath) {
+async function getLocalDownloaderVersion(toolId: string, binaryPath: string): Promise<string> {
   return new Promise((resolveVersion, rejectVersion) => {
     const child = spawn(binaryPath, ["--version"], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -1837,23 +1911,42 @@ async function getLocalDownloaderVersion(toolId, binaryPath) {
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const appendOutput = (current: string, chunk: unknown) =>
+      `${current}${String(chunk)}`.slice(0, VERSION_PROBE_OUTPUT_LIMIT);
+    const finish = (callback: (value: string | Error) => void) => (value: string | Error) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      callback(value);
+    };
+    const resolveOnce = finish((value) => resolveVersion(value as string));
+    const rejectOnce = finish((value) => rejectVersion(value));
+    const failure = (value: unknown): Error => new Error(
+      sanitizeDiagnosticText(String(value), VERSION_PROBE_OUTPUT_LIMIT),
+    );
+    timeout = setTimeout(() => {
+      child.kill();
+      rejectOnce(failure(`${toolId} version probe timed out`));
+    }, VERSION_PROBE_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
+      stdout = appendOutput(stdout, chunk);
     });
     child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
+      stderr = appendOutput(stderr, chunk);
     });
-    child.once("error", rejectVersion);
+    child.once("error", (error) => rejectOnce(failure(error)));
     child.once("close", (code) => {
       if (code === 0) {
         const firstLine = `${stdout}\n${stderr}`
           .split(/\r?\n/)
           .map((line) => line.trim())
           .find(Boolean);
-        resolveVersion(normalizeVersionString(firstLine) ?? "unknown");
+        resolveOnce(normalizeVersionString(sanitizeDiagnosticText(firstLine ?? "", 160)) ?? "unknown");
         return;
       }
-      rejectVersion(new Error(stderr.trim() || `${toolId} exited with code ${code}`));
+      rejectOnce(failure(stderr.trim() || `${toolId} exited with code ${code}`));
     });
   });
 }

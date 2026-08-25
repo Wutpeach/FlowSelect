@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/08-25-diagnostics-read-only-p1/research/p0-findings-for-p1.md", "reason": "Curated current repository truth and P1/P2 boundary"}
+{"file": ".trellis/spec/backend/electron-runtime-contracts/04-electron-download-command-bridge-contract.md", "reason": "Preserve the existing Electron command and download authority boundary"}
+{"file": ".trellis/spec/backend/electron-runtime-contracts/05-electron-renderer-command-controller-registry-contract.md", "reason": "Add the low-risk diagnostics command through the existing controller registry"}
+{"file": ".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md", "reason": "Respect current managed runtime paths and platform facts"}
+{"file": ".trellis/spec/frontend/type-safety/07-electron-preload-bridge-contract-for-renderer-migration.md", "reason": "Keep renderer access preload-mediated and typed"}
+{"file": ".trellis/spec/frontend/design-system.md", "reason": "Reuse the existing Settings visual language for the minimal entry"}

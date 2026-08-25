@@ -91,36 +91,71 @@ export const resolveBundledPythonRuntime = (
   };
 };
 
-const runtimeRootFor = (
+const runtimeRootPathFor = (
   environment: ElectronRuntimeEnvironment,
   componentId: string,
 ): string => {
-  const root = path.join(
+  return path.join(
     environment.configDir,
     "runtimes",
     componentId,
     resolveRuntimeTarget(environment.platform, environment.arch),
   );
-  mkdirSync(root, { recursive: true });
-  return root;
 };
 
-const managedFfmpegPathsFor = (
+type ManagedFfmpegPaths = {
+  root: string;
+  ffmpeg: string;
+  ffprobe: string;
+};
+
+type ManagedDenoPaths = {
+  root: string;
+  deno: string;
+};
+
+type ManagedPythonPackageRuntimePaths = {
+  root: string;
+  venvDir: string;
+  python: string;
+  entrypoint: string;
+};
+
+const ensureManagedRuntimeRoot = <T extends { root: string }>(paths: T): T => {
+  mkdirSync(paths.root, { recursive: true });
+  return paths;
+};
+
+const inspectManagedFfmpegPaths = (
   environment: ElectronRuntimeEnvironment,
-): { ffmpeg: string; ffprobe: string } => {
-  const root = runtimeRootFor(environment, "ffmpeg");
+): ManagedFfmpegPaths => {
+  const root = runtimeRootPathFor(environment, "ffmpeg");
   const realRoot = environment.platform === "win32" ? path.join(root, "real") : root;
   return {
+    root,
     ffmpeg: path.join(realRoot, ffmpegBinaryNameFor(environment.platform)),
     ffprobe: path.join(realRoot, ffprobeBinaryNameFor(environment.platform)),
   };
 };
 
-const managedDenoPathFor = (environment: ElectronRuntimeEnvironment): string => {
-  const root = runtimeRootFor(environment, "deno");
+const inspectManagedDenoPaths = (environment: ElectronRuntimeEnvironment): ManagedDenoPaths => {
+  const root = runtimeRootPathFor(environment, "deno");
   const realRoot = environment.platform === "win32" ? path.join(root, "real") : root;
-  return path.join(realRoot, denoBinaryNameFor(environment.platform));
+  return {
+    root,
+    deno: path.join(realRoot, denoBinaryNameFor(environment.platform)),
+  };
 };
+
+const managedFfmpegPathsFor = (
+  environment: ElectronRuntimeEnvironment,
+): ManagedFfmpegPaths => ensureManagedRuntimeRoot(inspectManagedFfmpegPaths(environment));
+
+const managedDenoPathFor = (environment: ElectronRuntimeEnvironment): string =>
+  ensureManagedRuntimeRoot(inspectManagedDenoPaths(environment)).deno;
+
+const inspectManagedDenoPath = (environment: ElectronRuntimeEnvironment): string =>
+  inspectManagedDenoPaths(environment).deno;
 
 const managedYtDlpPathFor = (environment: ElectronRuntimeEnvironment): string => {
   return resolveManagedYtDlpRuntimePaths(environment).entrypoint;
@@ -131,35 +166,30 @@ const managedGalleryDlPathFor = (environment: ElectronRuntimeEnvironment): strin
 
 export const resolveManagedYtDlpRuntimePaths = (
   environment: ElectronRuntimeEnvironment,
-): {
-  root: string;
-  venvDir: string;
-  python: string;
-  entrypoint: string;
-} => {
-  const root = runtimeRootFor(environment, "yt-dlp");
-  const executableDir = path.join(
-    root,
-    "venv",
-    environment.platform === "win32" ? "Scripts" : "bin",
-  );
-  return {
-    root,
-    venvDir: path.join(root, "venv"),
-    python: path.join(executableDir, environment.platform === "win32" ? "python.exe" : "python"),
-    entrypoint: path.join(executableDir, environment.platform === "win32" ? "yt-dlp.exe" : "yt-dlp"),
-  };
-};
+): ManagedPythonPackageRuntimePaths => ensureManagedRuntimeRoot(
+  inspectManagedYtDlpRuntimePaths(environment),
+);
+
+export const inspectManagedYtDlpRuntimePaths = (
+  environment: ElectronRuntimeEnvironment,
+): ManagedPythonPackageRuntimePaths => inspectManagedPythonPackageRuntimePaths(
+  environment,
+  "yt-dlp",
+  "yt-dlp",
+);
 
 export const resolveManagedGalleryDlRuntimePaths = (
   environment: ElectronRuntimeEnvironment,
-): {
-  root: string;
-  venvDir: string;
-  python: string;
-  entrypoint: string;
-} => {
-  const root = runtimeRootFor(environment, "gallery-dl");
+): ManagedPythonPackageRuntimePaths => ensureManagedRuntimeRoot(
+  inspectManagedGalleryDlRuntimePaths(environment),
+);
+
+const inspectManagedPythonPackageRuntimePaths = (
+  environment: ElectronRuntimeEnvironment,
+  componentId: "yt-dlp" | "gallery-dl",
+  executableName: "yt-dlp" | "gallery-dl",
+): ManagedPythonPackageRuntimePaths => {
+  const root = runtimeRootPathFor(environment, componentId);
   const executableDir = path.join(
     root,
     "venv",
@@ -169,9 +199,20 @@ export const resolveManagedGalleryDlRuntimePaths = (
     root,
     venvDir: path.join(root, "venv"),
     python: path.join(executableDir, environment.platform === "win32" ? "python.exe" : "python"),
-    entrypoint: path.join(executableDir, environment.platform === "win32" ? "gallery-dl.exe" : "gallery-dl"),
+    entrypoint: path.join(
+      executableDir,
+      environment.platform === "win32" ? `${executableName}.exe` : executableName,
+    ),
   };
 };
+
+export const inspectManagedGalleryDlRuntimePaths = (
+  environment: ElectronRuntimeEnvironment,
+): ManagedPythonPackageRuntimePaths => inspectManagedPythonPackageRuntimePaths(
+  environment,
+  "gallery-dl",
+  "gallery-dl",
+);
 
 const fileExists = (entryPath: string): boolean => {
   try {
@@ -197,7 +238,7 @@ const resolveManagedStatus = (
 const resolveYtDlpStatus = (
   environment: ElectronRuntimeEnvironment,
 ): RuntimeDependencyStatusEntry => {
-  const managedPath = managedYtDlpPathFor(environment);
+  const managedPath = inspectManagedYtDlpRuntimePaths(environment).entrypoint;
 
   if (fileExists(managedPath)) {
     return readyStatus(managedPath, "managed", {
@@ -239,6 +280,23 @@ const resolveYtDlpBinaryPath = (environment: ElectronRuntimeEnvironment): string
     return status.path;
   }
   return managedYtDlpPathFor(environment);
+};
+
+/**
+ * Pure path derivation for inspection surfaces. Unlike execution resolution,
+ * this intentionally never creates a managed runtime root.
+ */
+export const inspectRuntimeBinaryPaths = (
+  environment: ElectronRuntimeEnvironment,
+): RuntimeBinaryPaths => {
+  const ffmpegPaths = inspectManagedFfmpegPaths(environment);
+  return {
+    ytDlp: inspectManagedYtDlpRuntimePaths(environment).entrypoint,
+    galleryDl: inspectManagedGalleryDlRuntimePaths(environment).entrypoint,
+    ffmpeg: ffmpegPaths.ffmpeg,
+    ffprobe: ffmpegPaths.ffprobe,
+    deno: inspectManagedDenoPath(environment),
+  };
 };
 
 export const resolveRuntimeBinaryPaths = (
@@ -288,9 +346,9 @@ export const resolveSharedMediaRuntimeTools = (
 export const inspectRuntimeDependencyStatus = (
   environment: ElectronRuntimeEnvironment,
 ): RuntimeDependencyStatusSnapshot => {
-  const ffmpegPaths = managedFfmpegPathsFor(environment);
-  const denoPath = managedDenoPathFor(environment);
-  const galleryDlPaths = resolveManagedGalleryDlRuntimePaths(environment);
+  const ffmpegPaths = inspectManagedFfmpegPaths(environment);
+  const denoPath = inspectManagedDenoPath(environment);
+  const galleryDlPaths = inspectManagedGalleryDlRuntimePaths(environment);
 
   return {
     python: resolvePythonStatus(environment),

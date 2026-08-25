@@ -39,6 +39,8 @@ type RuntimeDependencyGateControllerOptions = {
 
 export type RuntimeDependencyGateController = {
   emitState(): RuntimeDependencyGateStatePayload;
+  /** Returns the last owned state without refreshing, emitting, or bootstrapping. */
+  peekState(): RuntimeDependencyGateStatePayload;
   getState(): Promise<RuntimeDependencyGateStatePayload>;
   refreshState(): Promise<RuntimeDependencyGateStatePayload>;
   ensureMissingManagedRuntimesReady(trigger: string): Promise<RuntimeDependencyStatusSnapshot>;
@@ -275,6 +277,9 @@ export const createRuntimeDependencyGateController = (
   return {
     emitState() {
       return emitRuntimeDependencyGateState();
+    },
+    peekState() {
+      return cloneRuntimeDependencyGateState(runtimeDependencyGateState, now);
     },
     getState() {
       return getRuntimeDependencyGateState();

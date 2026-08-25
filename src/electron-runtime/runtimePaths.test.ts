@@ -1,9 +1,14 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  inspectManagedGalleryDlRuntimePaths,
+  inspectManagedYtDlpRuntimePaths,
+  inspectRuntimeBinaryPaths,
   inspectRuntimeDependencyStatus,
+  resolveManagedGalleryDlRuntimePaths,
+  resolveManagedYtDlpRuntimePaths,
   resolveRuntimeBinaryPaths,
 } from "./runtimePaths";
 import type { ElectronRuntimeEnvironment } from "./contracts";
@@ -107,6 +112,35 @@ describe("inspectRuntimeDependencyStatus", () => {
     expect(snapshot.galleryDl.error).toContain("Missing managed gallery-dl runtime");
     expect(snapshot.ffmpeg.state).toBe("missing");
     expect(snapshot.deno.state).toBe("missing");
+  });
+
+  it("inspects missing managed runtimes without creating their roots", () => {
+    const environment = createEnvironment();
+
+    expect(existsSync(environment.configDir)).toBe(false);
+    const snapshot = inspectRuntimeDependencyStatus(environment);
+
+    expect(snapshot.ytDlp.state).toBe("missing");
+    expect(existsSync(environment.configDir)).toBe(false);
+  });
+
+  it("shares pure managed path derivation with execution resolution, which alone creates roots", () => {
+    const environment = createEnvironment();
+
+    const inspected = inspectRuntimeBinaryPaths(environment);
+    const inspectedYtDlp = inspectManagedYtDlpRuntimePaths(environment);
+    const inspectedGalleryDl = inspectManagedGalleryDlRuntimePaths(environment);
+
+    expect(existsSync(environment.configDir)).toBe(false);
+    expect(resolveManagedYtDlpRuntimePaths(environment)).toEqual(inspectedYtDlp);
+    expect(resolveManagedGalleryDlRuntimePaths(environment)).toEqual(inspectedGalleryDl);
+
+    const resolved = resolveRuntimeBinaryPaths(environment);
+    expect(resolved).toEqual(inspected);
+    expect(existsSync(path.join(environment.configDir, "runtimes", "yt-dlp"))).toBe(true);
+    expect(existsSync(path.join(environment.configDir, "runtimes", "gallery-dl"))).toBe(true);
+    expect(existsSync(path.join(environment.configDir, "runtimes", "ffmpeg"))).toBe(true);
+    expect(existsSync(path.join(environment.configDir, "runtimes", "deno"))).toBe(true);
   });
 
   it("resolves bundled Python from packaged Electron app resources layout", () => {

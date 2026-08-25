@@ -124,6 +124,20 @@ const createControllerHarness = (
 };
 
 describe("runtime dependency gate controller", () => {
+  it("peeks its owned state without refreshing, emitting, or bootstrapping", () => {
+    const {
+      bootstrapCalls,
+      controller,
+      events,
+      getRuntimeDependencyStatus,
+    } = createControllerHarness([createStatus()]);
+
+    expect(controller.peekState()).toMatchObject({ phase: "idle", missingComponents: [] });
+    expect(getRuntimeDependencyStatus).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+    expect(bootstrapCalls).toEqual([]);
+  });
+
   it("syncs a ready snapshot to a ready gate payload", async () => {
     const { controller, events } = createControllerHarness([createStatus()]);
 

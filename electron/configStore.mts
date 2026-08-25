@@ -112,6 +112,21 @@ export const createConfigStore = (options: ConfigStoreOptions) => {
 
   const readConfigObject = async () => parseJsonObject(await readConfigString());
 
+  /**
+   * Reads only an already-present config file. Diagnostics must not initialize
+   * user-data directories or persist a resolved language merely to inspect
+   * configuration facts.
+   */
+  const readConfigStringNoCreate = async () => {
+    const configPath = getConfigPath();
+    if (!fsApi.existsSync(configPath)) {
+      return "{}";
+    }
+    return fsApi.readFile(configPath, "utf8");
+  };
+
+  const readConfigObjectNoCreate = async () => parseJsonObject(await readConfigStringNoCreate());
+
   const resolveLanguageFromConfigString = (raw: string) => (
     resolveStartupLanguageFromConfig(raw, options.getLocale(), {
       persistResolvedLanguage: false,
@@ -180,6 +195,14 @@ export const createConfigStore = (options: ConfigStoreOptions) => {
     return join(options.getDesktopDir(), options.defaultOutputFolderName);
   };
 
+  const resolveCurrentOutputFolderPathNoCreate = async () => {
+    const config = await readConfigObjectNoCreate();
+    if (typeof config.outputPath === "string" && config.outputPath.trim()) {
+      return config.outputPath.trim();
+    }
+    return join(options.getDesktopDir(), options.defaultOutputFolderName);
+  };
+
   return {
     buildStartupConfigSnapshot,
     ensureUserDataDirs,
@@ -187,11 +210,14 @@ export const createConfigStore = (options: ConfigStoreOptions) => {
     getLogsDir,
     getUserDataDir,
     readConfigObject,
+    readConfigObjectNoCreate,
     readConfigString,
+    readConfigStringNoCreate,
     readCurrentLanguage,
     readCurrentTheme,
     readStartupConfigSnapshot,
     resolveCurrentOutputFolderPath,
+    resolveCurrentOutputFolderPathNoCreate,
     resolveExtensionInjectionDebugEnabledFromConfigObject,
     resolveLanguageFromConfigString,
     resolveThemeFromConfigObject: resolveTheme,

@@ -7,6 +7,14 @@ Some web-download flows need extra runtime components for probing, downloading, 
 
 When you see `Preparing`, do not start by installing tools manually. Wait briefly, test with a public link, then consider restart or update if it stays stuck.
 
+## Run the read-only self-check first
+
+Open **Settings → System & Support → Read-only diagnostics** to see the runtime, output-folder, browser-extension connection, and download-queue facts Ameow can currently observe. This self-check only reads current state: it does not download or install components, create directories, change settings, retry or cancel tasks, or change the browser-extension connection.
+
+The report distinguishes configured, observed, and probed evidence. `Unknown` or `Not verified` does not necessarily mean a component is broken; it means Ameow cannot prove that fact safely without changing something. A file being present alone is not proof that a tool can run correctly.
+
+Output-folder write permission is checked with a non-mutating operating-system permission check. Permission being granted does not prove that Ameow can create a real file there or finish a download successfully.
+
 ## What might you see?
 
 Common signs:

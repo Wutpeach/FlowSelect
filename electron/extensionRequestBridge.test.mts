@@ -3,6 +3,21 @@ import { describe, expect, it, vi } from "vitest";
 import { createExtensionRequestBridge } from "./extensionRequestBridge.mjs";
 
 describe("createExtensionRequestBridge", () => {
+  it("returns pending-request facts without broadcasting or opening a request", () => {
+    const broadcast = vi.fn();
+    const bridge = createExtensionRequestBridge({
+      getConnectedClientCount: () => 1,
+      broadcast,
+      nextRequestId: () => "request-1",
+    });
+
+    expect(bridge.getDiagnosticsSnapshot()).toEqual({
+      pendingPastedVideoSelectionRequests: 0,
+      pendingSiteSessionCookieSyncRequests: 0,
+    });
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
   it("broadcasts pasted selection requests and resolves correlated results", async () => {
     const broadcast = vi.fn();
     const bridge = createExtensionRequestBridge({

@@ -67,6 +67,10 @@ export type SiteSessionCookieSyncResolution = {
 };
 
 export type ExtensionRequestBridge = {
+  getDiagnosticsSnapshot(): {
+    pendingPastedVideoSelectionRequests: number;
+    pendingSiteSessionCookieSyncRequests: number;
+  };
   requestPastedVideoSelectionResolution(
     payload: PastedVideoSelectionRequest,
   ): Promise<PastedVideoSelectionResolution>;
@@ -161,6 +165,12 @@ export const createExtensionRequestBridge = (
   };
 
   return {
+    getDiagnosticsSnapshot() {
+      return {
+        pendingPastedVideoSelectionRequests: pendingPastedVideoSelectionRequests.size,
+        pendingSiteSessionCookieSyncRequests: pendingSiteSessionCookieSyncRequests.size,
+      };
+    },
     async requestPastedVideoSelectionResolution(payload) {
       if (options.getConnectedClientCount() === 0) {
         throw new Error("Browser extension is not connected");

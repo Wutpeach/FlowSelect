@@ -444,6 +444,48 @@
       "exported": "诊断日志已生成：{{fileName}}",
       "failed": "生成诊断日志失败"
     },
+    "diagnostics": {
+      "title": "只读诊断",
+      "hint": "只检查当前应用状态，不会修改文件、设置、下载任务或浏览器连接。",
+      "button": "运行自检",
+      "run": "检查",
+      "refresh": "刷新",
+      "loading": "检查中…",
+      "error": "无法完成本次自检。",
+      "report": "当前报告",
+      "queue": "下载：{{active}} 个进行中 · {{pending}} 个等待中",
+      "queueLabel": "下载队列",
+      "runtimeGate": "运行时就绪状态",
+      "outputExists": "输出目录",
+      "outputRead": "读取权限",
+      "outputWrite": "写入权限",
+      "writePermissionCaveat": "权限检查不代表一定可以写入真实文件。",
+      "browserBridge": "浏览器桥接",
+      "browserClients": "桥接客户端",
+      "clients": "已连接 {{count}} 个",
+      "state": {
+        "idle": "尚未检查",
+        "loading": "检查中",
+        "ready": "可用",
+        "partial": "部分信息不可用",
+        "error": "无法检查"
+      },
+      "conclusion": {
+        "available": "可用",
+        "degraded": "需要注意",
+        "unavailable": "不可用",
+        "unknown": "未知",
+        "not_verified": "未验证"
+      },
+      "runtime": {
+        "python": "Python",
+        "ytDlp": "yt-dlp",
+        "galleryDl": "gallery-dl",
+        "ffmpeg": "FFmpeg",
+        "ffprobe": "FFprobe",
+        "deno": "Deno"
+      }
+    },
     "versionCard": {
       "title": "应用版本",
       "appName": "Ameow",
