@@ -81,3 +81,36 @@ Calibrated the Compact mascot's two attached avatar-core diamond ears through a 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 255: Compact Mascot ear Architecture Review closeout
+
+**Date**: 2026-08-25
+**Task**: Compact Mascot ear Architecture Review closeout
+**Branch**: `main`
+
+### Summary
+
+Recorded the user-granted Architecture Review PASS for the completed Compact Mascot ear geometry repair without changing the approved implementation.
+
+### Main Changes
+
+- Added the archived task closeout with the approved two-diamond-ear geometry, preserved evidence, and native NOT VERIFIED limitation.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `736beab` | (see git log) |
+
+### Testing
+
+- [OK] Revalidated focused Compact/Lab Vitest (15 files / 152 tests), import guard (5 files / 102 tests), type-check, lint, and git show --check c9a79f0.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Stop; do not begin Mascot interaction/reaction work or another visual stage.

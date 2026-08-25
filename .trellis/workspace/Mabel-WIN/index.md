@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-6.md`
-- **Total Sessions**: 254
-- **Last Active**: 2026-08-24
+- **Total Sessions**: 255
+- **Last Active**: 2026-08-25
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-6.md` | ~83 | Active |
+| `journal-6.md` | ~116 | Active |
 | `journal-5.md` | ~1987 | Archived |
 | `journal-4.md` | ~1983 | Archived |
 | `journal-3.md` | ~1979 | Archived |
@@ -34,6 +34,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 255 | 2026-08-25 | Compact Mascot ear Architecture Review closeout | `736beab` | `main` |
 | 254 | 2026-08-24 | Repair Compact Mascot ear geometry | `c9a79f0` | `main` |
 | 253 | 2026-08-24 | Checkpoint Compact cat mascot behavior | `b735075b7f6aa62caff01f81dfe67c20c4ec7f82` | `main` |
 | 252 | 2026-08-24 | Trellis 0.6.15 tooling consolidation | `0a93d51e4b4d534afe91ffa011ecb22cc7324bcb` | `chore/trellis-tooling-0.6.15` |
