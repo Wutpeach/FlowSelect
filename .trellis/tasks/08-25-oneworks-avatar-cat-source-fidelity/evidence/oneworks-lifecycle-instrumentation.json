@@ -1,0 +1,161 @@
+{
+  "instrumentation": "Wrapped window requestAnimationFrame, setTimeout and setInterval before page load.",
+  "samples": {
+    "baseline": {
+      "pending": {
+        "animationFrame": [],
+        "interval": [
+          {
+            "delay": 30000,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at Object.connect (http://127.0.0.1:1421/@vite/client:435:21)\n    at async Object.connect (http://127.0.0.1:1421/@vite/client:871:5)"
+          },
+          {
+            "delay": 120,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at window.setInterval (http://127.0.0.1:1421/node_modules/.vite/deps/agentation.js?v=a24a9c92:1127:13)\n    at http://127.0.0.1:1421/src/lab/PresentationLab.tsx:466:25"
+          }
+        ],
+        "timeout": []
+      },
+      "counts": {
+        "animationFrame": 0,
+        "interval": 2,
+        "timeout": 0
+      }
+    },
+    "playing": {
+      "pending": {
+        "animationFrame": [
+          {
+            "owner": "    at window.requestAnimationFrame (<anonymous>:24:45)\n    at window.requestAnimationFrame (http://127.0.0.1:1421/node_modules/.vite/deps/agentation.js?v=a24a9c92:1132:13)\n    at http://127.0.0.1:1421/node_modules/.vite/deps/@oneworks_avatar-react.js?v=a24a9c92:8730:15"
+          },
+          {
+            "owner": "    at window.requestAnimationFrame (<anonymous>:24:45)\n    at window.requestAnimationFrame (http://127.0.0.1:1421/node_modules/.vite/deps/agentation.js?v=a24a9c92:1132:13)\n    at http://127.0.0.1:1421/node_modules/.vite/deps/@oneworks_avatar-react.js?v=a24a9c92:8730:15"
+          }
+        ],
+        "interval": [
+          {
+            "delay": 30000,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at Object.connect (http://127.0.0.1:1421/@vite/client:435:21)\n    at async Object.connect (http://127.0.0.1:1421/@vite/client:871:5)"
+          },
+          {
+            "delay": 120,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at window.setInterval (http://127.0.0.1:1421/node_modules/.vite/deps/agentation.js?v=a24a9c92:1127:13)\n    at http://127.0.0.1:1421/src/lab/PresentationLab.tsx:466:25"
+          }
+        ],
+        "timeout": []
+      },
+      "counts": {
+        "animationFrame": 2,
+        "interval": 2,
+        "timeout": 0
+      }
+    },
+    "reducedMotion": {
+      "pending": {
+        "animationFrame": [],
+        "interval": [
+          {
+            "delay": 30000,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at Object.connect (http://127.0.0.1:1421/@vite/client:435:21)\n    at async Object.connect (http://127.0.0.1:1421/@vite/client:871:5)"
+          },
+          {
+            "delay": 120,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at window.setInterval (http://127.0.0.1:1421/node_modules/.vite/deps/agentation.js?v=a24a9c92:1127:13)\n    at http://127.0.0.1:1421/src/lab/PresentationLab.tsx:466:25"
+          }
+        ],
+        "timeout": []
+      },
+      "counts": {
+        "animationFrame": 0,
+        "interval": 2,
+        "timeout": 0
+      }
+    },
+    "unmounted": {
+      "pending": {
+        "animationFrame": [],
+        "interval": [
+          {
+            "delay": 30000,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at Object.connect (http://127.0.0.1:1421/@vite/client:435:21)\n    at async Object.connect (http://127.0.0.1:1421/@vite/client:871:5)"
+          },
+          {
+            "delay": 120,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at window.setInterval (http://127.0.0.1:1421/node_modules/.vite/deps/agentation.js?v=a24a9c92:1127:13)\n    at http://127.0.0.1:1421/src/lab/PresentationLab.tsx:466:25"
+          }
+        ],
+        "timeout": []
+      },
+      "counts": {
+        "animationFrame": 0,
+        "interval": 2,
+        "timeout": 0
+      }
+    },
+    "remounted": {
+      "pending": {
+        "animationFrame": [],
+        "interval": [
+          {
+            "delay": 30000,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at Object.connect (http://127.0.0.1:1421/@vite/client:435:21)\n    at async Object.connect (http://127.0.0.1:1421/@vite/client:871:5)"
+          },
+          {
+            "delay": 120,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at window.setInterval (http://127.0.0.1:1421/node_modules/.vite/deps/agentation.js?v=a24a9c92:1127:13)\n    at http://127.0.0.1:1421/src/lab/PresentationLab.tsx:466:25"
+          }
+        ],
+        "timeout": []
+      },
+      "counts": {
+        "animationFrame": 0,
+        "interval": 2,
+        "timeout": 0
+      }
+    },
+    "hidden": {
+      "pending": {
+        "animationFrame": [],
+        "interval": [
+          {
+            "delay": 30000,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at Object.connect (http://127.0.0.1:1421/@vite/client:435:21)\n    at async Object.connect (http://127.0.0.1:1421/@vite/client:871:5)"
+          },
+          {
+            "delay": 120,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at window.setInterval (http://127.0.0.1:1421/node_modules/.vite/deps/agentation.js?v=a24a9c92:1127:13)\n    at http://127.0.0.1:1421/src/lab/PresentationLab.tsx:466:25"
+          }
+        ],
+        "timeout": []
+      },
+      "counts": {
+        "animationFrame": 0,
+        "interval": 2,
+        "timeout": 0
+      }
+    },
+    "visibleRemount": {
+      "pending": {
+        "animationFrame": [],
+        "interval": [
+          {
+            "delay": 30000,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at Object.connect (http://127.0.0.1:1421/@vite/client:435:21)\n    at async Object.connect (http://127.0.0.1:1421/@vite/client:871:5)"
+          },
+          {
+            "delay": 120,
+            "owner": "    at window.setInterval (<anonymous>:48:66)\n    at window.setInterval (http://127.0.0.1:1421/node_modules/.vite/deps/agentation.js?v=a24a9c92:1127:13)\n    at http://127.0.0.1:1421/src/lab/PresentationLab.tsx:466:25"
+          }
+        ],
+        "timeout": []
+      },
+      "counts": {
+        "animationFrame": 0,
+        "interval": 2,
+        "timeout": 0
+      }
+    }
+  },
+  "pageErrors": [],
+  "conclusion": "Observed two playback rAF callbacks. Reduced Motion, explicit unmount, remount, hidden visibility teardown and visible remount all matched the baseline. The two residual baseline intervals are Vite HMR (30,000ms) and Agentation (120ms), as shown by the captured owner stacks."
+}

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "sampledAt": "2026-08-25T05:22:12.520Z",
+  "instrumentation": "requestAnimationFrame, setTimeout, and setInterval wrapped before Lab code loaded",
+  "snapshots": {
+    "labBaseline": {
+      "animationFrame": 0,
+      "interval": 1,
+      "timeout": 0,
+      "total": 1
+    },
+    "baseline": {
+      "animationFrame": 1,
+      "interval": 1,
+      "timeout": 0,
+      "total": 2
+    },
+    "playback": {
+      "animationFrame": 2,
+      "interval": 1,
+      "timeout": 0,
+      "total": 3
+    },
+    "reducedMotion": {
+      "animationFrame": 0,
+      "interval": 1,
+      "timeout": 0,
+      "total": 1
+    },
+    "unmounted": {
+      "animationFrame": 0,
+      "interval": 1,
+      "timeout": 0,
+      "total": 1
+    },
+    "remounted": {
+      "animationFrame": 0,
+      "interval": 1,
+      "timeout": 0,
+      "total": 1
+    }
+  },
+  "residualAfterReducedMotion": "one pre-existing Lab dev-tool interval",
+  "residualAfterUnmount": "one pre-existing Lab dev-tool interval",
+  "inspectorWorkSettledAfterReducedMotion": true,
+  "inspectorWorkSettledAfterUnmount": true,
+  "pageErrors": []
+}

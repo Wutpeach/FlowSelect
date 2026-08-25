@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-08-25T05:55:41.377Z",
+  "pinnedRevision": "3ad2542ea4487e95884f313b84943df602c0e742",
+  "registryVersion": "1.0.0-rc.6",
+  "installedPackageVersions": {
+    "@oneworks/avatar": "1.0.0-rc.6",
+    "@oneworks/avatar-react": "1.0.0-rc.6"
+  },
+  "mechanismEquivalent": true,
+  "verifiedMechanisms": [
+    "exact three-part cat values",
+    "procedural cone and roundness path",
+    "shared pose/depth sort",
+    "face occlusion mask and depth tolerance",
+    "public Avatar and AvatarEditor exports"
+  ],
+  "byteIdentity": "not-checked",
+  "buildArtifactProvenance": "not-proven",
+  "limitation": "This verifies the mechanisms used by the Lab spike, not byte identity or a source-built registry artifact.",
+  "sourceSha256": {
+    "catPreset": "02bbd1edd403dc1eb5aa37327e9dc539a39b87134e9b1d48b84f6f59e7064251",
+    "geometry": "1d217f32896b3a8b0248cb4bb0b4b04ed53636119146a46bd43d93e5797b016b",
+    "interactiveAvatar": "c04b6d9ed0c246bc9c73f77ec837ba0804223698ef57a3a9c8d52c7482801017",
+    "reactEntry": "0ffe5c85a946fdeafd3506ecd0b64da5bea16b92c97a2737b12e84c5a8db29dd"
+  },
+  "installedArtifactSha256": {
+    "avatarReactBundle": "72fbcd3a2c0a95a4a76ae91c3440126971688070c7254775e2e7efe168eaef0e",
+    "avatarReactDeclarations": "4b018c2a42bd251f7beae4e5b2b40b5bfc775a46ad5585213d678df4dbcb8d2c"
+  }
+}

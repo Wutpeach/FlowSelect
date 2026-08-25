@@ -98,6 +98,7 @@ import {
 import { getLabChipStyle } from "./labControls";
 import { LabSegmentedControl, type LabSegmentedOption } from "./LabSegmentedControl";
 import { PreviewEnvironmentPicker } from "./PreviewEnvironmentPicker";
+import { OneWorksMascotInspector } from "./OneWorksMascotInspector";
 
 const prefersReducedMotion = (): boolean => (
   typeof window !== "undefined"
@@ -518,6 +519,7 @@ export function PresentationLab() {
   const [activeScenarioId, setActiveScenarioId] = useState("intake");
   // One Lab-local Preview Target discriminant, separate from scenario state.
   const [target, setTarget] = useState<LabPreviewTarget>("full");
+  const [oneWorksInspectorOpen, setOneWorksInspectorOpen] = useState(false);
   // Display scale is Lab-local UI: "auto" (default, derived to 1/2/3) or
   // the explicit 1x/2x/3x overrides.
   const [displayScale, setDisplayScale] = useState<LabDisplayScale>(LAB_DISPLAY_SCALE_DEFAULT);
@@ -856,6 +858,10 @@ export function PresentationLab() {
   const originMarkerVisible = target === "full"
     && (activeScenarioId === "intake" || originInputFocused);
 
+  if (oneWorksInspectorOpen) {
+    return <OneWorksMascotInspector onExit={() => setOneWorksInspectorOpen(false)} />;
+  }
+
   return (
     <div style={PAGE_STYLE}>
       {/* ============ Main Workspace (dominant) ============ */}
@@ -1112,6 +1118,16 @@ export function PresentationLab() {
       {/* ============ Right: persistent Dev Tools ============ */}
       <aside aria-label={t("devTools.title")} style={DEVTOOLS_STYLE} data-lab-devtools="">
         <h2 style={TITLE_STYLE}>{t("devTools.title")}</h2>
+
+        <button
+          type="button"
+          className="lab-control"
+          data-lab-oneworks-inspector-open=""
+          onClick={() => setOneWorksInspectorOpen(true)}
+          style={getLabChipStyle(colors)}
+        >
+          OneWorks Mascot Inspector
+        </button>
 
         <div style={devToolsSectionStyle}>
           <h3 style={READOUT_LABEL_STYLE}>{t("devTools.target")}</h3>

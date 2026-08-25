@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Verify Lab-only placement and zero production dependency edge."}
+{"file":".trellis/spec/frontend/character-motion.md","reason":"Verify production Compact pointer, Reduced Motion, lifecycle, and authority remain unchanged."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify React cleanup, forbidden imports, tests, lint, type-check, and build gates."}
+{"file":".trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/research/oneworks-cat-source-fidelity.md","reason":"Check source-fidelity claims, package cost, Editor capability, and mechanism-level failure classification."}

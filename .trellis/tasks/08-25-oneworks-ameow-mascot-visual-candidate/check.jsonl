@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Verify Lab-only ownership and zero production dependency edge."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Review final candidate/Inspector evidence against Ameow compact product UI principles."}
+{"file":".trellis/spec/frontend/character-motion.md","reason":"Verify production attention/action/Reduced Motion semantics are represented without changing authority."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify tests, cleanup, type safety, lint, builds, and import isolation."}
+{"file":".trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/implementation-report.md","reason":"Check that the visual stage preserves the validated Route A mechanism and prior limits."}

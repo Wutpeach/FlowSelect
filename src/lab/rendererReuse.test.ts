@@ -25,6 +25,9 @@ const labControls = read("./labControls.ts");
 const labEnvironment = read("./previewEnvironment.ts");
 const labSegmented = read("./LabSegmentedControl.tsx");
 const labEnvPicker = read("./PreviewEnvironmentPicker.tsx");
+const labOneWorksInspector = read("./OneWorksMascotInspector.tsx");
+const labOneWorksFixture = read("./oneworksMascot.ts");
+const labOneWorksCandidate = read("./oneworksAmeowCandidate.ts");
 const labCss = read("./lab.css");
 const viteConfig = read("../../vite.config.ts");
 const labViteConfig = read("../../vite.lab.config.ts");
@@ -44,6 +47,9 @@ const labSources = [
   labEnvironment,
   labSegmented,
   labEnvPicker,
+  labOneWorksInspector,
+  labOneWorksFixture,
+  labOneWorksCandidate,
 ];
 
 const importSpecifiers = (source: string): string[] => {
@@ -91,6 +97,9 @@ describe("Browser Presentation Lab build isolation", () => {
   it("provides a dedicated lab Vite server on its own address", () => {
     expect(labViteConfig).toContain("1421");
     expect(labViteConfig).toContain("lab.html");
+    expect(labViteConfig).toContain("rollupOptions");
+    expect(labViteConfig).toContain('new URL("./lab.html", import.meta.url)');
+    expect(labViteConfig).not.toContain('new URL("./index.html", import.meta.url)');
   });
 
   it("initializes zh-CN first with no desktop bridge in the lab entry", () => {
@@ -99,6 +108,25 @@ describe("Browser Presentation Lab build isolation", () => {
     expect(labMain).not.toContain("I18nRuntimeBridge");
     expect(labMain).not.toContain("desktop/runtime");
     expect(labMain).not.toContain("desktop/config");
+  });
+
+  it("keeps the direct OneWorks renderer, editor, and stylesheet behind the Lab graph", () => {
+    expect(packageJson).toContain('"@oneworks/avatar": "1.0.0-rc.6"');
+    expect(packageJson).toContain('"@oneworks/avatar-react": "1.0.0-rc.6"');
+    const dependencies = packageJson.slice(
+      packageJson.indexOf('"dependencies"'),
+      packageJson.indexOf('"devDependencies"'),
+    );
+    expect(dependencies).not.toContain("@oneworks/avatar");
+    expect(labComponent).toContain('from "./OneWorksMascotInspector"');
+    expect(labOneWorksInspector).toContain('from "@oneworks/avatar-react"');
+    expect(labOneWorksInspector).toContain('import "@oneworks/avatar-react/style.css"');
+    expect(labMain).not.toContain("@oneworks/avatar");
+    expect(labComponent).not.toContain("@oneworks/avatar");
+    expect(mainEntry).not.toContain("@oneworks/avatar");
+    expect(indexHtml).not.toContain("@oneworks/avatar");
+    expect(mainEntry).not.toContain("oneworksAmeowCandidate");
+    expect(indexHtml).not.toContain("oneworksAmeowCandidate");
   });
 });
 
@@ -216,6 +244,19 @@ describe("Browser Presentation Lab production renderer reuse", () => {
     expect(labCompactPointer).not.toContain("MainWindowPresentationSurface");
     // Exactly ONE production Expanded surface remains across the whole Lab.
     expect(labStage.match(/<ExpandedPresentationSurface\b/g)).toHaveLength(1);
+  });
+
+  it("adds the OneWorks inspector as a Lab mode without introducing a second production renderer path", () => {
+    expect(labComponent).toContain('data-lab-oneworks-inspector-open=""');
+    expect(labOneWorksInspector).toContain("<AvatarEditor");
+    expect(labOneWorksInspector).toContain('data-oneworks-avatar-60=""');
+    expect(labOneWorksInspector).toContain('data-oneworks-avatar-magnified=""');
+    expect(labOneWorksFixture).toContain("createDefaultAvatarDefinition");
+    expect(labOneWorksFixture).not.toContain("buildAvatarBodyGeometry");
+    expect(labOneWorksCandidate).toContain("resolveCompactMascotAttention");
+    expect(labOneWorksCandidate).not.toContain('from "../presentation/main-window/pointerField"');
+    expect(labOneWorksInspector).not.toContain("MainWindowPresentationSurface");
+    expect(labOneWorksInspector).not.toContain('from "../presentation/main-window/pointerField"');
   });
 
   it("repairs the page into two macro regions with no page heading", () => {

@@ -1,0 +1,7 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend package boundaries and UI Lab entry constraints."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Browser-only Lab placement and production import bans."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"React component, theme, and Lab control composition conventions."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Ameow Lab visual language and semantic token rules."}
+{"file":".trellis/spec/frontend/character-motion.md","reason":"Compact mascot pointer, Reduced Motion, lifecycle, and authority contracts that must remain unchanged."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Cleanup, type safety, import authority, and validation requirements."}
+{"file":".trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/research/oneworks-cat-source-fidelity.md","reason":"Pinned upstream mechanisms, package/editor API, route decision, and experiment gates."}

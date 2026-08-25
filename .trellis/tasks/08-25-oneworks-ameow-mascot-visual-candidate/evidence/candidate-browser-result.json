@@ -1,0 +1,16 @@
+{
+  "browserPath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "candidateChecksum": "fnv1a32:eb514f72",
+  "evidence": [
+    "candidate-product-front.png",
+    "candidate-product-moderate-yaw.png",
+    "candidate-product-moderate-pitch.png",
+    "candidate-true-60-front.png",
+    "candidate-pointer-normal-reduced.png",
+    "candidate-action-previews.png",
+    "candidate-360-yaw-sweep.png",
+    "candidate-source-candidate-diamond-comparison.png",
+    "candidate-editor-calibration.png"
+  ],
+  "pageErrors": []
+}

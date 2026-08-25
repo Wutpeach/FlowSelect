@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend and UI Lab package boundaries."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Browser-only Lab placement and production import bans."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"React, theming, and control composition patterns."}
+{"file":".trellis/spec/frontend/design-system.md","reason":"Ameow product visual language and compact UI rules."}
+{"file":".trellis/spec/frontend/character-motion.md","reason":"Authoritative production Compact attention, action, Reduced Motion, lifecycle, and authority contracts."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Cleanup, type safety, import isolation, and validation requirements."}
+{"file":".trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/research/oneworks-cat-source-fidelity.md","reason":"Upstream cat mechanisms and representation comparison."}
+{"file":".trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/implementation-report.md","reason":"Validated Route A Inspector, 360 sweep, lifecycle, provenance, cost, and isolation baseline."}
