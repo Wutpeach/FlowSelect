@@ -114,3 +114,24 @@ Recorded the user-granted Architecture Review PASS for the completed Compact Mas
 ### Next Steps
 
 - Stop; do not begin Mascot interaction/reaction work or another visual stage.
+
+
+## Session 256: Complete P1 read-only diagnostics
+
+**Date**: 2026-08-25
+**Task**: Complete P1 read-only diagnostics
+**Branch**: `main`
+
+### Summary
+
+Implemented and Architecture-Review-approved strict read-only Diagnostics through existing Electron authority; validated no-create runtime inspection, passive current-owner facts, active-job non-interference, localized minimal Settings UI, tests, builds, docs, and P1-only boundary. Archived P1 without entering P2.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d1898f974dae1f6e8a4e76bcf8c68a5057a55e86` | (see git log) |
+
+### Status
+
+[OK] **Completed**
