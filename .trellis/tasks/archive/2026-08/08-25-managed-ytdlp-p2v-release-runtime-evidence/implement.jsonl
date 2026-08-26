@@ -1,0 +1,5 @@
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-runtime-contract-repair/validation.md","reason":"Authoritative source-repair results and remaining executable gates."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-runtime-contract-repair/design.md","reason":"Approved runtime contract and lifecycle invariant; do not redesign."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/research/windows-packaged-runtime-validation.md","reason":"Prior Windows package/persistence evidence and safe-validation incidents."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md","reason":"Approved real/ paths and explicit Deno/EJS execution contract."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md","reason":"Managed runtime bootstrap, verification, and lifecycle constraints."}

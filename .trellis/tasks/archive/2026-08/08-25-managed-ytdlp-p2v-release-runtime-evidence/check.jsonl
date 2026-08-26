@@ -1,0 +1,5 @@
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-release-runtime-evidence/prd.md","reason":"Required evidence and exact final-verdict rules."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-release-runtime-evidence/design.md","reason":"Clean-environment validation and no-redesign boundary."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-runtime-contract-repair/validation.md","reason":"Compare new evidence against previously open gates."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md","reason":"Verify executable paths and command policy match the approved contract."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md","reason":"Verify bootstrap and active-process lifecycle remain intact."}
