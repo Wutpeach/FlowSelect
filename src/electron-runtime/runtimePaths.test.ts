@@ -3,12 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  inspectManagedGalleryDlRuntimePaths,
-  inspectManagedYtDlpRuntimePaths,
+  bundledYtDlpBaselineRuntimePaths,
   inspectRuntimeBinaryPaths,
   inspectRuntimeDependencyStatus,
-  resolveManagedGalleryDlRuntimePaths,
-  resolveManagedYtDlpRuntimePaths,
+  resolveBundledYtDlpBaselineRoot,
   resolveRuntimeBinaryPaths,
 } from "./runtimePaths";
 import type { ElectronRuntimeEnvironment } from "./contracts";
@@ -29,30 +27,29 @@ const createEnvironment = (
   };
 };
 
+const materializeBaselineMarker = (environment: ElectronRuntimeEnvironment): void => {
+  const paths = bundledYtDlpBaselineRuntimePaths(environment);
+  mkdirSync(path.dirname(paths.entrypoint), { recursive: true });
+  writeFileSync(paths.entrypoint, "yt-dlp");
+  writeFileSync(paths.readiness, "{}");
+};
+
 afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-describe("inspectRuntimeDependencyStatus", () => {
-  it("marks bundled and managed paths as ready when files exist", () => {
+describe("runtime paths", () => {
+  it("reports the committed baseline cache and shared managed tools as ready", () => {
     const environment = createEnvironment();
-    const bundledPythonDir = path.join(
+    const pythonDir = path.join(
       environment.repoRoot,
       "desktop-assets",
       "binaries",
       "python-x86_64-pc-windows-msvc",
     );
-    const ytDlpRealDir = path.join(
-      environment.configDir,
-      "runtimes",
-      "yt-dlp",
-      "x86_64-pc-windows-msvc",
-      "venv",
-      "Scripts",
-    );
-    const galleryDlScriptsDir = path.join(
+    const galleryDir = path.join(
       environment.configDir,
       "runtimes",
       "gallery-dl",
@@ -60,228 +57,87 @@ describe("inspectRuntimeDependencyStatus", () => {
       "venv",
       "Scripts",
     );
-    const ffmpegRealDir = path.join(
+    const ffmpegDir = path.join(environment.configDir, "runtimes", "ffmpeg", "x86_64-pc-windows-msvc", "real");
+    const denoDir = path.join(environment.configDir, "runtimes", "deno", "x86_64-pc-windows-msvc", "real");
+    mkdirSync(pythonDir, { recursive: true });
+    mkdirSync(galleryDir, { recursive: true });
+    mkdirSync(ffmpegDir, { recursive: true });
+    mkdirSync(denoDir, { recursive: true });
+    materializeBaselineMarker(environment);
+    writeFileSync(path.join(pythonDir, "python.exe"), "python");
+    writeFileSync(path.join(galleryDir, "gallery-dl.exe"), "gallery-dl");
+    writeFileSync(path.join(ffmpegDir, "ffmpeg.exe"), "ffmpeg");
+    writeFileSync(path.join(ffmpegDir, "ffprobe.exe"), "ffprobe");
+    writeFileSync(path.join(denoDir, "deno.exe"), "deno");
+
+    const snapshot = inspectRuntimeDependencyStatus(environment);
+
+    expect(snapshot.python).toMatchObject({ state: "ready", source: "bundled" });
+    expect(snapshot.ytDlp).toMatchObject({ state: "ready", source: "bundled", expectedSource: "bundled" });
+    expect(snapshot.galleryDl).toMatchObject({ state: "ready", source: "managed" });
+    expect(snapshot.ffmpeg).toMatchObject({ state: "ready", source: "managed" });
+    expect(snapshot.deno).toMatchObject({ state: "ready", source: "managed" });
+  });
+
+  it("reports a missing baseline cache without treating the old managed venv as a fallback", () => {
+    const environment = createEnvironment();
+    const oldManagedDir = path.join(
       environment.configDir,
       "runtimes",
-      "ffmpeg",
+      "yt-dlp",
       "x86_64-pc-windows-msvc",
-      "real",
+      "venv",
+      "Scripts",
     );
-    const denoRealDir = path.join(
-      environment.configDir,
-      "runtimes",
-      "deno",
-      "x86_64-pc-windows-msvc",
-      "real",
-    );
-    mkdirSync(bundledPythonDir, { recursive: true });
-    mkdirSync(ytDlpRealDir, { recursive: true });
-    mkdirSync(galleryDlScriptsDir, { recursive: true });
-    mkdirSync(ffmpegRealDir, { recursive: true });
-    mkdirSync(denoRealDir, { recursive: true });
-
-    writeFileSync(path.join(bundledPythonDir, "python.exe"), "binary");
-    writeFileSync(path.join(ytDlpRealDir, "yt-dlp.exe"), "binary");
-    writeFileSync(path.join(galleryDlScriptsDir, "gallery-dl.exe"), "binary");
-    writeFileSync(path.join(ffmpegRealDir, "ffmpeg.exe"), "binary");
-    writeFileSync(path.join(ffmpegRealDir, "ffprobe.exe"), "binary");
-    writeFileSync(path.join(denoRealDir, "deno.exe"), "binary");
+    mkdirSync(oldManagedDir, { recursive: true });
+    writeFileSync(path.join(oldManagedDir, "yt-dlp.exe"), "old");
 
     const snapshot = inspectRuntimeDependencyStatus(environment);
 
-    expect(snapshot.python.state).toBe("ready");
-    expect(snapshot.python.source).toBe("bundled");
-    expect(snapshot.ytDlp.state).toBe("ready");
-    expect(snapshot.ytDlp.source).toBe("managed");
-    expect(snapshot.galleryDl.state).toBe("ready");
-    expect(snapshot.galleryDl.source).toBe("managed");
-    expect(snapshot.ffmpeg.state).toBe("ready");
-    expect(snapshot.ffmpeg.source).toBe("managed");
-    expect(snapshot.deno.state).toBe("ready");
+    expect(snapshot.ytDlp).toMatchObject({ state: "missing", expectedSource: "bundled" });
+    expect(snapshot.ytDlp.error).toContain("Missing bundled yt-dlp baseline");
   });
 
-  it("marks missing runtimes with actionable errors", () => {
+  it("keeps inspection pure while execution resolution only creates mutable shared-tool roots", () => {
     const environment = createEnvironment();
-    const snapshot = inspectRuntimeDependencyStatus(environment);
-
-    expect(snapshot.python.state).toBe("missing");
-    expect(snapshot.python.error).toContain("Missing bundled Python runtime");
-    expect(snapshot.ytDlp.state).toBe("missing");
-    expect(snapshot.ytDlp.error).toContain("Missing managed yt-dlp runtime");
-    expect(snapshot.galleryDl.state).toBe("missing");
-    expect(snapshot.galleryDl.error).toContain("Missing managed gallery-dl runtime");
-    expect(snapshot.ffmpeg.state).toBe("missing");
-    expect(snapshot.deno.state).toBe("missing");
-  });
-
-  it("inspects missing managed runtimes without creating their roots", () => {
-    const environment = createEnvironment();
-
-    expect(existsSync(environment.configDir)).toBe(false);
-    const snapshot = inspectRuntimeDependencyStatus(environment);
-
-    expect(snapshot.ytDlp.state).toBe("missing");
-    expect(existsSync(environment.configDir)).toBe(false);
-  });
-
-  it("shares pure managed path derivation with execution resolution, which alone creates roots", () => {
-    const environment = createEnvironment();
-
     const inspected = inspectRuntimeBinaryPaths(environment);
-    const inspectedYtDlp = inspectManagedYtDlpRuntimePaths(environment);
-    const inspectedGalleryDl = inspectManagedGalleryDlRuntimePaths(environment);
+    const baseline = bundledYtDlpBaselineRuntimePaths(environment);
 
     expect(existsSync(environment.configDir)).toBe(false);
-    expect(resolveManagedYtDlpRuntimePaths(environment)).toEqual(inspectedYtDlp);
-    expect(resolveManagedGalleryDlRuntimePaths(environment)).toEqual(inspectedGalleryDl);
-
-    const resolved = resolveRuntimeBinaryPaths(environment);
-    expect(resolved).toEqual(inspected);
-    expect(existsSync(path.join(environment.configDir, "runtimes", "yt-dlp"))).toBe(true);
+    expect(inspected.ytDlp).toBe(baseline.entrypoint);
+    expect(resolveRuntimeBinaryPaths(environment)).toEqual(inspected);
+    expect(existsSync(baseline.root)).toBe(false);
     expect(existsSync(path.join(environment.configDir, "runtimes", "gallery-dl"))).toBe(true);
     expect(existsSync(path.join(environment.configDir, "runtimes", "ffmpeg"))).toBe(true);
     expect(existsSync(path.join(environment.configDir, "runtimes", "deno"))).toBe(true);
   });
 
-  it("resolves bundled Python from packaged Electron app resources layout", () => {
+  it("discovers the packaged canonical wheel directory without writing to it", () => {
     const environment = createEnvironment({
-      repoRoot: path.join(mkdtempSync(path.join(os.tmpdir(), "ameow-electron-runtime-packaged-")), "repo"),
-      resourceDir: path.join(mkdtempSync(path.join(os.tmpdir(), "ameow-electron-runtime-packaged-resource-")), "resources"),
+      repoRoot: path.join(mkdtempSync(path.join(os.tmpdir(), "ameow-runtime-repo-")), "repo"),
+      resourceDir: path.join(mkdtempSync(path.join(os.tmpdir(), "ameow-runtime-resource-")), "resources"),
     });
-    const packagedPythonDir = path.join(
+    const canonicalRoot = path.join(
       environment.resourceDir ?? "",
       "app",
       "desktop-assets",
       "binaries",
-      "python-x86_64-pc-windows-msvc",
+      "ytdlp-baseline",
     );
-    mkdirSync(packagedPythonDir, { recursive: true });
-    writeFileSync(path.join(packagedPythonDir, "python.exe"), "binary");
+    mkdirSync(canonicalRoot, { recursive: true });
+    writeFileSync(path.join(canonicalRoot, ".official-ytdlp-baseline.json"), "{}");
 
-    const snapshot = inspectRuntimeDependencyStatus(environment);
-
-    expect(snapshot.python.state).toBe("ready");
-    expect(snapshot.python.source).toBe("bundled");
-    expect(snapshot.python.path).toBe(path.join(packagedPythonDir, "python.exe"));
+    expect(resolveBundledYtDlpBaselineRoot(environment)).toBe(canonicalRoot);
   });
 
-  it("resolves macOS bundled downloader names without Windows extensions", () => {
-    const environment = createEnvironment({
-      platform: "darwin",
-      arch: "arm64",
-    });
-    const binariesDir = path.join(environment.repoRoot, "desktop-assets", "binaries");
-    const bundledPythonDir = path.join(binariesDir, "python-aarch64-apple-darwin");
-    const galleryDlDir = path.join(
-      environment.configDir,
-      "runtimes",
-      "gallery-dl",
-      "aarch64-apple-darwin",
-      "venv",
-      "bin",
-    );
-    const ffmpegDir = path.join(
-      environment.configDir,
-      "runtimes",
-      "ffmpeg",
-      "aarch64-apple-darwin",
-    );
-    const denoDir = path.join(
-      environment.configDir,
-      "runtimes",
-      "deno",
-      "aarch64-apple-darwin",
-    );
-    mkdirSync(binariesDir, { recursive: true });
-    mkdirSync(path.join(bundledPythonDir, "bin"), { recursive: true });
-    mkdirSync(galleryDlDir, { recursive: true });
-    mkdirSync(ffmpegDir, { recursive: true });
-    mkdirSync(denoDir, { recursive: true });
-
-    writeFileSync(path.join(bundledPythonDir, "bin", "python3"), "binary");
-    writeFileSync(path.join(galleryDlDir, "gallery-dl"), "binary");
-    writeFileSync(path.join(ffmpegDir, "ffmpeg"), "binary");
-    writeFileSync(path.join(ffmpegDir, "ffprobe"), "binary");
-    writeFileSync(path.join(denoDir, "deno"), "binary");
+  it("uses target-specific baseline paths on macOS", () => {
+    const environment = createEnvironment({ platform: "darwin", arch: "arm64" });
+    const baseline = bundledYtDlpBaselineRuntimePaths(environment);
+    materializeBaselineMarker(environment);
 
     const snapshot = inspectRuntimeDependencyStatus(environment);
 
-    expect(snapshot.python.state).toBe("ready");
-    expect(snapshot.python.source).toBe("bundled");
-    expect(snapshot.ytDlp.state).toBe("missing");
-    expect(snapshot.ytDlp.source).toBeNull();
-    expect(snapshot.ytDlp.expectedSource).toBe("managed");
-    expect(snapshot.ytDlp.path).toBeNull();
-    expect(snapshot.ytDlp.error).toContain("Missing managed yt-dlp runtime");
-    expect(snapshot.galleryDl.state).toBe("ready");
-    expect(snapshot.galleryDl.source).toBe("managed");
-    expect(snapshot.galleryDl.path).toContain(path.join("gallery-dl", "aarch64-apple-darwin", "venv", "bin", "gallery-dl"));
-    expect(snapshot.ffmpeg.path).toContain(path.join("ffmpeg", "aarch64-apple-darwin", "ffmpeg"));
-    expect(snapshot.deno.path).toContain(path.join("deno", "aarch64-apple-darwin", "deno"));
-  });
-
-  it("prefers macOS managed yt-dlp when the managed runtime exists", () => {
-    const environment = createEnvironment({
-      platform: "darwin",
-      arch: "arm64",
-    });
-    const binariesDir = path.join(environment.repoRoot, "desktop-assets", "binaries");
-    const bundledPythonDir = path.join(binariesDir, "python-aarch64-apple-darwin");
-    const managedYtDlpDir = path.join(
-      environment.configDir,
-      "runtimes",
-      "yt-dlp",
-      "aarch64-apple-darwin",
-      "venv",
-      "bin",
-    );
-    mkdirSync(binariesDir, { recursive: true });
-    mkdirSync(path.join(bundledPythonDir, "bin"), { recursive: true });
-    mkdirSync(managedYtDlpDir, { recursive: true });
-
-    writeFileSync(path.join(bundledPythonDir, "bin", "python3"), "bundled-python");
-    writeFileSync(path.join(managedYtDlpDir, "yt-dlp"), "managed");
-
-    const snapshot = inspectRuntimeDependencyStatus(environment);
-    const binaries = resolveRuntimeBinaryPaths(environment);
-
-    expect(snapshot.ytDlp.state).toBe("ready");
-    expect(snapshot.ytDlp.source).toBe("managed");
-    expect(snapshot.ytDlp.expectedSource).toBe("managed");
-    expect(snapshot.ytDlp.path).toContain(path.join("yt-dlp", "aarch64-apple-darwin", "venv", "bin", "yt-dlp"));
-    expect(snapshot.ytDlp.error).toBeNull();
-    expect(binaries.ytDlp).toBe(snapshot.ytDlp.path);
-  });
-
-  it("reports macOS managed yt-dlp missing without bundled fallback semantics", () => {
-    const environment = createEnvironment({
-      platform: "darwin",
-      arch: "arm64",
-    });
-
-    const snapshot = inspectRuntimeDependencyStatus(environment);
-    const binaries = resolveRuntimeBinaryPaths(environment);
-
-    expect(snapshot.ytDlp.state).toBe("missing");
-    expect(snapshot.ytDlp.source).toBeNull();
-    expect(snapshot.ytDlp.expectedSource).toBe("managed");
-    expect(snapshot.ytDlp.error).toContain("Missing managed yt-dlp runtime");
-    expect(binaries.ytDlp).toContain(path.join("yt-dlp", "aarch64-apple-darwin", "venv", "bin", "yt-dlp"));
-  });
-
-  it("resolves macOS yt-dlp execution path to managed venv location even when missing", () => {
-    const environment = createEnvironment({
-      platform: "darwin",
-      arch: "arm64",
-    });
-    const bundledPythonDir = path.join(environment.repoRoot, "desktop-assets", "binaries", "python-aarch64-apple-darwin");
-    mkdirSync(path.join(bundledPythonDir, "bin"), { recursive: true });
-    writeFileSync(path.join(bundledPythonDir, "bin", "python3"), "bundled-python");
-
-    const snapshot = inspectRuntimeDependencyStatus(environment);
-    const binaries = resolveRuntimeBinaryPaths(environment);
-
-    expect(snapshot.ytDlp.state).toBe("missing");
-    expect(binaries.ytDlp).toContain(path.join("yt-dlp", "aarch64-apple-darwin", "venv", "bin", "yt-dlp"));
+    expect(baseline.entrypoint).toContain(path.join("yt-dlp", "aarch64-apple-darwin", "baseline", "venv", "bin", "yt-dlp"));
+    expect(snapshot.ytDlp).toMatchObject({ state: "ready", source: "bundled", expectedSource: "bundled" });
   });
 });

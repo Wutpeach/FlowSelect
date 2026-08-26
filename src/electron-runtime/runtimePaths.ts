@@ -121,6 +121,58 @@ type ManagedPythonPackageRuntimePaths = {
   entrypoint: string;
 };
 
+export type BundledYtDlpBaselineRuntimePaths = {
+  root: string;
+  venvDir: string;
+  python: string;
+  entrypoint: string;
+  readiness: string;
+};
+
+const bundledYtDlpBaselineRootCandidates = (
+  environment: ElectronRuntimeEnvironment,
+): string[] => [
+  path.join(environment.repoRoot, "desktop-assets", "binaries", "ytdlp-baseline"),
+  ...(environment.resourceDir
+    ? [
+        path.join(environment.resourceDir, "binaries", "ytdlp-baseline"),
+        path.join(environment.resourceDir, "app", "desktop-assets", "binaries", "ytdlp-baseline"),
+      ]
+    : []),
+  ...(environment.executableDir
+    ? [path.join(environment.executableDir, "binaries", "ytdlp-baseline")]
+    : []),
+];
+
+export const resolveBundledYtDlpBaselineRoot = (
+  environment: ElectronRuntimeEnvironment,
+): string => {
+  const candidates = bundledYtDlpBaselineRootCandidates(environment);
+  return candidates.find((candidate) => fileExists(path.join(candidate, ".official-ytdlp-baseline.json")))
+    ?? candidates[0]
+    ?? "";
+};
+
+export const bundledYtDlpBaselineRuntimePaths = (
+  environment: Pick<ElectronRuntimeEnvironment, "configDir" | "platform" | "arch">,
+): BundledYtDlpBaselineRuntimePaths => {
+  const root = path.join(
+    environment.configDir,
+    "runtimes",
+    "yt-dlp",
+    resolveRuntimeTarget(environment.platform, environment.arch),
+    "baseline",
+  );
+  const executableDir = path.join(root, "venv", environment.platform === "win32" ? "Scripts" : "bin");
+  return {
+    root,
+    venvDir: path.join(root, "venv"),
+    python: path.join(executableDir, environment.platform === "win32" ? "python.exe" : "python"),
+    entrypoint: path.join(executableDir, environment.platform === "win32" ? "yt-dlp.exe" : "yt-dlp"),
+    readiness: path.join(root, "baseline.json"),
+  };
+};
+
 const ensureManagedRuntimeRoot = <T extends { root: string }>(paths: T): T => {
   mkdirSync(paths.root, { recursive: true });
   return paths;
@@ -156,10 +208,6 @@ const managedDenoPathFor = (environment: ElectronRuntimeEnvironment): string =>
 
 const inspectManagedDenoPath = (environment: ElectronRuntimeEnvironment): string =>
   inspectManagedDenoPaths(environment).deno;
-
-const managedYtDlpPathFor = (environment: ElectronRuntimeEnvironment): string => {
-  return resolveManagedYtDlpRuntimePaths(environment).entrypoint;
-};
 
 const managedGalleryDlPathFor = (environment: ElectronRuntimeEnvironment): string =>
   resolveManagedGalleryDlRuntimePaths(environment).entrypoint;
@@ -238,18 +286,18 @@ const resolveManagedStatus = (
 const resolveYtDlpStatus = (
   environment: ElectronRuntimeEnvironment,
 ): RuntimeDependencyStatusEntry => {
-  const managedPath = inspectManagedYtDlpRuntimePaths(environment).entrypoint;
+  const paths = bundledYtDlpBaselineRuntimePaths(environment);
 
-  if (fileExists(managedPath)) {
-    return readyStatus(managedPath, "managed", {
-      expectedSource: "managed",
+  if (fileExists(paths.entrypoint) && fileExists(paths.readiness)) {
+    return readyStatus(paths.entrypoint, "bundled", {
+      expectedSource: "bundled",
     });
   }
 
   return missingStatus(
-    `Missing managed yt-dlp runtime. Expected ${JSON.stringify([managedPath])}`,
+    `Missing bundled yt-dlp baseline. Expected ${JSON.stringify([paths.entrypoint, paths.readiness])}`,
     {
-      expectedSource: "managed",
+      expectedSource: "bundled",
     },
   );
 };
@@ -279,7 +327,7 @@ const resolveYtDlpBinaryPath = (environment: ElectronRuntimeEnvironment): string
   if (status.path) {
     return status.path;
   }
-  return managedYtDlpPathFor(environment);
+  return bundledYtDlpBaselineRuntimePaths(environment).entrypoint;
 };
 
 /**
@@ -291,7 +339,7 @@ export const inspectRuntimeBinaryPaths = (
 ): RuntimeBinaryPaths => {
   const ffmpegPaths = inspectManagedFfmpegPaths(environment);
   return {
-    ytDlp: inspectManagedYtDlpRuntimePaths(environment).entrypoint,
+    ytDlp: bundledYtDlpBaselineRuntimePaths(environment).entrypoint,
     galleryDl: inspectManagedGalleryDlRuntimePaths(environment).entrypoint,
     ffmpeg: ffmpegPaths.ffmpeg,
     ffprobe: ffmpegPaths.ffprobe,

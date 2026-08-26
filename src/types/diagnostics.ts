@@ -45,6 +45,17 @@ export type DiagnosticsSnapshot = {
   };
   runtimes: DiagnosticsRuntimeSnapshot[];
   runtimeGate: DiagnosticFact<RuntimeDependencyGateStatePayload>;
+  ytdlpBaseline: {
+    manifest: DiagnosticFact<{
+      packageSetId: string;
+      manifestDigest: string;
+      ytDlpVersion: string;
+      ejsVersion: string;
+    }>;
+    cache: DiagnosticFact<{ materialized: boolean; identityMatches: boolean; probeVersion: string | null }>;
+    selection: DiagnosticFact<"bundled">;
+  };
+  runtimeSetLease: DiagnosticFact<{ activeLeaseCount: number }>;
   outputDirectory: {
     configured: DiagnosticFact<boolean>;
     exists: DiagnosticFact<boolean>;
@@ -60,5 +71,6 @@ export type DiagnosticsSnapshot = {
     active: DiagnosticFact<number>;
     pending: DiagnosticFact<number>;
     recentDiagnostics: DiagnosticFact<string[]>;
+    recentRuntimeAttempts: DiagnosticFact<Array<{ runtimeCandidate: "bundled"; runtimeSetId: string }>>;
   };
 };

@@ -87,6 +87,38 @@ describe("runtime-set engine adapters", () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
+  it("uses the attempt-scoped bundled binaries instead of composition-time paths", async () => {
+    const release = vi.fn();
+    runYtDlpDownloadMock.mockResolvedValueOnce({
+      traceId: "adapter-pinned",
+      success: true,
+      filePath: "D:/downloads/pinned.mp4",
+    });
+    const adapter = new YtDlpEngineAdapter({
+      binaries: { ytDlp: "D:/stale/yt-dlp.exe", ffmpeg: "D:/stale/ffmpeg.exe", deno: "D:/stale/deno.exe" },
+    });
+    const context = {
+      ...createContext(),
+      runtimeSetLease: { release },
+      ytDlpRuntimeBinding: {
+        lease: { release },
+        binaries: {
+          ytDlp: "D:/userdata/runtimes/yt-dlp/baseline/yt-dlp.exe",
+          ffmpeg: "D:/userdata/runtimes/ffmpeg/real/ffmpeg.exe",
+          deno: "D:/userdata/runtimes/deno/real/deno.exe",
+        },
+        identity: { candidate: "bundled" as const, runtimeSetId: "pinned" },
+      },
+    };
+
+    await adapter.execute(context);
+
+    expect(runYtDlpDownloadMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      binaries: context.ytDlpRuntimeBinding.binaries,
+    }));
+    expect(release).toHaveBeenCalledOnce();
+  });
+
   it("releases the gallery-dl lease after a cancelled runner settles with failure", async () => {
     const controller = new AbortController();
     const release = vi.fn();

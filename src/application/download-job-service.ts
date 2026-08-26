@@ -89,6 +89,10 @@ export type DownloadJobServiceOptions<
     plan: ResolvedDownloadPlan,
     enginePlan: EnginePlan,
   ): TExecutionContext | Promise<TExecutionContext>;
+  /** Optional sanitized attempt facts, captured after binding and before execution. */
+  inspectAttemptRuntime?(
+    context: TExecutionContext,
+  ): { candidate: "bundled"; runtimeSetId: string } | undefined;
   /**
    * Called once immediately after `prepare()` resolves. The outer adapter uses
    * it to capture the exact plan for telemetry/execution metadata.
@@ -229,7 +233,12 @@ export class DownloadJobService<
       enginePlan: EnginePlan,
     ): Promise<TExecutionContext> => {
       chosenEngine = enginePlan.engine;
-      return this.options.buildAttemptContext(jobContext, plan, enginePlan);
+      const context = await this.options.buildAttemptContext(jobContext, plan, enginePlan);
+      const runtime = this.options.inspectAttemptRuntime?.(context);
+      if (runtime) {
+        recorder.recordAttemptRuntime(enginePlan.engine, runtime);
+      }
+      return context;
     };
     const resolveNetworkMetadata = (
       engineId: EngineId,

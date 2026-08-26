@@ -12,13 +12,15 @@
   - `getGalleryDlInfo(...) -> Promise<DownloaderVersionInfo>`
   - `inspectRuntimeDependencyStatus(...) -> RuntimeDependencyStatusSnapshot`
 - Bundled runtime preparation scripts:
-  - `npm run runtime:ensure:python`
+- `npm run runtime:ensure:python`
+- `npm run runtime:prepare:ytdlp-baseline`
+- `npm run runtime:verify:ytdlp-baseline`
   - `npm run runtime:smoke:python`
   - `npm run runtime:smoke:downloaders`
   - `npm run runtime:verify:macos-package`
   - `node ./scripts/ensure-capability-probe-runtime.mjs --tool <tool>`
 - Runtime bootstrap entrypoints:
-  - `ensureManagedYtDlpRuntimeReady(...)`
+- `ensureBundledYtDlpBaselineReady(...)`
   - `ensureManagedGalleryDlRuntimeReady(...)`
   - `ensureManagedFfmpegRuntimeReady(...)`
   - `ensureManagedDenoRuntimeReady(...)`
@@ -27,7 +29,8 @@
 
 - Runtime path resolution:
   - Bundled Python is the only packaged prerequisite for Python downloaders.
-  - `yt-dlp` and `gallery-dl` must resolve from managed per-tool virtualenvs under `app_config_dir/runtimes/<tool>/<target>/venv/...`.
+- `yt-dlp` resolves only from the offline materialized bundled baseline under `app_config_dir/runtimes/yt-dlp/<target>/baseline/venv/...`; `gallery-dl` remains a managed per-tool virtualenv.
+- The canonical yt-dlp baseline is packaged `desktop-assets/binaries/ytdlp-baseline/` containing exactly the generated manifest plus the pinned `yt-dlp` and `yt-dlp-ejs` wheels. It is immutable at runtime; the cache readiness marker is written last and is never a selection authority.
   - Official downloader provenance is represented by pinned Python package sources in `electron/managedPythonPackageManifest.mts`, not by shipping standalone downloader release binaries.
   - Scripts that need managed Python package pins must read the compiled Electron manifest through `scripts/managed-python-package-manifest.mjs`; they must not define a second downloader version/source table.
   - Managed Python venv creation must use Python's default symlink-based layout on macOS. Do not pass `--copies` for macOS python-build-standalone runtimes, because copying the interpreter out of its bundled tree can break loader/runtime lookup and abort during `ensurepip`.
@@ -39,8 +42,8 @@
   - Electron runtime path/status resolution for Python downloaders:
     - `python.source` must resolve as `"bundled"` when ready
     - `python.expectedSource` must be `"bundled"`
-    - `ytDlp.expectedSource` and `galleryDl.expectedSource` must be `"managed"`
-    - downloader managed runtime target paths live under `app_config_dir/runtimes/<tool>/<target>/venv/bin/<entrypoint>` (or `venv/Scripts/<entrypoint>.exe` on Windows)
+    - `ytDlp.expectedSource` must be `"bundled"`; `galleryDl.expectedSource` remains `"managed"`
+    - yt-dlp baseline cache paths live under `app_config_dir/runtimes/yt-dlp/<target>/baseline/venv/bin/<entrypoint>` (or `venv/Scripts/<entrypoint>.exe` on Windows); gallery-dl keeps its managed venv path
   - Bundled Python candidate order must include:
     - repo dev tree: `<repoRoot>/desktop-assets/binaries/python-<target>`
     - packaged Electron resources: `<resourceDir>/binaries/python-<target>`
@@ -65,7 +68,7 @@
   - Managed runtime download/extract temp paths may live inside the target runtime directory, so the parent directory must be created before opening temp files.
   - Managed runtime downloads must validate expected size + sha256 before install and replace the live binary atomically.
   - Electron-owned managed-runtime bootstrap HTTP requests must use Electron session / Chromium network fetch rather than Node global `fetch`, so startup bootstrap respects system proxy, PAC, and any session-level proxy overrides.
-  - Downloader managed bootstrap must source Python from bundled runtime bootstrap options; do not fall back to system Python in steady state.
+  - yt-dlp materialization must source Python from bundled runtime bootstrap options and install only from verified packaged wheels with `--no-index --require-hashes --no-deps`; do not fall back to system Python, network package acquisition, or a stale cache.
   - Shared Python package bootstrap must use per-tool in-flight promise joining so startup prewarm, settings refresh, and first real download converge on one venv install/rebuild flow per tool.
   - Managed `ffmpeg` and `deno` bootstrap must use component-and-target in-flight promise joining so startup prewarm, yt-dlp engine preparation, and first real download converge on one managed binary install flow per component.
 - Runtime contract for `ffmpeg` used by yt-dlp/internal post-processing:
@@ -101,7 +104,7 @@
 - Runtime contract for YouTube route:
   - YouTube runs must start with the extended extractor path: `--extractor-args youtube:player_js_variant=tv`.
   - The runtime must not start public/default YouTube runs with light extractor args such as `youtube:player_client=android,web`; that path can succeed while exposing only low-resolution progressive MP4 formats.
-  - Do not enable `--remote-components ejs:github`; the exact app-owned managed package set includes `yt-dlp-ejs`.
+  - Do not enable `--remote-components ejs:github`; the exact `yt-dlp-ejs` wheel is part of the Ameow-owned immutable bundled baseline.
   - Pass only the explicit managed Deno runtime (`--js-runtimes deno:<absolute-managed-deno-path>`); do not pass bare `deno`, `node`, or a machine/runtime `PATH` fallback.
   - Pass `--ignore-config --no-plugin-dirs` so user configuration and plugin directories cannot alter baseline execution.
   - `pageUrl`, `selectionScope == "current_item"`, cookies, and legacy YouTube extension mode hints must not change the extractor profile away from the extended path.
@@ -155,7 +158,7 @@
   - Windows portable ZIP contains helper executables only under `binaries/`.
   - On Windows, `highest` downloads, YouTube cookie-free probes, and `gallery-dl` runs complete without flashing transient console windows.
   - A clean config directory bootstraps `ffmpeg` into `app_config_dir/runtimes/ffmpeg/<target>/`, and Windows packaged builds can merge yt-dlp split streams without any system-installed ffmpeg.
-  - The same managed yt-dlp package set behaves identically on two Windows machines even if one host has custom yt-dlp config files installed.
+  - The same immutable yt-dlp baseline package set behaves identically on two Windows machines even if one host has custom yt-dlp config files installed.
   - A prior interrupted Bilibili `highest` download recovers automatically on the next attempt instead of surfacing raw HTTP 416 to the user.
   - A Bilibili extraction that fails once with `[SSL: UNEXPECTED_EOF_WHILE_READING]` retries once and succeeds without changing the user's selected quality.
 - Base:

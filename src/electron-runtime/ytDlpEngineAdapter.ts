@@ -23,7 +23,7 @@ export class YtDlpEngineAdapter implements DownloadEngine<EngineExecutionContext
   readonly id = "yt-dlp" as const;
   readonly capabilities: DownloadCapabilities = { advancedQuality: true };
 
-  constructor(private readonly dependencies: { binaries: YtDlpRuntimeDependencies }) {}
+  constructor(private readonly dependencies: { binaries?: YtDlpRuntimeDependencies } = {}) {}
 
   supports(
     plan: ResolvedDownloadPlan,
@@ -50,9 +50,13 @@ export class YtDlpEngineAdapter implements DownloadEngine<EngineExecutionContext
     // Explicit composition: the runner invocation input is the declared
     // per-job contract plus this adapter's injected static dependencies.
     try {
+      const binaries = context.ytDlpRuntimeBinding?.binaries ?? this.dependencies.binaries;
+      if (!binaries) {
+        throw new Error("yt-dlp attempt runtime binding is missing");
+      }
       return await runYtDlpDownload({
         ...context,
-        binaries: this.dependencies.binaries,
+        binaries,
       });
     } finally {
       await context.runtimeSetLease?.release();

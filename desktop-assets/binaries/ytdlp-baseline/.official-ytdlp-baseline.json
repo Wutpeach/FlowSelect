@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "layoutVersion": 1,
+  "packageSetId": "yt-dlp==2026.07.04;yt-dlp-ejs==0.8.0",
+  "packages": [
+    {
+      "name": "yt-dlp",
+      "version": "2026.07.04",
+      "filename": "yt_dlp-2026.7.4-py3-none-any.whl",
+      "size": 3184705,
+      "sha256": "f11f2b11d5a8ac4059f9bdf29fa4407dc7c6bb00c5097e95ca22a7a9db518266",
+      "provenanceUrl": "https://pypi.org/pypi/yt-dlp/2026.07.04/json"
+    },
+    {
+      "name": "yt-dlp-ejs",
+      "version": "0.8.0",
+      "filename": "yt_dlp_ejs-0.8.0-py3-none-any.whl",
+      "size": 53443,
+      "sha256": "79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4",
+      "provenanceUrl": "https://pypi.org/pypi/yt-dlp-ejs/0.8.0/json"
+    }
+  ],
+  "minPython": [
+    3,
+    10,
+    0
+  ],
+  "runtimeTargets": [
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin"
+  ],
+  "executionPolicy": {
+    "configIsolation": true,
+    "pluginDirs": "disabled",
+    "remoteComponents": "disabled",
+    "jsRuntime": "managed-deno-absolute-path"
+  },
+  "probe": {
+    "args": [
+      "--version"
+    ],
+    "expectedVersion": "2026.07.04"
+  }
+}

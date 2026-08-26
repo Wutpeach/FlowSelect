@@ -38,6 +38,8 @@ export type AttemptDiagnosticSummary = {
   classification: DownloadFailureClassification | null;
   category: DownloadDiagnosticCategory | null;
   network?: DownloadDiagnosticNetwork;
+  runtimeCandidate?: "bundled";
+  runtimeSetId?: string;
 };
 
 export type DownloadTerminalDiagnosticSummary = {
@@ -188,6 +190,7 @@ export type DownloadDiagnosticRecorder = {
   readonly traceId: string;
   recordPrepared(plan: ResolvedDownloadPlan): void;
   recordAttemptStarted(engineId: string, cycle: DownloadDiagnosticCycle): void;
+  recordAttemptRuntime(engineId: string, runtime: { candidate: "bundled"; runtimeSetId: string }): void;
   recordAttemptSucceeded(engineId: string, network?: DownloadDiagnosticNetwork): void;
   recordAttemptFailed(
     engineId: string,
@@ -319,6 +322,13 @@ export const createDownloadDiagnosticRecorder = (
         engineId,
         cycle,
       });
+    },
+    recordAttemptRuntime(engineId, runtime) {
+      if (!currentAttempt || currentAttempt.engineId !== engineId) {
+        return;
+      }
+      currentAttempt.runtimeCandidate = runtime.candidate;
+      currentAttempt.runtimeSetId = runtime.runtimeSetId;
     },
     recordAttemptSucceeded(engineId, network) {
       if (!currentAttempt || currentAttempt.engineId !== engineId) {

@@ -35,9 +35,10 @@ function currentManagedRuntimeTarget(
   arch?: NodeJS.Architecture,
 ): string;
 
-function ensureManagedYtDlpRuntimeReady(
+// electron/ytDlpBaseline.mts
+function ensureBundledYtDlpBaselineReady(
   trigger: string,
-  options: ManagedRuntimeBootstrapOptions & { forceReinstall?: boolean },
+  options: ManagedRuntimeBootstrapOptions & { baselineRoot: string },
 ): Promise<string>;
 
 function ensureManagedGalleryDlRuntimeReady(
@@ -71,24 +72,26 @@ function buildManagedRuntimeBootstrapOptions(
 - `electron/managedRuntimeBootstrap.mts` owns managed runtime target/path helpers, bundled-Python-backed downloader venv bootstrap, Deno/FFmpeg artifact specs, runtime asset download, checksum verification, archive extraction, executable chmod, and file replacement.
 - Bootstrap functions must receive Electron-specific dependencies through `ManagedRuntimeBootstrapOptions`; they must not import `app`, `BrowserWindow`, IPC handlers, or renderer event emitters.
 - `buildManagedRuntimeBootstrapOptions(...)` must pass `configDir: getUserDataDir()`, `platform: process.platform`, `arch: process.arch`, `fetch: fetchWithDesktopSession`, bundled Python paths, `logInfo`, and an `onActivity` adapter into `updateRuntimeDependencyGateDownloadActivity(...)`.
-- `ytDlp` and `galleryDl` are managed Python packages bootstrapped from the bundled CPython runtime into per-tool venvs; neither may fall back to direct binary release downloads or system Python in steady state. The managed yt-dlp package set includes exact app-owned `yt-dlp` and `yt-dlp-ejs` pins.
+- `ytDlp` is an immutable packaged wheel baseline (`yt-dlp` plus `yt-dlp-ejs`) materialized offline into `<userData>/runtimes/yt-dlp/<target>/baseline/`; `galleryDl` remains a managed Python package. Neither may fall back to direct binary releases, system Python, machine JavaScript, or a network package install during yt-dlp baseline materialization.
 - Managed Python downloader package pins must have one app-owned source of truth: `electron/managedPythonPackageManifest.mts`. Scripts that need those pins must read the compiled Electron manifest instead of defining duplicate version/source constants.
-- `ensureMissingManagedRuntimesReady(...)` must call managed bootstrap functions in `MANAGED_RUNTIME_BOOTSTRAP_ORDER`-compatible dependency order: `ytDlp`, `galleryDl`, `ffmpeg`, then `deno`, with a fresh runtime status snapshot between components.
-- Runtime path helpers in `managedRuntimeBootstrap.mts` must stay consistent with `src/electron-runtime/runtimePaths.ts` so status inspection and installer output point at the same `real/` files.
+- The packaged yt-dlp manifest and exact two wheels are mechanically checked against `managedPythonPackageManifest.mts` before packaging and from each packaged artifact. Runtime only rehashes local packaged bytes; it performs no release discovery or baseline download.
+- `ensureMissingManagedRuntimesReady(...)` must prepare the bundled yt-dlp baseline, then `galleryDl`, `ffmpeg`, and `deno`, with a fresh runtime status snapshot between components.
+- Runtime path helpers in `ytDlpBaseline.mts`, `managedRuntimeBootstrap.mts`, and `src/electron-runtime/runtimePaths.ts` must agree on the baseline cache and shared `real/` paths.
 - `resolvePinnedManagedPythonPackage(...)` must throw for unsupported downloader tool ids instead of returning `undefined`.
 - Shared Python package bootstrap must use per-tool in-flight promise joining so concurrent ensure calls for the same downloader reuse one install/rebuild flow instead of racing `rm`/`venv`/`pip install`.
 - Managed `ffmpeg` and `deno` bootstrap must use component-and-target in-flight promise joining so startup prewarm and first real download do not download/extract the same managed binary concurrently.
 - `replaceFile(...)` must preserve the old Electron main algorithm: try `unlink(target)`, then `rename(temp, target)`, and fall back to `copyFile(temp, target)` plus cleanup.
 - Electron main must route every bootstrap/repair/reinstall mutation through one target-scoped runtime-set coordinator. A download attempt, advanced yt-dlp probe, FFprobe analysis, or FFmpeg transcode acquires a lease atomically with readiness and releases it only after its child process tree settles; a mutation while leased fails busy instead of replacing a referenced path.
+- `buildAttemptContext` is the yt-dlp pin boundary: it receives one `{ lease, binaries, identity }` binding after the baseline and shared FFmpeg/FFprobe/Deno facts are verified. Internal runner retries reuse that binding; a new engine attempt resolves another binding. A binding error releases any acquired lease before it escapes.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Validation Point | Expected Behavior | Action |
 |-----------|------------------|-------------------|--------|
-| Existing managed runtime binary exists | `ensureManaged*RuntimeReady(...)` | Return existing path without rebuilding | Keep gate state unchanged except later refreshed status |
+| Existing committed yt-dlp baseline cache | `ensureBundledYtDlpBaselineReady(...)` | Return its entrypoint only when `baseline.json`, Python identity, package set, and probe match | Keep gate state unchanged except later refreshed status |
 | Missing Deno/FFmpeg runtime | `select*RuntimeArtifactSpec(...)` + download/extract | Download pinned archive, verify size/checksum, extract executable(s), chmod on non-Windows, replace final file | Surface activity stages through `onActivity` |
-| Missing `yt-dlp` / `gallery-dl` managed runtime | `ensureManaged*RuntimeReady(...)` | Create per-tool venv from bundled Python, install the exact pinned package set, chmod entrypoints, write metadata | Report `checking`/`installing`/`verifying` through `onActivity` |
-| Metadata missing, layout version mismatch, stale `real/` dir, entrypoint missing, pinned package set changed, or bundled Python version changed | `shouldRebuildManagedPythonRuntime(...)` | Remove stale runtime root and rebuild that downloader venv from scratch | Leave other downloader venvs untouched |
+| Missing/corrupt yt-dlp baseline cache | `ensureBundledYtDlpBaselineReady(...)` | Rebuild a staging venv from verified packaged wheels using offline hash-locked pip, then write `baseline.json` last | Do not execute a partial/stale cache or contact the network |
+| Missing gallery-dl runtime, stale baseline marker, package/Python/layout mismatch, or entrypoint missing | relevant ensure function | Rebuild only the affected cache/venv under the mutation coordinator | Leave unrelated runtime roots untouched |
 | Unsupported platform/arch | `currentManagedRuntimeTarget(...)` | Throw unsupported managed runtime target error | Gate surfaces bootstrap failure |
 | Unsupported downloader tool id | `resolvePinnedManagedPythonPackage(...)` | Throw `Unsupported managed Python package tool: <id>` | Do not continue with undefined metadata |
 | Download stalls or all fallback URLs fail | `downloadRuntimeAssetWithFallbacks(...)` | Remove temp file and throw `Failed to download managed <component> runtime: ...` | Gate remains recoverable for retry |
@@ -96,7 +99,7 @@ function buildManagedRuntimeBootstrapOptions(
 
 ### 5. Good / Base / Bad Cases
 
-- Good: `electron/main.mts` creates options once per component install and the bootstrap module reports `downloading`, `verifying`, and `installing` through `onActivity`.
+- Good: `electron/main.mts` materializes the checked packaged yt-dlp wheel set offline and reports `checking`, `installing`, and `verifying` through `onActivity`.
 - Base: all runtimes already exist, so bootstrap functions return paths and no network request is made.
 - Bad: importing `app.getPath(...)` or `updateRuntimeDependencyGateDownloadActivity(...)` inside `managedRuntimeBootstrap.mts`, which would couple installer logic back to Electron main state.
-- Bad: changing `managedYtDlpPaths(...)` without updating `runtimePaths.ts`, causing status inspection to report missing while installer wrote a different path.
+- Bad: changing baseline cache paths or packaged-wheel verification without updating `runtimePaths.ts`, causing status inspection to disagree with the attempt binding.

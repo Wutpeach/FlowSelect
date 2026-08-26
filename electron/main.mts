@@ -41,9 +41,9 @@ import {
   inspectRuntimeBinaryPaths,
   releaseRenameStem,
   resolveBundledPythonRuntime,
+  resolveBundledYtDlpBaselineRoot,
   resetRenameSequenceState,
   resolveGalleryDlRuntimeDependencies,
-  resolveYtDlpRuntimeDependencies,
   resolveXiaohongshuDragMedia,
   resolveRuntimeBinaryPaths,
   resolveRuntimeTarget,
@@ -138,9 +138,14 @@ import {
   ensureManagedDenoRuntimeReady,
   ensureManagedFfmpegRuntimeReady,
   ensureManagedGalleryDlRuntimeReady,
-  ensureManagedYtDlpRuntimeReady,
   resolvePinnedManagedPythonPackage,
 } from "./managedRuntimeBootstrap.mjs";
+import {
+  createBundledYtDlpRuntimeBinding,
+  ensureBundledYtDlpBaselineReady,
+  inspectBundledYtDlpBaseline,
+  invalidateVerifiedSharedRuntimeReadiness,
+} from "./ytDlpBaseline.mjs";
 import { createSiteSessionManager } from "./siteSessionManager.mjs";
 import { createSiteSessionRegistry } from "./siteSessionRegistry.mjs";
 import { createDownloadSiteSessionIntegration } from "./downloadSiteSessionIntegration.mjs";
@@ -248,8 +253,11 @@ const runtimeDependencyGateController = createRuntimeDependencyGateController({
   emitAppEvent,
   getRuntimeDependencyStatus,
   buildManagedRuntimeBootstrapOptions,
-  ensureManagedYtDlpRuntimeReady: (trigger, options) => runtimeSetLifecycle.runMutation(
-    () => ensureManagedYtDlpRuntimeReady(trigger, options),
+  ensureBundledYtDlpBaselineReady: (trigger, options) => runtimeSetLifecycle.runMutation(
+    async () => {
+      invalidateVerifiedSharedRuntimeReadiness();
+      return await ensureBundledYtDlpBaselineReady(trigger, withYtDlpBaselineRoot(options));
+    },
   ),
   ensureManagedGalleryDlRuntimeReady: (trigger, options) => runtimeSetLifecycle.runMutation(
     () => ensureManagedGalleryDlRuntimeReady(trigger, options),
@@ -1306,9 +1314,10 @@ const RUNTIME_SET_CONSUMER_CAPABILITIES = {
 
 async function ensureRuntimeSetCapabilities(capabilities, reason) {
   const options = buildManagedRuntimeBootstrapOptions();
+  invalidateVerifiedSharedRuntimeReadiness();
   for (const capability of capabilities) {
     if (capability === "yt-dlp") {
-      await ensureManagedYtDlpRuntimeReady(reason, options);
+      await ensureBundledYtDlpBaselineReady(reason, withYtDlpBaselineRoot(options));
     } else if (capability === "ffmpeg") {
       await ensureManagedFfmpegRuntimeReady(reason, options);
     } else if (capability === "deno") {
@@ -1375,6 +1384,30 @@ function buildManagedRuntimeBootstrapOptions(_missingComponents = [], onActivity
   };
 }
 
+function withYtDlpBaselineRoot(options) {
+  return {
+    ...options,
+    baselineRoot: resolveBundledYtDlpBaselineRoot(buildElectronRuntimeEnvironment()),
+  };
+}
+
+async function acquireBundledYtDlpRuntimeBinding(reason) {
+  let lease = null;
+  try {
+    lease = await runtimeSetLifecycle.acquireLease(
+      RUNTIME_SET_CONSUMER_CAPABILITIES["yt-dlp"],
+      (missingCapabilities) => ensureRuntimeSetCapabilities(missingCapabilities, reason),
+    );
+    const binding = await createBundledYtDlpRuntimeBinding(
+      withYtDlpBaselineRoot(buildManagedRuntimeBootstrapOptions()),
+    );
+    return { ...binding, lease };
+  } catch (error) {
+    await lease?.release();
+    throw error;
+  }
+}
+
 function getElectronDownloadRuntime() {
   if (electronDownloadRuntime) {
     return electronDownloadRuntime;
@@ -1419,7 +1452,7 @@ function getElectronDownloadRuntime() {
     // dependencies (binary paths) are injected through adapter construction.
     engines: (() => {
       const productionEngines = [
-        new YtDlpEngineAdapter({ binaries: resolveYtDlpRuntimeDependencies(environment) }),
+        new YtDlpEngineAdapter({}),
         new GalleryDlEngineAdapter({ binaries: resolveGalleryDlRuntimeDependencies(environment) }),
       ];
       // Completeness guard: production Engine registrations and runtime
@@ -1469,6 +1502,18 @@ function getElectronDownloadRuntime() {
           RUNTIME_SET_CONSUMER_CAPABILITIES[consumer],
           (missingCapabilities) => ensureRuntimeSetCapabilities(missingCapabilities, reason),
         );
+      } catch (error) {
+        getNetworkProxyPolicyController().markManualProxySuspect({
+          layer: "managed_bootstrap",
+          targetHost: null,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+    acquireYtDlpRuntimeBinding: async (reason) => {
+      try {
+        return await acquireBundledYtDlpRuntimeBinding(reason);
       } catch (error) {
         getNetworkProxyPolicyController().markManualProxySuspect({
           layer: "managed_bootstrap",
@@ -1869,6 +1914,7 @@ function inspectDiagnosticsDownloads() {
   return {
     activeCount: queue.activeCount,
     pendingCount: queue.pendingCount,
+    recentRuntimeAttempts: electronDownloadRuntime.getRecentYtDlpRuntimeAttempts(),
   };
 }
 
@@ -1883,6 +1929,10 @@ async function getDiagnosticsSnapshot() {
     runtimeStatus: await getRuntimeDependencyStatus(),
     runtimePaths: inspectRuntimeBinaryPaths(environment),
     runtimeGate: runtimeDependencyGateController.peekState(),
+    ytdlpBaseline: await inspectBundledYtDlpBaseline(
+      withYtDlpBaselineRoot(buildManagedRuntimeBootstrapOptions()),
+    ),
+    runtimeSetLeaseCount: runtimeSetLifecycle.activeLeaseCount(),
     inspectOutputDirectory: inspectDiagnosticsOutputDirectory,
     inspectBrowserBridge: inspectDiagnosticsBrowserBridge,
     inspectDownloads: inspectDiagnosticsDownloads,

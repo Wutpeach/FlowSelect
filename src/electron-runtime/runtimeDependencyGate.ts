@@ -35,7 +35,7 @@ const missingComponentsFrom = (
   snapshot: RuntimeDependencyStatusSnapshot,
 ): RuntimeDependencyManagedComponent[] => {
   const missing: RuntimeDependencyManagedComponent[] = [];
-  if (snapshot.ytDlp.state !== "ready" && snapshot.ytDlp.expectedSource === "managed") {
+  if (snapshot.ytDlp.state !== "ready") {
     missing.push("ytDlp");
   }
   if (snapshot.galleryDl.state !== "ready" && snapshot.galleryDl.expectedSource === "managed") {

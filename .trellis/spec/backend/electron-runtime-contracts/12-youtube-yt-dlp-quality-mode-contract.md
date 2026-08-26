@@ -25,7 +25,7 @@ src/electron-runtime/engineManifest.ts
 
 - YouTube downloads must use the extended extractor path by default.
 - The runtime must not start public/page-context-only YouTube runs with `youtube:player_client=android,web`; that path can succeed while exposing only low-resolution progressive MP4 formats.
-- Extended mode uses `youtube:player_js_variant=tv`, the exact app-owned managed `yt-dlp-ejs` package, and one explicit app-owned Deno path (`deno:<absolute-path>`). It never fetches remote EJS components or falls back to machine JavaScript runtimes.
+- Extended mode uses `youtube:player_js_variant=tv`, the exact `yt-dlp-ejs` wheel in the immutable bundled yt-dlp baseline, and one explicit app-owned Deno path (`deno:<absolute-path>`). It never fetches remote EJS components or falls back to machine JavaScript runtimes.
 - `balanced` selector must try exact `height=1080` formats first, then choose the highest available format at `height<=1080`.
 - `best` selects the highest available format, and `data_saver` selects the lowest available profile.
 

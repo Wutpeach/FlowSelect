@@ -206,6 +206,8 @@ const NOOP_LOGGER: RuntimeLogger = {
   },
 };
 
+const MAX_RECENT_YTDLP_RUNTIME_ATTEMPTS = 8;
+
 const createBestEffortRuntimeLogger = (logger: RuntimeLogger): RuntimeLogger => ({
   log(message) {
     try {
@@ -313,6 +315,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
   private readonly siteRegistry;
   private readonly telemetrySink: DownloadTelemetrySink;
   private readonly diagnosticSink: DownloadDiagnosticSink;
+  private readonly recentYtDlpRuntimeAttempts: Array<{ runtimeCandidate: "bundled"; runtimeSetId: string }> = [];
 
   constructor(options: ElectronDownloadRuntimeOptions) {
     this.options = options;
@@ -416,6 +419,17 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
         })),
       ],
     };
+  }
+
+  getRecentYtDlpRuntimeAttempts(): Array<{ runtimeCandidate: "bundled"; runtimeSetId: string }> {
+    return this.recentYtDlpRuntimeAttempts.slice();
+  }
+
+  private rememberYtDlpRuntimeAttempt(runtimeSetId: string): void {
+    this.recentYtDlpRuntimeAttempts.push({ runtimeCandidate: "bundled", runtimeSetId });
+    if (this.recentYtDlpRuntimeAttempts.length > MAX_RECENT_YTDLP_RUNTIME_ATTEMPTS) {
+      this.recentYtDlpRuntimeAttempts.shift();
+    }
   }
 
   /**
@@ -714,7 +728,8 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     try {
       return await runYtDlpAdvancedQualityProbe({
         ...context,
-        binaries: resolveYtDlpRuntimeDependencies(this.options.environment),
+        binaries: context.ytDlpRuntimeBinding?.binaries
+          ?? resolveYtDlpRuntimeDependencies(this.options.environment),
       });
     } finally {
       await context.runtimeSetLease?.release();
@@ -891,7 +906,10 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     const network = await executionContext.network;
 
     const reason = `runtime_probe_${task.traceId}_yt-dlp`;
-    const runtimeSetLease = await this.acquireRuntimeSetLease("yt-dlp", reason);
+    const ytDlpRuntimeBinding = this.options.acquireYtDlpRuntimeBinding
+      ? await this.options.acquireYtDlpRuntimeBinding(reason)
+      : undefined;
+    const runtimeSetLease = ytDlpRuntimeBinding?.lease ?? await this.acquireRuntimeSetLease("yt-dlp", reason);
     const context: EngineExecutionContextWithRuntime = {
       traceId: task.traceId,
       plan,
@@ -919,6 +937,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
         : undefined,
       onProgress: async () => undefined,
       runtimeSetLease,
+      ytDlpRuntimeBinding,
     };
 
     try {
@@ -1544,7 +1563,11 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
         ) => {
           executedEngineId = enginePlan.engine;
           const reason = `runtime_execute_${traceId}_${enginePlan.engine}`;
-          const runtimeSetLease = await this.acquireRuntimeSetLease(
+          const ytDlpRuntimeBinding = enginePlan.engine === "yt-dlp"
+            && this.options.acquireYtDlpRuntimeBinding
+            ? await this.options.acquireYtDlpRuntimeBinding(reason)
+            : undefined;
+          const runtimeSetLease = ytDlpRuntimeBinding?.lease ?? await this.acquireRuntimeSetLease(
             enginePlan.engine === "gallery-dl" ? "gallery-dl" : "yt-dlp",
             reason,
           );
@@ -1583,6 +1606,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
               : undefined,
             onProgress: jobContext.onProgress,
             runtimeSetLease,
+            ytDlpRuntimeBinding,
           };
           try {
             return this.options.buildExecutionContext
@@ -1592,6 +1616,14 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
             await runtimeSetLease?.release();
             throw error;
           }
+        },
+        inspectAttemptRuntime: (context) => {
+          const identity = context.ytDlpRuntimeBinding?.identity;
+          if (!identity) {
+            return undefined;
+          }
+          this.rememberYtDlpRuntimeAttempt(identity.runtimeSetId);
+          return { candidate: identity.candidate, runtimeSetId: identity.runtimeSetId };
         },
         handleAuthRequiredFailure: async ({ plan, chosenEngine, error }) => {
           return this.options.handleAuthRequiredFailure?.({

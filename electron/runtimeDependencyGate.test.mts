@@ -91,7 +91,7 @@ const createControllerHarness = (
   const createBootstrap = (component: RuntimeDependencyManagedComponent) => vi.fn(async () => {
     bootstrapCalls.push(component);
   });
-  const ensureManagedYtDlpRuntimeReady = createBootstrap("ytDlp");
+  const ensureBundledYtDlpBaselineReady = createBootstrap("ytDlp");
   const ensureManagedGalleryDlRuntimeReady = createBootstrap("galleryDl");
   const ensureManagedFfmpegRuntimeReady = createBootstrap("ffmpeg");
   const ensureManagedDenoRuntimeReady = createBootstrap("deno");
@@ -102,7 +102,7 @@ const createControllerHarness = (
     },
     getRuntimeDependencyStatus,
     buildManagedRuntimeBootstrapOptions,
-    ensureManagedYtDlpRuntimeReady,
+    ensureBundledYtDlpBaselineReady,
     ensureManagedGalleryDlRuntimeReady,
     ensureManagedFfmpegRuntimeReady,
     ensureManagedDenoRuntimeReady,
@@ -116,7 +116,7 @@ const createControllerHarness = (
     pendingBootstrapResolvers,
     getRuntimeDependencyStatus,
     buildManagedRuntimeBootstrapOptions,
-    ensureManagedYtDlpRuntimeReady,
+    ensureBundledYtDlpBaselineReady,
     ensureManagedGalleryDlRuntimeReady,
     ensureManagedFfmpegRuntimeReady,
     ensureManagedDenoRuntimeReady,
@@ -215,7 +215,7 @@ describe("runtime dependency gate controller", () => {
   it("starts bootstrap with initial checking payload and runs missing components in order", async () => {
     const { controller, bootstrapCalls } = createControllerHarness([
       createStatus({
-        ytDlp: missingManagedEntry("Missing managed yt-dlp runtime"),
+        ytDlp: missingBundledEntry("Missing bundled yt-dlp baseline"),
         galleryDl: missingManagedEntry("Missing managed gallery-dl runtime"),
         ffmpeg: missingManagedEntry("Missing managed ffmpeg runtime"),
         deno: missingManagedEntry("Missing managed deno runtime"),

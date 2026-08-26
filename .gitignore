@@ -48,6 +48,8 @@ CLAUDE.md
 # Desktop runtime assets (prepared locally / in CI)
 desktop-assets/binaries/*
 !desktop-assets/binaries/.official-python-runtimes.json
+!desktop-assets/binaries/ytdlp-baseline/
+!desktop-assets/binaries/ytdlp-baseline/**
 
 # Python cache artifacts
 __pycache__/

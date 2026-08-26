@@ -28,6 +28,16 @@ export type RuntimeSetLease = {
   release(): void | Promise<void>;
 };
 
+/** Immutable yt-dlp paths and sanitized identity acquired for one attempt. */
+export type YtDlpAttemptRuntimeBinding = {
+  lease: RuntimeSetLease;
+  binaries: YtDlpRuntimeDependencies;
+  identity: {
+    candidate: "bundled";
+    runtimeSetId: string;
+  };
+};
+
 /**
  * Explicit per-job engine execution contract (Infrastructure-side extension of
  * the application-owned context). The runtime service builds this per attempt:
@@ -64,6 +74,8 @@ export type EngineExecutionContextWithRuntime = EngineExecutionContext & {
   reportNetworkProxyFailure?(error: unknown): void | Promise<void>;
   /** Acquired atomically with runtime readiness by the Electron composition. */
   runtimeSetLease?: RuntimeSetLease;
+  /** Present for yt-dlp attempts and probes; adapters execute these pinned paths. */
+  ytDlpRuntimeBinding?: YtDlpAttemptRuntimeBinding;
 };
 
 /**

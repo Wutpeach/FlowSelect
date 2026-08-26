@@ -31,7 +31,22 @@ type BrowserBridgeInspection = {
   pendingRequestCount: number;
 };
 
-type DownloadInspection = Pick<VideoQueueStatePayload, "activeCount" | "pendingCount">;
+type DownloadInspection = Pick<VideoQueueStatePayload, "activeCount" | "pendingCount"> & {
+  recentRuntimeAttempts?: Array<{ runtimeCandidate: "bundled"; runtimeSetId: string }>;
+};
+
+type YtDlpBaselineInspection = {
+  manifest: {
+    available: boolean;
+    verified: boolean;
+    packageSetId: string | null;
+    manifestDigest: string | null;
+    ytDlpVersion: string | null;
+    ejsVersion: string | null;
+  };
+  cache: { materialized: boolean; identityMatches: boolean; probeVersion: string | null };
+  selection: "bundled";
+};
 
 export type DiagnosticsSnapshotOptions = {
   appVersion: string;
@@ -42,6 +57,8 @@ export type DiagnosticsSnapshotOptions = {
   runtimeStatus: RuntimeDependencyStatusSnapshot;
   runtimePaths: RuntimeBinaryPaths;
   runtimeGate: RuntimeDependencyGateStatePayload;
+  ytdlpBaseline?: YtDlpBaselineInspection;
+  runtimeSetLeaseCount?: number;
   inspectOutputDirectory(): Promise<OutputDirectoryInspection>;
   inspectBrowserBridge(): BrowserBridgeInspection;
   inspectDownloads(): DownloadInspection;
@@ -67,7 +84,7 @@ const runtimeDefinitions: Array<{
   expectedSource: "bundled" | "managed";
 }> = [
   { id: "python", statusKey: "python", pathKey: "ytDlp", expectedSource: "bundled" },
-  { id: "ytDlp", statusKey: "ytDlp", pathKey: "ytDlp", expectedSource: "managed" },
+  { id: "ytDlp", statusKey: "ytDlp", pathKey: "ytDlp", expectedSource: "bundled" },
   { id: "galleryDl", statusKey: "galleryDl", pathKey: "galleryDl", expectedSource: "managed" },
   { id: "ffmpeg", statusKey: "ffmpeg", pathKey: "ffmpeg", expectedSource: "managed" },
   { id: "ffprobe", statusKey: "ffmpeg", pathKey: "ffprobe", expectedSource: "managed" },
@@ -224,6 +241,39 @@ export const buildDiagnosticsSnapshot = async (
     },
     runtimes,
     runtimeGate: fact("observed", gateConclusion(options.runtimeGate), options.runtimeGate),
+    ytdlpBaseline: (() => {
+      const baseline = options.ytdlpBaseline;
+      const manifestValue = baseline?.manifest.available
+        && baseline.manifest.packageSetId
+        && baseline.manifest.manifestDigest
+        && baseline.manifest.ytDlpVersion
+        && baseline.manifest.ejsVersion
+        ? {
+            packageSetId: baseline.manifest.packageSetId,
+            manifestDigest: baseline.manifest.manifestDigest,
+            ytDlpVersion: baseline.manifest.ytDlpVersion,
+            ejsVersion: baseline.manifest.ejsVersion,
+          }
+        : null;
+      return {
+        manifest: fact(
+          "probed",
+          baseline?.manifest.verified ? "available" : "unavailable",
+          manifestValue,
+          baseline?.manifest.verified ? null : "Bundled yt-dlp baseline was not verified; Diagnostics did not repair it.",
+        ),
+        cache: fact(
+          "observed",
+          baseline?.cache.identityMatches ? "available" : baseline?.cache.materialized ? "degraded" : "unavailable",
+          baseline?.cache ?? null,
+          baseline?.cache.identityMatches ? null : "Baseline cache is absent or does not match packaged identity.",
+        ),
+        selection: fact("configured", "available", "bundled"),
+      };
+    })(),
+    runtimeSetLease: fact("observed", "available", {
+      activeLeaseCount: options.runtimeSetLeaseCount ?? 0,
+    }),
     outputDirectory: {
       configured: outputResult.error
         ? fact<boolean>("configured", "unknown", null, outputResult.error)
@@ -296,6 +346,11 @@ export const buildDiagnosticsSnapshot = async (
           "available",
           recentResult.lines.slice(-RECENT_DIAGNOSTIC_LIMIT).map((line) => sanitizeDiagnosticText(line, 240)),
         ),
+      recentRuntimeAttempts: fact(
+        "observed",
+        (downloads?.recentRuntimeAttempts?.length ?? 0) > 0 ? "available" : "unavailable",
+        downloads?.recentRuntimeAttempts ?? [],
+      ),
     },
   };
 };

@@ -18,7 +18,7 @@ const createOptions = () => ({
   runtimeTarget: "x86_64-pc-windows-msvc",
   runtimeStatus: {
     python: { state: "ready", source: "bundled", expectedSource: "bundled", path: "/runtime/python", error: null },
-    ytDlp: { state: "ready", source: "managed", expectedSource: "managed", path: "/runtime/yt-dlp", error: null },
+    ytDlp: { state: "ready", source: "bundled", expectedSource: "bundled", path: "/runtime/yt-dlp", error: null },
     galleryDl: { state: "missing", source: null, expectedSource: "managed", path: null, error: "missing gallery-dl" },
     ffmpeg: { state: "ready", source: "managed", expectedSource: "managed", path: "/runtime/ffmpeg", error: null },
     deno: { state: "ready", source: "managed", expectedSource: "managed", path: "/runtime/deno", error: null },
@@ -42,6 +42,19 @@ const createOptions = () => ({
     totalBytes: null,
     nextComponent: "galleryDl" as const,
   },
+  ytdlpBaseline: {
+    manifest: {
+      available: true,
+      verified: true,
+      packageSetId: "yt-dlp==2026.07.04;yt-dlp-ejs==0.8.0",
+      manifestDigest: "baseline-digest",
+      ytDlpVersion: "2026.07.04",
+      ejsVersion: "0.8.0",
+    },
+    cache: { materialized: true, identityMatches: true, probeVersion: "2026.07.04" },
+    selection: "bundled" as const,
+  },
+  runtimeSetLeaseCount: 1,
   inspectOutputDirectory: vi.fn(async () => ({
     configured: true,
     exists: false,
@@ -82,6 +95,7 @@ describe("read-only diagnostics snapshot", () => {
     const galleryDlSource = mainSource.slice(mainSource.indexOf("async function getGalleryDlInfo"));
 
     expect(diagnosticsSource).toContain("probeVersion: getLocalDownloaderVersion");
+    expect(diagnosticsSource).toContain("inspectBundledYtDlpBaseline");
     expect(ytDlpSource).toContain("getLocalDownloaderVersion,");
     expect(galleryDlSource).toContain("getLocalDownloaderVersion,");
     expect(mainSource).not.toContain("probeDiagnosticsVersion");
@@ -102,8 +116,8 @@ describe("read-only diagnostics snapshot", () => {
       conclusion: "unknown",
       value: true,
     });
-    expect(ytDlp?.expectedSource).toMatchObject({ origin: "configured", value: "managed" });
-    expect(ytDlp?.currentSource).toMatchObject({ origin: "observed", value: "managed" });
+    expect(ytDlp?.expectedSource).toMatchObject({ origin: "configured", value: "bundled" });
+    expect(ytDlp?.currentSource).toMatchObject({ origin: "observed", value: "bundled" });
     expect(ytDlp?.version).toMatchObject({ origin: "probed", conclusion: "available" });
     expect(ffprobe?.version).toMatchObject({ origin: "probed", conclusion: "degraded" });
     expect(ffprobe?.version.summary).not.toContain("alice");
@@ -115,6 +129,12 @@ describe("read-only diagnostics snapshot", () => {
       value: false,
     });
     expect(snapshot.browserBridge.connectedClients).toMatchObject({ conclusion: "unavailable", value: 0 });
+    expect(snapshot.ytdlpBaseline).toMatchObject({
+      manifest: { conclusion: "available", value: { packageSetId: "yt-dlp==2026.07.04;yt-dlp-ejs==0.8.0" } },
+      cache: { conclusion: "available", value: { identityMatches: true } },
+      selection: { value: "bundled" },
+    });
+    expect(snapshot.runtimeSetLease).toMatchObject({ value: { activeLeaseCount: 1 } });
   });
 
   it("returns bounded sanitized log evidence and serializes as a plain snapshot", async () => {

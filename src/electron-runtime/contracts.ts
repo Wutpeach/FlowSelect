@@ -29,6 +29,7 @@ import type {
 import type {
   EngineExecutionContextWithRuntime,
   RuntimeSetLease,
+  YtDlpAttemptRuntimeBinding,
 } from "./engineExecutionContext.js";
 import type { DownloadTelemetryEvent } from "../download-capabilities/telemetry.js";
 import type { NetworkConsumer, NetworkRouteResolution } from "../config/networkRoute.js";
@@ -176,6 +177,8 @@ export interface ElectronDownloadRuntimeOptions {
     consumer: RuntimeSetConsumer,
     reason: string,
   ): Promise<RuntimeSetLease>;
+  /** Acquires the complete bundled yt-dlp binding for one execution or probe. */
+  acquireYtDlpRuntimeBinding?(reason: string): Promise<YtDlpAttemptRuntimeBinding>;
   bootstrapManagedComponents?(
     context: RuntimeBootstrapContext,
   ): Promise<RuntimeDependencyStatusSnapshot | void>;
@@ -248,6 +251,7 @@ export interface ElectronDownloadRuntime extends DownloadApplicationApi {
   removeTranscode(traceId: string): Promise<boolean>;
   getQueueState(): VideoQueueStatePayload;
   getQueueDetail(): VideoQueueDetailPayload;
+  getRecentYtDlpRuntimeAttempts(): Array<{ runtimeCandidate: "bundled"; runtimeSetId: string }>;
   getTranscodeQueueState(): VideoTranscodeQueueStatePayload;
   getTranscodeQueueDetail(): VideoTranscodeQueueDetailPayload;
 }

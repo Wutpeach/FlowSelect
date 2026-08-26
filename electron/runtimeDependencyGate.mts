@@ -18,7 +18,7 @@ type RuntimeDependencyGateControllerOptions = {
     missingComponents: RuntimeDependencyManagedComponent[],
     onActivity: NonNullable<ManagedRuntimeBootstrapOptions["onActivity"]>,
   ): ManagedRuntimeBootstrapOptions;
-  ensureManagedYtDlpRuntimeReady(
+  ensureBundledYtDlpBaselineReady(
     trigger: string,
     options: ManagedRuntimeBootstrapOptions,
   ): Promise<unknown>;
@@ -90,7 +90,7 @@ export const collectMissingManagedRuntimeComponents = (
   snapshot: RuntimeDependencyStatusSnapshot,
 ): RuntimeDependencyManagedComponent[] => {
   const missingComponents: RuntimeDependencyManagedComponent[] = [];
-  if (snapshot.ytDlp.state !== "ready" && snapshot.ytDlp.expectedSource === "managed") {
+  if (snapshot.ytDlp.state !== "ready") {
     missingComponents.push("ytDlp");
   }
   if (snapshot.galleryDl.state !== "ready" && snapshot.galleryDl.expectedSource === "managed") {
@@ -244,8 +244,8 @@ export const createRuntimeDependencyGateController = (
       return initialSnapshot;
     }
 
-    if (initialSnapshot.ytDlp.state !== "ready" && initialSnapshot.ytDlp.expectedSource === "managed") {
-      await options.ensureManagedYtDlpRuntimeReady(trigger, buildBootstrapOptions(missingComponents));
+    if (initialSnapshot.ytDlp.state !== "ready") {
+      await options.ensureBundledYtDlpBaselineReady(trigger, buildBootstrapOptions(missingComponents));
     }
 
     const afterYtDlp = await options.getRuntimeDependencyStatus();

@@ -123,7 +123,7 @@ import type {
   RuntimeEmitterEvent,
   RuntimeSetConsumer,
 } from "./contracts";
-import type { RuntimeSetLease } from "./engineExecutionContext";
+import type { RuntimeSetLease, YtDlpAttemptRuntimeBinding } from "./engineExecutionContext";
 import { resetRenameSequenceState } from "./renameRules";
 import { bilibiliProvider } from "../sites/bilibili";
 import { galleryDlSupportedProvider } from "../sites/gallery-dl-supported";
@@ -167,6 +167,7 @@ const createRuntime = (options: {
     consumer: RuntimeSetConsumer,
     reason: string,
   ) => Promise<RuntimeSetLease>;
+  acquireYtDlpRuntimeBinding?: (reason: string) => Promise<YtDlpAttemptRuntimeBinding>;
   buildExecutionContext?: (
     context: EngineExecutionContextWithRuntime,
     input: RawDownloadInput,
@@ -226,6 +227,7 @@ const createRuntime = (options: {
   logger: options.logger,
   ensureEngineRuntimeReady: options.ensureEngineRuntimeReady,
   acquireRuntimeSetLease: options.acquireRuntimeSetLease,
+  acquireYtDlpRuntimeBinding: options.acquireYtDlpRuntimeBinding,
   buildExecutionContext: options.buildExecutionContext,
   handleAuthRequiredFailure: options.handleAuthRequiredFailure,
   refreshSiteSessionBeforeAdvancedQualityProbe: options.refreshSiteSessionBeforeAdvancedQualityProbe,
@@ -3787,4 +3789,122 @@ describe("AmeowElectronDownloadRuntime", () => {
       .toBe(queuedAcks[queuedAcks.length - 1]?.traceId);
   });
 
+  it("acquires one bundled binding at the attempt boundary and records only its sanitized identity", async () => {
+    const release = vi.fn();
+    const acquireYtDlpRuntimeBinding = vi.fn(async () => ({
+      lease: { release },
+      binaries: {
+        ytDlp: "D:/task-userdata/runtimes/yt-dlp/x64/baseline/venv/Scripts/yt-dlp.exe",
+        ffmpeg: "D:/task-userdata/runtimes/ffmpeg/x64/real/ffmpeg.exe",
+        deno: "D:/task-userdata/runtimes/deno/x64/real/deno.exe",
+      },
+      identity: { candidate: "bundled" as const, runtimeSetId: "stable-runtime-set" },
+    }));
+    const observedContexts: EngineExecutionContextWithRuntime[] = [];
+    const runtime = createRuntime({
+      providers: [genericProvider],
+      acquireYtDlpRuntimeBinding,
+      engines: [createEngineStub("yt-dlp", async (context) => {
+        observedContexts.push(context);
+        await context.runtimeSetLease?.release();
+        return { traceId: context.traceId, success: true, filePath: "D:/downloads/pinned.mp4" };
+      })],
+    });
+
+    await runtime.queueVideoDownload({ url: "https://example.com/pinned" });
+    await waitFor(() => runtime.getQueueState().totalCount === 0);
+
+    expect(acquireYtDlpRuntimeBinding).toHaveBeenCalledOnce();
+    expect(observedContexts[0]?.ytDlpRuntimeBinding?.binaries.ytDlp).toContain("baseline");
+    expect(runtime.getRecentYtDlpRuntimeAttempts()).toEqual([
+      { runtimeCandidate: "bundled", runtimeSetId: "stable-runtime-set" },
+    ]);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("uses the same binding port for advanced-quality probing and releases after the probe settles", async () => {
+    const release = vi.fn();
+    const acquireYtDlpRuntimeBinding = vi.fn(async () => ({
+      lease: { release },
+      binaries: {
+        ytDlp: "D:/task-userdata/runtimes/yt-dlp/x64/baseline/venv/Scripts/yt-dlp.exe",
+        ffmpeg: "D:/task-userdata/runtimes/ffmpeg/x64/real/ffmpeg.exe",
+        deno: "D:/task-userdata/runtimes/deno/x64/real/deno.exe",
+      },
+      identity: { candidate: "bundled" as const, runtimeSetId: "probe-runtime-set" },
+    }));
+    const runtime = createRuntime({
+      providers: [youtubeProvider, genericProvider],
+      acquireYtDlpRuntimeBinding,
+      engines: [createEngineStub("yt-dlp", async (context) => ({
+        traceId: context.traceId,
+        success: true,
+        filePath: "D:/downloads/probe.mp4",
+      }))],
+    });
+    runYtDlpAdvancedQualityProbeMock.mockResolvedValueOnce({
+      options: [{ id: "height_1080", label: "1080p", selector: "best" }],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.youtube.com/watch?v=pinned",
+      pageUrl: "https://www.youtube.com/watch?v=pinned",
+      siteHint: "youtube",
+      advancedQualityRequest: true,
+    });
+    await waitFor(() => runYtDlpAdvancedQualityProbeMock.mock.calls.length === 1);
+
+    expect(acquireYtDlpRuntimeBinding).toHaveBeenCalledOnce();
+    expect(runYtDlpAdvancedQualityProbeMock.mock.calls[0]?.[0]).toMatchObject({
+      binaries: { ytDlp: expect.stringContaining("baseline") },
+    });
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("re-resolves a bundled binding for the existing auth-recovery attempt", async () => {
+    const releases = [vi.fn(), vi.fn()];
+    const acquireYtDlpRuntimeBinding = vi.fn(async () => {
+      const index = acquireYtDlpRuntimeBinding.mock.calls.length - 1;
+      return {
+        lease: { release: releases[index] ?? vi.fn() },
+        binaries: {
+          ytDlp: `D:/userdata/baseline-${index}/yt-dlp.exe`,
+          ffmpeg: "D:/userdata/ffmpeg/real/ffmpeg.exe",
+          deno: "D:/userdata/deno/real/deno.exe",
+        },
+        identity: { candidate: "bundled" as const, runtimeSetId: `auth-runtime-${index}` },
+      };
+    });
+    let attempts = 0;
+    const runtime = createRuntime({
+      providers: [genericProvider],
+      acquireYtDlpRuntimeBinding,
+      handleAuthRequiredFailure: async () => ({ shouldRetry: true }),
+      engines: [createEngineStub("yt-dlp", async (context) => {
+        attempts += 1;
+        try {
+          if (attempts === 1) {
+            throw new DownloadRuntimeError("E_EXECUTION_FAILED", "authentication required", {
+              classification: "auth_required",
+            });
+          }
+          return { traceId: context.traceId, success: true, filePath: "D:/downloads/auth-retry.mp4" };
+        } finally {
+          await context.runtimeSetLease?.release();
+        }
+      })],
+    });
+
+    await runtime.queueVideoDownload({ url: "https://example.com/auth-retry" });
+    await waitFor(() => runtime.getQueueState().totalCount === 0);
+
+    expect(attempts).toBe(2);
+    expect(acquireYtDlpRuntimeBinding).toHaveBeenCalledTimes(2);
+    expect(runtime.getRecentYtDlpRuntimeAttempts()).toEqual([
+      { runtimeCandidate: "bundled", runtimeSetId: "auth-runtime-0" },
+      { runtimeCandidate: "bundled", runtimeSetId: "auth-runtime-1" },
+    ]);
+    expect(releases[0]).toHaveBeenCalledOnce();
+    expect(releases[1]).toHaveBeenCalledOnce();
+  });
 });

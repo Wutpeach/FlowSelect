@@ -102,9 +102,10 @@ export type ManagedRuntimeBootstrapOptions = {
   now?(): number;
 };
 
-type RuntimeArtifactSpec = {
+export type RuntimeArtifactSpec = {
   component: RuntimeDependencyManagedComponent;
   target: string;
+  version: string;
   downloadUrls: string[];
   sha256: string;
   size: number;
@@ -117,6 +118,8 @@ type ManagedPythonRuntimePaths = {
   entrypoint: string;
   metadata: string;
 };
+
+type ManagedRuntimePathOptions = Pick<ManagedRuntimeBootstrapOptions, "configDir" | "platform" | "arch">;
 
 const RUNTIME_DOWNLOAD_STALL_TIMEOUT_MS = 30_000;
 const managedPythonBootstrapPromises = new Map<ManagedPythonPackageToolId, Promise<string>>();
@@ -133,7 +136,7 @@ const managedBinaryBootstrapKey = (
 ): string => `${component}:${currentManagedRuntimeTarget(options.platform, options.arch)}`;
 
 const runtimeRoot = (
-  options: ManagedRuntimeBootstrapOptions,
+  options: ManagedRuntimePathOptions,
   componentId: string,
 ): string => join(
   options.configDir,
@@ -142,14 +145,14 @@ const runtimeRoot = (
   currentManagedRuntimeTarget(options.platform, options.arch),
 );
 
-export const managedDenoPath = (options: ManagedRuntimeBootstrapOptions): string => {
+export const managedDenoPath = (options: ManagedRuntimePathOptions): string => {
   const root = runtimeRoot(options, "deno");
   const realRoot = options.platform === "win32" ? join(root, "real") : root;
   return join(realRoot, denoBinaryNameFor(options.platform));
 };
 
 export const managedFfmpegPaths = (
-  options: ManagedRuntimeBootstrapOptions,
+  options: ManagedRuntimePathOptions,
 ): { ffmpeg: string; ffprobe: string } => {
   const root = runtimeRoot(options, "ffmpeg");
   const realRoot = options.platform === "win32" ? join(root, "real") : root;
@@ -248,7 +251,7 @@ export const resolveBootstrapRoutePolicy = (
   return { kind: "apply" };
 };
 
-const sha256Hex = async (filePath: string): Promise<string> => {
+export const sha256Hex = async (filePath: string): Promise<string> => {
   const buffer = await readFile(filePath);
   return createHash("sha256").update(buffer).digest("hex");
 };
@@ -275,7 +278,7 @@ const verifyDownloadedRuntimeAsset = async (
 
 const escapePowerShellLiteral = (value: string): string => value.replace(/'/g, "''");
 
-const runUtilityCommand = async (
+export const runUtilityCommand = async (
   command: string,
   args: string[],
   options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
@@ -308,7 +311,7 @@ const runUtilityCommand = async (
   });
 };
 
-const runCapturedUtilityCommand = async (
+export const runCapturedUtilityCommand = async (
   command: string,
   args: string[],
   options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
@@ -404,7 +407,7 @@ const ensureManagedPythonVirtualenvReady = async (
   await runUtilityCommand(pythonPath, managedPythonVirtualenvArgs(paths.venvDir));
 };
 
-const readCommandVersion = async (command: string): Promise<string> => {
+export const readCommandVersion = async (command: string): Promise<string> => {
   const { stdout, stderr } = await runCapturedUtilityCommand(command, ["--version"]);
   const firstLine = (stdout || stderr)
     .split(/\r?\n/)
@@ -814,6 +817,7 @@ export const selectDenoRuntimeArtifactSpec = (
     return {
       component: "deno",
       target,
+      version: "2.7.1",
       downloadUrls: [
         "https://dl.deno.land/release/v2.7.1/deno-x86_64-pc-windows-msvc.zip",
         "https://github.com/denoland/deno/releases/download/v2.7.1/deno-x86_64-pc-windows-msvc.zip",
@@ -826,6 +830,7 @@ export const selectDenoRuntimeArtifactSpec = (
     return {
       component: "deno",
       target,
+      version: "2.7.1",
       downloadUrls: [
         "https://dl.deno.land/release/v2.7.1/deno-aarch64-apple-darwin.zip",
         "https://github.com/denoland/deno/releases/download/v2.7.1/deno-aarch64-apple-darwin.zip",
@@ -838,6 +843,7 @@ export const selectDenoRuntimeArtifactSpec = (
     return {
       component: "deno",
       target,
+      version: "2.7.1",
       downloadUrls: [
         "https://dl.deno.land/release/v2.7.1/deno-x86_64-apple-darwin.zip",
         "https://github.com/denoland/deno/releases/download/v2.7.1/deno-x86_64-apple-darwin.zip",
@@ -857,6 +863,7 @@ export const selectFfmpegRuntimeArtifactSpec = (
     return {
       component: "ffmpeg",
       target,
+      version: "8.0.1",
       downloadUrls: [
         "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-windows-x64.zip",
       ],
@@ -868,6 +875,7 @@ export const selectFfmpegRuntimeArtifactSpec = (
     return {
       component: "ffmpeg",
       target,
+      version: "8.0.1",
       downloadUrls: [
         "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-osx-arm64.zip",
       ],
@@ -879,6 +887,7 @@ export const selectFfmpegRuntimeArtifactSpec = (
     return {
       component: "ffmpeg",
       target,
+      version: "8.0.1",
       downloadUrls: [
         "https://github.com/Tyrrrz/FFmpegBin/releases/download/8.0.1/ffmpeg-osx-x64.zip",
       ],
