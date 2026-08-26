@@ -156,3 +156,25 @@ Architecture Review PASS closeout: committed and archived the Lab-only OneWorks 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 258: Close P2-V repair and P2-A bundled baseline
+
+**Date**: 2026-08-26
+**Task**: Close P2-V repair and P2-A bundled baseline
+**Branch**: `main`
+
+### Summary
+
+Committed the bounded managed runtime contract repair and immutable bundled yt-dlp baseline with attempt-scoped runtime pinning; archived the four completed P2-V/P2-A tasks while retaining the documented external release gates and leaving P2-B work unstarted.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4e7e0db` | (see git log) |
+| `b86bb4c` | (see git log) |
+
+### Status
+
+[OK] **Completed**
