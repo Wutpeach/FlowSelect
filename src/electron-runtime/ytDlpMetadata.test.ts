@@ -53,8 +53,9 @@ describe("probeYtDlpMetadataTitle", () => {
       expect(args).toContain("D:/cookies.txt");
       expect(args).toContain("--extractor-args");
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
-      expect(args).toContain("ejs:github");
+      expect(args).toContain("--no-plugin-dirs");
+      expect(args).toContain("deno:D:/deno.exe");
+      expect(args).not.toContain("--remote-components");
       expect(args).toContain("--add-header");
       expect(args).toContain("Referer:https://www.youtube.com/watch?v=abc123");
       return 0;

@@ -23,6 +23,11 @@ export type SharedMediaRuntimeTools = {
   ffprobe: string;
 };
 
+/** Release the app-owned runtime set after the consuming process tree settles. */
+export type RuntimeSetLease = {
+  release(): void | Promise<void>;
+};
+
 /**
  * Explicit per-job engine execution contract (Infrastructure-side extension of
  * the application-owned context). The runtime service builds this per attempt:
@@ -57,6 +62,8 @@ export type EngineExecutionContextWithRuntime = EngineExecutionContext & {
    */
   onNetworkApplication?(application: NetworkApplicationOutcome): void | Promise<void>;
   reportNetworkProxyFailure?(error: unknown): void | Promise<void>;
+  /** Acquired atomically with runtime readiness by the Electron composition. */
+  runtimeSetLease?: RuntimeSetLease;
 };
 
 /**

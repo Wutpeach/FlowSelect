@@ -247,9 +247,10 @@ describe("runYtDlpDownload", () => {
     runStreamingCommandMock.mockImplementation(async (_command, args) => {
       expect(args).toContain("--extractor-args");
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
-      expect(args).toContain("ejs:github");
       expect(args).toContain("--js-runtimes");
+      expect(args).toContain("deno:D:/deno/deno.exe");
+      expect(args).toContain("--no-plugin-dirs");
+      expect(args).not.toContain("--remote-components");
       expect(args.at(-1)).toBe("https://www.youtube.com/watch?v=plain123");
       return 0;
     });
@@ -831,8 +832,8 @@ describe("runYtDlpDownload", () => {
     runStreamingCommandMock.mockImplementation(async (_command, args) => {
       expect(args).toContain("--extractor-args");
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
-      expect(args).toContain("ejs:github");
+      expect(args).toContain("deno:D:/deno/deno.exe");
+      expect(args).not.toContain("--remote-components");
       return 0;
     });
 
@@ -875,7 +876,7 @@ describe("runYtDlpDownload", () => {
     ));
     runStreamingCommandMock.mockImplementation(async (_command, args) => {
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
+      expect(args).not.toContain("--remote-components");
       return 0;
     });
 
@@ -924,7 +925,7 @@ describe("runYtDlpDownload", () => {
     ));
     runStreamingCommandMock.mockImplementation(async (_command, args) => {
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
+      expect(args).not.toContain("--remote-components");
       return 0;
     });
 
@@ -970,8 +971,8 @@ describe("runYtDlpDownload", () => {
       expect(args).toContain("--extractor-args");
       expect(args).toContain("youtube:player_js_variant=tv");
       expect(args).not.toContain("--cookies");
-      expect(args).toContain("--remote-components");
-      expect(args).toContain("ejs:github");
+      expect(args).not.toContain("--remote-components");
+      expect(args).toContain("deno:D:/deno/deno.exe");
       expect(args).toContain("--js-runtimes");
       return 0;
     });
@@ -1090,7 +1091,7 @@ describe("runYtDlpDownload", () => {
         + "best",
       );
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
+      expect(args).not.toContain("--remote-components");
       return 0;
     });
 
@@ -1139,7 +1140,7 @@ describe("runYtDlpDownload", () => {
     ));
     runStreamingCommandMock.mockImplementation(async (_command, args) => {
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
+      expect(args).not.toContain("--remote-components");
       return 0;
     });
 
@@ -1187,8 +1188,8 @@ describe("runYtDlpDownload", () => {
       expect(args).toContain("D:/temp/trace-injected-cookies.txt");
       expect(args).toContain("--extractor-args");
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
-      expect(args).toContain("ejs:github");
+      expect(args).not.toContain("--remote-components");
+      expect(args).toContain("deno:D:/deno/deno.exe");
 
       const refererIndex = args.indexOf("--add-header");
       expect(refererIndex).toBeGreaterThanOrEqual(0);
@@ -1506,9 +1507,9 @@ describe("runYtDlpDownload", () => {
       expect(args).toContain("--no-playlist");
       expect(args).toContain("--extractor-args");
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
+      expect(args).not.toContain("--remote-components");
       expect(args).not.toContain("--cookies");
-      expect(args).toContain("ejs:github");
+      expect(args).toContain("deno:D:/deno/deno.exe");
       expect(args).toContain("--js-runtimes");
       return 0;
     });
@@ -1560,7 +1561,7 @@ describe("runYtDlpDownload", () => {
     const abortController = new AbortController();
     runStreamingCommandMock.mockImplementationOnce(async (_command, args, options) => {
       expect(args).toContain("youtube:player_js_variant=tv");
-      expect(args).toContain("--remote-components");
+      expect(args).not.toContain("--remote-components");
       abortController.abort();
       await options?.onStderrLine?.("ERROR: Sign in to confirm you're not a bot");
       return 1;

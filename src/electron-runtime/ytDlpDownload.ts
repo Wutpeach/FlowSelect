@@ -250,7 +250,7 @@ export const runYtDlpDownload = async (
     const args = buildYtdlpCommandArgs(commandPlan, {
       cookiesPath,
       hasFfmpeg: Boolean(context.binaries.ffmpeg),
-      hasDeno: Boolean(context.binaries.deno),
+      denoPath: context.binaries.deno || null,
       formatProfile: attempt.formatProfile,
       proxyArgs: networkApplication.args,
       selectionScope: context.intent.selectionScope,

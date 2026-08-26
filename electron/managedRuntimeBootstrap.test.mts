@@ -1,3 +1,5 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
@@ -55,10 +57,13 @@ describe("managed runtime bootstrap helpers", () => {
     expect(resolvePinnedManagedPythonPackage("yt-dlp")).toMatchObject({
       packageVersion: "2026.07.04",
       installSource: "yt-dlp==2026.07.04",
+      installSources: ["yt-dlp==2026.07.04", "yt-dlp-ejs==0.8.0"],
+      packageSetId: "yt-dlp==2026.07.04;yt-dlp-ejs==0.8.0",
     });
     expect(resolvePinnedManagedPythonPackage("gallery-dl")).toMatchObject({
       packageVersion: "1.32.8",
       installSource: "gallery-dl==1.32.8",
+      installSources: ["gallery-dl==1.32.8"],
     });
     expect(() => resolvePinnedManagedPythonPackage("unknown" as never)).toThrow(
       "Unsupported managed Python package tool: unknown",
@@ -266,6 +271,35 @@ describe("managed runtime bootstrap helpers", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(fetchRouteAware).not.toHaveBeenCalled();
     expect(logs.some((line) => line.includes("aborted before request"))).toBe(true);
+  });
+
+  it("closes a partially written timeout stream before surfacing the normalized error", async () => {
+    const outputDir = await mkdtemp(join(tmpdir(), "ameow-runtime-bootstrap-timeout-"));
+    const outputPath = join(outputDir, "runtime.zip");
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          streamController = controller;
+          controller.enqueue(new TextEncoder().encode("partial"));
+        },
+      });
+      init?.signal?.addEventListener("abort", () => {
+        streamController?.error(new Error("stalled by timeout"));
+      }, { once: true });
+      return new Response(body, { headers: { "content-length": "8" } });
+    });
+
+    try {
+      await expect(downloadToFile("https://dl.example/runtime.zip", outputPath, {
+        ...createOptions({ fetch }),
+        timeoutMs: 10,
+        timeoutErrorMessage: "runtime download timed out",
+      })).rejects.toThrow("runtime download timed out");
+      await expect(rm(outputPath)).resolves.toBeUndefined();
+    } finally {
+      await rm(outputDir, { recursive: true, force: true });
+    }
   });
 
   it("applies supported routes through the route-aware fetch adapter with the lifecycle identity", async () => {

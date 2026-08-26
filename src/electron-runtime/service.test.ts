@@ -121,7 +121,9 @@ import type {
   RuntimeAuthFailureRecoveryContext,
   RuntimeDownloadSiteSessionRefreshContext,
   RuntimeEmitterEvent,
+  RuntimeSetConsumer,
 } from "./contracts";
+import type { RuntimeSetLease } from "./engineExecutionContext";
 import { resetRenameSequenceState } from "./renameRules";
 import { bilibiliProvider } from "../sites/bilibili";
 import { galleryDlSupportedProvider } from "../sites/gallery-dl-supported";
@@ -161,6 +163,10 @@ const createRuntime = (options: {
   maxConcurrent?: number;
   configString?: string;
   ensureEngineRuntimeReady?: (engineId: "yt-dlp" | "gallery-dl", reason: string) => Promise<void>;
+  acquireRuntimeSetLease?: (
+    consumer: RuntimeSetConsumer,
+    reason: string,
+  ) => Promise<RuntimeSetLease>;
   buildExecutionContext?: (
     context: EngineExecutionContextWithRuntime,
     input: RawDownloadInput,
@@ -219,6 +225,7 @@ const createRuntime = (options: {
   },
   logger: options.logger,
   ensureEngineRuntimeReady: options.ensureEngineRuntimeReady,
+  acquireRuntimeSetLease: options.acquireRuntimeSetLease,
   buildExecutionContext: options.buildExecutionContext,
   handleAuthRequiredFailure: options.handleAuthRequiredFailure,
   refreshSiteSessionBeforeAdvancedQualityProbe: options.refreshSiteSessionBeforeAdvancedQualityProbe,
@@ -1092,6 +1099,50 @@ describe("AmeowElectronDownloadRuntime", () => {
 
     expect(runtime.getQueueDetail().tasks).toEqual([]);
     expect(completions.some((entry) => entry.traceId === ack.traceId)).toBe(false);
+  });
+
+  it("keeps the advanced-quality probe lease until cancellation settles its runner", async () => {
+    let acquiredLease: RuntimeSetLease | undefined;
+    let probeLease: RuntimeSetLease | undefined;
+    const release = vi.fn();
+    const runtime = createRuntime({
+      providers: [youtubeProvider, genericProvider],
+      engines: [
+        createEngineStub("yt-dlp", async (context) => ({
+          traceId: context.traceId,
+          success: true,
+          filePath: `${context.outputDir}/${context.outputStem}.mp4`,
+        })),
+      ],
+      acquireRuntimeSetLease: async (consumer) => {
+        expect(consumer).toBe("yt-dlp");
+        acquiredLease = { release };
+        return acquiredLease;
+      },
+    });
+
+    runYtDlpAdvancedQualityProbeMock.mockImplementationOnce(async (context: EngineExecutionContextWithRuntime) => {
+      probeLease = context.runtimeSetLease;
+      await new Promise<never>((_resolve, reject) => {
+        context.abortSignal.addEventListener("abort", () => reject(new Error("probe aborted")), { once: true });
+      });
+    });
+
+    const ack = await runtime.queueVideoDownload({
+      url: "https://www.youtube.com/watch?v=lease-probe",
+      pageUrl: "https://www.youtube.com/watch?v=lease-probe",
+      siteHint: "youtube",
+      advancedQualityRequest: true,
+    });
+
+    await waitFor(() => probeLease !== undefined);
+    expect(probeLease).toBe(acquiredLease);
+    expect(release).not.toHaveBeenCalled();
+
+    await expect(runtime.cancelDownload(ack.traceId)).resolves.toBe(true);
+    await waitFor(() => release.mock.calls.length === 1);
+    expect(release).toHaveBeenCalledOnce();
+    expect(runtime.getQueueState().totalCount).toBe(0);
   });
 
   it("exposes advanced quality video title and post-process metadata in queue detail", async () => {
@@ -3426,6 +3477,69 @@ describe("AmeowElectronDownloadRuntime", () => {
     }
   });
 
+  it("holds each media-tools lease through probe and transcode runner settlement", async () => {
+    const leases: Array<{ consumer: RuntimeSetConsumer; release: ReturnType<typeof vi.fn> }> = [];
+    let finishTranscode: ((value: { filePath: string }) => void) | undefined;
+
+    prepareVideoTranscodeTaskFromDownloadMock.mockImplementation(async (...args: unknown[]) => {
+      const input = args[0] as { traceId: string; label: string; sourcePath: string };
+      return {
+        traceId: input.traceId,
+        label: input.label,
+        sourcePath: input.sourcePath,
+        sourceFormat: "mkv",
+        targetFormat: "mp4",
+        plan: "full_transcode",
+        durationSeconds: 60,
+        finalPath: "D:/downloads/lease-proof.mp4",
+      };
+    });
+    runPreparedVideoTranscodeTaskMock.mockImplementation(async () => new Promise<{ filePath: string }>((resolve) => {
+      finishTranscode = resolve;
+    }));
+
+    const runtime = createRuntime({
+      providers: [youtubeProvider, genericProvider],
+      acquireRuntimeSetLease: async (consumer) => {
+        const lease = { consumer, release: vi.fn() };
+        leases.push(lease);
+        return lease;
+      },
+      engines: [
+        createEngineStub("yt-dlp", async (context) => {
+          await context.runtimeSetLease?.release();
+          return {
+            traceId: context.traceId,
+            success: true,
+            filePath: "D:/downloads/lease-proof.mkv",
+          };
+        }),
+      ],
+    });
+
+    await runtime.queueVideoDownload({
+      url: "https://www.youtube.com/watch?v=lease-transcode",
+      pageUrl: "https://www.youtube.com/watch?v=lease-transcode",
+      siteHint: "youtube",
+      ytdlpQuality: "best",
+    });
+
+    await waitFor(() => runPreparedVideoTranscodeTaskMock.mock.calls.length === 1);
+    expect(leases.map((lease) => lease.consumer)).toEqual([
+      "yt-dlp",
+      "media-tools",
+      "media-tools",
+    ]);
+    expect(leases[0]?.release).toHaveBeenCalledOnce();
+    expect(leases[1]?.release).toHaveBeenCalledOnce();
+    expect(leases[2]?.release).not.toHaveBeenCalled();
+
+    finishTranscode?.({ filePath: "D:/downloads/lease-proof.mp4" });
+    await waitFor(() => leases[2]?.release.mock.calls.length === 1);
+    expect(leases[2]?.release).toHaveBeenCalledOnce();
+    expect(runtime.getTranscodeQueueState().totalCount).toBe(0);
+  });
+
   it("applies the same transcode follow-up path to Bilibili yt-dlp downloads", async () => {
     const events: RuntimeEmitterEvent[] = [];
     const transcodeCompletions: Array<() => void> = [];
@@ -3672,4 +3786,5 @@ describe("AmeowElectronDownloadRuntime", () => {
     expect(transcodeDetail.tasks[transcodeDetail.tasks.length - 1]?.traceId)
       .toBe(queuedAcks[queuedAcks.length - 1]?.traceId);
   });
+
 });

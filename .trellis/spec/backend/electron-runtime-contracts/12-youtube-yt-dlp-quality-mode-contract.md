@@ -25,7 +25,7 @@ src/electron-runtime/engineManifest.ts
 
 - YouTube downloads must use the extended extractor path by default.
 - The runtime must not start public/page-context-only YouTube runs with `youtube:player_client=android,web`; that path can succeed while exposing only low-resolution progressive MP4 formats.
-- Extended mode uses `youtube:player_js_variant=tv`, remote EJS components, and JS runtimes when available; it is the primary path expected to expose adaptive formats and handle current YouTube extractor challenges.
+- Extended mode uses `youtube:player_js_variant=tv`, the exact app-owned managed `yt-dlp-ejs` package, and one explicit app-owned Deno path (`deno:<absolute-path>`). It never fetches remote EJS components or falls back to machine JavaScript runtimes.
 - `balanced` selector must try exact `height=1080` formats first, then choose the highest available format at `height<=1080`.
 - `best` selects the highest available format, and `data_saver` selects the lowest available profile.
 
@@ -33,7 +33,7 @@ src/electron-runtime/engineManifest.ts
 
 | Condition | Validation Point | Expected Behavior | Action |
 |-----------|------------------|-------------------|--------|
-| YouTube `balanced`, no cookies | `runYtDlpDownload(...)` args | First attempt includes `youtube:player_js_variant=tv` and `--remote-components ejs:github` | OK |
+| YouTube `balanced`, no cookies | `runYtDlpDownload(...)` args | First attempt includes `youtube:player_js_variant=tv`, the explicit managed Deno path, and no remote component argument | OK |
 | YouTube `best`, plain URL | `runYtDlpDownload(...)` args | First attempt uses the extended extractor path | OK |
 | YouTube `data_saver`, no cookies | `runYtDlpDownload(...)` args | First attempt uses the extended extractor path while preserving the data-saver selector | OK |
 | YouTube `balanced` selector | `resolveYtdlpFormatProfile(...)` / command args | Exact 1080p entries appear before `height<=1080` fallbacks | OK |

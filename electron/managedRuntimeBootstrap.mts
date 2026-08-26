@@ -478,7 +478,7 @@ const shouldRebuildManagedPythonRuntime = async (
     return true;
   }
 
-  if (metadata.packageSource !== spec.installSource) {
+  if (metadata.packageSetId !== spec.packageSetId) {
     return true;
   }
 
@@ -723,7 +723,13 @@ export const downloadToFile = async (
       });
     });
   } catch (error) {
-    writable?.destroy(error as Error);
+    const stream = writable;
+    if (stream && !stream.destroyed) {
+      await new Promise<void>((resolveWrite) => {
+        stream.once("close", resolveWrite);
+        stream.destroy();
+      });
+    }
     if (timedOut) {
       throw new Error(timeoutErrorMessage);
     }
@@ -948,7 +954,7 @@ const ensureManagedPythonPackageReady = async (
       "--upgrade",
       "--disable-pip-version-check",
       "--no-cache-dir",
-      spec.installSource,
+      ...spec.installSources,
     ], {
       env: buildManagedPythonEnv(paths, context.network),
     });
@@ -975,6 +981,7 @@ const ensureManagedPythonPackageReady = async (
       layoutVersion: 1,
       packageVersion: spec.packageVersion,
       packageSource: spec.installSource,
+      packageSetId: spec.packageSetId,
       entrypoint: targetPath,
       pythonVersion,
       pythonPath: bundledPythonPath,

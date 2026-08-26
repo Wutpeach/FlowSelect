@@ -76,7 +76,7 @@ const shouldRebuildProbeRuntime = async (toolId, target, paths) => {
     const raw = JSON.parse(await (await import("node:fs/promises")).readFile(metadataPath, "utf8"));
     const bundledPythonVersion = await readCommandVersion(bundledPythonPath);
     return raw.packageVersion !== spec.packageVersion
-      || raw.packageSource !== spec.installSource
+      || raw.packageSetId !== spec.packageSetId
       || raw.bundledPythonPath !== bundledPythonPath
       || raw.bundledPythonVersion !== bundledPythonVersion;
   } catch {
@@ -128,7 +128,7 @@ async function main() {
       "--upgrade",
       "--disable-pip-version-check",
       "--no-cache-dir",
-      spec.installSource,
+      ...spec.installSources,
     ]);
     if (!existsSync(paths.entrypoint)) {
       throw new Error(`Capability probe runtime entrypoint is missing after install: ${paths.entrypoint}`);
@@ -140,6 +140,7 @@ async function main() {
     const metadata = {
       packageVersion: spec.packageVersion,
       packageSource: spec.installSource,
+      packageSetId: spec.packageSetId,
       bundledPythonPath: bundledPython.executable,
       bundledPythonVersion: await readCommandVersion(bundledPython.executable),
       builtAt: new Date().toISOString(),

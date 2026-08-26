@@ -25,7 +25,7 @@ export type YtdlpCommandPlan = {
 type BuildYtdlpCommandArgsOptions = {
   cookiesPath: string | null;
   hasFfmpeg: boolean;
-  hasDeno: boolean;
+  denoPath: string | null;
   formatProfile?: YtdlpFormatProfile;
   /** Proxy-related args produced by the yt-dlp network adapter. */
   proxyArgs?: string[];
@@ -39,21 +39,14 @@ export const isYouTubeUrl = (value: string): boolean =>
 
 export const appendExtendedYouTubeYtdlpArgs = (
   args: string[],
-  options: { hasDeno: boolean; platform: NodeJS.Platform },
+  options: { denoPath: string | null },
 ): void => {
   const manifest = getCliEngineManifest("yt-dlp");
-  args.push(
-    ...manifest.youtube.extendedExtractorArgs,
-    ...manifest.youtube.remoteComponentsArgs,
-  );
-  if (!options.hasDeno) {
+  args.push(...manifest.youtube.extendedExtractorArgs);
+  if (!options.denoPath) {
     return;
   }
-  if (options.platform === "win32") {
-    args.push("--js-runtimes", "deno", "--js-runtimes", "node");
-    return;
-  }
-  args.push("--js-runtimes", "node", "--js-runtimes", "deno");
+  args.push("--js-runtimes", `deno:${options.denoPath}`);
 };
 
 const resolveYtdlpQualityLabel = (
@@ -253,8 +246,7 @@ export const buildYtdlpCommandArgs = (
 
   if (plan.isYouTube) {
     appendExtendedYouTubeYtdlpArgs(args, {
-      hasDeno: options.hasDeno,
-      platform: options.platform,
+      denoPath: options.denoPath,
     });
   }
 

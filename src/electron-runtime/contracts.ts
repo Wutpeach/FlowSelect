@@ -26,12 +26,16 @@ import type {
   ResolvedDownloadPlan,
   SiteProvider,
 } from "../core/index.js";
-import type { EngineExecutionContextWithRuntime } from "./engineExecutionContext.js";
+import type {
+  EngineExecutionContextWithRuntime,
+  RuntimeSetLease,
+} from "./engineExecutionContext.js";
 import type { DownloadTelemetryEvent } from "../download-capabilities/telemetry.js";
 import type { NetworkConsumer, NetworkRouteResolution } from "../config/networkRoute.js";
 import type { DownloadDiagnosticSink } from "../application/download-diagnostics.js";
 
 export type RuntimeManagedComponent = RuntimeDependencyManagedComponent;
+export type RuntimeSetConsumer = "yt-dlp" | "gallery-dl" | "media-tools";
 
 /**
  * One stable network execution context per queued Job. Created once at the
@@ -167,6 +171,11 @@ export interface ElectronDownloadRuntimeOptions {
     engineId: EngineId,
     reason: string,
   ): Promise<void>;
+  /** Atomically prepare and lease the mutable runtime set for one consumer. */
+  acquireRuntimeSetLease?(
+    consumer: RuntimeSetConsumer,
+    reason: string,
+  ): Promise<RuntimeSetLease>;
   bootstrapManagedComponents?(
     context: RuntimeBootstrapContext,
   ): Promise<RuntimeDependencyStatusSnapshot | void>;

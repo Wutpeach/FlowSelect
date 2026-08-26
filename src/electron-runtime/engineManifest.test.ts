@@ -6,7 +6,7 @@ describe("CLI engine manifests", () => {
     const manifest = getCliEngineManifest("yt-dlp");
 
     expect(manifest.binaryKey).toBe("ytDlp");
-    expect(manifest.configIsolationArgs).toEqual(["--ignore-config"]);
+    expect(manifest.configIsolationArgs).toEqual(["--ignore-config", "--no-plugin-dirs"]);
     expect(manifest.encodingArgs).toEqual(["--encoding", "utf-8"]);
     expect(manifest.progressArgs).toEqual(["--progress"]);
     expect(manifest.progressReport).toEqual({

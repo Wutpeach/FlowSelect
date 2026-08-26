@@ -77,9 +77,9 @@
     - macOS x64 -> `ffmpeg-osx-x64.zip`
   - The downloaded archive must be checksum/size validated before extracting the required `ffmpeg` and `ffprobe` entries.
   - The install flow should stage both binaries first, then replace the runtime directory so partial writes do not become the steady-state runtime.
-  - On Windows, the managed runtime root must expose proxy-front binaries `ffmpeg.exe` / `ffprobe.exe`, while the real extracted console binaries live under `app_config_dir/runtimes/ffmpeg/<target>/real/`.
+  - On Windows, the extracted console binaries under `app_config_dir/runtimes/ffmpeg/<target>/real/ffmpeg.exe` and `real/ffprobe.exe` are the only managed paths; do not add root proxy-front executables.
   - yt-dlp invocations that rely on merged A/V streams must pass `--ffmpeg-location` using the resolved managed runtime path instead of assuming `PATH`.
-  - On Windows, `--ffmpeg-location` and any `PATH` prepending meant for third-party tools must point at the proxy-front directory, not the `real/` subdirectory, so yt-dlp child launches stay hidden.
+  - On Windows, `--ffmpeg-location` and the bounded FFmpeg `PATH` prepend must point at the authoritative `real/` directory. Hidden-window behavior remains owned by the Node process runner, not by forwarding executables.
   - Internal Rust ffmpeg invocations (AE normalization, slicing, encoder probe) must use the same managed runtime path and must ensure bootstrap before spawn.
   - On Windows, internal CLI launches for ffmpeg/ffprobe probes and post-processing must use hidden-window process flags so AE-friendly normalization does not flash a transient console window.
   - Failure/cancel paths must remove captured yt-dlp split-stream artifacts such as `*.f30112.mp4` and `*.f30280.m4a`.
@@ -89,7 +89,7 @@
 - Runtime contract for `deno` managed runtime:
   - `deno` is no longer bundled as a packaged Tauri resource or portable helper binary.
   - Runtime must bootstrap `deno` into `app_config_dir/runtimes/deno/<target>/deno(.exe)` from a pinned upstream asset when missing.
-  - On Windows, the managed runtime root must expose a proxy-front `deno.exe`, while the real extracted console binary lives under `app_config_dir/runtimes/deno/<target>/real/deno.exe`.
+  - On Windows, the extracted console binary at `app_config_dir/runtimes/deno/<target>/real/deno.exe` is the only managed path; do not add a root proxy-front executable.
   - Current pinned managed asset set is Deno `2.7.1`:
     - Windows x64 -> `deno-x86_64-pc-windows-msvc.zip`
     - macOS arm64 -> `deno-aarch64-apple-darwin.zip`
@@ -97,14 +97,13 @@
   - Download source order should prefer official `dl.deno.land/release/...` URLs and fall back to the matching GitHub release asset if the CDN path fails.
   - The downloaded archive must be checksum/size validated before extracting the single `deno` / `deno.exe` entry.
   - Extraction/install should retry transient failures in the same bootstrap run before surfacing a terminal error to the user.
-  - yt-dlp paths that rely on JavaScript runtimes must ensure managed `deno` is ready before spawn and prepend the proxy-front directory to `PATH`, not the `real/` subdirectory.
+  - yt-dlp paths that rely on JavaScript runtimes must ensure managed `deno` is ready before spawn and pass exactly `--js-runtimes deno:<absolute-managed-deno-path>`; Deno is never discovered through `PATH`.
 - Runtime contract for YouTube route:
   - YouTube runs must start with the extended extractor path: `--extractor-args youtube:player_js_variant=tv`.
   - The runtime must not start public/default YouTube runs with light extractor args such as `youtube:player_client=android,web`; that path can succeed while exposing only low-resolution progressive MP4 formats.
-  - Include `--remote-components ejs:github`.
-  - Include JavaScript runtimes via repeated args; do not pass `node,deno` as one token.
-  - On Windows, prefer managed `deno` before host `node` for app-managed yt-dlp runs: `--js-runtimes deno --js-runtimes node`.
-  - On non-Windows, keep the broader compatibility order: `--js-runtimes node --js-runtimes deno`.
+  - Do not enable `--remote-components ejs:github`; the exact app-owned managed package set includes `yt-dlp-ejs`.
+  - Pass only the explicit managed Deno runtime (`--js-runtimes deno:<absolute-managed-deno-path>`); do not pass bare `deno`, `node`, or a machine/runtime `PATH` fallback.
+  - Pass `--ignore-config --no-plugin-dirs` so user configuration and plugin directories cannot alter baseline execution.
   - `pageUrl`, `selectionScope == "current_item"`, cookies, and legacy YouTube extension mode hints must not change the extractor profile away from the extended path.
   - Retired payload fields such as `forceExtended` / `allowCookies` may be tolerated as ignored compatibility input, but they are not active runtime mode switches.
   - If extension cookie file exists, attach it for YouTube URLs as well (`youtube.com`, `youtu.be`) to improve fetch success on 403-prone routes.
@@ -156,7 +155,7 @@
   - Windows portable ZIP contains helper executables only under `binaries/`.
   - On Windows, `highest` downloads, YouTube cookie-free probes, and `gallery-dl` runs complete without flashing transient console windows.
   - A clean config directory bootstraps `ffmpeg` into `app_config_dir/runtimes/ffmpeg/<target>/`, and Windows packaged builds can merge yt-dlp split streams without any system-installed ffmpeg.
-  - The same managed yt-dlp runtime behaves identically on two Windows machines even if one host has custom yt-dlp config files installed.
+  - The same managed yt-dlp package set behaves identically on two Windows machines even if one host has custom yt-dlp config files installed.
   - A prior interrupted Bilibili `highest` download recovers automatically on the next attempt instead of surfacing raw HTTP 416 to the user.
   - A Bilibili extraction that fails once with `[SSL: UNEXPECTED_EOF_WHILE_READING]` retries once and succeeds without changing the user's selected quality.
 - Base:
@@ -190,7 +189,7 @@
   - On a Windows portable package without external tooling installed, a merged yt-dlp download produces a single final file and no `.f*` residue.
   - A mocked Bilibili yt-dlp run that first emits `UNEXPECTED_EOF_WHILE_READING` and exits non-zero is retried once with the same format profile after task artifact cleanup.
   - On Windows, a `highest` download path that triggers extra yt-dlp probe/retry work still completes without transient console windows.
-  - Trigger a public injected YouTube download with no cookies and assert the first yt-dlp attempt includes `youtube:player_js_variant=tv` and `--remote-components ejs:github`.
+  - Trigger a public injected YouTube download with no cookies and assert the first yt-dlp attempt includes `youtube:player_js_variant=tv`, `--js-runtimes deno:<absolute-managed-deno-path>`, `--no-plugin-dirs`, and no remote component argument.
   - Pass legacy YouTube extension mode hint fields through queue normalization and assert they are ignored rather than preserved as active runtime hints.
   - On Windows with `AE-Friendly Format` enabled, ffmpeg-backed post-processing completes without showing a transient console window.
   - When yt-dlp reports `has already been downloaded`, the app still resolves the existing final file path and emits success instead of `E_OUTPUT_NORMALIZATION_FAILED`.

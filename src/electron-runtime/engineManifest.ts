@@ -27,7 +27,6 @@ type YtdlpManifest = {
   };
   youtube: {
     extendedExtractorArgs: readonly string[];
-    remoteComponentsArgs: readonly string[];
     retryingCompatibleExtractorActivity: string;
   };
   siteFormatProfiles: Record<string, YtdlpFormatProfileSet>;
@@ -179,7 +178,7 @@ export const CLI_ENGINE_MANIFESTS = {
   "yt-dlp": {
     id: "yt-dlp",
     binaryKey: "ytDlp",
-    configIsolationArgs: ["--ignore-config"],
+    configIsolationArgs: ["--ignore-config", "--no-plugin-dirs"],
     baseArgs: [
       "--newline",
       "--no-warnings",
@@ -194,10 +193,6 @@ export const CLI_ENGINE_MANIFESTS = {
       extendedExtractorArgs: [
         "--extractor-args",
         "youtube:player_js_variant=tv",
-      ],
-      remoteComponentsArgs: [
-        "--remote-components",
-        "ejs:github",
       ],
       retryingCompatibleExtractorActivity: "activity:youtube.retryingCompatibleExtractor",
     },

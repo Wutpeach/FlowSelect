@@ -43,11 +43,11 @@ import {
   resolveBundledPythonRuntime,
   resetRenameSequenceState,
   resolveGalleryDlRuntimeDependencies,
+  resolveYtDlpRuntimeDependencies,
   resolveXiaohongshuDragMedia,
   resolveRuntimeBinaryPaths,
   resolveRuntimeTarget,
   resolveRenameEnabled,
-  resolveYtDlpRuntimeDependencies,
   YtDlpEngineAdapter,
 } from "../src/electron-runtime/index.js";
 import {
@@ -148,6 +148,7 @@ import {
   createSiteSessionRefreshScheduler,
 } from "./siteSessionRefreshScheduler.mjs";
 import { createRuntimeDependencyGateController } from "./runtimeDependencyGate.mjs";
+import { createRuntimeSetLifecycleCoordinator } from "./runtimeSetLifecycle.mjs";
 import { createRuntimeLogController } from "./runtimeLog.mjs";
 import {
   createStartupDiagnosticsController,
@@ -242,14 +243,23 @@ const wsClients = new Set();
 const pendingProtectedImageRequests = new Map();
 const pendingXiaohongshuDragRequests = new Map();
 let wsServer = null;
+const runtimeSetLifecycle = createRuntimeSetLifecycleCoordinator();
 const runtimeDependencyGateController = createRuntimeDependencyGateController({
   emitAppEvent,
   getRuntimeDependencyStatus,
   buildManagedRuntimeBootstrapOptions,
-  ensureManagedYtDlpRuntimeReady,
-  ensureManagedGalleryDlRuntimeReady,
-  ensureManagedFfmpegRuntimeReady,
-  ensureManagedDenoRuntimeReady,
+  ensureManagedYtDlpRuntimeReady: (trigger, options) => runtimeSetLifecycle.runMutation(
+    () => ensureManagedYtDlpRuntimeReady(trigger, options),
+  ),
+  ensureManagedGalleryDlRuntimeReady: (trigger, options) => runtimeSetLifecycle.runMutation(
+    () => ensureManagedGalleryDlRuntimeReady(trigger, options),
+  ),
+  ensureManagedFfmpegRuntimeReady: (trigger, options) => runtimeSetLifecycle.runMutation(
+    () => ensureManagedFfmpegRuntimeReady(trigger, options),
+  ),
+  ensureManagedDenoRuntimeReady: (trigger, options) => runtimeSetLifecycle.runMutation(
+    () => ensureManagedDenoRuntimeReady(trigger, options),
+  ),
 });
 
 const startupDiagnosticsEnabled = shouldEnablePackagedStartupDiagnostics({
@@ -1288,6 +1298,37 @@ function buildElectronRuntimeEnvironment() {
   };
 }
 
+const RUNTIME_SET_CONSUMER_CAPABILITIES = {
+  "yt-dlp": ["yt-dlp", "ffmpeg", "deno"],
+  "gallery-dl": ["gallery-dl"],
+  "media-tools": ["ffmpeg"],
+};
+
+async function ensureRuntimeSetCapabilities(capabilities, reason) {
+  const options = buildManagedRuntimeBootstrapOptions();
+  for (const capability of capabilities) {
+    if (capability === "yt-dlp") {
+      await ensureManagedYtDlpRuntimeReady(reason, options);
+    } else if (capability === "ffmpeg") {
+      await ensureManagedFfmpegRuntimeReady(reason, options);
+    } else if (capability === "deno") {
+      await ensureManagedDenoRuntimeReady(reason, options);
+    } else if (capability === "gallery-dl") {
+      await ensureManagedGalleryDlRuntimeReady(reason, options);
+    } else {
+      throw new Error(`Unsupported runtime-set capability: ${capability}`);
+    }
+  }
+}
+
+async function ensureRuntimeSetForConsumer(consumer, reason) {
+  const capabilities = RUNTIME_SET_CONSUMER_CAPABILITIES[consumer];
+  if (!capabilities) {
+    throw new Error(`Unsupported runtime-set consumer: ${consumer}`);
+  }
+  await ensureRuntimeSetCapabilities(capabilities, reason);
+}
+
 // Explicit production Engine bindings: engine id -> readiness -> network
 // consumer -> proxy-failure layer. main.mts only composes and looks up; the
 // registry rejects duplicate/blank ids and unknown engines fail closed.
@@ -1296,21 +1337,17 @@ const engineRuntimeBindings = createEngineRuntimeBindingRegistry([
     engineId: "yt-dlp",
     networkConsumer: "yt-dlp",
     proxyFailureLayer: "yt_dlp",
-    ensureReady: async (reason) => {
-      const options = buildManagedRuntimeBootstrapOptions();
-      await ensureManagedYtDlpRuntimeReady(reason, options);
-      await ensureManagedFfmpegRuntimeReady(reason, options);
-      await ensureManagedDenoRuntimeReady(reason, options);
-    },
+    ensureReady: async (reason) => runtimeSetLifecycle.runMutation(
+      () => ensureRuntimeSetForConsumer("yt-dlp", reason),
+    ),
   },
   {
     engineId: "gallery-dl",
     networkConsumer: "gallery-dl",
     proxyFailureLayer: "gallery_dl",
-    ensureReady: async (reason) => {
-      const options = buildManagedRuntimeBootstrapOptions();
-      await ensureManagedGalleryDlRuntimeReady(reason, options);
-    },
+    ensureReady: async (reason) => runtimeSetLifecycle.runMutation(
+      () => ensureRuntimeSetForConsumer("gallery-dl", reason),
+    ),
   },
 ]);
 
@@ -1417,6 +1454,21 @@ function getElectronDownloadRuntime() {
       const binding = engineRuntimeBindings.require(engineId);
       try {
         await binding.ensureReady?.(reason);
+      } catch (error) {
+        getNetworkProxyPolicyController().markManualProxySuspect({
+          layer: "managed_bootstrap",
+          targetHost: null,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+    acquireRuntimeSetLease: async (consumer, reason) => {
+      try {
+        return await runtimeSetLifecycle.acquireLease(
+          RUNTIME_SET_CONSUMER_CAPABILITIES[consumer],
+          (missingCapabilities) => ensureRuntimeSetCapabilities(missingCapabilities, reason),
+        );
       } catch (error) {
         getNetworkProxyPolicyController().markManualProxySuspect({
           layer: "managed_bootstrap",

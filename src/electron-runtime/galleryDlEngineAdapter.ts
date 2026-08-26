@@ -50,9 +50,13 @@ export class GalleryDlEngineAdapter implements DownloadEngine<EngineExecutionCon
   async execute(context: EngineExecutionContextWithRuntime): Promise<DownloadResult> {
     // Explicit composition: the runner invocation input is the declared
     // per-job contract plus this adapter's injected static dependencies.
-    return await runGalleryDlDownload({
-      ...context,
-      binaries: this.dependencies.binaries,
-    });
+    try {
+      return await runGalleryDlDownload({
+        ...context,
+        binaries: this.dependencies.binaries,
+      });
+    } finally {
+      await context.runtimeSetLease?.release();
+    }
   }
 }

@@ -52,17 +52,18 @@ describe("yt-dlp command planning", () => {
     const args = buildYtdlpCommandArgs(plan, {
       cookiesPath: "D:/temp/trace-plan-cookies.txt",
       hasFfmpeg: true,
-      hasDeno: true,
+      denoPath: "D:/deno/deno.exe",
       proxyArgs: ["--proxy", "http://127.0.0.1:7890"],
       selectionScope: "current_item",
       pageUrl: "https://www.youtube.com/watch?v=abc123",
       platform: "darwin",
     });
 
-    expect(args.slice(0, 15)).toEqual([
+    expect(args.slice(0, 16)).toEqual([
       "--newline",
       "--no-warnings",
       "--ignore-config",
+      "--no-plugin-dirs",
       "--progress",
       "-f",
       "bestvideo+bestaudio/best",
@@ -82,7 +83,8 @@ describe("yt-dlp command planning", () => {
     expect(args).toContain("--no-playlist");
     expect(args).toContain("D:/temp/trace-plan-cookies.txt");
     expect(args).toContain("youtube:player_js_variant=tv");
-    expect(args).toContain("--remote-components");
+    expect(args).toContain("--no-plugin-dirs");
+    expect(args).not.toContain("--remote-components");
     expect(args[args.length - 1]).toBe("https://www.youtube.com/watch?v=abc123");
   });
 
@@ -91,7 +93,7 @@ describe("yt-dlp command planning", () => {
     const args = buildYtdlpCommandArgs(plan, {
       cookiesPath: "D:/temp/trace-plan-cookies.txt",
       hasFfmpeg: true,
-      hasDeno: true,
+      denoPath: "D:/deno/deno.exe",
       platform: "win32",
     });
 
@@ -115,7 +117,7 @@ describe("yt-dlp command planning", () => {
     const args = buildYtdlpCommandArgs(plan, {
       cookiesPath: null,
       hasFfmpeg: true,
-      hasDeno: true,
+      denoPath: "D:/deno/deno.exe",
       proxyArgs: ["--proxy", ""],
       selectionScope: "current_item",
       pageUrl: "https://www.youtube.com/watch?v=abc123",
@@ -145,7 +147,7 @@ describe("yt-dlp command planning", () => {
     const args = buildYtdlpCommandArgs(plan, {
       cookiesPath: null,
       hasFfmpeg: true,
-      hasDeno: false,
+      denoPath: null,
       selectionScope: "current_item",
       pageUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
       platform: "darwin",
@@ -175,36 +177,24 @@ describe("yt-dlp command planning", () => {
     );
   });
 
-  it("uses platform-specific extended youtube js runtime ordering", () => {
+  it("binds YouTube EJS to the managed Deno path without machine fallbacks", () => {
     const plan = createYtdlpCommandPlan(createContext());
     const windowsArgs = buildYtdlpCommandArgs(plan, {
       cookiesPath: null,
       hasFfmpeg: true,
-      hasDeno: true,
+      denoPath: "D:/ameow/runtimes/deno/x86_64-pc-windows-msvc/real/deno.exe",
       platform: "win32",
-    });
-    const macArgs = buildYtdlpCommandArgs(plan, {
-      cookiesPath: null,
-      hasFfmpeg: true,
-      hasDeno: true,
-      platform: "darwin",
     });
 
     expect(windowsArgs).toContain("youtube:player_js_variant=tv");
     expect(windowsArgs.slice(windowsArgs.indexOf("--js-runtimes"))).toEqual([
       "--js-runtimes",
-      "deno",
-      "--js-runtimes",
-      "node",
+      "deno:D:/ameow/runtimes/deno/x86_64-pc-windows-msvc/real/deno.exe",
       "https://www.youtube.com/watch?v=abc123",
     ]);
-    expect(macArgs.slice(macArgs.indexOf("--js-runtimes"))).toEqual([
-      "--js-runtimes",
-      "node",
-      "--js-runtimes",
-      "deno",
-      "https://www.youtube.com/watch?v=abc123",
-    ]);
+    expect(windowsArgs).not.toContain("deno");
+    expect(windowsArgs).not.toContain("node");
+    expect(windowsArgs).not.toContain("ejs:github");
   });
 
   it("rejects clip downloads for unsupported sites before spawning yt-dlp", () => {

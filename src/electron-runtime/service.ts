@@ -6,6 +6,7 @@ import type {
   ElectronDownloadRuntimeOptions,
   RuntimeLogger,
   RuntimeManagedComponent,
+  RuntimeSetConsumer,
 } from "./contracts.js";
 import {
   inspectRuntimeDependencyStatus,
@@ -93,7 +94,7 @@ import {
 import type { DownloadExecutionContext } from "./contracts.js";
 import type {
   EngineExecutionContextWithRuntime,
-  SharedMediaRuntimeTools,
+  RuntimeSetLease,
 } from "./engineExecutionContext.js";
 import {
   resolveEngineNetworkConsumer,
@@ -710,10 +711,27 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     // Explicit composition at the probe boundary: static binary paths are
     // supplied by the runtime, never smuggled through the execution contract.
     // The probe is a yt-dlp-only Infrastructure feature (no probe port).
-    return await runYtDlpAdvancedQualityProbe({
-      ...context,
-      binaries: resolveYtDlpRuntimeDependencies(this.options.environment),
-    });
+    try {
+      return await runYtDlpAdvancedQualityProbe({
+        ...context,
+        binaries: resolveYtDlpRuntimeDependencies(this.options.environment),
+      });
+    } finally {
+      await context.runtimeSetLease?.release();
+    }
+  }
+
+  private async acquireRuntimeSetLease(
+    consumer: RuntimeSetConsumer,
+    reason: string,
+  ) {
+    if (this.options.acquireRuntimeSetLease) {
+      return await this.options.acquireRuntimeSetLease(consumer, reason);
+    }
+    if (consumer !== "media-tools" && this.options.ensureEngineRuntimeReady) {
+      await this.options.ensureEngineRuntimeReady(consumer, reason);
+    }
+    return undefined;
   }
 
   /**
@@ -848,13 +866,6 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
       );
     }
 
-    if (this.options.ensureEngineRuntimeReady) {
-      await this.options.ensureEngineRuntimeReady(
-        enginePlan.engine,
-        `runtime_probe_${task.traceId}_${enginePlan.engine}`,
-      );
-    }
-
     if (this.options.refreshSiteSessionBeforeAdvancedQualityProbe) {
       await this.options.refreshSiteSessionBeforeAdvancedQualityProbe({
         traceId: task.traceId,
@@ -879,6 +890,8 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     );
     const network = await executionContext.network;
 
+    const reason = `runtime_probe_${task.traceId}_yt-dlp`;
+    const runtimeSetLease = await this.acquireRuntimeSetLease("yt-dlp", reason);
     const context: EngineExecutionContextWithRuntime = {
       traceId: task.traceId,
       plan,
@@ -905,11 +918,17 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
           })
         : undefined,
       onProgress: async () => undefined,
+      runtimeSetLease,
     };
 
-    return this.options.buildExecutionContext
-      ? this.options.buildExecutionContext(context, task.request)
-      : context;
+    try {
+      return this.options.buildExecutionContext
+        ? await this.options.buildExecutionContext(context, task.request)
+        : context;
+    } catch (error) {
+      await runtimeSetLease?.release();
+      throw error;
+    }
   }
 
   async cancelTranscode(traceId: string): Promise<boolean> {
@@ -1125,11 +1144,16 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     traceId: string,
     label: string,
     sourcePath: string,
-    binaries: SharedMediaRuntimeTools,
     telemetry?: DownloadTelemetryContext,
   ): Promise<void> {
     let compatibility: VideoCompatibilityAnalysis | null = null;
+    let runtimeSetLease: RuntimeSetLease | undefined;
     try {
+      runtimeSetLease = await this.acquireRuntimeSetLease(
+        "media-tools",
+        `runtime_probe_media_${traceId}`,
+      );
+      const binaries = resolveSharedMediaRuntimeTools(this.options.environment);
       const prepared = await prepareVideoTranscodeTaskFromDownload({
         traceId,
         label,
@@ -1152,6 +1176,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
         `>>> [ElectronRuntime] transcode follow-up for ${traceId} failed: ${summarizeError(error)}`,
       );
     } finally {
+      await runtimeSetLease?.release();
       if (telemetry) {
         this.recordDownloadTelemetry(
           traceId,
@@ -1170,6 +1195,10 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
     }
 
     try {
+      const runtimeSetLease = await this.acquireRuntimeSetLease(
+        "media-tools",
+        `runtime_transcode_${activeTask.traceId}`,
+      );
       const result = await runPreparedVideoTranscodeTask(activeTask, {
         ffmpegPath: resolveSharedMediaRuntimeTools(this.options.environment).ffmpeg,
         signal: activeTask.abortController.signal,
@@ -1190,7 +1219,7 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
             this.toTranscodeTaskPayload(this.activeTranscode),
           );
         },
-      });
+      }).finally(() => runtimeSetLease?.release());
 
       const completedTask = this.activeTranscode;
       if (!completedTask) {
@@ -1398,9 +1427,6 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
       quality: activeTask.request.ytdlpQuality ?? "best",
     })}`);
 
-    // Static runtime dependencies are resolved before the application Job
-    // runs; the terminal settlement below reuses them.
-    const binaries = resolveSharedMediaRuntimeTools(this.options.environment);
     let outputDir: string | null = null;
     let telemetryPlan: ResolvedDownloadPlan | null = null;
     let executedEngineId: EnginePlan["engine"] | null = null;
@@ -1517,12 +1543,11 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
           enginePlan: EnginePlan,
         ) => {
           executedEngineId = enginePlan.engine;
-          if (this.options.ensureEngineRuntimeReady) {
-            await this.options.ensureEngineRuntimeReady(
-              enginePlan.engine,
-              `runtime_execute_${traceId}_${enginePlan.engine}`,
-            );
-          }
+          const reason = `runtime_execute_${traceId}_${enginePlan.engine}`;
+          const runtimeSetLease = await this.acquireRuntimeSetLease(
+            enginePlan.engine === "gallery-dl" ? "gallery-dl" : "yt-dlp",
+            reason,
+          );
           this.logger.log(`>>> [ElectronRuntime] engine dispatch: ${JSON.stringify({
             traceId,
             providerId: plan.providerId,
@@ -1557,10 +1582,16 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
                 })
               : undefined,
             onProgress: jobContext.onProgress,
+            runtimeSetLease,
           };
-          return this.options.buildExecutionContext
-            ? this.options.buildExecutionContext(context, jobContext.request)
-            : context;
+          try {
+            return this.options.buildExecutionContext
+              ? await this.options.buildExecutionContext(context, jobContext.request)
+              : context;
+          } catch (error) {
+            await runtimeSetLease?.release();
+            throw error;
+          }
         },
         handleAuthRequiredFailure: async ({ plan, chosenEngine, error }) => {
           return this.options.handleAuthRequiredFailure?.({
@@ -1710,7 +1741,6 @@ export class AmeowElectronDownloadRuntime implements ElectronDownloadRuntime {
         traceId,
         activeTask.label,
         terminalOutcome.result.filePath,
-        binaries,
         {
           request: activeTask.request,
           plan: telemetryPlan,

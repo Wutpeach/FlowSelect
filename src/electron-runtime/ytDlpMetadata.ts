@@ -23,8 +23,7 @@ const appendYtDlpSiteArgs = (
   }
 
   appendExtendedYouTubeYtdlpArgs(args, {
-    hasDeno: Boolean(binaries.deno),
-    platform: process.platform,
+    denoPath: binaries.deno || null,
   });
 };
 
@@ -69,6 +68,7 @@ export const probeYtDlpMetadataTitle = async ({
     "--dump-single-json",
     "--no-warnings",
     "--ignore-config",
+    "--no-plugin-dirs",
     "--encoding",
     "utf-8",
   ];

@@ -336,8 +336,7 @@ export const runYtDlpAdvancedQualityProbe = async (
   }
   if (youtubeUrl) {
     appendExtendedYouTubeYtdlpArgs(args, {
-      hasDeno: Boolean(context.binaries.deno),
-      platform: process.platform,
+      denoPath: context.binaries.deno || null,
     });
   }
   args.push(sourceUrl);

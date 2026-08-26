@@ -150,8 +150,12 @@ That can make a download succeed at a lower quality than the selected profile ev
 Extended mode uses:
 
 ```txt
---extractor-args youtube:player_js_variant=tv --remote-components ejs:github
+--extractor-args youtube:player_js_variant=tv --js-runtimes deno:<absolute-managed-deno-path> --ignore-config --no-plugin-dirs
 ```
+
+The exact `yt-dlp-ejs` package is part of Ameow's app-owned managed yt-dlp
+package set; do not enable remote EJS components or machine JavaScript runtime
+fallbacks.
 
 Regression check:
 - `npm test -- src/electron-runtime/ytDlpDownload.test.ts`
