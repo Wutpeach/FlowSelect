@@ -1,0 +1,4 @@
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/research/windows-packaged-runtime-validation.md","reason":"Verify P2-V conclusions stay within the limits of Windows executable/package evidence and recorded skips."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/research/repository-macos-package-set-evidence.md","reason":"Verify macOS, EJS/Deno, offline baseline, authenticity, and lifecycle conclusions against the evidence tiers."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md","reason":"Check that the reported proxy-front conflict and proposed single-path closure are explicit."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md","reason":"Check that lifecycle coordination remains inside the existing managed runtime boundary."}

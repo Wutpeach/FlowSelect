@@ -1,0 +1,4 @@
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/research/windows-packaged-runtime-validation.md","reason":"Windows packaged-runtime evidence for real/ paths, Deno discovery, persistence, signing, and replacement semantics."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/research/repository-macos-package-set-evidence.md","reason":"Repository/upstream evidence for macOS, offline package set, authenticity, and lifecycle stability."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md","reason":"Active proxy-front contract that must be reconciled with the selected real/ runtime layout."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md","reason":"Current bootstrap and repair ownership contract affected by the full-runtime-set lifecycle gate."}

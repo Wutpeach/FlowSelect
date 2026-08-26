@@ -1,0 +1,15 @@
+{
+  "source": "managed-python-package",
+  "layoutVersion": 1,
+  "packageVersion": "2026.07.04",
+  "packageSource": "yt-dlp==2026.07.04",
+  "entrypoint": "D:\\Ameow\\.trellis\\tasks\\08-25-managed-ytdlp-p2v-evidence-gates\\evidence\\windows-packaged-docs-run-20260825\\user-data\\runtimes\\yt-dlp\\x86_64-pc-windows-msvc\\venv\\Scripts\\yt-dlp.exe",
+  "pythonVersion": "Python 3.11.15",
+  "pythonPath": "D:\\Ameow\\spike-package-output\\win-unpacked\\resources\\app\\desktop-assets\\binaries\\python-x86_64-pc-windows-msvc\\python.exe",
+  "bundledPythonPath": "D:\\Ameow\\spike-package-output\\win-unpacked\\resources\\app\\desktop-assets\\binaries\\python-x86_64-pc-windows-msvc\\python.exe",
+  "bundledPythonVersion": "Python 3.11.15",
+  "runtimeTarget": "x86_64-pc-windows-msvc",
+  "installedAtMs": 1787640760644,
+  "updatedAtMs": 1787640760644,
+  "version": "2026.07.04"
+}

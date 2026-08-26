@@ -1,0 +1,418 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "siteId": "bilibili",
+      "displayName": "Bilibili",
+      "labelKey": "desktop:settings.siteSessions.sites.bilibili",
+      "primaryUrl": "https://www.bilibili.com/",
+      "primaryHost": "www.bilibili.com",
+      "cookieDomains": [
+        "bilibili.com",
+        "b23.tv"
+      ],
+      "requiredCookieKeys": [
+        "SESSDATA"
+      ],
+      "loginCookieKeys": [
+        "SESSDATA"
+      ],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "seed"
+      ],
+      "engineHints": [
+        "yt-dlp"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "known",
+        "key": "bilibili"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "boosty",
+      "displayName": "Boosty",
+      "primaryUrl": "https://www.boosty.to/",
+      "primaryHost": "www.boosty.to",
+      "cookieDomains": [
+        "boosty.to"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "douyin",
+      "displayName": "Douyin",
+      "labelKey": "desktop:settings.siteSessions.sites.douyin",
+      "primaryUrl": "https://www.douyin.com/",
+      "primaryHost": "www.douyin.com",
+      "cookieDomains": [
+        "douyin.com"
+      ],
+      "requiredCookieKeys": [
+        "ttwid",
+        "odin_tt",
+        "passport_csrf_token"
+      ],
+      "loginCookieKeys": [
+        "sessionid",
+        "sid_tt",
+        "sid_guard"
+      ],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "seed"
+      ],
+      "engineHints": [
+        "yt-dlp"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "known",
+        "key": "douyin"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "facebook",
+      "displayName": "Facebook",
+      "primaryUrl": "https://www.facebook.com/",
+      "primaryHost": "www.facebook.com",
+      "cookieDomains": [
+        "facebook.com"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "fantia",
+      "displayName": "Fantia",
+      "primaryUrl": "https://fantia.jp/",
+      "primaryHost": "fantia.jp",
+      "cookieDomains": [
+        "fantia.jp"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "furaffinity",
+      "displayName": "Fur Affinity",
+      "primaryUrl": "https://www.furaffinity.net/",
+      "primaryHost": "www.furaffinity.net",
+      "cookieDomains": [
+        "furaffinity.net"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "instagram",
+      "displayName": "Instagram",
+      "labelKey": "desktop:settings.siteSessions.sites.instagram",
+      "primaryUrl": "https://www.instagram.com/",
+      "primaryHost": "www.instagram.com",
+      "cookieDomains": [
+        "instagram.com"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [
+        "sessionid"
+      ],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "seed",
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "known",
+        "key": "instagram"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "patreon",
+      "displayName": "Patreon",
+      "primaryUrl": "https://www.patreon.com/",
+      "primaryHost": "www.patreon.com",
+      "cookieDomains": [
+        "patreon.com"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "pinterest",
+      "displayName": "Pinterest",
+      "primaryUrl": "https://www.pinterest.com/",
+      "primaryHost": "www.pinterest.com",
+      "cookieDomains": [
+        "pinterest.com"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "fanbox",
+      "displayName": "pixivFANBOX",
+      "primaryUrl": "https://www.fanbox.cc/",
+      "primaryHost": "www.fanbox.cc",
+      "cookieDomains": [
+        "fanbox.cc"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "poipiku",
+      "displayName": "Poipiku",
+      "primaryUrl": "https://poipiku.com/",
+      "primaryHost": "poipiku.com",
+      "cookieDomains": [
+        "poipiku.com"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "tiktok",
+      "displayName": "TikTok",
+      "primaryUrl": "https://www.tiktok.com/",
+      "primaryHost": "www.tiktok.com",
+      "cookieDomains": [
+        "tiktok.com"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "twitter",
+      "displayName": "Twitter / X",
+      "primaryUrl": "https://x.com/",
+      "primaryHost": "x.com",
+      "cookieDomains": [
+        "x.com",
+        "twitter.com"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "gallery-dl-supported-sites"
+      ],
+      "engineHints": [
+        "gallery-dl"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "placeholder"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "xiaohongshu",
+      "displayName": "Xiaohongshu",
+      "labelKey": "desktop:settings.siteSessions.sites.xiaohongshu",
+      "primaryUrl": "https://www.xiaohongshu.com/",
+      "primaryHost": "www.xiaohongshu.com",
+      "cookieDomains": [
+        "xiaohongshu.com",
+        "xhslink.com"
+      ],
+      "requiredCookieKeys": [
+        "web_session"
+      ],
+      "loginCookieKeys": [
+        "web_session"
+      ],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "seed"
+      ],
+      "engineHints": [
+        "yt-dlp"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "known",
+        "key": "xiaohongshu"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    },
+    {
+      "siteId": "youtube",
+      "displayName": "YouTube",
+      "labelKey": "desktop:settings.siteSessions.sites.youtube",
+      "primaryUrl": "https://www.youtube.com/",
+      "primaryHost": "www.youtube.com",
+      "cookieDomains": [
+        "youtube.com",
+        "google.com"
+      ],
+      "requiredCookieKeys": [],
+      "loginCookieKeys": [
+        "LOGIN_INFO",
+        "__Secure-1PSID",
+        "__Secure-3PSID",
+        "SID"
+      ],
+      "syncAuthorization": "seeded",
+      "autoSyncAllowed": true,
+      "discoverySources": [
+        "seed"
+      ],
+      "engineHints": [
+        "yt-dlp"
+      ],
+      "visibility": "hidden_catalog",
+      "icon": {
+        "kind": "known",
+        "key": "youtube"
+      },
+      "createdAtMs": 1787641376983,
+      "updatedAtMs": 1787641376983
+    }
+  ]
+}

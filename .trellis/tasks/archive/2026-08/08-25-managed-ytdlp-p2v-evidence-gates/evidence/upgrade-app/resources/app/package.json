@@ -1,0 +1,14 @@
+{
+  "name": "ameow",
+  "private": true,
+  "description": "Ameow desktop collector for files, images, and web video.",
+  "version": "0.3.1",
+  "author": "Wutpeach",
+  "type": "module",
+  "main": "dist-electron/electron/main.mjs",
+  "dependencies": {
+    "image-max-url": "^2026.2.0",
+    "ws": "^8.21.0",
+    "zod": "^4.3.6"
+  }
+}
