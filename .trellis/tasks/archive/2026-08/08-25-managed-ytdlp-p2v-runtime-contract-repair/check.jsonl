@@ -1,0 +1,7 @@
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-runtime-contract-repair/prd.md","reason":"Repair acceptance criteria and prohibited P2-A/updater scope."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-runtime-contract-repair/design.md","reason":"Single runtime truth, JS/EJS policy, lifecycle invariant, and external gates."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/research/windows-packaged-runtime-validation.md","reason":"Validate packaged Windows claims against prior executable evidence."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md","reason":"Check proxy-front removal and real/ consistency."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/06-release-pinned-managed-downloader-runtime-contract.md","reason":"Check package-set and source-truth consistency."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md","reason":"Check all mutators use the lifecycle gate."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/03-electron-download-runtime-core.md","reason":"Check existing execution/retry/cancel/terminal authority is unchanged."}

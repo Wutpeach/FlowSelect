@@ -1,0 +1,28 @@
+{
+  "id": "managed-ytdlp-p2v-runtime-contract-repair",
+  "name": "managed-ytdlp-p2v-runtime-contract-repair",
+  "title": "P2-V Runtime Contract Repair",
+  "description": "Repair the existing yt-dlp packaged runtime into one app-owned real/ path, Deno/EJS/plugin, bundled-Python, and active-process-safe execution contract before P2-A.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-08-25",
+  "completedAt": "2026-08-26",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-25-managed-ytdlp-p2v-release-runtime-evidence"
+  ],
+  "parent": "08-25-managed-ytdlp-p2v-evidence-gates",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

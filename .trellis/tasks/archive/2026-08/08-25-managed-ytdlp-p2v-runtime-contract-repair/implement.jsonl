@@ -1,0 +1,7 @@
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/design.md","reason":"Authoritative P2-V decisions, repair conditions, and external gates."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/research/windows-packaged-runtime-validation.md","reason":"Windows executable/package evidence and honest validation limitations."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/research/repository-macos-package-set-evidence.md","reason":"Package-set, EJS/Deno, lifecycle, and platform evidence."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md","reason":"Stale proxy-front contract to reconcile with real/ paths."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/06-release-pinned-managed-downloader-runtime-contract.md","reason":"Managed yt-dlp package/version and runtime source authority."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md","reason":"Bootstrap/repair and mutation ownership contract."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/03-electron-download-runtime-core.md","reason":"Existing execution, retry, cancellation, and terminal authority to preserve."}
