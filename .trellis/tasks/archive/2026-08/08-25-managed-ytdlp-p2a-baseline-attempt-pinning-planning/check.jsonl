@@ -1,0 +1,6 @@
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2a-baseline-attempt-pinning-planning/prd.md","reason":"P2-A requirements, frozen P2-V decisions, acceptance criteria, and deferrals."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2a-baseline-attempt-pinning-planning/design.md","reason":"Check the final Lead decisions, failure semantics, attempt binding, and explicit deferrals."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-update-rollback-planning/design.md","reason":"Check compatibility with parent P2 authority and phase decomposition."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/design.md","reason":"Check no P2-V architecture is reopened or weakened."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/03-electron-download-runtime-core.md","reason":"Check existing attempt/retry/cancel/terminal authority remains unchanged."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md","reason":"Check baseline preparation and lifecycle lease responsibilities stay inside existing boundaries."}

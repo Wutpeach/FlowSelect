@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "layoutVersion": 1,
+  "packageSetId": "yt-dlp==2026.07.04;yt-dlp-ejs==0.8.0",
+  "manifestDigest": "b74cd32c1d9f1e3beaa3bde0d420e45383a8c548ed8cb0eacecdcdf6b23607c8",
+  "runtimeTarget": "x86_64-pc-windows-msvc",
+  "bundledPythonPath": "D:/Ameow/desktop-assets/binaries/python-x86_64-pc-windows-msvc/python.exe",
+  "bundledPythonVersion": "Python 3.11.15",
+  "pythonManifestEntryDigest": "17585b4cae3e9424ac6120a8a69a4f1ebbc7b8955e6f78f67a6fcb83fcb7ce65",
+  "installedPackages": {
+    "yt-dlp": "2026.7.4",
+    "yt-dlp-ejs": "0.8.0"
+  },
+  "probeVersion": "2026.07.04"
+}

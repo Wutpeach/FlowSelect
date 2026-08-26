@@ -1,0 +1,7 @@
+{"file":".trellis/tasks/08-25-managed-ytdlp-update-rollback-planning/design.md","reason":"Parent P2 authority, baseline, selection, attempt, and phase constraints."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2a-baseline-attempt-pinning-planning/design.md","reason":"Authoritative P2-A Lead synthesis and implementation boundaries."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-update-rollback-planning/research/execution-context-summary.md","reason":"Compact repository-grounded P2 context, superseded where P2-V says otherwise."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-evidence-gates/design.md","reason":"P2-V baseline/package-set/lifecycle decisions retained by P2-A."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-p2v-runtime-contract-repair/validation.md","reason":"Approved source/runtime contract and executable validation facts."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md","reason":"Current packaged runtime path and execution contract."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md","reason":"Current bootstrap/materialization/lifecycle ownership boundary."}
