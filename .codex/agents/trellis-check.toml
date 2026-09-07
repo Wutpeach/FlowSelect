@@ -1,7 +1,7 @@
 name = "trellis-check"
 description = "Workspace-write Trellis reviewer that self-fixes spec drift, lint/type-check failures, and missing tests."
 sandbox_mode = "workspace-write"
-# model = "gpt-5.6-terra"
+# model = "gpt-5.6-sol"
 # model_reasoning_effort = "high"
 
 developer_instructions = """

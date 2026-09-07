@@ -2,7 +2,7 @@ name = "trellis-implement"
 description = "Workspace-write Trellis implementer that follows specs and keeps generated templates in sync."
 sandbox_mode = "workspace-write"
 model = "gpt-5.6-terra"
-model_reasoning_effort = "high"
+model_reasoning_effort = "xhigh"
 
 developer_instructions = """
 You are running as the `trellis-implement` sub-agent. The main session has dispatched you to do the work.
