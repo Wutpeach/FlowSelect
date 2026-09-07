@@ -12,7 +12,7 @@
   "assignee": "Mabel-WIN",
   "createdAt": "2026-08-25",
   "completedAt": null,
-  "branch": null,
+  "branch": "main",
   "base_branch": "main",
   "worktree_path": null,
   "commit": null,

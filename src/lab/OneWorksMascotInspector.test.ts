@@ -36,6 +36,7 @@ describe("OneWorks Mascot Inspector isolation", () => {
     expect(inspector).toContain('data-oneworks-avatar-magnified=""');
     expect(inspector).toContain('data-oneworks-candidate-avatar-60=""');
     expect(inspector).toContain('data-oneworks-candidate-avatar-magnified=""');
+    expect(inspector).toContain('data-oneworks-pointer-adapter=""');
     expect(inspector).toContain("createOneWorksAmeowCandidateDefinition");
   });
 

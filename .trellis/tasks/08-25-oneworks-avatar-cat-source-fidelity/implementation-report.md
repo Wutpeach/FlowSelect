@@ -1,6 +1,6 @@
 # OneWorks Avatar Route A, Lab-only implementation report
 
-Date: 2026-08-25
+Date: 2026-09-07 (current-source evidence refresh)
 
 ## Scope and stop point
 
@@ -23,10 +23,11 @@ This is a browser-only UI Lab source-fidelity spike. It mounts the published One
 - [`src/lab/PresentationLab.tsx`](../../../../src/lab/PresentationLab.tsx) adds only the Lab-mode entry and return action. [`vite.lab.config.ts`](../../../../vite.lab.config.ts) explicitly builds `lab.html`; production Vite remains index-only.
 - The simplification pass removed the redundant remount key, lifecycle counter component/state, and memoized static animation lookup. Remount now relies on the actual conditional unmount/remount. The permanent UI reports neutral mounted/torn-down state only. It no longer claims a hardcoded loop count.
 - The existing Lab isolation guard was extended for the direct renderer/editor/CSS route and production exclusion. Focused tests retain the direct-upstream, shared-definition, browser-only, dev-only, pointer-authority, and cleanup-boundary checks.
+- The current candidate attention host intentionally retains `data-oneworks-pointer-adapter` alongside its candidate-specific marker. This stable Lab-only capture contract is asserted by the focused Inspector test; it does not change pointer behavior or production authority.
 
 ## Browser lifecycle evidence
 
-[`capture-oneworks-browser-evidence.mjs`](./capture-oneworks-browser-evidence.mjs) opens the current browser Lab and installs Playwright instrumentation before any page code. It wraps `requestAnimationFrame`, `setTimeout`, and `setInterval`; results are recorded in [lifecycle instrumentation JSON](./evidence/oneworks-lifecycle-instrumentation.json).
+[`capture-oneworks-browser-evidence.mjs`](./capture-oneworks-browser-evidence.mjs) was rerun on 2026-09-07 against the current browser Lab and installs Playwright instrumentation before any page code. It wraps `requestAnimationFrame`, `setTimeout`, and `setInterval`; results are recorded in [lifecycle instrumentation JSON](./evidence/oneworks-lifecycle-instrumentation.json).
 
 | State | rAF | intervals | timeouts | Finding |
 | --- | ---: | ---: | ---: | --- |
@@ -42,7 +43,7 @@ The two remaining intervals existed before the Inspector opened and remain after
 
 ## Visual evidence
 
-All images are element-level captures or compact composition sheets.
+All images below were regenerated on 2026-09-07 from the current source as element-level captures or compact composition sheets. The stable pointer marker captures the candidate product panel; the separate mechanism preview captures yaw, pitch, and tangent after changing its scoped pose control, so those screenshots cannot silently remain at the pointer panel's front pose.
 
 | State | Evidence | Finding |
 | --- | --- | --- |
@@ -57,27 +58,30 @@ All images are element-level captures or compact composition sheets.
 | Editor animation | [animation](./evidence/oneworks-editor-animation.png) | Actual upstream Playback selector lists its built-ins and the injected `Yaw sweep` public-library clip. |
 | Archived baseline comparison | [comparison sheet](./evidence/oneworks-vs-approved-diamond-front.png) | Direct review only. It uses the archived approved neutral/front 1× image and the new true-60px OneWorks capture. The archived diamond has no pose-matched sweep. |
 
-At magnified scale, the direct OneWorks renderer visibly supplies the source mechanisms missing from a whole-node flat seam: rounded cone shoulders/tips, shared transformed depth, and face-derived partial ear-root masking. At the true 60px specimen, the difference is subtler. The approved diamond-ear result remains frozen and valid for its existing Compact gate. This comparison does not imply production adoption or recalibration.
+At magnified scale, the direct OneWorks renderer materially exceeds the archived diamond in silhouette fidelity, rounded ear shoulders/tips, and face-derived partial ear-root masking; shared transformed depth remains coherent through the recorded yaw/pitch/tangent poses. At the true 60px front specimen, the source-fidelity improvement remains visible but subtler and does not by itself establish a user-visible production win. The approved diamond-ear result remains frozen and valid for its existing Compact gate. This comparison does not imply production adoption or recalibration.
 
 ## Validation
 
 | Command / check | Result |
 | --- | --- |
 | `node .trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/verify-oneworks-mechanism-equivalence.mjs` | PASS, `mechanismEquivalent: true`; byte/build provenance explicitly not proven. |
-| `npx vitest run src/lab/oneworksMascot.test.ts src/lab/OneWorksMascotInspector.test.ts src/lab/rendererReuse.test.ts src/architecture/import-guard.test.ts` | PASS, 10 files and 176 tests. |
+| `npx vitest run src/lab/oneworksMascot.test.ts src/lab/OneWorksMascotInspector.test.ts src/lab/rendererReuse.test.ts src/architecture/import-guard.test.ts` | PASS on 2026-09-07, 10 files and 176 tests. |
 | `npx vitest run src/architecture/import-guard.test.ts` | PASS, 5 files and 102 tests. |
 | `npm run type-check` | PASS. |
 | `npm run lint` | PASS. |
 | `npx eslint vite.lab.config.ts --ext .ts` | PASS. |
-| `npm run build` | PASS. The normal `dist/` scan finds no `@oneworks/avatar`, `AvatarEditor`, `OneWorksMascotInspector`, or `src/lab` identifiers. |
+| `npm run build:renderer` | PASS on 2026-09-07. The current normal `dist/` scan finds no `@oneworks/avatar`, `AvatarEditor`, `OneWorksMascotInspector`, or `src/lab` identifiers. |
+| `npm run build` | Not rerun: its `prebuild` locale-sync can overwrite an unrelated dirty generated locale artifact. Renderer build isolation is covered by the passing `build:renderer` command; Electron type safety is covered by `npm run type-check`. |
 | `npx vite build --config vite.lab.config.ts --outDir .trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/lab-build` | PASS. |
-| `node .trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/capture-oneworks-browser-evidence.mjs` | PASS, zero page errors. The script asserts that playback schedules rAF, then that Reduced Motion and unmount return rAF/timeouts/intervals to the baseline. |
+| `node .trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/capture-oneworks-evidence.mjs` | PASS, zero page errors. The current built-Lab capture records baseline settlement after Reduced Motion and explicit unmount. |
+| `node .trellis/tasks/08-25-oneworks-avatar-cat-source-fidelity/capture-oneworks-browser-evidence.mjs` | PASS, zero page errors. The evidence records two playback rAF callbacks; the script asserts playback exceeds baseline, then that Reduced Motion, unmount, remount, hidden visibility teardown, and visible remount return rAF/timeouts/intervals to the two-interval Lab baseline. |
+| `npx vitest run src/lab/oneworksAmeowCandidate.test.ts` | Unavailable: its startup reads the missing `.trellis/tasks/08-25-oneworks-ameow-mascot-visual-candidate/canonical-candidate.json`. That historical task is outside this spike and was not recreated or changed. |
 
 ## Cost and isolation
 
 - Published installed `@oneworks/avatar-react` artifact: `318,589 B` JavaScript and `65,529 B` CSS.
-- Final Lab-only build: `1,340,359 B` main JavaScript plus `199,566 B` lazy `html2canvas` JavaScript, and `65,368 B` CSS. This includes the existing Lab/editor graph and is not a production adoption estimate.
-- Normal production renderer entry build: `884,970 B` JavaScript and `18,080 B` CSS. The production isolation scan passed.
+- Final Lab-only build: `1,356,706 B` main JavaScript (`lab-CyBnhGRt.js`) plus `199,566 B` lazy `html2canvas` JavaScript, and `65,368 B` CSS. This includes the existing Lab/editor graph and is not a production adoption estimate.
+- Normal production renderer entry build: `884,970 B` JavaScript and `18,508 B` CSS. The production isolation scan passed.
 - Upstream CSS is imported only by `src/lab/OneWorksMascotInspector.tsx`; production `index.html`, `src/main.tsx`, and Vite build input remain free of the editor/Lab graph.
 
 ## Mechanism verdict and limits

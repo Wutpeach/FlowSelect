@@ -298,6 +298,7 @@ export function OneWorksMascotInspector({ onExit }: OneWorksMascotInspectorProps
           </p>
           <div
             data-oneworks-candidate-attention-stage=""
+            data-oneworks-pointer-adapter=""
             onPointerMove={handleAttentionPointerMove}
             style={{ display: "grid", gridTemplateColumns: "180px 280px", width: "fit-content", maxWidth: "100%", margin: "14px auto 0", gap: 16, alignItems: "start" }}
           >

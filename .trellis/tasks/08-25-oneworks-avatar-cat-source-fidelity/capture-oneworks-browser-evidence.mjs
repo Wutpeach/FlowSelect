@@ -189,7 +189,9 @@ try {
   await page.locator(".oneworks-avatar-editor").waitFor();
 
   const preview = page.locator("[data-oneworks-pointer-adapter]");
-  await screenshot(preview, "oneworks-front-60-magnified.png");
+  const mechanismPreview = page.locator("[data-oneworks-mechanism-preview]");
+  const poseControls = page.locator("[data-oneworks-pose-controls]");
+  const frontPreview = await screenshot(preview, "oneworks-front-60-magnified.png");
   const oneWorksFront = await page.locator("[data-oneworks-avatar-60]").screenshot();
   await writeFile(resolve(evidenceDir, "oneworks-true-60-front.png"), oneWorksFront);
 
@@ -198,18 +200,23 @@ try {
     ["Pitch −28°", "oneworks-pitch-60-magnified.png"],
     ["Tangent +90°", "oneworks-tangent-60-magnified.png"],
   ]) {
-    await page.getByRole("button", { name: label }).click();
+    await poseControls.getByRole("button", { name: label, exact: true }).click();
     await wait(120);
-    await screenshot(preview, filename);
+    await screenshot(mechanismPreview, filename);
   }
-  await page.getByRole("button", { name: "Front" }).click();
+  await poseControls.getByRole("button", { name: "Front", exact: true }).click();
   await screenshot(page.locator("[data-oneworks-sweep-sheet]"), "oneworks-pose-sweep-sheet.png");
 
-  const previewBox = await preview.boundingBox();
-  assert.ok(previewBox, "pointer adapter was not visible");
-  await page.mouse.move(previewBox.x + previewBox.width * 0.82, previewBox.y + previewBox.height * 0.28);
+  const previewRect = await preview.evaluate((element) => {
+    const { x, y } = element.getBoundingClientRect();
+    return { x, y };
+  });
+  await preview.dispatchEvent("pointermove", { clientX: previewRect.x + 72.5, clientY: previewRect.y + 48 });
   await wait(120);
-  await screenshot(preview, "oneworks-pointer-follow.png");
+  const pointerPreview = await screenshot(preview, "oneworks-pointer-follow.png");
+  const pointerReadout = await page.locator("[data-oneworks-attention-readout]").textContent();
+  assert.ok(pointerReadout && !pointerReadout.includes("candidate pose 0.000, 0.000"), `pointer sample stayed neutral: ${pointerReadout}`);
+  assert.notDeepEqual(pointerPreview, frontPreview, `pointer sample did not change the candidate preview: ${pointerReadout}`);
 
   const audit = () => page.evaluate(() => window.__oneworksSchedulerAudit.snapshot());
   const samples = {};
@@ -220,7 +227,7 @@ try {
   samples.playing = { pending: await audit() };
   samples.playing.counts = summarize(samples.playing.pending);
 
-  const reducedMotion = page.locator('[data-oneworks-pose-controls] input[type="checkbox"]');
+  const reducedMotion = page.getByLabel("Reduced Motion: static canonical candidate", { exact: true });
   await reducedMotion.check();
   await wait(500);
   samples.reducedMotion = { pending: await audit() };

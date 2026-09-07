@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sampledAt": "2026-08-25T05:22:12.520Z",
+  "sampledAt": "2026-09-07T09:04:25.889Z",
   "instrumentation": "requestAnimationFrame, setTimeout, and setInterval wrapped before Lab code loaded",
   "snapshots": {
     "labBaseline": {
@@ -10,16 +10,16 @@
       "total": 1
     },
     "baseline": {
-      "animationFrame": 1,
+      "animationFrame": 0,
       "interval": 1,
       "timeout": 0,
-      "total": 2
+      "total": 1
     },
     "playback": {
-      "animationFrame": 2,
+      "animationFrame": 0,
       "interval": 1,
       "timeout": 0,
-      "total": 3
+      "total": 1
     },
     "reducedMotion": {
       "animationFrame": 0,

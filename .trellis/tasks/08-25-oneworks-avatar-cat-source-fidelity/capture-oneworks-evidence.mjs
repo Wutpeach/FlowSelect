@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, resolve, sep } from "node:path";
@@ -148,30 +149,37 @@ const main = async () => {
     await waitForSettlement(page);
 
     const pointerAdapter = page.locator("[data-oneworks-pointer-adapter]");
-    await screenshot(pointerAdapter, "oneworks-front-60-magnified.png");
+    const mechanismPreview = page.locator("[data-oneworks-mechanism-preview]");
+    const poseControls = page.locator("[data-oneworks-pose-controls]");
+    const frontPreview = await screenshot(pointerAdapter, "oneworks-front-60-magnified.png");
     const true60Path = resolve(evidenceDir, "oneworks-true-60-front.png");
     await page.locator("[data-oneworks-avatar-60]").screenshot({ path: true60Path });
     await screenshot(page.locator("[data-oneworks-sweep-sheet]"), "oneworks-pose-sweep-sheet.png");
 
     for (const [name, label] of [["yaw", "Yaw +55°"], ["pitch", "Pitch −28°"], ["tangent", "Tangent +90°"]]) {
-      await page.getByRole("button", { name: label, exact: true }).click();
+      await poseControls.getByRole("button", { name: label, exact: true }).click();
       await page.waitForTimeout(100);
-      await screenshot(pointerAdapter, `oneworks-${name}-60-magnified.png`);
+      await screenshot(mechanismPreview, `oneworks-${name}-60-magnified.png`);
     }
 
-    const pointerBox = await pointerAdapter.boundingBox();
-    if (pointerBox === null) throw new Error("Pointer adapter is not measurable.");
-    await page.mouse.move(pointerBox.x + pointerBox.width * 0.82, pointerBox.y + pointerBox.height * 0.38);
+    const pointerRect = await pointerAdapter.evaluate((element) => {
+      const { x, y } = element.getBoundingClientRect();
+      return { x, y };
+    });
+    await pointerAdapter.dispatchEvent("pointermove", { clientX: pointerRect.x + 72.5, clientY: pointerRect.y + 48 });
     await page.waitForTimeout(100);
-    await screenshot(pointerAdapter, "oneworks-pointer-follow.png");
+    const pointerPreview = await screenshot(pointerAdapter, "oneworks-pointer-follow.png");
+    const pointerReadout = await page.locator("[data-oneworks-attention-readout]").textContent();
+    assert.ok(pointerReadout && !pointerReadout.includes("candidate pose 0.000, 0.000"), `pointer sample stayed neutral: ${pointerReadout}`);
+    assert.notDeepEqual(pointerPreview, frontPreview, `pointer sample did not change the candidate preview: ${pointerReadout}`);
 
-    await page.getByRole("button", { name: "Front", exact: true }).click();
+    await poseControls.getByRole("button", { name: "Front", exact: true }).click();
     const baseline = await getSnapshot(page);
     await page.getByRole("button", { name: "Play sweep", exact: true }).click();
     await page.waitForTimeout(350);
     const playback = await getSnapshot(page);
 
-    const reducedMotionInput = page.locator("[data-oneworks-pose-controls] input[type=checkbox]");
+    const reducedMotionInput = page.getByLabel("Reduced Motion: static canonical candidate", { exact: true });
     await reducedMotionInput.check();
     await waitForSettlement(page);
     const reducedMotion = await getSnapshot(page);
@@ -184,8 +192,12 @@ const main = async () => {
     const playbackControl = page.getByLabel("Open animation editor", { exact: true });
     if (await playbackControl.count() === 0) throw new Error("The upstream editor Animation control was not found.");
     await playbackControl.click();
-    await page.waitForTimeout(150);
-    await screenshot(editorHost, "oneworks-editor-animation.png");
+    const playbackPanel = page.locator(".oneworks-avatar-editor button").filter({ hasText: "Playback" }).last();
+    await playbackPanel.click();
+    const yawSweep = page.getByText("Yaw sweep", { exact: true });
+    await yawSweep.waitFor();
+    await yawSweep.scrollIntoViewIfNeeded();
+    await screenshot(page.locator(".avatar-animation-panel"), "oneworks-editor-animation.png");
 
     const unmount = page.getByRole("button", { name: "Unmount inspector", exact: true });
     await unmount.scrollIntoViewIfNeeded();
