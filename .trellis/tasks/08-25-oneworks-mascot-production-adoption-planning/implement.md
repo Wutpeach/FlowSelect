@@ -2,16 +2,16 @@
 
 ## Entry Gate
 
-Do not run this plan while the current `@oneworks/avatar-react@1.0.0-rc.6` root entry is the only renderer path. First obtain and verify an upstream renderer-only runtime and CSS export, or receive an explicit user decision changing the no-Editor production constraint. Re-run mechanism-equivalence evidence against the exact adopted pin before editing production.
+Gate A was accepted on 2026-09-07 for exact `@oneworks/avatar` and `@oneworks/avatar-react` `1.0.0-rc.9` pins using only `./renderer` and `./renderer.css`. The only allowed residues are the inert `avatar-controls__entity-preset-icon` string in emitted JavaScript and dead saved-preset helpers in the installed shared renderer artifact; emitted Editor runtime, persistence/localStorage code, authoring UI/locales, editor CSS, or any additional editor selector still fails the gate. Re-run mechanism-equivalence evidence against rc.9 before editing production.
 
 ## Phase 1 — Prove the Dependency Boundary
 
 - Install the candidate renderer-only upstream pin in an isolated branch/worktree; do not touch unrelated dirty runtime files.
-- Prove the installed package/export contains renderer code and renderer CSS only.
-- Build an Avatar-only fixture with the repository Vite toolchain and scan emitted JS/CSS for Editor components, editor UI strings/locales, persistence keys, `localStorage` editor paths, authoring controls, and editor selectors.
+- Confirm the exact rc.9 lock and renderer-only subpath imports; do not import the compatibility root entry or `style.css`.
+- Build an Avatar-only fixture with the repository Vite toolchain and scan emitted JS/CSS for Editor components, editor UI strings/locales, persistence keys, `localStorage` editor paths, authoring controls, editor CSS, and editor selectors outside the one accepted allowlist entry.
 - Record raw/minified/gzip JS and CSS deltas, license, peer dependencies, browser APIs, and exact export map.
 - Repeat the pinned OneWorks mechanism-equivalence check for cone geometry, shared pose/depth, `occludedByFace`, and public Avatar API.
-- Stop if any Editor/authoring payload remains or the required renderer mechanisms are missing. Do not start Route B/C in this task.
+- Stop if any non-allowlisted Editor/authoring/persistence payload remains or the required renderer mechanisms are missing. Do not start Route B/C in this task.
 
 ## Phase 2 — Add Production-Owned Pure Leaves
 
@@ -73,7 +73,7 @@ Additional scripted assertions must scan emitted JS/CSS for forbidden Editor/Lab
 
 ## Review and Rollback Gates
 
-- Gate A: renderer-only upstream artifact proven; otherwise stop before production edits.
+- Gate A: satisfied for exact rc.9 renderer subpaths under the recorded two-residue exception; any broader residue stops production edits.
 - Gate B: pure definition/pose/action/runtime tests pass; otherwise old production remains authoritative.
 - Gate C: rewired host passes browser/lifecycle/build/package checks; otherwise revert the rewire commit.
 - Gate D: after diamond deletion and dependency cleanup, rerun the entire matrix; otherwise revert the retirement commit or the whole adoption branch.

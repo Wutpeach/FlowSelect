@@ -2,14 +2,9 @@
 
 ## Decision
 
-Route A remains the recommended architecture. It is mechanism-compatible, but the current published React artifact is not ready for implementation under the fixed requirement that Editor and authoring controls stay out of production.
+Route A remains the recommended architecture. `@oneworks/avatar-react@1.0.0-rc.9` supplies renderer-only JavaScript and CSS exports, and its isolated consumer bundle excludes Editor runtime, persistence, `localStorage`, authoring locales, and editor CSS.
 
-Implementation may begin only after one of these conditions is evidenced:
-
-1. Upstream publishes a renderer-only entry/package, including renderer-only CSS, at a pin that Ameow can lock and audit; or
-2. the user explicitly changes the byte-level Editor exclusion and accepts the measured inert editor payload.
-
-This plan does not authorize condition 2 implicitly and does not pivot to Route B/C.
+On 2026-09-07, Product/Lead explicitly accepted the remaining inert `avatar-controls__entity-preset-icon` string in the emitted JavaScript and dead saved-preset helpers in the installed shared renderer artifact. Gate A is unblocked for an exact rc.9 pin. This narrow exception does not permit executable Editor/persistence behavior, authoring controls, additional editor selectors, or Lab state in production and does not pivot to Route B/C.
 
 ## Evidence Summary
 
@@ -17,7 +12,7 @@ This plan does not authorize condition 2 implicitly and does not pivot to Route 
 - `MainWindowPresentationSurface.tsx` is the sole production Pointer Field writer and mounts the mascot only for Compact presence. Lifecycle, native interaction, Compact/Full transition, and visibility facts stay outside the mascot renderer.
 - The archived candidate is deterministic definition data: `ameow-oneworks-cat-2026-08-25-v1`, schema `1`, checksum `fnv1a32:eb514f72`, registry `1.0.0-rc.6`, source revision `3ad2542ea4487e95884f313b84943df602c0e742`.
 - Lab evidence proves direct OneWorks rendering, conservative pointer pose, action meanings, Reduced Motion settlement, and teardown in a browser graph.
-- The installed React package publishes one 318,589-byte `dist/index.js` and one 65,529-byte `dist/style.css`; an Avatar-only bundle still retains editor code. Worker measurement attributes about 219 KB minified JS and 64.9 KB CSS increment to the current direct import path.
+- React rc.9 publishes `./renderer` and `./renderer.css`. An isolated exact-version Vite consumer emits 305,819 B JS / 86,649 B gzip and 1,682 B CSS / 580 B gzip with no Editor component, persistence key, `localStorage`, authoring locale, or editor CSS payload; only the accepted inert selector string remains.
 - Production uses Vite `base: "./"` and Electron loads `dist/index.html` through `file://`; OneWorks CSS has no external `url()` assets. This makes packaged loading plausible but not yet verified.
 
 ## Authority and Dependency Model
@@ -110,18 +105,19 @@ production canonical definition
 
 The acceptable production boundary is:
 
-- exact `@oneworks/avatar` runtime dependency for types, parsing, serialization, and pure clip/frame helpers;
-- exact upstream renderer-only React dependency/entry for `Avatar` plus renderer-only CSS;
-- no `AvatarEditor`, editor persistence, editor controls, authoring locales, Lab code, or Lab state in source or emitted production assets.
+- exact `@oneworks/avatar@1.0.0-rc.9` runtime dependency for types, parsing, serialization, and pure clip/frame helpers;
+- exact `@oneworks/avatar-react@1.0.0-rc.9/renderer` plus `renderer.css` imports;
+- no `AvatarEditor`, executable editor persistence, editor controls, authoring locales, Lab code, or Lab state in source or emitted production assets;
+- a scan allowlist containing only `avatar-controls__entity-preset-icon`; any other editor-named selector or any persistence/localStorage code in the emitted consumer graph fails the gate.
 
-The current `@oneworks/avatar-react@1.0.0-rc.6` root entry does not meet this boundary. Its only shipped runtime module contains both `Avatar` and `AvatarEditor`, and its only CSS contains renderer and editor rules. Source-level non-use is insufficient for the stated production constraint.
+The prior `@oneworks/avatar-react@1.0.0-rc.6` root entry did not meet this boundary. The rc.9 renderer subpaths and the explicit narrow residue decision supersede that blocker.
 
-Required unblock evidence:
+Recorded Gate A evidence:
 
-- a published export/package whose installed files actually contain a renderer-only runtime and CSS path;
-- an Avatar-only production bundle scan with zero editor component, editor UI string, persistence-key, authoring-locale, and editor-selector matches;
-- exact-version lock and license metadata;
-- a repeat of the existing pinned-mechanism equivalence check for the renderer path.
+- published renderer-only runtime and CSS subpaths are present in the immutable rc.9 tarball;
+- the isolated consumer bundle has zero editor component, editor UI string, persistence-key, `localStorage`, authoring-locale, and editor CSS matches, subject only to the accepted selector allowlist;
+- rc.9 package hashes, MIT license, exact core dependency, peer range, and consumer sizes are recorded in the dated research report;
+- the existing pinned-mechanism equivalence check must be repeated against rc.9 before the production rewire.
 
 ## Diamond Retirement and Rollback
 
@@ -134,9 +130,9 @@ Required unblock evidence:
 
 ## Compatibility and Risk Classification
 
-### Implementation blocker
+### Resolved entry gate
 
-- The current published React root entry brings Editor code/CSS into production. Route A implementation is blocked until the renderer-only boundary is available or the user explicitly changes the exclusion.
+- Gate A is unblocked for exact rc.9 renderer subpath imports under the explicit two-residue exception. Any broader Editor or persistence payload remains a blocker.
 
 ### Required implementation gates, not current blockers
 

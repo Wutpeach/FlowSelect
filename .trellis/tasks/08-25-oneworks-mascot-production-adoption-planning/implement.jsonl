@@ -4,4 +4,5 @@
 {"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Forbids per-frame React state, high-frequency IPC, hidden motion authorities, and missing cleanup; includes packaged file:// requirements."}
 {"file":".trellis/spec/backend/electron-runtime-contracts/01-overview.md","reason":"Defines Electron main/preload/renderer ownership and packaged BrowserWindow constraints relevant to file:// validation."}
 {"file":".trellis/tasks/08-25-oneworks-mascot-production-adoption-planning/research/production-adoption-research.md","reason":"Repository and installed-package evidence for Route A, current authorities, bundle caveat, migration, rollback, and validation gates."}
+{"file":".trellis/tasks/08-25-oneworks-mascot-production-adoption-planning/research/rc9-renderer-entry-revalidation-2026-09-07.md","reason":"Exact rc.9 renderer export, consumer bundle, residue allowlist, and accepted Gate A evidence."}
 {"file":".trellis/tasks/08-25-oneworks-mascot-production-adoption-planning/design.md","reason":"Approved target authority/dependency model, blocker interpretation, invariants, and retirement boundary."}

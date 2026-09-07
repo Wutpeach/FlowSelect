@@ -3,4 +3,5 @@
 {"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check cleanup, no per-frame React state or IPC, architecture guards, and packaged file:// safety."}
 {"file":".trellis/spec/backend/electron-runtime-contracts/01-overview.md","reason":"Check renderer/Electron separation and packaged BrowserWindow behavior."}
 {"file":".trellis/tasks/08-25-oneworks-mascot-production-adoption-planning/research/production-adoption-research.md","reason":"Evidence baseline for package contents, Route A blocker, bundle/runtime gates, dirty-worktree boundaries, and expected retirement."}
+{"file":".trellis/tasks/08-25-oneworks-mascot-production-adoption-planning/research/rc9-renderer-entry-revalidation-2026-09-07.md","reason":"Check exact rc.9 renderer boundaries and enforce the narrow accepted residue allowlist without broadening it."}
 {"file":".trellis/tasks/08-25-oneworks-mascot-production-adoption-planning/design.md","reason":"Architecture invariants and accepted ownership/dependency model for final review."}

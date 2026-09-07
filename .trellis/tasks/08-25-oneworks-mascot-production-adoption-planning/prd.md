@@ -73,8 +73,9 @@ This task decides whether direct upstream Route A is ready to enter implementati
 ## Planning Conclusion
 
 - Route A is mechanically compatible with the existing Ameow ownership model.
-- Direct production adoption from the currently published `@oneworks/avatar-react@1.0.0-rc.6` is blocked by package granularity: importing `Avatar` also bundles `AvatarEditor`, editor persistence paths, and editor CSS. This conflicts with the requirement that Editor and authoring controls do not enter production.
-- Do not begin Route B/C. The preferred unblock is an upstream renderer-only export/package that can be pinned and proven free of editor code and CSS. An explicit future decision to relax the byte-level Editor exclusion would also change this conclusion, but is not assumed here.
+- `@oneworks/avatar-react@1.0.0-rc.9` now publishes renderer-only `./renderer` and `./renderer.css` exports. An isolated consumer removes Editor components, persistence code, `localStorage`, authoring locales, and editor CSS, while retaining one inert `avatar-controls__entity-preset-icon` string; the installed shared renderer chunk also contains dead saved-preset helpers that tree-shake from the consumer bundle.
+- On 2026-09-07, Product/Lead explicitly accepted those two inert residues. Gate A is therefore unblocked for an exact rc.9 pin; this does not permit Editor runtime, persistence behavior, authoring controls, additional editor selectors, or Lab state in production output.
+- Route B/C remains unnecessary. Production implementation belongs to a follow-up implementation task and must preserve every ownership, lifecycle, bundle, packaging, and rollback gate in this plan.
 - Electron `file://`, final bundle/package size, real production lifecycle/performance, Windows native behavior, and macOS remain implementation validation gates rather than current mechanism blockers.
 
 ## Out of Scope
