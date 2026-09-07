@@ -178,3 +178,29 @@ Committed the bounded managed runtime contract repair and immutable bundled yt-d
 ### Status
 
 [OK] **Completed**
+
+
+## Session 259: Classify and commit current workspace
+<!-- trellis-session: v=2 fp=b0d5774ff0673e67 -->
+
+**Date**: 2026-09-07
+**Task**: Classify and commit current workspace
+**Branch**: `main`
+
+### Summary
+
+Classified the dirty workspace, committed Trellis 0.6.16 and planning records in narrow groups, fixed two Trellis context-policy regressions, and retained EOL-only and machine-local artifacts uncommitted.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9cdcb71` | chore(trellis): sync project tooling with 0.6.16 |
+| `89dccf5` | chore(task): record managed yt-dlp follow-up plans |
+| `bb8a20d` | chore(task): record mascot production adoption plan |
+| `7fe1d15` | fix(trellis): tolerate non-object context rows |
+| `54e8e78` | chore(task): record workspace classification |
+
+### Status
+
+[OK] **Completed**
