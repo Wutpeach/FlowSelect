@@ -1,0 +1,29 @@
+{
+  "id": "diagnostics-backend-managed-ytdlp-planning",
+  "name": "diagnostics-backend-managed-ytdlp-planning",
+  "title": "Plan Diagnostics backend lifecycle and managed yt-dlp",
+  "description": "Repository-grounded P0 planning for read-only Diagnostics and a safe managed yt-dlp update/rollback lifecycle.",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-08-25",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-25-diagnostics-read-only-p1",
+    "08-25-managed-ytdlp-update-rollback-planning"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

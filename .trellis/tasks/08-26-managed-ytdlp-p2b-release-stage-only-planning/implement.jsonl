@@ -1,0 +1,7 @@
+{"file":".trellis/tasks/08-26-managed-ytdlp-p2b-release-stage-only-planning/design.md","reason":"Authoritative P2-B stage-only boundaries, contracts, lifecycle, and deferrals."}
+{"file":".trellis/tasks/08-26-managed-ytdlp-p2b-release-stage-only-planning/research/repository-grounded-p2b-report.md","reason":"Repository facts, 12 required planning answers, failure matrix, and minimum scope."}
+{"file":".trellis/tasks/archive/2026-08/08-25-managed-ytdlp-p2a-baseline-attempt-pinning-planning/design.md","reason":"Implemented P2-A bundled baseline, attempt binding, identity, and persisted-selection deferral."}
+{"file":".trellis/tasks/08-25-managed-ytdlp-update-rollback-planning/design.md","reason":"Parent P2 authority and phase decomposition, superseded by P2-B design where selection timing differs."}
+{"file":".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md","reason":"Current app-owned runtime path, target, and packaged execution contract."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md","reason":"Current managed-runtime acquisition, materialization, and lifecycle ownership boundary."}
+{"file":".trellis/spec/backend/electron-runtime-contracts/04-electron-download-command-bridge-contract.md","reason":"Existing Electron command bridge ownership and validation contract."}

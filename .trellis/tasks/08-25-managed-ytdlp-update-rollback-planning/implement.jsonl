@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md", "reason": "Cross-platform downloader paths, Windows proxy-front and macOS runtime layout contracts"}
+{"file": ".trellis/spec/backend/sidecar-runtime-contracts/03-electron-download-runtime-core.md", "reason": "Existing sole runtime authority, attempts, retries, cancellation and terminal lifecycle"}
+{"file": ".trellis/tasks/08-25-managed-ytdlp-update-rollback-planning/research/execution-context-summary.md", "reason": "Compact evidence-backed P2 authority, identity, lifecycle, failure and delivery contract"}
+{"file": ".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md", "reason": "Managed bootstrap ownership and runtime path/status consistency contract"}

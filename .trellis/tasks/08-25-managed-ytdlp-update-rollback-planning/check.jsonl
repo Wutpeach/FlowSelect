@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/sidecar-runtime-contracts/03-electron-download-runtime-core.md", "reason": "Verify one execution authority and attempt/retry/cancel/terminal semantics"}
+{"file": ".trellis/tasks/08-25-managed-ytdlp-update-rollback-planning/research/execution-context-summary.md", "reason": "Review every implementation phase against the compact P2 evidence and lifecycle contract"}
+{"file": ".trellis/spec/backend/electron-runtime-contracts/07-electron-managed-runtime-bootstrap-module-contract.md", "reason": "Verify updater/selection does not duplicate bootstrap or drift status/runtime paths"}
+{"file": ".trellis/spec/backend/sidecar-runtime-contracts/02-cross-platform-runtime-resolution-for-downloaders.md", "reason": "Verify Windows/macOS paths, packaging, trust and executable behavior"}

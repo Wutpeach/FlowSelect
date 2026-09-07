@@ -1,0 +1,30 @@
+{
+  "id": "managed-ytdlp-update-rollback-planning",
+  "name": "managed-ytdlp-update-rollback-planning",
+  "title": "Plan managed yt-dlp update and rollback",
+  "description": "Repository-grounded P2 planning for immutable bundled baseline, managed yt-dlp candidates, attempt pinning, activation, rollback, fallback, and platform/security gates.",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "Mabel-WIN",
+  "assignee": "Mabel-WIN",
+  "createdAt": "2026-08-25",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-25-managed-ytdlp-p2v-evidence-gates",
+    "08-25-managed-ytdlp-p2a-baseline-attempt-pinning-planning",
+    "08-26-managed-ytdlp-p2b-release-stage-only-planning"
+  ],
+  "parent": "08-25-diagnostics-backend-managed-ytdlp-planning",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
