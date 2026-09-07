@@ -150,7 +150,7 @@ class ContextDocumentPolicyTests(unittest.TestCase):
         )
         self.assertIn("research/ must resolve inside", error or "")
 
-    def test_start_does_not_gate_on_context_entries(self) -> None:
+    def test_start_gates_on_empty_context(self) -> None:
         (self.task / "task.json").write_text(
             json.dumps({"status": "planning"}), encoding="utf-8"
         )
@@ -161,26 +161,17 @@ class ContextDocumentPolicyTests(unittest.TestCase):
         (self.task / "check.jsonl").write_text("", encoding="utf-8")
         self.check(".trellis/spec/backend/index.md", "index")
         task_module = load_module("task_cli_test", SCRIPTS_DIR / "task.py")
-        from common.active_task import ActiveTask
-
         with (
             patch.object(task_module, "get_repo_root", return_value=self.repo),
             patch.object(task_module, "resolve_task_dir", return_value=self.task.resolve()),
-            patch.object(task_module, "resolve_context_key", return_value="test-context"),
-            patch.object(
-                task_module,
-                "set_active_task",
-                return_value=ActiveTask(
-                    ".trellis/tasks/07-30-test", "session", "test-context"
-                ),
-            ) as set_active,
+            patch.object(task_module, "set_active_task") as set_active,
         ):
             result = task_module.cmd_start(argparse.Namespace(dir=str(self.task)))
 
-        self.assertEqual(result, 0)
-        self.assertTrue(set_active.called)
+        self.assertEqual(result, 1)
+        self.assertFalse(set_active.called)
         data = json.loads((self.task / "task.json").read_text(encoding="utf-8"))
-        self.assertEqual(data["status"], "in_progress")
+        self.assertEqual(data["status"], "planning")
 
 
 if __name__ == "__main__":

@@ -428,6 +428,8 @@ def read_jsonl_entries(base_path: str, jsonl_path: str) -> list[dict]:
                     continue
                 try:
                     item = json.loads(line)
+                    if not isinstance(item, dict):
+                        continue
                     file_path = item.get("file") or item.get("path")
 
                     if not file_path:
