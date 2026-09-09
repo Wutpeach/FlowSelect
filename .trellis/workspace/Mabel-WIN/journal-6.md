@@ -204,3 +204,26 @@ Classified the dirty workspace, committed Trellis 0.6.16 and planning records in
 ### Status
 
 [OK] **Completed**
+
+
+## Session 260: Compact mascot ear-root integration and Orca lifecycle workflow
+<!-- trellis-session: v=2 fp=4df78aa910c62566 -->
+
+**Date**: 2026-09-09
+**Task**: Compact mascot ear-root integration and Orca lifecycle workflow
+**Branch**: `main`
+
+### Summary
+
+Committed the Orca lifecycle-message wait guidance, kept both Compact canonical ears behind the opaque head without changing avatar-core geometry, preserved Production/Lab rendering truth, validated automated and visual evidence, and archived the completed 09-09 task.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fc0ba3c` | docs(workflow): wait for Orca lifecycle messages |
+| `0fe50b6` | fix(mascot): keep Compact ears behind the head |
+
+### Status
+
+[OK] **Completed**
