@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend package boundaries and linked validation guidance."}
+{"file":".trellis/spec/frontend/character-motion.md","reason":"Acceptance contract for Compact composition, behavior authority, and regression boundaries."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Required lint, type, cleanup, and motion/presentation checks."}
+{"file":".trellis/tasks/09-09-compact-mascot-ear-root-integration/research/compact-ear-root-integration.md","reason":"Expected root fix, callers, test matrix, dirty-worktree risks, and visual evidence requirements."}
