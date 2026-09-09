@@ -1,61 +1,40 @@
 # Documentation Screenshots
 
-Maintainer runbook for the documentation screenshot capture tool.
+Maintainer runbook for the documentation screenshot capture mechanism.
 
 ## Overview
 
-The docs screenshot tool (`scripts/capture-docs-screenshots.mjs`) captures screenshots for documentation use. It handles two capture modes:
+Docs screenshots are captured by the Electron main process through an internal environment-variable protocol: launch the app with `AMEOW_DOCS_SCREENSHOT_TARGET` set, and the main process captures the requested window, writes the PNG, and quits. There is no orchestration script on current `main` — the former `scripts/capture-docs-screenshots.mjs` (Playwright extension captures + UI Lab scenario injection) was removed in commit `30e0e5459` together with UI Lab.
 
-1. **Browser extension screenshots**: Uses Playwright + Chromium to capture extension popup and launcher states.
-2. **Desktop state screenshots**: Uses Electron + UI Lab event-driven scenarios to capture desktop window states.
+## Supported targets (`electron/main.mts`)
 
-## Prerequisites
+| Target | Captured window |
+| --- | --- |
+| `desktop-floating-window-idle` | Main window, idle floating state |
+| `desktop-main-window-expanded` | Main window, expanded (pointer boundary injected before capture) |
+| `desktop-settings-hub` | Settings window, hub page |
+| `desktop-settings-appearance` | Settings window, appearance page |
+| `desktop-settings-saving` | Settings window, saving page |
+| `desktop-settings-sites` | Settings window, sites page |
+| `desktop-settings-plugins` | Settings window, plugins page |
+| `desktop-settings-system` | Settings window, system page |
 
-```bash
-npx playwright install chromium
-```
-
-Chromium must be installed for Playwright-based extension screenshots.
-
-## Running
-
-```bash
-npm run docs:screenshots
-```
-
-The tool:
-
-1. Starts a static file server for the browser extension
-2. Launches Chromium via Playwright to capture extension UI states (popup, launcher)
-3. Launches Electron with UI Lab scenario injection to capture desktop window states
-4. Outputs captures to `docs-screenshot-captures/`
+Any other target raises `Unsupported docs screenshot target` at startup.
 
 ## Internal Environment Protocol
 
-`AMEOW_DOCS_SCREENSHOT_*` variables are an internal protocol between this orchestration script and the Electron child process it spawns. The script sets them per-capture; they are not user-facing configuration, and there is no CLI flag for selecting individual captures. The tool always runs all defined captures.
-
 | Variable | Purpose |
 | --- | --- |
-| `AMEOW_DOCS_SCREENSHOT_TARGET` | Target screenshot ID (set by the script per capture) |
-| `AMEOW_DOCS_SCREENSHOT_OUTPUT` | Output path (set by the script per capture) |
-| `AMEOW_DOCS_SCREENSHOT_DEVICE_SCALE_FACTOR` | Device pixel ratio (script sets 4; main-process fallback 3) |
-| `AMEOW_DOCS_SCREENSHOT_USER_DATA` | Temporary user-data directory (set by the script per capture) |
+| `AMEOW_DOCS_SCREENSHOT_TARGET` | Target screenshot ID; setting it enables capture mode |
+| `AMEOW_DOCS_SCREENSHOT_OUTPUT` | Output PNG path; required when the target is set |
+| `AMEOW_DOCS_SCREENSHOT_DEVICE_SCALE_FACTOR` | Device pixel ratio (default `3`) |
+| `AMEOW_DOCS_SCREENSHOT_USER_DATA` | User-data directory override |
 
-## Device Scale Factor
+These variables are an internal protocol read by `electron/main.mts` at startup — they are not user-facing configuration. After a successful capture the app quits automatically. Captures that appear blank (transparent-pixel ratio above 99%) raise an error instead of writing an empty image.
 
-Both extension and desktop screenshots use a device scale factor of 4 (retina-quality captures):
+## Notes
 
-- `extensionDeviceScaleFactor = 4`
-- `desktopDeviceScaleFactor = 4`
+- Browser-extension popup/launcher screenshots, previously produced by the removed orchestration script, currently have no in-repo capture path.
+- The former UI Lab scenario-based targets (which relied on `dev_ui_lab_apply_scenario`) no longer exist.
 
-## Output
-
-Captures are written to `docs-screenshot-captures/` in the repository root. These are intermediate artifacts — the intended use is to select and place final screenshots into the docs site or README.
-
-## Architecture Reference
-
-The current screenshot flow uses the UI Lab scenario mechanism (`dev_ui_lab_apply_scenario`) for specific desktop state captures — `desktop-download-active` and `desktop-transcode-active`. These targets invoke `applyDocsScreenshotUiLabScenario()` in `electron/main.mts`, which calls `window.ameow.commands.invoke("dev_ui_lab_apply_scenario", ...)` on the renderer. Other targets (settings pages, main-window-expanded) use direct window capture or settings-window navigation instead.
-
-UI Lab is a DEV-only route pending retirement. When UI Lab retirement lands, this screenshot workflow must be re-verified and updated — the scenario mechanism depends on the UI Lab command system being available in the renderer.
-
-Source: `scripts/capture-docs-screenshots.mjs`, `electron/main.mts` (`applyDocsScreenshotUiLabScenario`, `resolveDocsScreenshotUiLabScenario`, screenshot env vars).
+Source: `electron/main.mts` (`resolveDocsScreenshotRequest`, `captureDocsScreenshotAndQuit`, `captureDocsSettingsScreenshotAndQuit`, `DOCS_SCREENSHOT_*` constants).

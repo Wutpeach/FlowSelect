@@ -74,8 +74,8 @@ AMEOW_FORCE_DEV_PREFLIGHT=1 npm run dev
 node ./scripts/dev-preflight.mjs --force
 ```
 
-## UI Lab
+## Browser Presentation Lab（dev:lab）
 
-UI Lab 是一个 DEV-only 路由（`/ui-lab`），仅在 `import.meta.env.DEV` 为真时注册，生产构建不暴露。它提供 7 个预置场景注入器，用于视觉状态验证。
+`npm run dev:lab` 通过 `vite.lab.config.ts` 启动一个独立的开发用浏览器页面（入口 `lab.html`，源码在 `src/lab/`）。它是纯浏览器环境：不加载 Electron bridge、不包含下载运行时，用于在不启动桌面的情况下预览和调试共享的呈现组件与素材。
 
-UI Lab 当前处于待退役状态，不建议依赖它构建长期工作流。文档截图工具仍复用其事件驱动机制。
+这个 Lab 仍在活跃开发中，工具与场景会频繁变化，不建议围绕它构建长期工作流。历史上的 UI Lab（DEV-only 路由 `/ui-lab`）及其场景注入机制已从 main 移除（`30e0e5459`）。

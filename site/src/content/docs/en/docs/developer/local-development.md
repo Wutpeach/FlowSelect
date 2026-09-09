@@ -74,8 +74,8 @@ This is the only way to force the preflight within the full dev flow. `--force` 
 node ./scripts/dev-preflight.mjs --force
 ```
 
-## UI Lab
+## Browser Presentation Lab (dev:lab)
 
-UI Lab is a DEV-only route (`/ui-lab`), registered only when `import.meta.env.DEV` is true — production builds do not expose it. It provides 7 preset scenario injectors for visual state verification.
+`npm run dev:lab` starts a standalone development browser page (entry `lab.html`, source in `src/lab/`) via `vite.lab.config.ts`. It is a pure browser environment: no Electron bridge, no downloader runtime — used to preview and debug shared presentation components and assets without launching the desktop app.
 
-UI Lab is currently pending retirement. Building long-term workflows on it is not recommended. The docs screenshot tool still reuses its event-driven mechanism.
+This Lab is still under active development; its tooling and scenarios change frequently, so building long-term workflows around it is not recommended. The historical UI Lab (DEV-only route `/ui-lab`) and its scenario-injection mechanism were removed from main (`30e0e5459`).

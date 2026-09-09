@@ -27,7 +27,7 @@ The following tools' documentation status is based on the current `main` branch 
 
 | Tool | Status | Documentation Policy |
 | --- | --- | --- |
-| UI Lab | Still exists on main (DEV-only route `/ui-lab`), pending retirement | No long-term documentation |
-| Browser Lab | Part of MR9 development line (Presentation Lab is a development-context alias), not yet on main | Not published as current stable; deferred until it enters the authoritative baseline |
+| UI Lab | Removed from main (former DEV-only route `/ui-lab` and its scenario-injection mechanism, removed in `30e0e5459`) | No long-term documentation |
+| Browser Presentation Lab | Now on main (`lab.html` + `vite.lab.config.ts` + `src/lab/`), DEV-only pure-browser dev page, still actively evolving | Not published as stable; no long-term documentation |
 
-UI Lab is still accessible via the DEV-only route in development, but building long-term workflows on it is not recommended. Browser Lab is a planned development-line capability (historically referenced as Presentation Lab in development context) — no callable entry point exists on current main.
+UI Lab has been removed from current main; its scenario-injection mechanism (`dev_ui_lab_apply_scenario`) no longer exists, and docs screenshots are now captured directly by the Electron main process via the environment-variable protocol (see the maintainer runbook `docs/maintainer/docs-screenshots.md`). Browser Presentation Lab starts with `npm run dev:lab` — a pure browser page with no Electron bridge and no downloader runtime, used to preview shared presentation components without launching the desktop app. It is still under active development; building long-term workflows around it is not recommended.
