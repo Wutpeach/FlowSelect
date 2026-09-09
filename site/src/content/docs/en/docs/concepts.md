@@ -23,7 +23,7 @@ Ameow is built around a compact floating window that stays near the desktop edge
 
 Typical actions:
 
-- Drop in a file: copy it into the current output folder.
+- Drop in a file: move it into the current output folder.
 - Drop in a folder: change the current output folder.
 - Paste a link: create a download task.
 - Double-click or right-click: open the current output folder.
@@ -68,7 +68,7 @@ For first use, only confirm that Ameow can launch, accept a file, and open the o
 Imagine you are organizing assets for a video project:
 
 1. Drop the project folder into Ameow to change the output folder.
-2. Drag scattered images from the desktop into Ameow to copy them into that folder.
+2. Drag scattered images from the desktop into Ameow to move them into that folder.
 3. Open a video page in the browser and send the task from the extension.
 4. Watch the queue move through preparing, downloading, and converting.
 5. Open the output folder from Ameow and use the finished files in the project.

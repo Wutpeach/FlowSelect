@@ -18,7 +18,7 @@ The public docs currently call out:
 - Xiaohongshu
 - Weibo
 
-Some releases may also include improvements for Pinterest, Instagram, Zhihu, or similar sites and page types. Check [Release Notes](../../releases/) for the latest behavior changes.
+Some releases may also include improvements for Pinterest, Instagram, or similar sites and page types. Check [Release Notes](../../releases/) for the latest behavior changes.
 
 ## Why does the same site sometimes work and sometimes fail?
 

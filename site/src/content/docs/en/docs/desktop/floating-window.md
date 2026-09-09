@@ -13,7 +13,7 @@ Start by closing one small loop: drop one file, then open the current output fol
 
 | Content | Action | Result |
 | --- | --- | --- |
-| Local file | Drop it onto the floating window | The file is copied into the current output folder |
+| Local file | Drop it onto the floating window | The file is moved into the current output folder |
 | Local folder | Drop it onto the floating window | That folder becomes the new output folder |
 | Web link | Copy it, then paste into the window | Ameow tries to create a download task |
 | Windows clipboard file | Copy in Explorer, then paste | The file is copied into the current output folder |

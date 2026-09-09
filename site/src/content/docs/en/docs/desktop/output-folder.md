@@ -3,7 +3,7 @@ title: Output Folder
 description: Understand Ameow's current output folder, default location, how to change it, and how to find files later.
 ---
 
-The output folder is where Ameow saves results. Local-file copies, pasted-link downloads, and tasks sent from the browser extension all land in the current output folder.
+The output folder is where Ameow saves results. Local-file moves, pasted-link downloads, and tasks sent from the browser extension all land in the current output folder.
 
 When you cannot find a file, open the current output folder from Ameow first instead of guessing the default path. If you have dropped a folder before, the current folder may already be different.
 
@@ -27,7 +27,7 @@ Common ways:
 2. Or right-click the floating window and choose the option to open the current output folder.
 3. In the file manager, sort by modified time and inspect the newest files.
 
-Success state: your file manager opens the current save location and shows the latest copied or downloaded files.
+Success state: your file manager opens the current save location and shows the latest moved or downloaded files.
 
 ## Change the output folder
 
@@ -43,7 +43,7 @@ After the switch, future files and downloads go to the new folder. Already saved
 
 When you drop a folder into Ameow, the app reads that as "save future files here." That is different from dropping a file:
 
-- drop a file: copy the file;
+- drop a file: move the file;
 - drop a folder: change the output folder.
 
 If you only want files inside a folder, open the folder and drop the files instead.

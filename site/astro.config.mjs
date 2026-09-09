@@ -30,16 +30,16 @@ export default defineConfig({
 				{
 					label: '入门',
 					translations: { en: 'Getting Started' },
-					items: ['docs/downloads', 'docs/concepts', 'docs/getting-started', 'docs/faq'],
+					items: ['docs', 'docs/getting-started', 'docs/downloads', 'docs/concepts', 'docs/faq'],
 				},
 				{
 					label: '桌面端使用',
 					translations: { en: 'Desktop' },
 					items: [
 						'docs/desktop/floating-window',
-						'docs/desktop/output-folder',
 						'docs/desktop/files-and-folders',
 						'docs/desktop/links-and-queue',
+						'docs/desktop/output-folder',
 						'docs/desktop/settings',
 					],
 				},

@@ -1,0 +1,54 @@
+---
+title: Start Here
+description: Ameow is a desktop floating window for downloading and collecting. Drop files, paste links, or send web content straight to your desktop.
+---
+
+import { CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+Ameow is a desktop floating window for downloading and collecting. You hand files, folders, or web links to the floating window, and Ameow saves the results to the current output folder. With the browser extension, web videos and resources can also be sent straight to the desktop.
+
+The core model is one line: **give content to Ameow → Ameow processes the task → results land in the current output folder.**
+
+## Common Entry Points
+
+<CardGrid>
+	<Card title="First Install" icon="download" href="./downloads/">
+		Pick the right release package, install the desktop app, and confirm the floating window appears.
+	</Card>
+	<Card title="Quick Start" icon="rocket" href="./getting-started/">
+		Run through install → drop a file → paste a link in a few minutes.
+	</Card>
+	<Card title="Collect Local Files" icon="folder" href="./desktop/files-and-folders/">
+		Drag files from your desktop or file manager into Ameow, or paste from the clipboard.
+	</Card>
+</CardGrid>
+
+## Downloading & Troubleshooting
+
+<CardGrid>
+	<Card title="Download Web Video" icon="play" href="./desktop/links-and-queue/">
+		Paste a public link, or send from the page through the browser extension.
+	</Card>
+	<Card title="Download Login-Required Content" icon="lock" href="./extension/cookies-and-login/">
+		Some sites need login state or cookies; the browser extension handles this.
+	</Card>
+	<Card title="Missing Files / Download Failed" icon="wrench" href="./troubleshooting/">
+		Open the current output folder from Ameow, or troubleshoot by symptom.
+	</Card>
+</CardGrid>
+
+## How Do the Desktop App and Browser Extension Relate?
+
+The desktop app works on its own. You only need the floating window to drop files, paste links, and download public content.
+
+The browser extension is an optional enhancement for these scenarios:
+
+- A web page plays in the browser, but pasting the link into Ameow fails.
+- Content needs login state, cookies, or membership access.
+- You want to pick video, audio, or image resources directly from the current page.
+
+The extension must connect to a running desktop app to send tasks. If you don't need the extension, don't install it yet.
+
+<Aside type="tip" title="Not sure where to start?">
+	Read [Quick Start](./getting-started/) first to confirm the app works in a few minutes. Then explore other pages as needed.
+</Aside>

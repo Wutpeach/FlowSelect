@@ -18,7 +18,7 @@ Ameow 会持续扩展网页媒体下载能力，但不承诺所有站点、所�
 - Xiaohongshu
 - Weibo
 
-部分版本还可能包含 Pinterest、Instagram、知乎等相关下载能力或页面入口改进。具体变化以 [Release Notes](../../releases/) 为准。
+部分版本还可能包含 Pinterest、Instagram 等相关下载能力或页面入口改进。具体变化以 [Release Notes](../../releases/) 为准。
 
 ## 同一个站点为什么有时成功、有时失败？
 

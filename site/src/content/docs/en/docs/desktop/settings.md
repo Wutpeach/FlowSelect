@@ -3,6 +3,8 @@ title: Common Settings
 description: Adjust Ameow's output folder, shortcuts, launch-at-startup behavior, rename rules, download quality, and AE compatibility options.
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 The settings page is where you tune Ameow for your workflow. You do not need to change everything up front. A good pattern is to finish one file drop and one download first, then adjust settings based on real use.
 
 The first settings worth checking are simple: the output folder is correct, the shortcut fits your habit, and download quality stays on a steady default. Leave the rest until a concrete need appears.
@@ -68,3 +70,16 @@ Suggested approach:
 - reference-only media: Balanced is often enough;
 - media headed into editing: favor compatibility;
 - archive-quality media: accept larger files and longer processing time.
+
+## Network proxy
+
+The network proxy setting is located under "System & Support → Network Proxy." It controls which network path Ameow uses when downloading content.
+
+Two modes:
+
+- System proxy: follows the operating system's proxy settings. Most users can leave this on.
+- Manual proxy: set a custom proxy address and port. Use this when your proxy tool does not capture the system proxy, or when you want Ameow to use a separate network path.
+
+<Aside type="caution" title="When do you need manual proxy?">
+	If YouTube plays in your browser but Ameow fails to download, it is usually because the browser uses a proxy that Ameow does not reach. Switch to manual proxy and enter your proxy address. See [Download Failures](../troubleshooting/download-failures/) for more.
+</Aside>

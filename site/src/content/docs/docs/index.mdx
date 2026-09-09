@@ -1,0 +1,54 @@
+---
+title: 开始这里
+description: Ameow 是一个常驻桌面的悬浮下载与收集窗口。拖进文件、粘贴链接，网页里的内容也能直接发到桌面。
+---
+
+import { CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+Ameow 是一个常驻桌面的悬浮下载与收集窗口。你把文件、文件夹或网页链接交给悬浮窗口，Ameow 按当前设置把结果保存到输出目录。配合浏览器扩展，网页里的视频和资源也能直接发到桌面处理。
+
+核心模型只有一条线：**把内容交给 Ameow → Ameow 处理任务 → 结果进入当前输出目录。**
+
+## 常见入口
+
+<CardGrid>
+	<Card title="第一次安装" icon="download" href="./downloads/">
+		选择正确的发布包，安装桌面端并确认悬浮窗口出现。
+	</Card>
+	<Card title="快速上手" icon="rocket" href="./getting-started/">
+		几分钟内跑通安装 → 拖文件 → 粘贴链接的完整流程。
+	</Card>
+	<Card title="收集本地文件" icon="folder" href="./desktop/files-and-folders/">
+		把桌面、资源管理器里的文件拖入 Ameow，或从剪贴板粘贴。
+	</Card>
+</CardGrid>
+
+## 下载和排查
+
+<CardGrid>
+	<Card title="下载网页视频" icon="play" href="./desktop/links-and-queue/">
+		粘贴公开链接，或通过浏览器扩展从页面发送。
+	</Card>
+	<Card title="下载需要登录的内容" icon="lock" href="./extension/cookies-and-login/">
+		某些站点需要登录态或 Cookies，浏览器扩展帮你处理。
+	</Card>
+	<Card title="找不到文件 / 下载失败" icon="wrench" href="./troubleshooting/">
+		从 Ameow 打开当前输出目录，或按现象排查。
+	</Card>
+</CardGrid>
+
+## 桌面端和浏览器扩展是什么关系？
+
+桌面端可以独立工作。你只需要悬浮窗口就能拖文件、粘贴链接和下载公开内容。
+
+浏览器扩展是可选增强，适合这些场景：
+
+- 网页能播放但复制链接后 Ameow 失败。
+- 内容需要登录态、Cookies 或会员权限。
+- 你想从当前页面里直接选择视频、音频或图片资源。
+
+扩展需要连接正在运行的桌面端才能发送任务。不需要扩展时，先不安装。
+
+<Aside type="tip" title="不知道从哪开始？">
+	先读 [快速上手](./getting-started/)，几分钟内确认软件能正常工作。之后再根据需要深入其他页面。
+</Aside>
