@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import starlightThemeBlack from 'starlight-theme-black';
 
 // https://astro.build/config
 export default defineConfig({
@@ -8,6 +9,7 @@ export default defineConfig({
 	base: '/Ameow',
 	integrations: [
 		starlight({
+			plugins: [starlightThemeBlack({})],
 			title: 'Ameow',
 			description: '常驻桌面的悬浮下载与收集窗口。',
 			favicon: '/favicon.svg',
@@ -81,7 +83,6 @@ export default defineConfig({
 					items: ['docs/releases'],
 				},
 			],
-			customCss: ['./src/styles/starlight.css'],
 		}),
 	],
 });

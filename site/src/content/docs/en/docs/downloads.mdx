@@ -3,7 +3,7 @@ title: Download Ameow
 description: Quickly pick the right Ameow release asset and avoid confusing source archives or extension zips with the desktop app.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, Steps } from '@astrojs/starlight/components';
 
 Ameow releases are published on GitHub Releases. For your first download, make one choice first: get the desktop app package that matches your computer.
 
@@ -28,11 +28,13 @@ If you are unsure, pick the Installer EXE on Windows or the arm64 DMG on Apple S
 
 ## Download Steps
 
+<Steps>
 1. Open [the latest release](https://github.com/Wutpeach/Ameow/releases/latest).
 2. Find the `Assets` section.
 3. Choose one desktop installer or portable package from the table above.
 4. Launch Ameow and confirm the floating window appears near the desktop edge.
 5. Download the matching `browser_extension.zip` only when you need page handoff, login state, or current-page media scanning.
+</Steps>
 
 ## What Appears When a Media Download Is Accepted?
 
@@ -57,10 +59,12 @@ Portable ZIP builds must be fully extracted first. Do not run Ameow from the arc
 
 The current macOS build targets Apple Silicon, meaning M-series Macs. After downloading the DMG:
 
+<Steps>
 1. Open the DMG.
 2. Drag `Ameow.app` into `Applications`.
 3. Launch Ameow from `Applications`.
 4. If macOS warns about the developer identity, right-click `Ameow.app` and choose `Open`.
+</Steps>
 
 If that still fails, follow the [First Launch on macOS](../troubleshooting/macos-first-run/) guide. Most users do not need to compile the app themselves.
 

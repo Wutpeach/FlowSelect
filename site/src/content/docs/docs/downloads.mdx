@@ -3,7 +3,7 @@ title: 下载 Ameow
 description: 快速选对 Ameow 发布包，避免把源码包或浏览器扩展 zip 当成桌面应用。
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, Steps } from '@astrojs/starlight/components';
 
 Ameow 的发布包在 GitHub Releases。第一次下载时只需要先做一个选择：按你的系统拿到能运行的桌面应用。
 
@@ -28,11 +28,13 @@ Ameow 的发布包在 GitHub Releases。第一次下载时只需要先做一个�
 
 ## 下载步骤
 
+<Steps>
 1. 打开 [最新版本 Releases](https://github.com/Wutpeach/Ameow/releases/latest)。
 2. 找到页面里的 `Assets` 区域。
 3. 按上表选择一个桌面端安装包或便携包。
 4. 下载完成后先启动 Ameow，确认桌面边缘能看到悬浮窗口。
 5. 只有需要从网页直接发送任务、同步登录态或扫描当前页面资源时，再下载同版本的 `browser_extension.zip`。
+</Steps>
 
 ## 媒体下载被接收后会看到什么？
 
@@ -57,10 +59,12 @@ Portable ZIP 必须先完整解压。不要直接在压缩包预览窗口里运�
 
 当前 macOS 包面向 Apple Silicon，也就是 M 系列芯片 Mac。下载 DMG 后：
 
+<Steps>
 1. 双击打开 DMG。
 2. 把 `Ameow.app` 拖到 `Applications`。
 3. 从 `Applications` 启动 Ameow。
 4. 如果 macOS 提示无法验证开发者，右键 `Ameow.app`，选择“打开”。
+</Steps>
 
 如果右键打开仍被拦截，按 [macOS 首次启动](../troubleshooting/macos-first-run/) 的步骤处理。普通用户不需要自己编译应用。
 

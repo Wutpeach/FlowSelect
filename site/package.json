@@ -10,11 +10,9 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.40.0",
-    "astro": "^6.4.6",
-    "sharp": "^0.34.5"
-  },
-  "overrides": {
-    "esbuild": "0.28.1"
+    "@astrojs/starlight": "^0.41.7",
+    "astro": "^7.2.4",
+    "sharp": "^0.34.5",
+    "starlight-theme-black": "^0.7.1"
   }
 }
