@@ -80,6 +80,17 @@ export default defineConfig({
 					translations: { en: 'Releases' },
 					items: ['docs/releases'],
 				},
+				{
+					label: '开发者指南',
+					translations: { en: 'Developer Guide' },
+					items: [
+						'docs/developer',
+						'docs/developer/local-development',
+						'docs/developer/environment-variables',
+						'docs/developer/testing',
+						'docs/developer/docs-and-locales',
+					],
+				},
 			],
 			customCss: ['./src/styles/starlight.css'],
 		}),
