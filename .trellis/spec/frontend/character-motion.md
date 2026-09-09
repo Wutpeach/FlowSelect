@@ -18,18 +18,21 @@ type CompactMascotProps = {
   pointerField: { x: MotionValue<number>; y: MotionValue<number> };
   attentionCenterX: number;
   attentionCenterY: number;
+  previewPose?: "neutral" | "surprised" | "curious-short" | "playful-short";
 };
 ```
 
 The Character exposes no completion callback and accepts no Product,
-lifecycle, native, or IPC collaborator.
+lifecycle, native, or IPC collaborator. `previewPose` is a Lab-only frozen
+capture seam; production leaves it undefined.
 
 ## 3. Contracts
 
 - `CompactMascot` is a source-specific SVG leaf: pinned Kirby 240-unit sphere,
-  exactly two core-projected diamond-ear nodes, and the upstream eye paths. It
-  paints the two node paths in core back/head/front order; it is not a generic
-  body-node renderer.
+  exactly two core-projected diamond-ear nodes, and the upstream eye paths.
+  The shared Compact runtime always paints both ear paths behind the opaque
+  head/body; core whole-node back/front classification remains geometry output,
+  not Compact's final paint layer. It is not a generic body-node renderer.
 - The Surface remains the sole Pointer Field writer. Windows compact forwarded
   `mousemove` uses the same writer before unchanged hotspot evaluation.
 - Attention has a center dead zone, continuous hotspot-approach peak and
@@ -52,6 +55,10 @@ lifecycle, native, or IPC collaborator.
   renders neutral open eyes plus smaller direct attention, and normal re-entry
   starts a fresh baseline/deadline. Dispose invalidates callbacks; remount is
   a fresh visual session.
+- A defined Lab `previewPose` replaces the behavior runtime with one
+  deterministic core-rendered sample and disposable Lab-pointer subscriptions.
+  Reduced Motion still settles every preview pose to neutral; production never
+  supplies this prop.
 - The leaf owns no Product, lifecycle, native geometry, BrowserWindow/preload,
   IPC, completion callback, or React per-frame state.
 - The 80x80 reachable frame, 60x60 shell, hotspot, passthrough, placement, and

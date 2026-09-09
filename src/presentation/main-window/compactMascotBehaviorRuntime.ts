@@ -23,6 +23,7 @@ export const COMPACT_MASCOT_QUIET_MIN_MS = 18_000;
 export const COMPACT_MASCOT_QUIET_MAX_MS = 32_000;
 export type CompactMascotSceneColors = { body: string; eyes: string };
 export type CompactMascotFrameScheduler = { schedule: (callback: (now: number) => void) => number; cancel: (handle: number) => void };
+export type CompactMascotPreviewPose = "neutral" | (typeof COMPACT_MASCOT_ACTIONS)[number];
 export type CompactMascotBehaviorRuntime = {
   start: () => void; pause: () => void; renderStatic: () => void; dispose: () => void;
   isRunning: () => boolean; getPendingFrameCount: () => number; getCurrentAction: () => string | null; getNextActionAt: () => number | null;
@@ -43,13 +44,43 @@ export const renderCompactMascotScene = (playback: Readonly<AvatarPlaybackState>
   return {
     geometry: {
       ...scene,
-      backPaths: earGeometry.backPaths,
-      backNodeIds: earGeometry.backNodeIds,
-      frontPaths: earGeometry.frontPaths,
-      frontNodeIds: earGeometry.frontNodeIds,
+      backPaths: [...earGeometry.backPaths, ...earGeometry.frontPaths],
+      backNodeIds: [...earGeometry.backNodeIds, ...earGeometry.frontNodeIds],
+      frontPaths: [],
+      frontNodeIds: [],
     },
     colors,
   };
+};
+
+const COMPACT_MASCOT_PREVIEW_AT: Record<CompactMascotPreviewPose, number> = {
+  neutral: 0,
+  surprised: 800,
+  "curious-short": 3700,
+  "playful-short": 3700,
+};
+
+/** Lab-only frozen samples through the same Compact definition and core path. */
+export const renderCompactMascotPreviewScene = (
+  previewPose: CompactMascotPreviewPose,
+  reducedMotion: boolean,
+  eyeOffset: CompactMascotAttentionOffset,
+  colors: CompactMascotSceneColors,
+): AvatarScene => {
+  const now = COMPACT_MASCOT_PREVIEW_AT[previewPose];
+  if (reducedMotion || previewPose === "neutral") {
+    return renderCompactMascotScene(createAvatarPlaybackState(), now, reducedMotion, eyeOffset, colors, () => 0.5);
+  }
+  const result = playAvatarAnimation(COMPACT_MASCOT_DEFINITION, previewPose, 0);
+  if (!result.ok) throw new Error(result.error.message);
+  return renderCompactMascotScene(
+    advanceAvatarPlayback(COMPACT_MASCOT_DEFINITION, result.value, now, { random: () => 0.5 }),
+    now,
+    reducedMotion,
+    eyeOffset,
+    colors,
+    () => 0.5,
+  );
 };
 
 export const createCompactMascotBehaviorRuntime = (dependencies: {

@@ -9,6 +9,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   createCompactMascotBehaviorRuntime,
+  renderCompactMascotPreviewScene,
   renderCompactMascotScene,
   type CompactMascotFrameScheduler,
 } from "./compactMascotBehaviorRuntime";
@@ -33,13 +34,19 @@ const createHarness = (cancelWorks = true) => {
 };
 
 describe("Compact mascot behavior runtime", () => {
-  it("uses the same full current-pose core paths as the head through retained actions", () => {
+  it("keeps every core-projected ear behind the head through neutral and retained actions", () => {
     const colors = { body: "#ffc2e9", eyes: "#3e4e65" };
     const render = (playback: Readonly<AvatarPlaybackState>, now: number) => renderCompactMascotScene(playback, now, false, { x: 0, y: 0 }, colors, () => 0);
     const neutral = playAvatarAnimation(COMPACT_MASCOT_DEFINITION, "idle", 0);
     if (!neutral.ok) throw new Error(neutral.error.message);
-    const neutralEarPaths = render(neutral.value, 0).geometry.backPaths;
+    const neutralGeometry = render(neutral.value, 0).geometry;
+    const neutralCoreGeometry = renderAvatarFrame(COMPACT_MASCOT_DEFINITION, neutral.value, 0, { random: () => 0 }).geometry;
+    const neutralEarPaths = neutralGeometry.backPaths;
     expect(neutralEarPaths).toHaveLength(2);
+    expect(neutralGeometry.backPaths).toEqual([...neutralCoreGeometry.backPaths, ...neutralCoreGeometry.frontPaths]);
+    expect(neutralGeometry.backNodeIds).toEqual([...neutralCoreGeometry.backNodeIds, ...neutralCoreGeometry.frontNodeIds]);
+    expect(neutralGeometry.frontPaths).toEqual([]);
+    expect(neutralGeometry.frontNodeIds).toEqual([]);
     const actionEarPaths: string[][] = [];
 
     for (const key of COMPACT_MASCOT_ACTIONS) {
@@ -48,14 +55,16 @@ describe("Compact mascot behavior runtime", () => {
       for (const now of [0, 250, 500, 2_299, 2_300, 2_550, 2_800, 5_099, 5_100, 5_350, 5_599]) {
         const playback = advanceAvatarPlayback(COMPACT_MASCOT_DEFINITION, started.value, now, { random: () => 0 });
         const geometry = render(playback, now).geometry;
-        const ears = [...geometry.backPaths, ...geometry.frontPaths];
-        expect(ears).toHaveLength(2);
+        expect(geometry.backPaths).toHaveLength(2);
+        expect(geometry.frontPaths).toEqual([]);
+        expect(geometry.frontNodeIds).toEqual([]);
         const coreGeometry = renderAvatarFrame(COMPACT_MASCOT_DEFINITION, playback, now, { random: () => 0 }).geometry;
         expect(geometry.headPath).toBe(coreGeometry.headPath);
         expect(geometry.leftPath).toBe(coreGeometry.leftPath);
         expect(geometry.rightPath).toBe(coreGeometry.rightPath);
-        expect(ears).toEqual([...coreGeometry.backPaths, ...coreGeometry.frontPaths]);
-        actionEarPaths.push(ears);
+        expect(geometry.backPaths).toEqual([...coreGeometry.backPaths, ...coreGeometry.frontPaths]);
+        expect(geometry.backNodeIds).toEqual([...coreGeometry.backNodeIds, ...coreGeometry.frontNodeIds]);
+        actionEarPaths.push(geometry.backPaths);
       }
     }
     expect(actionEarPaths.some((ears) => ears.join("") !== neutralEarPaths.join(""))).toBe(true);
@@ -101,7 +110,62 @@ describe("Compact mascot behavior runtime", () => {
       expect(frame.displayed.headPath).toBe(frame.direct.headPath);
       expect(frame.displayed.leftPath).toBe(frame.direct.leftPath);
       expect(frame.displayed.rightPath).toBe(frame.direct.rightPath);
-      expect([...frame.displayed.backPaths, ...frame.displayed.frontPaths]).toEqual([...frame.direct.backPaths, ...frame.direct.frontPaths]);
+      expect(frame.displayed.backPaths).toEqual([...frame.direct.backPaths, ...frame.direct.frontPaths]);
+      expect(frame.displayed.backNodeIds).toEqual([...frame.direct.backNodeIds, ...frame.direct.frontNodeIds]);
+      expect(frame.displayed.frontPaths).toEqual([]);
+      expect(frame.displayed.frontNodeIds).toEqual([]);
+    }
+  });
+  it("freezes each Lab evidence pose through the same core definition and ear slots", () => {
+    const samples = new Set<string>();
+    for (const previewPose of ["neutral", ...COMPACT_MASCOT_ACTIONS] as const) {
+      const scene = renderCompactMascotPreviewScene(
+        previewPose,
+        false,
+        { x: 0, y: 0 },
+        { body: "#ffc2e9", eyes: "#3e4e65" },
+      );
+      expect(scene.geometry.backPaths).toHaveLength(2);
+      expect(scene.geometry.frontPaths).toEqual([]);
+      expect(scene.geometry.frontNodeIds).toEqual([]);
+      expect(scene.geometry.headPath).not.toBe("");
+      expect(renderCompactMascotPreviewScene(
+        previewPose,
+        false,
+        { x: 0, y: 0 },
+        { body: "#ffc2e9", eyes: "#3e4e65" },
+      )).toEqual(scene);
+      samples.add(JSON.stringify({
+        backPaths: scene.geometry.backPaths,
+        frontPaths: scene.geometry.frontPaths,
+        leftPath: scene.geometry.leftPath,
+        rightPath: scene.geometry.rightPath,
+      }));
+    }
+    expect(samples).toHaveLength(4);
+  });
+
+  it("keeps frozen pointer attention additive to the same head and ear pose", () => {
+    const colors = { body: "#ffc2e9", eyes: "#3e4e65" };
+    const neutral = renderCompactMascotPreviewScene("neutral", false, { x: 0, y: 0 }, colors);
+    const pointer = renderCompactMascotPreviewScene("neutral", false, { x: 8, y: -6 }, colors);
+    expect(pointer.geometry.headPath).toBe(neutral.geometry.headPath);
+    expect(pointer.geometry.backPaths).toEqual(neutral.geometry.backPaths);
+    expect(pointer.geometry.backNodeIds).toEqual(neutral.geometry.backNodeIds);
+    expect(pointer.geometry.frontPaths).toEqual(neutral.geometry.frontPaths);
+    expect(pointer.geometry.frontNodeIds).toEqual([]);
+    expect(pointer.geometry.leftPath).not.toBe(neutral.geometry.leftPath);
+    expect(pointer.geometry.rightPath).not.toBe(neutral.geometry.rightPath);
+  });
+
+  it("settles every Lab preview pose to the neutral Reduced Motion scene", () => {
+    const colors = { body: "#ffc2e9", eyes: "#3e4e65" };
+    const neutral = renderCompactMascotPreviewScene("neutral", true, { x: 2, y: -1 }, colors);
+    expect(neutral.geometry.backPaths).toHaveLength(2);
+    expect(neutral.geometry.frontPaths).toEqual([]);
+    expect(neutral.geometry.frontNodeIds).toEqual([]);
+    for (const previewPose of COMPACT_MASCOT_ACTIONS) {
+      expect(renderCompactMascotPreviewScene(previewPose, true, { x: 2, y: -1 }, colors)).toEqual(neutral);
     }
   });
 
@@ -122,6 +186,6 @@ describe("Compact mascot behavior runtime", () => {
     h.setNow(19_000); h.runtime.pause(); h.setNow(100_000); h.runtime.start(); h.fire(104_500); expect(h.runtime.getCurrentAction()).toBe("surprised");
   });
   it("uses static open eyes with no decorative frame and invalidates stale callbacks", () => {
-    const h = createHarness(false); h.runtime.start(); h.runtime.renderStatic(); expect(h.runtime.getPendingFrameCount()).toBe(0); expect(h.runtime.isRunning()).toBe(false); const rendered = h.scenes.length; h.fire(16); expect(h.scenes).toHaveLength(rendered); h.runtime.start(); h.fire(17_999); expect(h.runtime.getCurrentAction()).toBeNull(); h.runtime.dispose(); h.runtime.start(); expect(h.runtime.isRunning()).toBe(false);
+    const h = createHarness(false); h.runtime.start(); h.runtime.renderStatic(); expect(h.runtime.getPendingFrameCount()).toBe(0); expect(h.runtime.isRunning()).toBe(false); const staticScene = h.scenes[h.scenes.length - 1] as { geometry: { backPaths: string[]; frontPaths: string[]; frontNodeIds: string[] } }; expect(staticScene.geometry.backPaths).toHaveLength(2); expect(staticScene.geometry.frontPaths).toEqual([]); expect(staticScene.geometry.frontNodeIds).toEqual([]); const rendered = h.scenes.length; h.fire(16); expect(h.scenes).toHaveLength(rendered); h.runtime.start(); h.fire(17_999); expect(h.runtime.getCurrentAction()).toBeNull(); h.runtime.dispose(); h.runtime.start(); expect(h.runtime.isRunning()).toBe(false);
   });
 });
